@@ -73,6 +73,25 @@ The world list goes through type 0x18 (AgpmWorld), formatted as `Name=Group=0=St
 Op 1 carries, in field 1, a 26-field "character view" mini-packet: CID, TID, name, position,
 destination, orientation, and so on. ArchCore gives NPCs CIDs starting at `0x40000000`.
 
+## Chat (type 0x0F, AgpmChatting)
+
+1-byte field flags: op, sender CID, channel type, target CID, sender name (49), target name (49),
+message (memory block).
+
+- The client sends op 0 with its CID, the type (0 normal, 5 whisper with the target name) and the
+  message **without a trailing zero**, under 256 bytes. A GM command is a normal message starting
+  with `/`.
+- If the player picked a chat color, the client appends `\x01RRGGBB` to the message. ArchCore strips
+  it before parsing a command and keeps it for display.
+- On receipt, the client rejects a message over 512 bytes. Type 7 (system message) is shown without
+  a sender; ArchCore uses it to answer the GM, and type 10 for announcements.
+
+## GM level (type 0x12, AgpmAdmin)
+
+2-byte field flags: op, CID, then 13 mini-packets. Op 0 with, in field 2, a "GM data" mini-packet of
+op 1 (CID, name, GM level as INT16, account name) records the character's level. The CID must be a
+character the client already knows: ArchCore sends it right after the world-entry character packet.
+
 ## Known types
 
 | Type | Module | Type | Module |

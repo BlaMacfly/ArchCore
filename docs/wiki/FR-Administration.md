@@ -2,9 +2,10 @@
 
 Cette page décrit les commandes de maître du jeu (MJ) que le client sait envoyer, et comment les utiliser.
 
-> ⚠️ **État actuel d'ArchCore** : le serveur ne gère pas encore la discussion ni les commandes MJ.
-> Les commandes ci-dessous sont celles que le **client** envoie. Elles ne produisent aucun effet tant
-> qu'ArchCore ne les a pas implémentées. Le suivi se fait sur la page [[Feuille de route|FR-Feuille-de-route]].
+> **État d'ArchCore** : le serveur gère la discussion, envoie le niveau MJ au client et exécute les
+> commandes marquées ✅ dans la liste (voir la section 3). Les autres répondent « Commande inconnue » :
+> elles attendent les systèmes de jeu correspondants (arène, événements, failles…). Le suivi se fait
+> sur la page [[Feuille de route|FR-Feuille-de-route]].
 
 ## 1. Donner les droits MJ à un compte
 
@@ -25,7 +26,8 @@ UPDATE archcore_auth.account SET gm_level = 3 WHERE username = 'admin';
 ```
 
 Le compte doit se reconnecter pour que le changement compte. C'est le serveur qui décide si une
-commande est autorisée selon ce niveau : le client se contente de l'envoyer.
+commande est autorisée selon ce niveau : le client se contente de l'envoyer. Un joueur de niveau 0
+qui tape une commande MJ reçoit « Commande inconnue ».
 
 ## 2. Deux façons d'envoyer une commande
 
@@ -51,12 +53,59 @@ Le client contient un panneau graphique « Admin Commands ». Il affiche le nive
 arène, objets et personnages, monde, région, système. Chaque bouton tape pour vous la commande
 correspondante dans la discussion. Le résultat est donc le même que la saisie manuelle.
 
-Le panneau lit le niveau MJ envoyé par le serveur. Tant qu'ArchCore ne l'envoie pas, il affiche 0.
+Le panneau lit le niveau MJ envoyé par le serveur. ArchCore l'envoie à l'entrée en jeu (paquet
+AgpmAdmin, type 0x12) pour les comptes dont `gm_level` est supérieur à 0.
 Le client lit aussi un argument de lancement `admin` ; son effet exact reste à confirmer.
 
-## 3. Liste des commandes
+Les réponses du serveur (valeur d'un taux, erreur de syntaxe, droits insuffisants…) arrivent dans
+la discussion comme messages système.
+
+## 3. Commandes gérées par ArchCore
+
+| Commande | Niveau MJ | Ce que fait ArchCore |
+|---|---|---|
+| `/GetExp`, `/GetGold`, `/GetDrop`, `/GetUniqueDrop`, `/GetCharisma`, `/GetPrestigeRate`, `/GetChatBuff` | 1 | Affiche la valeur du taux |
+| `/SetExp`, `/SetGold`, `/SetDrop`, `/SetUniqueDrop`, `/SetCharisma`, `/SetPrestigeRate` `<x>` | 3 | Change le taux (de 0 à 100) |
+| `/SetChatBuff <0\|1>` | 3 | Active ou désactive le bonus de discussion |
+| `/chatban "nom" <minutes>` | 1 | Le joueur ne peut plus parler ; `0` lève l'interdiction. Le joueur est prévenu |
+| `/kill ["nom"]` | 2 | Met les PV du personnage à 0 ; sans nom, sur soi. Personnage connecté uniquement |
+| `/rename_char "ancien" "nouveau"` | 2 | Renomme en base (2 à 24 caractères, sans espace). Un joueur connecté voit son nouveau nom à sa prochaine connexion |
+| `/create "nom" <TID> <quantité> <0\|1>` | 3 | Ajoute l'objet dans `character_items`, dans la première case libre de l'inventaire. Le personnage peut être hors ligne |
+| `/announce_restart <minutes> <secondes>` | 3 | Annonce à tous les joueurs, rappel chaque minute, compte à rebours sur les dernières secondes. `0 0` annule |
+| `/move x,z` | 1 | Téléporte le MJ en (x, z) et envoie les PNJ du nouvel endroit |
+
+Le niveau requis se change commande par commande dans `config/archcore.json` :
+
+```json
+"world": {
+  "rates": { "exp": 2.0, "drop": 1.5 },
+  "gmCommandLevels": { "kill": 3, "move": 2 },
+  "exitOnRestart": false
+}
+```
+
+- `rates` : taux au démarrage (`exp`, `gold`, `drop`, `uniqueDrop`, `charisma`, `prestige`,
+  `chatBuff`). Les commandes `Set…` les changent **en mémoire** : au redémarrage, ils reprennent
+  ces valeurs.
+- `exitOnRestart` : avec `true`, le serveur s'arrête à la fin du compte à rebours de
+  `/announce_restart`, pour qu'un superviseur le relance. Par défaut, il se contente d'annoncer.
+
+Limites actuelles :
+
+- Les taux sont enregistrés mais pas encore appliqués : il n'y a pas encore de monstres, de butin
+  ni de gain d'expérience.
+- Les interdictions de discussion sont gardées en mémoire et disparaissent au redémarrage.
+- `/create` n'envoie pas encore l'objet au client (pas d'inventaire en jeu). Le dernier nombre
+  (« non échangeable ») n'est pas enregistré.
+- À vérifier avec le vrai client : l'animation de mort de `/kill`, et l'altitude après `/move`.
+  Le serveur garde l'altitude actuelle, faute de carte des hauteurs.
+- Le client envoie lui-même `/move` quand on tape un numéro de point de passage dans la discussion.
+
+## 4. Liste des commandes
 
 Notation : `"nom"` = nom de personnage entre guillemets ; `<n>` = nombre entier ; `<x>` = nombre décimal.
+
+✅ = gérée par ArchCore (détails dans la section 3).
 
 ### Taux du serveur
 
@@ -64,14 +113,14 @@ Un taux est un multiplicateur : `1.0` = normal, `2.0` = double.
 
 | Commande | Effet |
 |---|---|
-| `/SetExp <x>` | Multiplicateur d'expérience |
-| `/SetGold <x>` | Multiplicateur d'or gagné |
-| `/SetDrop <x>` | Multiplicateur de butin |
-| `/SetUniqueDrop <x>` | Multiplicateur de butin unique |
-| `/SetCharisma <x>` | Multiplicateur de points de charisme |
-| `/SetPrestigeRate <x>` | Multiplicateur de prestige |
-| `/SetChatBuff <0\|1>` | Désactive (0) ou active (1) le bonus de discussion |
-| `/GetExp`, `/GetGold`, `/GetDrop`, `/GetUniqueDrop`, `/GetCharisma` | Affiche la valeur actuelle du taux |
+| ✅ `/SetExp <x>` | Multiplicateur d'expérience |
+| ✅ `/SetGold <x>` | Multiplicateur d'or gagné |
+| ✅ `/SetDrop <x>` | Multiplicateur de butin |
+| ✅ `/SetUniqueDrop <x>` | Multiplicateur de butin unique |
+| ✅ `/SetCharisma <x>` | Multiplicateur de points de charisme |
+| ✅ `/SetPrestigeRate <x>` | Multiplicateur de prestige |
+| ✅ `/SetChatBuff <0\|1>` | Désactive (0) ou active (1) le bonus de discussion |
+| ✅ `/GetExp`, `/GetGold`, `/GetDrop`, `/GetUniqueDrop`, `/GetCharisma` | Affiche la valeur actuelle du taux |
 
 Exemple : `/SetExp 2.0` puis `/GetExp` pour vérifier.
 
@@ -79,12 +128,12 @@ Exemple : `/SetExp 2.0` puis `/GetExp` pour vérifier.
 
 | Commande | Effet |
 |---|---|
-| `/chatban "nom" <minutes>` | Interdit la discussion pendant N minutes ; `0` lève l'interdiction |
-| `/kill "nom"` | Tue le personnage |
+| ✅ `/chatban "nom" <minutes>` | Interdit la discussion pendant N minutes ; `0` lève l'interdiction |
+| ✅ `/kill "nom"` | Tue le personnage |
 | `/kill_explosion <effet> "nom"` | Pose un effet d'explosion à la mort d'un personnage ; sans nom, sur soi |
 | `/kill_explosion -1 "nom"` | Retire cet effet d'un personnage |
 | `/kill_explosion` | Retire l'effet sur soi |
-| `/rename_char "ancien" "nouveau"` | Renomme un personnage |
+| ✅ `/rename_char "ancien" "nouveau"` | Renomme un personnage |
 
 ### Arène
 
@@ -128,7 +177,7 @@ Exemple : `/SetExp 2.0` puis `/GetExp` pour vérifier.
 
 | Commande | Effet |
 |---|---|
-| `/create "nom" <TID> <quantité> <0\|1>` | Donne un objet au personnage. `TID` = identifiant de l'objet ; le dernier nombre rend l'objet non échangeable (1) |
+| ✅ `/create "nom" <TID> <quantité> <0\|1>` | Donne un objet au personnage. `TID` = identifiant de l'objet ; le dernier nombre rend l'objet non échangeable (1) |
 | `/last_refine` | Réutilise la dernière recette de raffinage |
 | `/refresh_prestige_db` | Recharge les données de prestige |
 | `/refinetest` / `/refinetest stop` | Lance ou arrête le test de charge du raffinage |
@@ -145,13 +194,14 @@ Le panneau propose une recherche d'objet par nom ou par TID.
 | `/next_rift_objectives` | Passe aux objectifs suivants de la faille |
 | `/bg_off` | Retire les bonus de champ de bataille |
 | `/spawn_instance "nom" <nombre> <rayon>` | Fait apparaître un groupe d'événement autour de soi |
+| ✅ `/move x,z` | Se téléporte en (x, z) |
 | `/region …` | Modifie les réglages d'une région (réduction de dégâts, de potions, limite d'incantation). Utiliser le panneau, qui construit la commande |
 
 ### Système
 
 | Commande | Effet |
 |---|---|
-| `/announce_restart <minutes> <secondes>` | Annonce un redémarrage, avec un compte à rebours final |
+| ✅ `/announce_restart <minutes> <secondes>` | Annonce un redémarrage, avec un compte à rebours final |
 | `/refresh_lua_scripts` | Recharge les scripts LUA du serveur |
 | `/reload_ip_players` | Recharge la liste d'adresses IP |
 | `/log_activity` | Écrit le journal d'activité |
@@ -159,7 +209,7 @@ Le panneau propose une recherche d'objet par nom ou par TID.
 | `/cooldown_cap <0-100>` | Limite de réduction des temps de recharge |
 | `/test <minutes>` | Commande de test : donne des points et règle le délai d'apparition des boss |
 
-## 4. Bonnes pratiques
+## 5. Bonnes pratiques
 
 - Garder les comptes MJ séparés des comptes de jeu, avec un mot de passe solide.
 - Tester une commande sur un personnage de test avant de l'utiliser sur un joueur.

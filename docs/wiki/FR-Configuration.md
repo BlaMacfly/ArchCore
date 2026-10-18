@@ -21,6 +21,9 @@ de `src/common/config.js`.
 | `startPositions` | voir le fichier | Position d'apparition par race : 1 Humain, 2 Orc, 3 Elfe de lune, 4 Scion |
 | `viewRadius` | `8000` | Rayon dans lequel les PNJ sont envoyés au joueur |
 | `language` | `fr` | Langue des titres de PNJ (`data/i18n/npc-titles-<langue>.json`) ; `en` les laisse en anglais |
+| `rates` | tous à `1` | Taux au démarrage : `exp`, `gold`, `drop`, `uniqueDrop`, `charisma`, `prestige`, `chatBuff` (voir [[Administration|FR-Administration]]) |
+| `gmCommandLevels` | `{}` | Niveau MJ requis par commande, par exemple `{ "kill": 3 }` |
+| `exitOnRestart` | `false` | Arrête le serveur à la fin du compte à rebours de `/announce_restart` |
 
 Villages de départ actuels :
 

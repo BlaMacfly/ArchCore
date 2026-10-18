@@ -138,15 +138,26 @@ export const Main = Object.freeze({
     [T.CHAR, 32], // 4
   ], V),
 
-  // AgpmChatting — drapeaux 1
+  // AgpmChatting — drapeaux 1 (constructeur FUN_1402e1e80, réception FUN_1402e21e0)
+  // Le client envoie (FUN_1402e3180) : op 0, CID, type, nom cible (chuchotement), message sans zéro final
+  // et de moins de 256 octets. Il refuse à la réception un message de plus de 512 octets.
   CHATTING: S('AGPMCHATTING', PacketType.CHATTING, 1, [
-    [T.INT8, 1], // 0 opération
-    [T.INT32, 1], // 1 CID émetteur
-    [T.INT8, 1], // 2 type de canal
+    [T.INT8, 1], // 0 opération (0 = message)
+    [T.INT32, 1], // 1 CID émetteur (facultatif à la réception)
+    [T.INT8, 1], // 2 type de canal (ChatType)
     [T.INT32, 1], // 3 CID cible
     [T.CHAR, 49], // 4 nom émetteur
     [T.CHAR, 49], // 5 nom cible
     [T.MEMORY_BLOCK, 1], // 6 message
+  ], V),
+
+  // AgpmAdmin — drapeaux 2 (constructeur FUN_14024a620, réception FUN_14024b570)
+  // op 0 + CID d'un personnage connu du client + champ 2 = mini ADMIN_CHAR : renseigne le niveau MJ
+  // que lit le panneau « Admin Commands » (FUN_14024d750).
+  ADMIN: S('AGPMADMIN', PacketType.ADMIN, 2, [
+    [T.INT8, 1], // 0 opération
+    [T.INT32, 1], // 1 CID
+    ...Array.from({ length: 13 }, () => [T.PACKET, 1]), // 2-14 mini-paquets (2 = ADMIN_CHAR)
   ], V),
 
   // AgpmSystemMessage — drapeaux 1
@@ -266,6 +277,17 @@ export const Mini = Object.freeze({
     [T.INT8, 1], [T.UINT16, 1], [T.INT8, 1], [T.INT32, 1], [T.CHAR, 16], [T.INT32, 1], [T.INT32, 1], [T.INT32, 1],
   ], V),
 
+  // AgpmAdmin : données MJ d'un personnage — drapeaux 1. Op 1 = ajout/mise à jour (FUN_14024b9b0),
+  // op 0 = retrait (FUN_14024bc00). Le client garde le CID et le niveau (INT16).
+  ADMIN_CHAR: S('AGPMADMIN_CHAR', 122, 1, [
+    [T.INT8, 1], // 0 opération
+    [T.INT32, 1], // 1 CID
+    [T.CHAR, 49], // 2 nom du personnage
+    [T.INT16, 1], // 3 niveau MJ
+    [T.INT8, 1], // 4
+    [T.CHAR, 49], // 5 nom du compte
+  ], V),
+
   // AgpmOptimizedPacket2 : vue d'un objet — drapeaux 4
   OPT_VIEW_ITEM: S('AGPMOPTIMIZEDPACKET_ITEMVIEW', 121, 4, [
     [T.INT32, 1], [T.INT32, 1], [T.INT16, 1], [T.INT8, 1], [T.INT8, 1], [T.INT8, 1], ...ints(9),
@@ -312,6 +334,24 @@ export const CryptOp = Object.freeze({
 });
 
 export const WorldOp = Object.freeze({ SERVER_LIST_REQ: 0, SERVER_LIST_ANS: 2, SERVER_EXTRA: 3 });
+
+// Types de canal de discussion (champ 2 d'AGPMCHATTING). Le client en accepte 0 à 20 ; ceux-ci
+// suivent l'énumération du client d'origine et le traitement de FUN_1402e21e0 (le type 7 est
+// affiché sans exiger d'émetteur connu).
+export const ChatType = Object.freeze({
+  NORMAL: 0,
+  WORD_BALLOON: 1,
+  UNION: 2,
+  GUILD: 3,
+  PARTY: 4,
+  WHISPER: 5,
+  SYSTEM: 7,
+  SYSTEM2: 8,
+  SYSTEM3: 9,
+  NOTICE: 10,
+  EMPHASIS: 14,
+  SYSTEM_NO_PREFIX: 15,
+});
 
 export const CharMgrOp = Object.freeze({
   GAME_ENTER: 2, // client → monde : champ 2 = 17, nom (3), clé d'auth (6), CHAR[248] (7) — FUN_1404b8100

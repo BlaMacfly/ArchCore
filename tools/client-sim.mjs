@@ -8,11 +8,13 @@ import { randomBytes } from 'node:crypto';
 import { Blowfish } from '../src/net/blowfish.js';
 import { FrameSplitter, FRAME_CLIENT, FRAME_TAIL_CLIENT, FRAME_HEADER, FRAME_OVERHEAD } from '../src/net/framing.js';
 import { buildPacket, buildMini, decodePacket, decodeMini, sparse, parseHeader, hexDump, GUARD_HEAD, HEADER_SIZE } from '../src/net/packet.js';
-import { Main, Mini, MainById, LoginOp, CryptOp, WorldOp, CharMgrOp } from '../src/net/schema.js';
+import { Main, Mini, MainById, LoginOp, CryptOp, WorldOp, CharMgrOp, ChatType } from '../src/net/schema.js';
 import { capiCrypt } from '../src/common/capi-rc4.js';
 import { loadConfig } from '../src/common/config.js';
 
-const [,, user = 'test', pass = 'test', charName = 'Testeur'] = process.argv;
+// Arguments suivants : commandes envoyées dans la discussion une fois en jeu (par défaut /GetExp)
+const [,, user = 'test', pass = 'test', charName = 'Testeur', ...extra] = process.argv;
+const chatCommands = extra.length ? extra : ['/GetExp'];
 const cfg = loadConfig();
 
 class TestClient {
@@ -65,8 +67,12 @@ class TestClient {
 
   expectWhere(match, timeout = 5000, what = "paquet") {
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error(`[${this.label}] attente dépassée : type 0x${type.toString(16)} op ${op}`)), timeout);
-      this.waiters.push({ match, resolve: (p) => { clearTimeout(timer); resolve(p); } });
+      const waiter = { match, resolve: (p) => { clearTimeout(timer); resolve(p); } };
+      const timer = setTimeout(() => {
+        this.waiters.splice(this.waiters.indexOf(waiter), 1);
+        reject(new Error(`[${this.label}] attente dépassée : ${what}`));
+      }, timeout);
+      this.waiters.push(waiter);
       this.#flush();
     });
   }
@@ -194,10 +200,29 @@ world.send(Main.CHAR_MANAGER, sparse(Main.CHAR_MANAGER, { 0: CharMgrOp.ENTER_WOR
 await world.expect(Main.CHARACTER.id, 0);
 const npcNames = [];
 for (;;) {
-  const p = await world.expectWhere((q) => (q.type === Main.OPT_VIEW.id && q.values[0] === 1) || (q.type === Main.CHAR_MANAGER.id && q.values[0] === CharMgrOp.FINISH_ENTER));
+  const p = await world.expectWhere((q) => q.type === Main.ADMIN.id || (q.type === Main.OPT_VIEW.id && q.values[0] === 1) || (q.type === Main.CHAR_MANAGER.id && q.values[0] === CharMgrOp.FINISH_ENTER));
   if (p.type === Main.CHAR_MANAGER.id) break;
+  if (p.type === Main.ADMIN.id) {
+    console.log(`  niveau MJ reçu : ${decodeMini(Mini.ADMIN_CHAR, p.values[2]).values[3]}`);
+    continue;
+  }
   npcNames.push(decodeMini(Mini.OPT_VIEW_CHAR, p.values[1]).values[2].toString('latin1'));
 }
 console.log(`  ${npcNames.length} PNJ reçu(s) : ${npcNames.slice(0, 6).join(', ')}${npcNames.length > 6 ? ', …' : ''}`);
-console.log('  entrée en jeu confirmée — flux complet OK');
+console.log('  entrée en jeu confirmée');
+
+// Commande dans la discussion, comme le client (FUN_1402e3180) : op 0, CID, type 0, message sans zéro final
+for (const command of chatCommands) {
+  world.send(Main.CHATTING, sparse(Main.CHATTING, { 0: 0, 1: loading.values[4], 2: ChatType.NORMAL, 6: Buffer.from(command, 'latin1') }));
+  const replies = [await world.expectWhere((q) => q.type === Main.CHATTING.id, 5000, `réponse à ${command}`)];
+  // une commande peut produire plusieurs messages (ex. /chatban sur soi-même) : on les recueille tous
+  for (;;) {
+    const more = await world.expectWhere((q) => q.type === Main.CHATTING.id, 300).catch(() => null);
+    if (!more) break;
+    replies.push(more);
+  }
+  console.log(`  ${command}`);
+  for (const r of replies) console.log(`    → [type ${r.values[2]}] ${r.values[6].toString('latin1')}`);
+}
+console.log('  flux complet OK');
 world.close();

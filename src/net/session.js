@@ -24,6 +24,7 @@ export class ClientSession extends EventEmitter {
     this.splitter = new FrameSplitter();
     this.state = {}; // état libre pour les gestionnaires (compte, personnage…)
     this.closed = false;
+    this.pending = Promise.resolve(); // file de traitement des paquets reçus
 
     socket.on('data', (chunk) => this.#onData(chunk));
     socket.on('error', (err) => log.warn(`[${server.name}] #${this.id} erreur socket : ${err.message}`));
@@ -44,9 +45,13 @@ export class ClientSession extends EventEmitter {
       this.close();
       return;
     }
-    for (const frame of frames) this.#onFrame(frame).catch((err) => {
-      log.error(`[${this.server.name}] #${this.id} gestionnaire : ${err.stack || err}`);
-    });
+    // Un paquet à la fois, dans l'ordre d'arrivée : les gestionnaires asynchrones (base de données)
+    // ne doivent pas se doubler (réponses MJ dans le désordre, ENTER_WORLD avant la fin de GAME_ENTER).
+    for (const frame of frames) {
+      this.pending = this.pending.then(() => this.#onFrame(frame)).catch((err) => {
+        log.error(`[${this.server.name}] #${this.id} gestionnaire : ${err.stack || err}`);
+      });
+    }
   }
 
   async #onFrame({ encrypted, data }) {

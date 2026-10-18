@@ -74,6 +74,26 @@ La liste des mondes passe par le type 0x18 (AgpmWorld), au format `Nom=Groupe=0=
 L'op 1 porte au champ 1 un mini-paquet « vue de personnage » de 26 champs : CID, TID, nom,
 position, destination, orientation, etc. ArchCore donne aux PNJ des CID à partir de `0x40000000`.
 
+## Discussion (type 0x0F, AgpmChatting)
+
+Drapeaux de champs sur 1 octet : op, CID émetteur, type de canal, CID cible, nom émetteur (49),
+nom cible (49), message (bloc mémoire).
+
+- Le client envoie l'op 0 avec son CID, le type (0 normal, 5 chuchotement avec le nom cible) et le
+  message **sans zéro final**, de moins de 256 octets. Une commande MJ est un message normal qui
+  commence par `/`.
+- Si le joueur a choisi une couleur de discussion, le client ajoute `\x01RRGGBB` à la fin du message.
+  ArchCore le retire avant d'interpréter une commande et le garde pour l'affichage.
+- À la réception, le client refuse un message de plus de 512 octets. Le type 7 (message système)
+  s'affiche sans émetteur ; ArchCore l'utilise pour répondre au MJ, et le type 10 pour les annonces.
+
+## Niveau MJ (type 0x12, AgpmAdmin)
+
+Drapeaux de champs sur 2 octets : op, CID, puis 13 mini-paquets. L'op 0 avec, au champ 2, un
+mini-paquet « données MJ » d'op 1 (CID, nom, niveau MJ en INT16, nom du compte) enregistre le niveau
+du personnage. Le CID doit être celui d'un personnage déjà connu du client : ArchCore l'envoie juste
+après le paquet personnage de l'entrée en jeu.
+
 ## Types connus
 
 | Type | Module | Type | Module |

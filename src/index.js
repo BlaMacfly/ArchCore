@@ -40,6 +40,7 @@ async function main() {
     server.on(PacketType.STARTUP_ENCRYPTION, handleStartupEncryption);
     server.on(PacketType.CHAR_MANAGER, (s, p) => handlers.onCharManager(s, p));
     server.on(PacketType.CHARACTER, (s, p) => handlers.onCharacter(s, p));
+    server.on(PacketType.CHATTING, (s, p) => handlers.onChatting(s, p));
     await server.listen();
     servers.push(server);
   }

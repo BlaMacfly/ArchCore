@@ -21,6 +21,9 @@ All settings live in `config/archcore.json`. Missing keys fall back to the defau
 | `startPositions` | see the file | Spawn position per race: 1 Human, 2 Orc, 3 Moon Elf, 4 Scion |
 | `viewRadius` | `8000` | Radius within which NPCs are sent to the player |
 | `language` | `fr` | NPC title language (`data/i18n/npc-titles-<lang>.json`); `en` keeps them in English |
+| `rates` | all `1` | Rates at startup: `exp`, `gold`, `drop`, `uniqueDrop`, `charisma`, `prestige`, `chatBuff` (see [[Administration|EN-Administration]]) |
+| `gmCommandLevels` | `{}` | Required GM level per command, for example `{ "kill": 3 }` |
+| `exitOnRestart` | `false` | Stops the server at the end of the `/announce_restart` countdown |
 
 Current starting villages:
 
