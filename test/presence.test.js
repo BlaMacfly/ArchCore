@@ -109,3 +109,15 @@ test('présence : au départ, les autres joueurs retirent le personnage et la po
   assert.deepEqual(removed(b), [1]);
   assert.deepEqual(db.saved.at(-1), [42, 0, 0, 1]);
 });
+
+test('présence : sans position fournie, la destination précédente devient la position', async () => {
+  const { presence, join, db } = setup();
+  const a = join(1, 0, 0);
+  const move = (values) => presence.onMove(a, decodePacket(Main.OPT_CHAR_MOVE, buildPacket(Main.OPT_CHAR_MOVE, sparse(Main.OPT_CHAR_MOVE, values))));
+  move({ 0: 1, 2: { x: 100, y: 0, z: 50 }, 5: 0 });
+  assert.equal(a.state.character.pos_x, 0, 'pas encore arrivé');
+  move({ 0: 1, 2: { x: 300, y: 0, z: 80 }, 5: 0 });
+  assert.equal(a.state.character.pos_x, 100, 'destination précédente atteinte');
+  await presence.leave(a);
+  assert.deepEqual(db.saved.at(-1), [300, 0, 80, 1], 'à la sortie : dernière destination');
+});

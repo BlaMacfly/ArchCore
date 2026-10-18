@@ -51,6 +51,7 @@ export class Presence {
   async leave(session) {
     const ch = session.state.character;
     if (!ch || !session.state.inGame) return;
+    if (session.state.dest) { const d = session.state.dest; ch.pos_x = d.x; ch.pos_y = d.y; ch.pos_z = d.z; }
     log.info(`[world] #${session.id} ${ch.name} quitte le monde en ${ch.pos_x.toFixed(0)}, ${ch.pos_z.toFixed(0)} (${session.state.moveCount ?? 0} déplacement(s))`);
     session.state.inGame = false;
     for (const other of this.players.values()) {
@@ -70,8 +71,10 @@ export class Presence {
       return;
     }
     const flags = v[5] ?? 0;
-    const pos = finite(v[1]) ? v[1] : posOf(ch);
     const dest = finite(v[2]) ? v[2] : null;
+    // Le client n'envoie pas toujours sa position actuelle (FUN_140264010 l'omet selon son état) :
+    // on prend alors la destination précédente, supposée atteinte, sinon la dernière position connue.
+    const pos = finite(v[1]) ? v[1] : (session.state.dest ?? posOf(ch));
     // Le client envoie sa position actuelle ; les autres clients interpolent eux-mêmes vers la destination.
     ch.pos_x = pos.x; ch.pos_y = pos.y; ch.pos_z = pos.z;
     session.state.dest = flags & MoveFlag.STOP ? null : dest;
@@ -81,7 +84,7 @@ export class Presence {
     session.state.followDistance = v[4] ?? 0;
     session.state.dirty = true;
     session.state.moveCount = (session.state.moveCount ?? 0) + 1;
-    if (session.state.moveCount === 1) log.info(`[world] #${session.id} premier déplacement reçu de ${ch.name}`);
+    if (session.state.moveCount === 1) log.info(`[world] #${session.id} premier déplacement reçu de ${ch.name} : position ${finite(v[1]) ? 'fournie' : 'absente'}, destination ${dest ? 'fournie' : 'absente'}, drapeaux 0x${flags.toString(16)}`);
     log.debug(`[world] #${session.id} ${ch.name} → ${dest ? `${dest.x.toFixed(0)}, ${dest.z.toFixed(0)}` : 'arrêt'} (drapeaux 0x${flags.toString(16)})`);
 
     for (const other of this.players.values()) {
