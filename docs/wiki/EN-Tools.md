@@ -38,6 +38,16 @@ ARCHCORE_CONFIG=config/test.json node src/index.js all      # other ports, other
 ARCHCORE_CONFIG=config/test.json node tools/sim-move.mjs
 ```
 
+## Shop test
+
+```bash
+ARCHCORE_CONFIG=config/test.json npm run sim:shop -- [user] [password] [character]
+```
+
+The character (`sima` / `SimA` by default) gets 1,000 gold and appears next to Darryl (Anchorville).
+The test opens his shop, checks the list it receives, buys 3 small life potions and sells them back.
+It changes the character's gold, position and inventory, so run it against a test server as well.
+
 ## Reverse engineering
 
 The findings were made with [REA](https://github.com/morluto/rea) and Ghidra 12. The approach is

@@ -43,9 +43,11 @@ et à partir des tables de données du client.
 | Déplacement du joueur, position sauvegardée | ✅ validé |
 | Dialogue avec les PNJ | ✅ validé |
 | Joueurs visibles entre eux | 🟡 validé au simulateur, à confirmer en jeu |
-| Boutiques, quêtes, monstres, combat | ⏳ à faire |
+| Boutiques des PNJ (liste, achat) | ✅ validées en jeu ; revente validée au simulateur |
+| Inventaire du personnage | 🟡 affiché en jeu |
+| Quêtes, monstres, combat | ⏳ à faire |
 | Discussion, niveau MJ, premières commandes MJ | 🟡 validés au simulateur, à confirmer en jeu |
-| Objets, compétences, groupes, reconnexion | ⏳ à faire |
+| Équipement, compétences, groupes, reconnexion | ⏳ à faire |
 
 ### Démarrage rapide
 
@@ -103,9 +105,11 @@ from the client's data tables.
 | Player movement, position saved | ✅ verified |
 | NPC dialog | ✅ verified |
 | Players seeing each other | 🟡 verified with the simulator, to confirm in game |
-| Shops, quests, monsters, combat | ⏳ to do |
+| NPC shops (list, buy) | ✅ verified in game; selling verified with the simulator |
+| Character inventory | 🟡 shown in game |
+| Quests, monsters, combat | ⏳ to do |
 | Chat, GM level, first GM commands | 🟡 verified with the simulator, to confirm in game |
-| Items, skills, parties, reconnection | ⏳ to do |
+| Equipment, skills, parties, reconnection | ⏳ to do |
 
 ### Quick start
 

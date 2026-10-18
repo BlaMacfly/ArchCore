@@ -10,8 +10,13 @@
 - Déplacement du joueur, avec sauvegarde de la position.
 - Dialogue avec les PNJ : les fonctions de npc.ini (dialogue, boutique, quêtes) sont envoyées avec
   chaque PNJ, et le clic ouvre la fenêtre de dialogue.
+- Boutiques des PNJ : la boutique de Darryl (Anchorville) affiche ses 43 objets, et l'achat débite
+  l'or et range l'objet dans l'inventaire.
+- Inventaire du personnage affiché à l'entrée en jeu.
 
 ## Validé avec le simulateur, à confirmer en jeu
+
+- Revente d'un objet à un PNJ.
 
 - Visibilité entre joueurs : déplacement relayé aux joueurs proches, apparition et disparition
   selon la distance.
@@ -24,9 +29,9 @@
 
 1. Valider la création complète d'un personnage en jeu.
 2. Vérifier la visibilité entre joueurs avec deux vrais clients.
-3. Fonctions des PNJ : boutiques, quêtes, téléportation, banque.
+3. Fonctions des PNJ : quêtes, téléportation, banque.
 4. Monstres, combat, expérience.
-5. Objets, inventaire, compétences.
+5. Objets : déplacement dans l'inventaire, équipement, utilisation ; compétences.
 6. Discussion, groupes, guildes.
 7. Reconnexion automatique (type 0x63).
 8. Commandes MJ restantes de la page [[Administration|FR-Administration]] (arène, événements, failles…).

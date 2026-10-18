@@ -7,6 +7,12 @@ ArchCore accompagne une traduction complète du jeu en français, côté client 
 Le client lit un entier dans `Launcher/LanguageInfo.txt`. La valeur **17** sélectionne le dossier
 `Game/ini_fr`, qui contient 19 fichiers de textes. La valeur 5 correspond à l'anglais.
 
+Les modèles d'objets viennent eux aussi du dossier de la langue : le client lit
+`ini_fr/ItemTemplateAll.ini`, puis `ini_fr/ItemTemplateAll2.ini`, mais seulement si le premier a été
+chargé. Sans `ItemTemplateAll.ini`, aucun objet n'existe côté client : l'inventaire et les boutiques
+restent vides. Ce fichier manquait dans `ini_fr`, il a été copié depuis `Game/ini` (noms des objets
+en anglais, à traduire). `apply.mjs` ne le supprime pas.
+
 ## Chaîne d'outils
 
 1. `node tools/i18n/strings.mjs` liste ce qui reste en anglais dans `data/i18n/pending-en.json`.

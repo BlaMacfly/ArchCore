@@ -91,6 +91,54 @@ PNJ, fonction 21), CID du joueur au champ 2. Le serveur répond **op 1** avec le
 client ouvre la fenêtre ; le texte vient du client (`npcdialog.txt`). ArchCore accorde le dialogue si
 le joueur est à moins de 1500 unités du PNJ.
 
+## Objets (type 0x04, AgpmItem)
+
+Drapeaux de champs sur **4 octets**, 27 champs. Les principaux :
+
+| Champ | Contenu |
+|---|---|
+| 0 | op (INT8) : 0 ajout, 1 retrait, 2 mise à jour |
+| 1 | statut (INT8) : 2 inventaire, 10 boutique d'un PNJ |
+| 2 | IID, identifiant de l'objet |
+| 3 | TID, modèle de l'objet |
+| 4 | CID du propriétaire |
+| 5 | quantité |
+| 7 | case : mini à 3 INT16 (sac, ligne, colonne) |
+
+Le client crée l'objet à partir de son propre modèle, lu dans `ItemTemplateAll.ini`. Si le TID lui
+est inconnu, il ignore l'objet sans rien afficher.
+
+À l'entrée en jeu, l'inventaire n'est pas envoyé en paquets séparés. Les paquets AGPMITEM complets
+sont mis bout à bout dans le **champ 6** du paquet de vue 0x42 **op 2**. La grille d'inventaire du
+client fait 5 sacs de 5 × 5 cases (grille de type 1).
+
+## Boutiques des PNJ (type 0x32, AgcmEventNPCTrade)
+
+Drapeaux de champs sur **2 octets** :
+
+| Champ | Contenu |
+|---|---|
+| 0 | événement (mini EVENT_BASE) |
+| 1 | op |
+| 2 | CID du joueur |
+| 3 | IID de l'objet |
+| 4 | détail (mini, drapeaux sur 2 octets) : TID, prix (entier), quantité, statut, sac, ligne, colonne… |
+| 5 | horodatage (INT64) |
+| 6 | résultat |
+| 7–9 | case visée dans l'inventaire (achat) |
+
+1. Au clic sur « Commerce », le client ouvre tout de suite la fenêtre, avant toute réponse, et
+   envoie l'**op 0** pour demander la liste.
+2. Pour chaque objet, le serveur envoie un AGPMITEM de **statut 10**, avec le CID du PNJ comme
+   propriétaire, puis un 0x32 **op 0** qui porte l'IID et le détail. L'**op 1** termine la liste.
+   La grille d'une boutique fait 1 × 20 × 4 cases.
+3. Achat : le client envoie l'**op 2**, avec la quantité au champ 2 du détail. Le serveur répond
+   l'op 2 avec le résultat : **2** réussi, **3** pas assez d'or, **4** inventaire plein.
+4. Vente : le client envoie l'**op 3** avec l'IID d'un objet de son inventaire. Le serveur répond
+   l'op 3 avec le résultat : **0** réussi, **1** trop d'or.
+
+L'argent du personnage est mis à jour par un paquet personnage (type 2) op 1, champ 8.
+
 ## Déplacement (type 0x40, AgpmOptimizedCharMove)
 
 Le client envoie un paquet 0x40 à chaque clic de déplacement (`FUN_140264010`), avec des drapeaux
@@ -145,5 +193,6 @@ après le paquet personnage de l'entrée en jeu.
 | 0x0F | Discussion | 0x48 | Chiffrement de démarrage |
 | 0x11 | Horloge | 0x60 | Titres |
 | 0x13 | Quêtes | 0x63 | Reconnexion |
+| 0x32 | Boutiques des PNJ | 0x37 | Dialogue des PNJ |
 
 Les schémas complets des 86 modules sont dans `data/re/packet-schemas.json`.

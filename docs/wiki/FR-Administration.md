@@ -70,7 +70,8 @@ la discussion comme messages système.
 | `/chatban "nom" <minutes>` | 1 | Le joueur ne peut plus parler ; `0` lève l'interdiction. Le joueur est prévenu |
 | `/kill ["nom"]` | 2 | Met les PV du personnage à 0 ; sans nom, sur soi. Personnage connecté uniquement |
 | `/rename_char "ancien" "nouveau"` | 2 | Renomme en base (2 à 24 caractères, sans espace). Un joueur connecté voit son nouveau nom à sa prochaine connexion |
-| `/create "nom" <TID> <quantité> <0\|1>` | 3 | Ajoute l'objet dans `character_items`, dans la première case libre de l'inventaire. Le personnage peut être hors ligne |
+| `/create "nom" <TID> <quantité> <0\|1>` | 3 | Ajoute l'objet dans `character_items`, dans la première case libre de l'inventaire. Un joueur connecté le reçoit tout de suite ; le personnage peut aussi être hors ligne |
+| `/money <montant> ["nom"]` | 3 | Fixe l'or du personnage connecté (de 0 à 1 000 000 000) ; sans nom, sur soi. Commande propre à ArchCore |
 | `/announce_restart <minutes> <secondes>` | 3 | Annonce à tous les joueurs, rappel chaque minute, compte à rebours sur les dernières secondes. `0 0` annule |
 | `/move x,z` | 1 | Téléporte le MJ en (x, z) et envoie les PNJ du nouvel endroit |
 
@@ -95,8 +96,7 @@ Limites actuelles :
 - Les taux sont enregistrés mais pas encore appliqués : il n'y a pas encore de monstres, de butin
   ni de gain d'expérience.
 - Les interdictions de discussion sont gardées en mémoire et disparaissent au redémarrage.
-- `/create` n'envoie pas encore l'objet au client (pas d'inventaire en jeu). Le dernier nombre
-  (« non échangeable ») n'est pas enregistré.
+- Avec `/create`, le dernier nombre (« non échangeable ») n'est pas encore enregistré.
 - À vérifier avec le vrai client : l'animation de mort de `/kill`, et l'altitude après `/move`.
   Le serveur garde l'altitude actuelle, faute de carte des hauteurs.
 - Le client envoie lui-même `/move` quand on tape un numéro de point de passage dans la discussion.
@@ -178,6 +178,7 @@ Exemple : `/SetExp 2.0` puis `/GetExp` pour vérifier.
 | Commande | Effet |
 |---|---|
 | ✅ `/create "nom" <TID> <quantité> <0\|1>` | Donne un objet au personnage. `TID` = identifiant de l'objet ; le dernier nombre rend l'objet non échangeable (1) |
+| ✅ `/money <montant> ["nom"]` | Fixe l'or d'un personnage connecté (ajout d'ArchCore, absent du panneau) |
 | `/last_refine` | Réutilise la dernière recette de raffinage |
 | `/refresh_prestige_db` | Recharge les données de prestige |
 | `/refinetest` / `/refinetest stop` | Lance ou arrête le test de charge du raffinage |

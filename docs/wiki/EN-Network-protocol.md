@@ -90,6 +90,54 @@ function 21), player CID in field 2. The server answers **op 1** with the same f
 opens the window; the text comes from the client (`npcdialog.txt`). ArchCore grants the dialog when
 the player is within 1500 units of the NPC.
 
+## Items (type 0x04, AgpmItem)
+
+**4-byte** field flags, 27 fields. The main ones:
+
+| Field | Content |
+|---|---|
+| 0 | op (INT8): 0 add, 1 remove, 2 update |
+| 1 | status (INT8): 2 inventory, 10 NPC shop |
+| 2 | IID, item ID |
+| 3 | TID, item template |
+| 4 | owner CID |
+| 5 | count |
+| 7 | slot: mini with 3 INT16 (bag, row, column) |
+
+The client builds the item from its own template, read from `ItemTemplateAll.ini`. If it does not
+know the TID, it silently ignores the item.
+
+On world entry, the inventory is not sent as separate packets. The full AGPMITEM packets are
+concatenated in **field 6** of the 0x42 view packet **op 2**. The client's inventory grid has 5 bags
+of 5 × 5 slots (grid type 1).
+
+## NPC shops (type 0x32, AgcmEventNPCTrade)
+
+**2-byte** field flags:
+
+| Field | Content |
+|---|---|
+| 0 | event (EVENT_BASE mini) |
+| 1 | op |
+| 2 | player CID |
+| 3 | item IID |
+| 4 | detail (mini, 2-byte flags): TID, price (integer), count, status, bag, row, column… |
+| 5 | timestamp (INT64) |
+| 6 | result |
+| 7–9 | target inventory slot (buying) |
+
+1. When "Trade" is clicked, the client opens the window at once, before any answer, and sends
+   **op 0** to request the list.
+2. For each item, the server sends an AGPMITEM with **status 10** and the NPC's CID as owner, then a
+   0x32 **op 0** carrying the IID and the detail. **Op 1** ends the list. A shop grid has
+   1 × 20 × 4 slots.
+3. Buying: the client sends **op 2**, with the count in field 2 of the detail. The server answers
+   op 2 with the result: **2** success, **3** not enough gold, **4** inventory full.
+4. Selling: the client sends **op 3** with the IID of an inventory item. The server answers op 3 with
+   the result: **0** success, **1** too much gold.
+
+The character's money is updated by a character packet (type 2) op 1, field 8.
+
 ## Movement (type 0x40, AgpmOptimizedCharMove)
 
 The client sends a 0x40 packet on every movement click (`FUN_140264010`), with 1-byte header flags:
@@ -142,5 +190,6 @@ character the client already knows: ArchCore sends it right after the world-entr
 | 0x0F | Chat | 0x48 | Startup encryption |
 | 0x11 | Timer | 0x60 | Titles |
 | 0x13 | Quests | 0x63 | Reconnect |
+| 0x32 | NPC shops | 0x37 | NPC dialog |
 
 Full schemas for the 86 modules are in `data/re/packet-schemas.json`.

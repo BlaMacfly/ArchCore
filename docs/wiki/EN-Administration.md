@@ -69,7 +69,8 @@ messages. ArchCore's replies are in French.
 | `/chatban "name" <minutes>` | 1 | The player can no longer talk; `0` lifts the mute. The player is told |
 | `/kill ["name"]` | 2 | Sets the character's HP to 0; without a name, on yourself. Online characters only |
 | `/rename_char "old" "new"` | 2 | Renames in the database (2 to 24 characters, no space). An online player sees the new name on next login |
-| `/create "name" <TID> <count> <0\|1>` | 3 | Adds the item to `character_items`, in the first free inventory slot. The character can be offline |
+| `/create "name" <TID> <count> <0\|1>` | 3 | Adds the item to `character_items`, in the first free inventory slot. An online player gets it at once; the character can also be offline |
+| `/money <amount> ["name"]` | 3 | Sets the online character's gold (0 to 1,000,000,000); without a name, on yourself. ArchCore-specific command |
 | `/announce_restart <minutes> <seconds>` | 3 | Announces to every player, reminds every minute, counts down the last seconds. `0 0` cancels |
 | `/move x,z` | 1 | Teleports the GM to (x, z) and sends the NPCs of the new spot |
 
@@ -93,8 +94,7 @@ Current limits:
 
 - Rates are stored but not applied yet: there are no monsters, loot or experience gains yet.
 - Chat mutes are kept in memory and are lost on restart.
-- `/create` does not send the item to the client yet (no in-game inventory). The last number
-  ("untradable") is not stored.
+- With `/create`, the last number ("untradable") is not stored yet.
 - To check with the real client: the `/kill` death animation, and the altitude after `/move`.
   The server keeps the current altitude, having no height map.
 - The client itself sends `/move` when a waypoint number is typed in the chat.
@@ -176,6 +176,7 @@ Example: `/SetExp 2.0`, then `/GetExp` to check.
 | Command | Effect |
 |---|---|
 | ✅ `/create "name" <TID> <count> <0\|1>` | Gives an item to the character. `TID` = item ID; the last number makes it untradable (1) |
+| ✅ `/money <amount> ["name"]` | Sets an online character's gold (ArchCore addition, not in the panel) |
 | `/last_refine` | Reuses the last refine recipe |
 | `/refresh_prestige_db` | Reloads the prestige data |
 | `/refinetest` / `/refinetest stop` | Starts or stops the refine stress test |

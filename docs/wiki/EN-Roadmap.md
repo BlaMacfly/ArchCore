@@ -10,9 +10,13 @@
 - Player movement, with position saving.
 - NPC dialog: the npc.ini functions (dialog, shop, quests) are sent with each NPC, and clicking opens
   the dialog window.
+- NPC shops: Darryl's shop (Anchorville) shows its 43 items, and buying takes the gold and puts the
+  item in the inventory.
+- Character inventory shown on world entry.
 
 ## Verified with the simulator, to confirm in game
 
+- Selling an item to an NPC.
 - Player visibility: movement relayed to nearby players, appearing and disappearing by distance.
 - Chat within view range, and whispers.
 - GM level sent to the "Admin Commands" panel.
@@ -23,9 +27,9 @@
 
 1. Verify full character creation in game.
 2. Verify player visibility with two real clients.
-3. NPC functions: shops, quests, teleport, bank.
+3. NPC functions: quests, teleport, bank.
 4. Monsters, combat, experience.
-5. Items, inventory, skills.
+5. Items: moving them in the inventory, equipment, use; skills.
 6. Chat, parties, guilds.
 7. Automatic reconnection (type 0x63).
 8. Remaining GM commands on the [[Administration|EN-Administration]] page (arena, events, rifts…).

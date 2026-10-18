@@ -38,6 +38,17 @@ ARCHCORE_CONFIG=config/test.json node src/index.js all      # autres ports, autr
 ARCHCORE_CONFIG=config/test.json node tools/sim-move.mjs
 ```
 
+## Test de boutique
+
+```bash
+ARCHCORE_CONFIG=config/test.json npm run sim:shop -- [compte] [mdp] [personnage]
+```
+
+Le personnage (`sima` / `SimA` par défaut) reçoit 1000 pièces d'or et apparaît près de Darryl
+(Anchorville). Le test ouvre sa boutique, vérifie la liste reçue, achète 3 petites potions de vie
+puis les revend. Il modifie l'or, la position et l'inventaire du personnage : à lancer lui aussi
+contre un serveur de test.
+
 ## Rétro-ingénierie
 
 Les relevés ont été faits avec [REA](https://github.com/morluto/rea) et Ghidra 12. La démarche est
