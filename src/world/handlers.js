@@ -6,8 +6,9 @@
 //       → paquet personnage complet, AGPMADMIN (niveau MJ), vues optimisées, déplacement,
 //         AGSMCHARMANAGER op 7, mises à jour
 //   AGPMCHATTING (type 0x0F) op 0 : message ; « /… » = commande (gm-commands.js)
+//   AGCMEVENTNPCTRADE (0x32) : boutiques des PNJ (npc-trade.js)
 
-import { sparse, buildMini } from '../net/packet.js';
+import { sparse, buildMini, buildPacket } from '../net/packet.js';
 import { Main, CharMgrOp, ChatType } from '../net/schema.js';
 import { buildCharacterPacket, buildMoveMini, buildFactorsMini, makeFactors } from '../common/character.js';
 import { log } from '../common/log.js';
@@ -16,9 +17,8 @@ import { buildChatPacket, buildAdminLevelPacket, chatText, chatColor } from './c
 import { GmCommands, ServerRates, formatDuration } from './gm-commands.js';
 import { Presence } from './presence.js';
 import { NpcEvents } from './npc-events.js';
-
-// Inventaire : 4 sacs (InventorySmall_Layer0..3 dans le client) de 4 × 4 cases (à confirmer).
-const INVENTORY = { layers: 4, rows: 4, columns: 4 };
+import { NpcTrade, MAX_MONEY } from './npc-trade.js';
+import { Inventory, ItemStatus, StoredStatus, INVENTORY, itemAddValues } from './items.js';
 // AGPMCHARACTER champ 11 (statut d'action) : 2 = mort, d'après le client d'origine (à confirmer en jeu).
 const ACTION_STATUS_DEAD = 2;
 // Drapeaux de déplacement : 0x04 arrêt + 0x08 synchronisation (comme à l'entrée en jeu).
@@ -34,7 +34,9 @@ export class WorldHandlers {
     this.viewRadius = ctx.config.world.viewRadius ?? 8000;
     this.chatBans = new Map(); // id personnage → fin de l'interdiction (ms)
     this.restart = null; // { at, timer }
+    this.catalog = ctx.catalog; // ItemCatalog
     this.npcEvents = new NpcEvents({ npcs: this.npcs });
+    this.npcTrade = new NpcTrade({ npcEvents: this.npcEvents, catalog: this.catalog, setMoney: (s, m) => this.setMoney(s, m) });
     this.presence = new Presence({ players: this.players, db: this.db, viewRadius: this.viewRadius, onArea: (s, p) => this.#sendNearbyNpcs(s, p) });
     this.gm = new GmCommands({
       world: this,
@@ -67,6 +69,11 @@ export class WorldHandlers {
   /** AGPMEVENTNPCDIALOG (0x37) : le joueur veut parler à un PNJ. */
   onNpcDialog(session, packet) {
     this.npcEvents.onDialog(session, packet);
+  }
+
+  /** AGCMEVENTNPCTRADE (0x32) : boutique d'un PNJ. */
+  onNpcTrade(session, packet) {
+    return this.npcTrade.onPacket(session, packet);
   }
 
   /** AGPMOPTIMIZEDCHARMOVE (0x40) : le joueur se déplace. */
@@ -104,6 +111,7 @@ export class WorldHandlers {
     session.state.gmLevel = Number(account.gm_level ?? 0);
     session.state.factors = makeFactors(tpl, ch);
     session.state.seenNpcs = new Set();
+    session.state.inventory = await Inventory.load(this.db, ch.id);
     this.players.set(ch.id, session);
     session.once('close', () => { if (this.players.get(ch.id) === session) this.players.delete(ch.id); });
     log.info(`[world] #${session.id} ${account.username} entre avec ${ch.name} (cid ${ch.id}${session.state.gmLevel ? `, MJ ${session.state.gmLevel}` : ''})`);
@@ -130,8 +138,12 @@ export class WorldHandlers {
     if (session.state.gmLevel > 0) {
       session.sendRaw(buildAdminLevelPacket({ cid: ch.id, name: ch.name, level: session.state.gmLevel, account: session.state.account.username }));
     }
+    // Inventaire : paquets AGPMITEM complets mis bout à bout dans le champ 6 (« tous les objets ») de la
+    // vue optimisée op 2 ; le client rattache chaque objet au personnage déjà reçu (champ 4).
     const empty = Buffer.alloc(0);
-    session.send(Main.OPT_VIEW, sparse(Main.OPT_VIEW, { 0: 2, 6: empty, 7: empty, 8: empty }));
+    const allItems = Buffer.concat(session.state.inventory.addPackets().map((values) => buildPacket(Main.ITEM, values)));
+    log.info(`[world] #${session.id} ${session.state.inventory.items.size} objet(s) d'inventaire envoyé(s)`);
+    session.send(Main.OPT_VIEW, sparse(Main.OPT_VIEW, { 0: 2, 6: allItems, 7: empty, 8: empty }));
     session.send(Main.OPT_VIEW, sparse(Main.OPT_VIEW, { 0: 2, 6: empty, 7: empty }));
     session.send(Main.OPT_CHAR_MOVE, sparse(Main.OPT_CHAR_MOVE, { 0: ch.id, 1: pos, 2: pos, 5: MOVE_STOP_SYNC, 6: 0 }));
     const sent = this.#sendNearbyNpcs(session, pos);
@@ -274,13 +286,31 @@ export class WorldHandlers {
     return 'offline';
   }
 
+  /** Argent de l'inventaire d'un joueur en jeu : enregistré puis envoyé au client (AGPMCHARACTER champ 8). */
+  async setMoney(session, money) {
+    const ch = session.state.character;
+    ch.money = Math.max(0, Math.min(MAX_MONEY, Math.floor(money)));
+    await this.db.characters.query('UPDATE characters SET money = ? WHERE id = ?', [ch.money, ch.id]);
+    session.send(Main.CHARACTER, sparse(Main.CHARACTER, { 0: 1, 1: ch.id, 8: BigInt(ch.money) }));
+  }
+
   /** Ajoute un objet à l'inventaire (archcore_characters.character_items, première case libre). */
   async createItem(name, tid, count, bound) {
     const ch = await this.#findCharacter(name);
     if (!ch) return { error: 'character' };
     const items = await this.db.world.query('SELECT tid, name FROM item_template WHERE tid = ?', [tid]);
     if (!items.length) return { error: 'item' };
-    const used = await this.db.characters.query('SELECT layer, row_idx, col_idx FROM character_items WHERE character_id = ? AND status = 0', [ch.id]);
+    const online = this.players.get(ch.id);
+    if (online) {
+      // Joueur en jeu : l'objet passe par son inventaire et apparaît tout de suite.
+      const added = await online.state.inventory.add(tid, count, this.catalog?.get(tid)?.stack ?? 1);
+      if (!added) return { error: 'full' };
+      const { item } = added;
+      online.send(Main.ITEM, itemAddValues({ iid: item.iid, tid: item.tid, owner: ch.id, count: item.count, status: ItemStatus.INVENTORY, grid: item.grid }));
+      log.info(`[mj] ${count} × objet ${tid} (${items[0].name}) donné à ${ch.name}${bound ? ' (non échangeable : non enregistré)' : ''}`);
+      return { itemName: items[0].name, characterName: ch.name };
+    }
+    const used = await this.db.characters.query('SELECT layer, row_idx, col_idx FROM character_items WHERE character_id = ? AND status = ?', [ch.id, StoredStatus.INVENTORY]);
     const taken = new Set(used.map((r) => `${r.layer}:${r.row_idx}:${r.col_idx}`));
     let slot = null;
     for (let l = 0; l < INVENTORY.layers && !slot; l++) {
@@ -290,8 +320,8 @@ export class WorldHandlers {
     }
     if (!slot) return { error: 'full' };
     await this.db.characters.query(
-      'INSERT INTO character_items (character_id, template_id, status, layer, row_idx, col_idx, count) VALUES (?, ?, 0, ?, ?, ?, ?)',
-      [ch.id, tid, ...slot, count],
+      'INSERT INTO character_items (character_id, template_id, status, layer, row_idx, col_idx, count) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [ch.id, tid, StoredStatus.INVENTORY, ...slot, count],
     );
     log.info(`[mj] ${count} × objet ${tid} (${items[0].name}) donné à ${ch.name}${bound ? ' (non échangeable : non enregistré)' : ''}`);
     return { itemName: items[0].name, characterName: ch.name };

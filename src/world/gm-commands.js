@@ -202,6 +202,17 @@ export const COMMANDS = Object.freeze({
     },
   },
 
+  money: {
+    level: 3, args: ['int', 'name?'], usage: '/money <montant> "nom"',
+    async run(ctx, [amount, name]) {
+      const target = name ? ctx.world.findOnline(name) : ctx.session;
+      if (!target) throw new GmError(`personnage absent du monde : ${name}`);
+      if (amount < 0 || amount > 1_000_000_000) throw new GmError('montant entre 0 et 1 000 000 000');
+      await ctx.world.setMoney(target, amount);
+      ctx.reply(`${target.state.character.name} a maintenant ${amount} pièce(s) d'or.`);
+    },
+  },
+
   announce_restart: {
     level: 3, args: ['int', 'int?'], usage: '/announce_restart <minutes> <secondes>',
     run(ctx, [minutes, seconds]) {

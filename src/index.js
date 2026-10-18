@@ -8,6 +8,7 @@ import { PacketType } from './net/schema.js';
 import { LoginHandlers } from './login/handlers.js';
 import { WorldHandlers } from './world/handlers.js';
 import { NpcRegistry } from './world/npcs.js';
+import { ItemCatalog } from './world/items.js';
 import { loadTemplates } from './common/templates.js';
 import { log } from './common/log.js';
 
@@ -35,7 +36,9 @@ async function main() {
   if (mode === 'world' || mode === 'all') {
     const npcs = new NpcRegistry(db, config.world.language);
     await npcs.load();
-    const handlers = new WorldHandlers({ db, templates, config, npcs });
+    const catalog = new ItemCatalog(db);
+    await catalog.load();
+    const handlers = new WorldHandlers({ db, templates, config, npcs, catalog });
     const server = new PacketServer('world', config.world);
     server.on(PacketType.STARTUP_ENCRYPTION, handleStartupEncryption);
     server.on(PacketType.CHAR_MANAGER, (s, p) => handlers.onCharManager(s, p));
@@ -43,6 +46,7 @@ async function main() {
     server.on(PacketType.CHATTING, (s, p) => handlers.onChatting(s, p));
     server.on(PacketType.OPT_CHAR_MOVE, (s, p) => handlers.onCharMove(s, p));
     server.on(PacketType.EVENT_NPC_DIALOG, (s, p) => handlers.onNpcDialog(s, p));
+    server.on(PacketType.EVENT_NPC_TRADE, (s, p) => handlers.onNpcTrade(s, p));
     await server.listen();
     servers.push(server);
   }

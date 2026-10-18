@@ -31,4 +31,11 @@
 8. Remaining GM commands on the [[Administration|EN-Administration]] page (arena, events, rifts…).
 9. Finish the translation: about 54,000 texts left.
 
+## Later
+
+- **PlayerBots**: a server module for player characters driven by the server, modelled on the
+  PlayerBots of World of Warcraft servers and adapted to ArchLord (movement, combat, parties, trade).
+  To start once monsters, combat and parties work.
+- Port the core to Rust, once the protocol is well understood.
+
 Contributions are welcome: open an issue to suggest or report something.

@@ -12,8 +12,15 @@ import { EventFunction } from './npcs.js';
 import { log } from '../common/log.js';
 
 export const DialogOp = Object.freeze({ REQUEST: 0, GRANT: 1 });
-// Distance maximale (unités du jeu, ~1 cm) entre le joueur et le PNJ pour ouvrir un dialogue.
-const MAX_DIALOG_DISTANCE = 1500;
+// Distance maximale (unités du jeu, ~1 cm) entre le joueur et le PNJ pour lui parler ou commercer.
+export const MAX_NPC_DISTANCE = 1500;
+
+/** Distance au sol (x, z) entre un PNJ et un personnage. */
+export function npcDistance(npc, ch) {
+  const dx = npc.pos.x - ch.pos_x;
+  const dz = npc.pos.z - ch.pos_z;
+  return Math.sqrt(dx * dx + dz * dz);
+}
 
 export class NpcEvents {
   constructor({ npcs }) {
@@ -52,10 +59,8 @@ export class NpcEvents {
       log.warn(`[pnj] #${session.id} dialogue avec un PNJ inconnu (${desc})`);
       return;
     }
-    const dx = npc.pos.x - ch.pos_x;
-    const dz = npc.pos.z - ch.pos_z;
-    const dist = Math.sqrt(dx * dx + dz * dz);
-    if (dist > MAX_DIALOG_DISTANCE) {
+    const dist = npcDistance(npc, ch);
+    if (dist > MAX_NPC_DISTANCE) {
       log.warn(`[pnj] #${session.id} ${ch.name} trop loin de ${npc.name} (${dist.toFixed(0)}) pour lui parler`);
       return;
     }

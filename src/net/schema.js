@@ -36,6 +36,7 @@ export const PacketType = Object.freeze({
   GUILD: 0x15,
   WORLD: 0x18,
   RETURN_TO_LOGIN: 0x2f,
+  EVENT_NPC_TRADE: 0x32,
   EVENT_NPC_DIALOG: 0x37,
   EVENT_MANAGER: 0x3c,
   OPT_CHAR_MOVE: 0x40,
@@ -159,6 +160,55 @@ export const Main = Object.freeze({
     [T.INT8, 1], // 0 opération
     [T.INT32, 1], // 1 CID
     ...Array.from({ length: 13 }, () => [T.PACKET, 1]), // 2-14 mini-paquets (2 = ADMIN_CHAR)
+  ], V),
+
+  // AgpmItem (type 4) — drapeaux 4 (constructeur FUN_1401a9140, réception FUN_1401b0e10).
+  // op 0 ajout, 1 retrait, 2 mise à jour. La case d'un objet d'inventaire ou de boutique est au champ 7.
+  ITEM: S('AGPMITEM', PacketType.ITEM, 4, [
+    [T.INT8, 1], // 0 opération
+    [T.INT8, 1], // 1 statut (ItemStatus)
+    [T.INT32, 1], // 2 IID
+    [T.INT32, 1], // 3 TID
+    [T.INT32, 1], // 4 CID du propriétaire
+    [T.INT32, 1], // 5 quantité
+    [T.PACKET, 1], // 6 position au sol
+    [T.PACKET, 1], // 7 case d'inventaire / de boutique (ITEM_GRID)
+    [T.PACKET, 1], // 8 case de banque
+    [T.PACKET, 1], // 9 équipement
+    [T.PACKET, 1], // 10 facteurs
+    [T.PACKET, 1], // 11 facteurs en pourcentage
+    [T.INT32, 1], // 12 personnage ciblé (parchemins)
+    [T.PACKET, 1], // 13 amélioration
+    [T.PACKET, 1], // 14 restrictions
+    [T.PACKET, 1], // 15 objet à âme
+    [T.PACKET, 1], // 16 objet de quête
+    [T.INT32, 1], // 17 compétence
+    [T.UINT64, 1], // 18 temps de recharge
+    [T.INT32, 1], // 19 drapeaux de statut
+    [T.PACKET, 1], // 20 options
+    [T.PACKET, 1], // 21 bonus de compétence
+    [T.UINT64, 1], // 22 temps de recharge (transformation)
+    [T.PACKET, 1], // 23 objet de la boutique en argent réel
+    [T.PACKET, 1], // 24 informations supplémentaires
+    [T.MEMORY_BLOCK, 1], // 25
+    [T.UINT64, 1], // 26
+  ], V),
+
+  // AgcmEventNPCTrade (0x32) — drapeaux 2 (FUN_140739110). Réception FUN_14073a6c0 :
+  // op 0 = un objet de la boutique (l'objet doit déjà exister côté client par AGPMITEM), op 1 = liste
+  // complète (ouvre la fenêtre), op 2 = résultat d'achat, op 3 = résultat de vente.
+  // Envoi du client : liste FUN_14073a2f0 (op 0), achat FUN_14073abd0 (op 2), vente FUN_14073aff0 (op 3).
+  EVENT_NPC_TRADE: S('AGCMEVENTNPCTRADE', PacketType.EVENT_NPC_TRADE, 2, [
+    [T.PACKET, 1], // 0 événement (EVENT_BASE)
+    [T.INT8, 1], // 1 opération
+    [T.INT32, 1], // 2 CID du joueur
+    [T.INT32, 1], // 3 IID
+    [T.PACKET, 1], // 4 détail (NPC_TRADE_DETAIL)
+    [T.INT64, 1], // 5 horodatage
+    [T.INT32, 1], // 6 résultat
+    [T.INT8, 1], // 7 sac cible (achat)
+    [T.INT8, 1], // 8 ligne cible
+    [T.INT8, 1], // 9 colonne cible
   ], V),
 
   // AgpmEventNPCDialog (0x37) — drapeaux 1. Relevé dans FUN_140289c40 / FUN_140289cd0 :
@@ -307,6 +357,24 @@ export const Mini = Object.freeze({
   // Données d'une fonction d'événement réduites à un entier : modèle de dialogue (AgpmEventNPCDialog),
   // groupe de quêtes (AgpmEventQuest), modèle de boutique (à confirmer).
   EVENT_DATA_INT32: S('APMEVENT_DATA_INT32', 60, 1, [[T.INT32, 1]], V),
+
+  // AgpmItem : case dans une grille (inventaire, boutique, banque) — drapeaux 1.
+  ITEM_GRID: S('AGPMITEM_GRID', 123, 1, [[T.INT16, 1], [T.INT16, 1], [T.INT16, 1]], V),
+
+  // AgcmEventNPCTrade : détail d'un objet — drapeaux 2. Le client lit le prix comme un entier
+  // (FUN_14073a940), puis la quantité et la case dans la boutique.
+  NPC_TRADE_DETAIL: S('AGCMEVENTNPCTRADE_DETAIL', 124, 2, [
+    [T.INT32, 1], // 0 TID
+    [T.INT32, 1], // 1 prix
+    [T.INT32, 1], // 2 quantité
+    [T.INT16, 1], // 3 statut
+    [T.INT16, 1], // 4 sac
+    [T.INT16, 1], // 5 ligne
+    [T.INT16, 1], // 6 colonne
+    [T.INT32, 1], // 7
+    [T.INT32, 1], // 8
+    [T.INT32, 1], // 9
+  ], V),
 
   // AgpmAdmin : données MJ d'un personnage — drapeaux 1. Op 1 = ajout/mise à jour (FUN_14024b9b0),
   // op 0 = retrait (FUN_14024bc00). Le client garde le CID et le niveau (INT16).

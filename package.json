@@ -4,7 +4,9 @@
   "description": "ArchCore — émulateur serveur ArchLord (login + monde) sur MariaDB / ArchLord server emulator (login + world) on MariaDB",
   "type": "module",
   "private": true,
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "node src/index.js",
     "login": "node src/index.js login",
@@ -12,7 +14,8 @@
     "db:init": "node tools/db-init.mjs",
     "sim": "node tools/client-sim.mjs",
     "sim:move": "node tools/sim-move.mjs",
-    "test": "node --test"
+    "test": "node --test",
+    "sim:shop": "node tools/sim-shop.mjs"
   },
   "dependencies": {
     "mariadb": "^3.4.0"

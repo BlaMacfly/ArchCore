@@ -145,4 +145,37 @@ if (existsSync(path.join(dir, 'npc.ini'))) {
   console.log(`✓ npc_spawn : ${out.length}`);
 }
 
+// ---------------------------------------------------------------- itemdatatable.txt (prix, piles)
+{
+  const { header, rows } = parseTsv(read('itemdatatable.txt'));
+  const col = (name) => header.indexOf(name);
+  const c = { tid: col('TID'), name: col('ItemName'), level: col('Level'), part: col('Part'), kind: col('Kind'), itemType: col('ItemType'),
+    type: col('Type'), npc: col('NPC Price'), pc: col('PC Price'), stack: col('Stack') };
+  const out = [];
+  for (const r of rows) {
+    const tid = num(r[c.tid], NaN);
+    if (!Number.isInteger(tid) || tid <= 0) continue;
+    out.push([tid, (r[c.name] ?? '').trim().slice(0, 128), num(r[c.level]), num(r[c.part]), num(r[c.kind]), num(r[c.itemType]), num(r[c.type]),
+      num(r[c.npc]), num(r[c.pc]), Math.max(1, num(r[c.stack], 1)), JSON.stringify(Object.fromEntries(header.map((h, i) => [h, r[i] ?? ''])))]);
+  }
+  await conn.query('DELETE FROM item_data');
+  await batch('INSERT INTO item_data (tid,name,level,part,kind,item_type,type,npc_price,pc_price,stack,raw) VALUES (?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE name = VALUES(name)', out);
+  console.log(`✓ item_data : ${out.length}`);
+}
+
+// ---------------------------------------------------------------- npctradeitemlist.txt (boutiques)
+{
+  const out = [];
+  let template = null;
+  let idx = 0;
+  for (const line of read('npctradeitemlist.txt').split(/\r?\n/)) {
+    const cells = line.split('\t').map((x) => x.trim());
+    if (cells[0] === 'Npc') { template = num(cells[1], NaN); idx = 0; continue; }
+    if (cells[0] === 'Item' && Number.isInteger(template)) out.push([template, idx++, num(cells[1]), Math.max(1, num(cells[2], 1))]);
+  }
+  await conn.query('DELETE FROM npc_trade_list');
+  await batch('INSERT INTO npc_trade_list (template_id,idx,tid,count) VALUES (?,?,?,?)', out);
+  console.log(`✓ npc_trade_list : ${out.length} ligne(s), ${new Set(out.map((r) => r[0])).size} boutique(s)`);
+}
+
 await conn.end();

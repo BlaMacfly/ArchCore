@@ -32,4 +32,11 @@
 8. Commandes MJ restantes de la page [[Administration|FR-Administration]] (arène, événements, failles…).
 9. Fin de la traduction : environ 54 000 textes restants.
 
+## Plus tard
+
+- **PlayerBots** : module serveur de personnages joueurs contrôlés par le serveur, sur le modèle des
+  PlayerBots des serveurs World of Warcraft, adapté à ArchLord (déplacement, combat, groupes, commerce).
+  À commencer une fois les monstres, le combat et les groupes en place.
+- Portage du cœur en Rust, une fois le protocole bien établi.
+
 Les contributions sont bienvenues : ouvrir une *issue* pour proposer ou signaler quelque chose.

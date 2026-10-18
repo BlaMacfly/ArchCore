@@ -120,3 +120,26 @@ CREATE TABLE IF NOT EXISTS npc_spawn (
   PRIMARY KEY (id),
   KEY ix_npc_xz (pos_x, pos_z)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS item_data (
+  tid        INT UNSIGNED NOT NULL COMMENT 'TID (itemdatatable.txt)',
+  name       VARCHAR(128) NOT NULL,
+  level      INT NOT NULL DEFAULT 0,
+  part       INT NOT NULL DEFAULT 0,
+  kind       INT NOT NULL DEFAULT 0,
+  item_type  INT NOT NULL DEFAULT 0,
+  type       INT NOT NULL DEFAULT 0,
+  npc_price  BIGINT NOT NULL DEFAULT 0 COMMENT 'prix d''achat chez un PNJ',
+  pc_price   BIGINT NOT NULL DEFAULT 0 COMMENT 'prix de revente à un PNJ',
+  stack      INT NOT NULL DEFAULT 1 COMMENT 'quantité maximale par pile',
+  raw        JSON NULL,
+  PRIMARY KEY (tid)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='caractéristiques des objets (itemdatatable.txt)';
+
+CREATE TABLE IF NOT EXISTS npc_trade_list (
+  template_id INT UNSIGNED NOT NULL COMMENT 'modèle de boutique (« Template » de la fonction 9 dans npc.ini)',
+  idx         INT UNSIGNED NOT NULL COMMENT 'ordre dans la liste',
+  tid         INT UNSIGNED NOT NULL,
+  count       INT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'quantité vendue par achat',
+  PRIMARY KEY (template_id, idx)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='listes des boutiques des PNJ (npctradeitemlist.txt)';
