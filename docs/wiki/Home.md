@@ -1,4 +1,4 @@
-<p align="center"><img src="https://raw.githubusercontent.com/BlaMacfly/ArchCore/main/docs/assets/archcore-logo.png" alt="ArchCore" width="200"></p>
+<p align="center"><img src="https://raw.githubusercontent.com/BlaMacfly/ArchCore/Core/docs/assets/archcore-logo.png" alt="ArchCore" width="200"></p>
 
 # ArchCore — Wiki
 
@@ -12,6 +12,7 @@
 | [Configuration](FR-Configuration) | [Configuration](EN-Configuration) |
 | [Architecture du code](FR-Architecture) | [Code architecture](EN-Architecture) |
 | [Protocole réseau](FR-Protocole-reseau) | [Network protocol](EN-Network-protocol) |
+| [Extensions ArchRust (spécification)](FR-Extensions-ArchRust) | [ArchRust extensions (specification)](EN-ArchRust-extensions) |
 | [Base de données](FR-Base-de-donnees) | [Database](EN-Database) |
 | [Outils](FR-Outils) | [Tools](EN-Tools) |
 | [Traduction française](FR-Traduction) | [French translation](EN-Translation) |
