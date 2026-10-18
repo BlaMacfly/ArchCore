@@ -82,7 +82,7 @@ export const Main = Object.freeze({
     [T.INT32, 1], // 22 option flag
     [T.INT8, 1], // 23 taille de banque
     [T.UINT16, 1], // 24 event status flag
-    [T.INT64, 1], // 25 temps criminel restant (INT64 dans le client x64, INT32 dans ALEmu)
+    [T.INT64, 1], // 25 temps criminel restant (INT64 dans le client x64, INT32 dans le client 32 bits)
     [T.INT64, 1], // 26 temps meurtrier restant
     [T.CHAR, 16], // 27 signature
     [T.MEMORY_BLOCK, 1], // 28 données GameGuard
@@ -108,7 +108,7 @@ export const Main = Object.freeze({
     [T.CHAR, 32], // 1 clé de hachage (8 octets utiles)
     [T.CHAR, 49], // 2 compte (chiffré RC4 côté client)
     [T.INT8, 1], // 3 longueur du compte
-    [T.CHAR, 65], // 4 mot de passe (chiffré RC4) — 65 dans le client x64 (33 dans ALEmu)
+    [T.CHAR, 65], // 4 mot de passe (chiffré RC4) — 65 dans le client x64 (33 dans le client 32 bits)
     [T.INT8, 1], // 5 longueur du mot de passe
     [T.INT32, 1], // 6 CID
     [T.CHAR, 32], // 7 nom du monde

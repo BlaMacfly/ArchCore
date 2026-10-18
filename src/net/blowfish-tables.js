@@ -1,4 +1,4 @@
-// Constantes Blowfish standard (P-array et S-boxes), extraites de la référence ALEmu.
+// Constantes Blowfish standard (P-array et S-boxes, décimales de pi), identiques à la spécification de B. Schneier.
 // Généré automatiquement — ne pas éditer à la main.
 export const P_INIT = Object.freeze([0x243F6A88, 0x85A308D3, 0x13198A2E, 0x03707344, 0xA4093822, 0x299F31D0, 0x082EFA98, 0xEC4E6C89, 0x452821E6, 0x38D01377, 0xBE5466CF, 0x34E90C6C, 0xC0AC29B7, 0xC97C50DD, 0x3F84D5B5, 0xB5470917, 0x9216D5D9, 0x8979FB1B]);
 export const S_INIT = Object.freeze([

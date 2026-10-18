@@ -28,7 +28,3 @@ piloté par [REA](https://github.com/morluto/rea). Le client est un exécutable 
 | Son | FMOD moderne, 200 voix ; sons 2D (types 1 et 2) ou 3D à atténuation linéaire (types 3 et 4) |
 | Mises à jour | Le jeu se met à jour seul : les adresses de fonctions changent d'une version à l'autre, pas les schémas |
 
-## Référence
-
-Le projet open source ALEmu, écrit pour le client 32 bits, a servi de point de comparaison.
-ArchCore ne reprend pas son code.

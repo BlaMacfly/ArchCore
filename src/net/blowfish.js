@@ -5,7 +5,7 @@
 // caste directement les octets du tampon en uint32 natifs x86, donc chaque bloc de 8 octets
 // est lu comme deux mots **little-endian** (L = octets 0..3, R = octets 4..7).
 //
-// Référence : AlefCrypto.h (ALEmu) qui reproduit le code du client.
+// Disposition des mots relevée dans le client (chiffrement des trames).
 
 import { P_INIT, S_INIT } from './blowfish-tables.js';
 

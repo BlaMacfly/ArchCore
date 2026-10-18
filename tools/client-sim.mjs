@@ -1,7 +1,7 @@
 // Client de test ArchCore : rejoue le flux complet d'un client ArchLord contre le login puis le monde.
 //   node tools/client-sim.mjs [utilisateur] [motdepasse] [nomPerso]
 // Sert à valider le serveur sans lancer le jeu. Les échanges suivent le protocole relevé
-// dans l'exécutable du client et ALEmu ; le vrai client peut différer dans l'ordre des opérations.
+// dans l'exécutable du client ; le vrai client peut différer dans l'ordre des opérations.
 
 import { sparse } from '../src/net/packet.js';
 import { Main, ChatType } from '../src/net/schema.js';

@@ -1,6 +1,6 @@
 // Gestionnaires du serveur de login ArchCore.
 //
-// Flux (d'après ALEmu, à confronter au client ArchLord 64 bits) :
+// Flux relevé dans le client ArchLord 64 bits :
 //   AGPMSTARTUPENCRYPTION  handshake Blowfish (startup-encryption.js)
 //   AGPMWORLD      op 0  → op 2 : liste des mondes "Nom=Groupe=0=Statut=Drapeau;…"
 //   AGPMLOGIN      op 0  HASHKEY     → clé de 8 caractères (chiffrement RC4 du compte/mot de passe)
@@ -280,7 +280,7 @@ export class LoginHandlers {
     const charInfo = this.#charInfoMini({ 0: ch.template_id, 1: fullName });
     const serverInfo = buildMini(Mini.LOGIN_SERVER_INFO, [address]);
     // Le client (AgcmLogin::OnReceive, cas 8) : CHAR_INFO au champ 8, SERVER_INFO au champ 9
-    // (champ 11 dans ALEmu), CID du personnage au champ 6 ; les trois sont transmis à
+    // (champ 11 dans le client 32 bits), CID du personnage au champ 6 ; les trois sont transmis à
     // AgcmCharacter pour la connexion au serveur monde.
     session.send(Main.LOGIN, sparse(Main.LOGIN, { 0: LoginOp.WORLD_ENTER, 6: ch.id, 8: charInfo, 9: serverInfo }));
     log.info(`[login] #${session.id} ${st.account.username} → monde ${st.world} (${address}) avec ${ch.name}`);

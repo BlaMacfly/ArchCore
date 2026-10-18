@@ -27,7 +27,3 @@ functions, without symbols but with RTTI for its C++ classes (`AgcmLogin`, `Soun
 | Sound | Modern FMOD, 200 voices; 2D sounds (types 1 and 2) or 3D with linear rolloff (types 3 and 4) |
 | Updates | The game patches itself: function addresses change between versions, schemas do not |
 
-## Reference
-
-The open source ALEmu project, written for the 32-bit client, served as a comparison point.
-ArchCore does not reuse its code.
