@@ -25,7 +25,8 @@
 //!
 //! Le lecteur est tolérant : les blocs inconnus sont ignorés, les tailles sont vérifiées.
 
-use glam::{Mat4, Vec3};
+use crate::ean::HAnimSample;
+use glam::{Mat4, Quat, Vec3};
 
 pub const ID_STRUCT: u32 = 0x01;
 pub const ID_STRING: u32 = 0x02;
@@ -51,7 +52,12 @@ pub enum RwError {
     #[error("flux tronqué ({0})")]
     Truncated(&'static str),
     #[error("bloc tronqué à {offset:#x} : type {id:#x}, taille annoncée {size}, octets restants {remaining}")]
-    TruncatedChunk { offset: usize, id: u32, size: usize, remaining: usize },
+    TruncatedChunk {
+        offset: usize,
+        id: u32,
+        size: usize,
+        remaining: usize,
+    },
     #[error("bloc {expected:#x} attendu, {got:#x} trouvé")]
     Unexpected { expected: u32, got: u32 },
     #[error("format non pris en charge : {0}")]
@@ -133,21 +139,37 @@ impl<'a> Reader<'a> {
         let size = self.u32()? as usize;
         let version = self.u32()?;
         if self.remaining() < size {
-            return Err(RwError::TruncatedChunk { offset: self.pos - 12, id, size, remaining: self.remaining() });
+            return Err(RwError::TruncatedChunk {
+                offset: self.pos - 12,
+                id,
+                size,
+                remaining: self.remaining(),
+            });
         }
-        Ok(Chunk { id, size, version, start: self.pos })
+        Ok(Chunk {
+            id,
+            size,
+            version,
+            start: self.pos,
+        })
     }
     /// Lit un bloc et vérifie son type.
     pub fn expect(&mut self, id: u32) -> Result<Chunk, RwError> {
         let c = self.chunk()?;
         if c.id != id {
-            return Err(RwError::Unexpected { expected: id, got: c.id });
+            return Err(RwError::Unexpected {
+                expected: id,
+                got: c.id,
+            });
         }
         Ok(c)
     }
     /// Lecteur restreint au contenu d'un bloc ; avance le lecteur courant après le bloc.
     pub fn enter(&mut self, c: &Chunk) -> Reader<'a> {
-        let sub = Reader { data: &self.data[..c.end()], pos: c.start };
+        let sub = Reader {
+            data: &self.data[..c.end()],
+            pos: c.start,
+        };
         self.pos = c.end();
         sub
     }
@@ -187,10 +209,22 @@ impl Frame {
     pub fn local_matrix(&self) -> Mat4 {
         let r = self.rotation;
         Mat4::from_cols_array(&[
-            r[0][0], r[0][1], r[0][2], 0.0,
-            r[1][0], r[1][1], r[1][2], 0.0,
-            r[2][0], r[2][1], r[2][2], 0.0,
-            self.position.x, self.position.y, self.position.z, 1.0,
+            r[0][0],
+            r[0][1],
+            r[0][2],
+            0.0,
+            r[1][0],
+            r[1][1],
+            r[1][2],
+            0.0,
+            r[2][0],
+            r[2][1],
+            r[2][2],
+            0.0,
+            self.position.x,
+            self.position.y,
+            self.position.z,
+            1.0,
         ])
     }
 }
@@ -243,6 +277,45 @@ pub struct Skin {
     /// 4 poids par sommet.
     pub weights: Vec<[f32; 4]>,
     pub inverse_bind: Vec<Mat4>,
+}
+
+impl Skin {
+    /// Déforme les positions avec une matrice finale par entrée de palette.
+    /// Les matrices sont en convention `glam` et incluent déjà la matrice inverse de bind.
+    pub fn deform_positions(
+        &self,
+        vertices: &[Vec3],
+        skin_matrices: &[Mat4],
+    ) -> Result<Vec<Vec3>, RwError> {
+        if self.indices.len() != vertices.len() || self.weights.len() != vertices.len() {
+            return Err(RwError::Unsupported(format!(
+                "skin incohérent : {} sommets, {} tableaux d'indices, {} tableaux de poids",
+                vertices.len(),
+                self.indices.len(),
+                self.weights.len()
+            )));
+        }
+        let mut output = Vec::with_capacity(vertices.len());
+        for ((vertex, indices), weights) in vertices.iter().zip(&self.indices).zip(&self.weights) {
+            let mut position = Vec3::ZERO;
+            for lane in 0..4 {
+                let weight = weights[lane];
+                if weight == 0.0 {
+                    continue;
+                }
+                let matrix = skin_matrices.get(indices[lane] as usize).ok_or_else(|| {
+                    RwError::Unsupported(format!(
+                        "indice d'os {} hors palette de {} matrices",
+                        indices[lane],
+                        skin_matrices.len()
+                    ))
+                })?;
+                position += matrix.transform_point3(*vertex) * weight;
+            }
+            output.push(position);
+        }
+        Ok(output)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -315,7 +388,9 @@ impl Clump {
         for _ in 0..num_geom {
             let gc = gr.expect(ID_GEOMETRY)?;
             let mut g = gr.enter(&gc);
-            clump.geometries.push(parse_geometry(&mut g, gc.rw_version())?);
+            clump
+                .geometries
+                .push(parse_geometry(&mut g, gc.rw_version())?);
         }
         // Atomics (puis lumières/caméras/extension ignorées)
         for _ in 0..num_atomics {
@@ -330,7 +405,11 @@ impl Clump {
             let mut a = r.enter(&ac);
             let st = a.expect(ID_STRUCT)?;
             let mut s = a.enter(&st);
-            clump.atomics.push(Atomic { frame: s.u32()?, geometry: s.u32()?, flags: s.u32()? });
+            clump.atomics.push(Atomic {
+                frame: s.u32()?,
+                geometry: s.u32()?,
+                flags: s.u32()?,
+            });
         }
         Ok(clump)
     }
@@ -340,9 +419,113 @@ impl Clump {
         let mut out = vec![Mat4::IDENTITY; self.frames.len()];
         for (i, f) in self.frames.iter().enumerate() {
             let local = f.local_matrix();
-            out[i] = if f.parent >= 0 && (f.parent as usize) < i { out[f.parent as usize] * local } else { local };
+            out[i] = if f.parent >= 0 && (f.parent as usize) < i {
+                out[f.parent as usize] * local
+            } else {
+                local
+            };
         }
         out
+    }
+
+    /// Matrices monde en appliquant les pistes `.ean` par indice HAnim.
+    ///
+    /// Les pistes candidates sont ordonnées par leur première clé racine. Le squelette fournit
+    /// l'indice HAnim de chaque frame ; les indices sans piste gardent leur transformation locale
+    /// de bind. Le couplage est fondé sur le format et reste à valider pour chaque famille de rigs.
+    pub fn world_matrices_with_pose(&self, pose: &[HAnimSample]) -> Vec<Mat4> {
+        let mut sample_by_frame = vec![None; self.frames.len()];
+        if let Some(hierarchy) = self
+            .frames
+            .iter()
+            .filter_map(|frame| frame.hanim.as_ref())
+            .find(|hierarchy| !hierarchy.nodes.is_empty())
+        {
+            for node in &hierarchy.nodes {
+                let (Some(sample), Some(frame_index)) = (
+                    pose.get(node.index as usize),
+                    self.frames.iter().position(|frame| {
+                        frame.hanim.as_ref().is_some_and(|h| h.node_id == node.id)
+                    }),
+                ) else {
+                    continue;
+                };
+                sample_by_frame[frame_index] = Some(*sample);
+            }
+        }
+
+        let mut out = vec![Mat4::IDENTITY; self.frames.len()];
+        for (index, frame) in self.frames.iter().enumerate() {
+            let local = sample_by_frame[index].map_or_else(
+                || frame.local_matrix(),
+                |sample| {
+                    let q = Quat::from_xyzw(
+                        sample.rotation[0],
+                        sample.rotation[1],
+                        sample.rotation[2],
+                        sample.rotation[3],
+                    );
+                    let rotation = if q.is_finite() && q.length_squared() > 1e-12 {
+                        q.normalize()
+                    } else {
+                        Quat::IDENTITY
+                    };
+                    Mat4::from_rotation_translation(rotation, Vec3::from_array(sample.translation))
+                },
+            );
+            out[index] = if frame.parent >= 0 && (frame.parent as usize) < index {
+                out[frame.parent as usize] * local
+            } else {
+                local
+            };
+        }
+        out
+    }
+
+    /// Déforme une géométrie skinnée avec une pose `.ean`; retourne les positions originales
+    /// pour les géométries sans Skin PLG.
+    pub fn deform_geometry_positions(
+        &self,
+        geometry_index: usize,
+        pose: &[HAnimSample],
+    ) -> Result<Vec<Vec3>, RwError> {
+        let geometry = self
+            .geometries
+            .get(geometry_index)
+            .ok_or_else(|| RwError::Unsupported(format!("géométrie absente : {geometry_index}")))?;
+        let Some(skin) = &geometry.skin else {
+            return Ok(geometry.vertices.clone());
+        };
+        let hierarchy = self
+            .frames
+            .iter()
+            .filter_map(|frame| frame.hanim.as_ref())
+            .find(|hierarchy| !hierarchy.nodes.is_empty())
+            .ok_or_else(|| RwError::Unsupported("palette HAnim absente".into()))?;
+        let world = self.world_matrices_with_pose(pose);
+        let mut frame_by_index = vec![None; hierarchy.nodes.len()];
+        for node in &hierarchy.nodes {
+            if let Some(slot) = frame_by_index.get_mut(node.index as usize) {
+                *slot = self
+                    .frames
+                    .iter()
+                    .position(|frame| frame.hanim.as_ref().is_some_and(|h| h.node_id == node.id));
+            }
+        }
+        let skin_matrices: Vec<_> = skin
+            .inverse_bind
+            .iter()
+            .enumerate()
+            .map(|(index, bind)| {
+                frame_by_index
+                    .get(index)
+                    .copied()
+                    .flatten()
+                    .map(|frame| world[frame].transpose() * bind.transpose())
+                    .unwrap_or(Mat4::IDENTITY)
+            })
+            .collect();
+        skin.deform_positions(&geometry.vertices, &skin_matrices)
     }
 }
 
@@ -361,7 +544,14 @@ fn parse_frame_list(r: &mut Reader) -> Result<Vec<Frame>, RwError> {
         let position = s.vec3()?;
         let parent = s.i32()?;
         let flags = s.u32()?;
-        frames.push(Frame { rotation: rot, position, parent, flags, name: String::new(), hanim: None });
+        frames.push(Frame {
+            rotation: rot,
+            position,
+            parent,
+            flags,
+            name: String::new(),
+            hanim: None,
+        });
     }
     for frame in frames.iter_mut() {
         let Ok(ext) = r.chunk() else { break };
@@ -382,12 +572,19 @@ fn parse_frame_list(r: &mut Reader) -> Result<Vec<Frame>, RwError> {
                     let _version = h.u32()?;
                     let node_id = h.u32()?;
                     let num_nodes = h.u32()? as usize;
-                    let mut hanim = HAnim { node_id, ..Default::default() };
+                    let mut hanim = HAnim {
+                        node_id,
+                        ..Default::default()
+                    };
                     if num_nodes > 0 {
                         hanim.flags = h.u32()?;
                         hanim.keyframe_size = h.u32()?;
                         for _ in 0..num_nodes {
-                            hanim.nodes.push(HAnimNode { id: h.u32()?, index: h.u32()?, flags: h.u32()? });
+                            hanim.nodes.push(HAnimNode {
+                                id: h.u32()?,
+                                index: h.u32()?,
+                                flags: h.u32()?,
+                            });
                         }
                     }
                     frame.hanim = Some(hanim);
@@ -411,7 +608,11 @@ fn parse_geometry(r: &mut Reader, version: u32) -> Result<Geometry, RwError> {
         let _specular = s.f32()?;
         let _diffuse = s.f32()?;
     }
-    let mut g = Geometry { flags, tristrip: flags & GEOM_TRISTRIP != 0, ..Default::default() };
+    let mut g = Geometry {
+        flags,
+        tristrip: flags & GEOM_TRISTRIP != 0,
+        ..Default::default()
+    };
     let native = flags & GEOM_NATIVE != 0;
     if !native {
         if flags & GEOM_PRELIT != 0 {
@@ -436,7 +637,10 @@ fn parse_geometry(r: &mut Reader, version: u32) -> Result<Geometry, RwError> {
             let v1 = s.u16()?;
             let mat = s.u16()?;
             let v3 = s.u16()?;
-            g.triangles.push(Triangle { v: [v1, v2, v3], material: mat });
+            g.triangles.push(Triangle {
+                v: [v1, v2, v3],
+                material: mat,
+            });
         }
     }
     for m in 0..num_morph {
@@ -488,8 +692,17 @@ fn parse_geometry(r: &mut Reader, version: u32) -> Result<Geometry, RwError> {
         // sérialisent que les matériaux réellement utilisés. Les emplacements restants
         // précèdent alors les extensions propres au jeu, pas d'autres chunks Material.
         let mut next = mr;
-        if !matches!(next.chunk(), Ok(Chunk { id: ID_MATERIAL, .. })) {
-            let mat = Material { color: [255; 4], ..Default::default() };
+        if !matches!(
+            next.chunk(),
+            Ok(Chunk {
+                id: ID_MATERIAL,
+                ..
+            })
+        ) {
+            let mat = Material {
+                color: [255; 4],
+                ..Default::default()
+            };
             parsed.push(mat.clone());
             g.materials.push(mat);
             continue;
@@ -509,7 +722,13 @@ fn parse_geometry(r: &mut Reader, version: u32) -> Result<Geometry, RwError> {
             specular = s.f32()?;
             diffuse = s.f32()?;
         }
-        let mut mat = Material { color, texture: None, ambient, specular, diffuse };
+        let mut mat = Material {
+            color,
+            texture: None,
+            ambient,
+            specular,
+            diffuse,
+        };
         if textured {
             let tc = m.expect(ID_TEXTURE)?;
             let mut t = m.enter(&tc);
@@ -558,7 +777,10 @@ fn parse_geometry(r: &mut Reader, version: u32) -> Result<Geometry, RwError> {
                                 idx.push(b.u32()?);
                             }
                         }
-                        g.meshes.push(BinMesh { material, indices: idx });
+                        g.meshes.push(BinMesh {
+                            material,
+                            indices: idx,
+                        });
                     }
                 }
                 ID_SKIN_PLG => {
@@ -567,7 +789,10 @@ fn parse_geometry(r: &mut Reader, version: u32) -> Result<Geometry, RwError> {
                     let used = k.u8()? as usize;
                     let _max_weights = k.u8()?;
                     let _pad = k.u8()?;
-                    let mut skin = Skin { bone_count, ..Default::default() };
+                    let mut skin = Skin {
+                        bone_count,
+                        ..Default::default()
+                    };
                     skin.used_bones = k.bytes(used)?.to_vec();
                     for _ in 0..num_verts {
                         let b = k.bytes(4)?;
@@ -622,7 +847,10 @@ impl SectorGeometry {
         let gc = a.expect(ID_GEOMETRY)?;
         let mut g = a.enter(&gc);
         let geometry = parse_geometry(&mut g, gc.rw_version())?;
-        Ok(SectorGeometry { atomic_struct, geometry })
+        Ok(SectorGeometry {
+            atomic_struct,
+            geometry,
+        })
     }
 
     /// Bornes des sommets (min, max).
@@ -706,7 +934,9 @@ impl TextureDictionary {
     }
 
     pub fn get(&self, name: &str) -> Option<&TextureNative> {
-        self.textures.iter().find(|t| t.name.eq_ignore_ascii_case(name))
+        self.textures
+            .iter()
+            .find(|t| t.name.eq_ignore_ascii_case(name))
     }
 }
 
@@ -715,13 +945,19 @@ fn parse_texture_native(r: &mut Reader) -> Result<TextureNative, RwError> {
     let mut s = r.enter(&st);
     let platform = s.u32()?;
     if platform != 9 && platform != 8 {
-        return Err(RwError::Unsupported(format!("plateforme de texture {platform}")));
+        return Err(RwError::Unsupported(format!(
+            "plateforme de texture {platform}"
+        )));
     }
     let _filter = s.u32()?;
     let name = cstr(s.bytes(32)?);
     let mask = cstr(s.bytes(32)?);
     let raster_format = s.u32()?;
-    let (d3d_format, d3d8_alpha) = if platform == 9 { (s.u32()?, false) } else { (0, s.u32()? != 0) };
+    let (d3d_format, d3d8_alpha) = if platform == 9 {
+        (s.u32()?, false)
+    } else {
+        (0, s.u32()? != 0)
+    };
     let width = s.u16()? as u32;
     let height = s.u16()? as u32;
     let depth = s.u8()?;
@@ -760,7 +996,11 @@ fn parse_texture_native(r: &mut Reader) -> Result<TextureNative, RwError> {
     let _ = compressed;
     let palette = if format == RasterFormat::Pal8 {
         let raw = s.bytes(256 * 4)?;
-        Some(raw.chunks_exact(4).map(|c| [c[0], c[1], c[2], c[3]]).collect())
+        Some(
+            raw.chunks_exact(4)
+                .map(|c| [c[0], c[1], c[2], c[3]])
+                .collect(),
+        )
     } else {
         None
     };
@@ -769,17 +1009,34 @@ fn parse_texture_native(r: &mut Reader) -> Result<TextureNative, RwError> {
     for _ in 0..num_levels {
         let size = s.u32()? as usize;
         let data = s.bytes(size)?.to_vec();
-        mips.push(MipLevel { width: w.max(1), height: h.max(1), data });
+        mips.push(MipLevel {
+            width: w.max(1),
+            height: h.max(1),
+            data,
+        });
         w /= 2;
         h /= 2;
     }
-    Ok(TextureNative { name, mask, width, height, depth, format, has_alpha, palette, mips })
+    Ok(TextureNative {
+        name,
+        mask,
+        width,
+        height,
+        depth,
+        format,
+        has_alpha,
+        palette,
+        mips,
+    })
 }
 
 impl TextureNative {
     /// Décode le niveau 0 en RGBA8 (DXT1/3/5, BGRA8, BGRX8, PAL8).
     pub fn to_rgba8(&self) -> Result<Vec<u8>, RwError> {
-        let mip = self.mips.first().ok_or(RwError::Truncated("niveau de mipmap"))?;
+        let mip = self
+            .mips
+            .first()
+            .ok_or(RwError::Truncated("niveau de mipmap"))?;
         let (w, h) = (mip.width as usize, mip.height as usize);
         let mut out = vec![0u8; w * h * 4];
         match self.format {
@@ -788,7 +1045,11 @@ impl TextureNative {
                     out[i * 4] = px[2];
                     out[i * 4 + 1] = px[1];
                     out[i * 4 + 2] = px[0];
-                    out[i * 4 + 3] = if self.format == RasterFormat::Bgrx8 { 255 } else { px[3] };
+                    out[i * 4 + 3] = if self.format == RasterFormat::Bgrx8 {
+                        255
+                    } else {
+                        px[3]
+                    };
                 }
             }
             RasterFormat::Pal8 => {
@@ -801,7 +1062,9 @@ impl TextureNative {
             RasterFormat::Dxt1 => decode_dxt(&mip.data, w, h, 1, &mut out),
             RasterFormat::Dxt3 => decode_dxt(&mip.data, w, h, 3, &mut out),
             RasterFormat::Dxt5 => decode_dxt(&mip.data, w, h, 5, &mut out),
-            RasterFormat::Other(f) => return Err(RwError::Unsupported(format!("format D3D {f:#x}"))),
+            RasterFormat::Other(f) => {
+                return Err(RwError::Unsupported(format!("format D3D {f:#x}")))
+            }
         }
         Ok(out)
     }
@@ -811,7 +1074,11 @@ fn rgb565(c: u16) -> [u8; 3] {
     let r = ((c >> 11) & 0x1f) as u32;
     let g = ((c >> 5) & 0x3f) as u32;
     let b = (c & 0x1f) as u32;
-    [((r * 255 + 15) / 31) as u8, ((g * 255 + 31) / 63) as u8, ((b * 255 + 15) / 31) as u8]
+    [
+        ((r * 255 + 15) / 31) as u8,
+        ((g * 255 + 31) / 63) as u8,
+        ((b * 255 + 15) / 31) as u8,
+    ]
 }
 
 /// Décodeur DXT1/DXT3/DXT5 (S3TC, format public) vers RGBA8.
@@ -826,7 +1093,11 @@ fn decode_dxt(data: &[u8], w: usize, h: usize, variant: u8, out: &mut [u8]) {
                 return;
             }
             let block = &data[off..off + block_size];
-            let (alpha_block, color_block) = if variant == 1 { (&[][..], block) } else { (&block[..8], &block[8..]) };
+            let (alpha_block, color_block) = if variant == 1 {
+                (&[][..], block)
+            } else {
+                (&block[..8], &block[8..])
+            };
             let c0 = u16::from_le_bytes([color_block[0], color_block[1]]);
             let c1 = u16::from_le_bytes([color_block[2], color_block[3]]);
             let p0 = rgb565(c0);
@@ -848,7 +1119,12 @@ fn decode_dxt(data: &[u8], w: usize, h: usize, variant: u8, out: &mut [u8]) {
                 colors[2][3] = 255;
                 colors[3] = [0, 0, 0, 0];
             }
-            let bits = u32::from_le_bytes([color_block[4], color_block[5], color_block[6], color_block[7]]);
+            let bits = u32::from_le_bytes([
+                color_block[4],
+                color_block[5],
+                color_block[6],
+                color_block[7],
+            ]);
             // Alpha DXT5 : 2 valeurs de référence + 16 index de 3 bits.
             let mut a5 = [0u8; 8];
             let mut a5bits: u64 = 0;
@@ -857,11 +1133,13 @@ fn decode_dxt(data: &[u8], w: usize, h: usize, variant: u8, out: &mut [u8]) {
                 a5[1] = alpha_block[1];
                 if a5[0] > a5[1] {
                     for i in 1..7 {
-                        a5[i + 1] = (((7 - i) as u32 * a5[0] as u32 + i as u32 * a5[1] as u32) / 7) as u8;
+                        a5[i + 1] =
+                            (((7 - i) as u32 * a5[0] as u32 + i as u32 * a5[1] as u32) / 7) as u8;
                     }
                 } else {
                     for i in 1..5 {
-                        a5[i + 1] = (((5 - i) as u32 * a5[0] as u32 + i as u32 * a5[1] as u32) / 5) as u8;
+                        a5[i + 1] =
+                            (((5 - i) as u32 * a5[0] as u32 + i as u32 * a5[1] as u32) / 5) as u8;
                     }
                     a5[6] = 0;
                     a5[7] = 255;

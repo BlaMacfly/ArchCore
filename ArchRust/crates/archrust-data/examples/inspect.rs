@@ -14,9 +14,24 @@ fn walk_chunks(data: &[u8], depth: usize, max_depth: usize, max_items: usize) {
     let mut n = 0;
     while r.remaining() >= 12 && n < max_items {
         let Ok(c) = r.chunk() else { break };
-        let head: Vec<String> = data[c.start..c.end().min(c.start + 16)].iter().map(|b| format!("{b:02x}")).collect();
-        println!("{}type 0x{:x} taille {} ver 0x{:x} [{}]", "    ".repeat(depth + 1), c.id, c.size, c.version, head.join(" "));
-        if depth + 1 < max_depth && matches!(c.id, 0x10 | 0x0e | 0x1a | 0x0f | 0x14 | 0x0b | 0x09 | 0x0a | 0x1c | 0x03) {
+        let head: Vec<String> = data[c.start..c.end().min(c.start + 16)]
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        println!(
+            "{}type 0x{:x} taille {} ver 0x{:x} [{}]",
+            "    ".repeat(depth + 1),
+            c.id,
+            c.size,
+            c.version,
+            head.join(" ")
+        );
+        if depth + 1 < max_depth
+            && matches!(
+                c.id,
+                0x10 | 0x0e | 0x1a | 0x0f | 0x14 | 0x0b | 0x09 | 0x0a | 0x1c | 0x03
+            )
+        {
             walk_chunks(&data[c.start..c.end()], depth + 1, max_depth, 6);
         }
         r.skip(&c);
@@ -29,7 +44,12 @@ fn main() -> anyhow::Result<()> {
 
     // 1. Index + pack des personnages
     let idx = PackIndex::parse_encrypted(&fs::read(game.join("character/Reference.Dat"))?)?;
-    println!("character : racine {:?}, {} entrées, {} Mo de données", idx.root, idx.entries.len(), idx.data_size() / 1_000_000);
+    println!(
+        "character : racine {:?}, {} entrées, {} Mo de données",
+        idx.root,
+        idx.entries.len(),
+        idx.data_size() / 1_000_000
+    );
     let mut data = fs::File::open(game.join("character/Data.Dat"))?;
     let mut ok = 0;
     let mut skinned = 0;
@@ -46,7 +66,10 @@ fn main() -> anyhow::Result<()> {
             Err(err) => failed.push(format!("{} : {err}", e.name)),
         }
     }
-    println!("  200 premiers clumps : {ok} lus ({skinned} avec peau), {} échecs", failed.len());
+    println!(
+        "  200 premiers clumps : {ok} lus ({skinned} avec peau), {} échecs",
+        failed.len()
+    );
     for f in failed.iter().take(5) {
         println!("    {f}");
     }
@@ -74,10 +97,18 @@ fn main() -> anyhow::Result<()> {
         c.geometries[0].uv_sets.len()
     );
     for f in c.frames.iter().take(4) {
-        println!("    frame {:?} parent {} hanim {:?}", f.name, f.parent, f.hanim.as_ref().map(|h| h.node_id));
+        println!(
+            "    frame {:?} parent {} hanim {:?}",
+            f.name,
+            f.parent,
+            f.hanim.as_ref().map(|h| h.node_id)
+        );
     }
     for m in c.geometries[0].materials.iter().take(3) {
-        println!("    matériau texture {:?}", m.texture.as_ref().map(|t| &t.name));
+        println!(
+            "    matériau texture {:?}",
+            m.texture.as_ref().map(|t| &t.name)
+        );
     }
 
     // 2. Texture tx1
@@ -96,7 +127,16 @@ fn main() -> anyhow::Result<()> {
                         *formats.entry(format!("{:?}", t.format)).or_insert(0) += 1;
                         if n_tex == 1 {
                             let rgba = t.to_rgba8()?;
-                            println!("tx1 {} : {}x{} {:?} alpha={} mips={} → {} octets RGBA", t.name, t.width, t.height, t.format, t.has_alpha, t.mips.len(), rgba.len());
+                            println!(
+                                "tx1 {} : {}x{} {:?} alpha={} mips={} → {} octets RGBA",
+                                t.name,
+                                t.width,
+                                t.height,
+                                t.format,
+                                t.has_alpha,
+                                t.mips.len(),
+                                rgba.len()
+                            );
                         }
                     }
                 }
@@ -113,7 +153,12 @@ fn main() -> anyhow::Result<()> {
 
     // 3. MagPack
     let ma2 = MagPack::parse(&fs::read(game.join("world/a001717x.ma2"))?)?;
-    println!("a001717x.ma2 : {} entrées, première {:?} ({} o)", ma2.entries.len(), ma2.entries[0].name, ma2.entries[0].size);
+    println!(
+        "a001717x.ma2 : {} entrées, première {:?} ({} o)",
+        ma2.entries.len(),
+        ma2.entries[0].name,
+        ma2.entries[0].size
+    );
     let mut dff_ok = 0;
     let mut unpack_fail = Vec::new();
     let mut shown = false;
@@ -128,7 +173,8 @@ fn main() -> anyhow::Result<()> {
                     if !shown {
                         shown = true;
                         let g = &c.geometries[0];
-                        let (mut lo, mut hi) = (glam::Vec3::splat(f32::MAX), glam::Vec3::splat(f32::MIN));
+                        let (mut lo, mut hi) =
+                            (glam::Vec3::splat(f32::MAX), glam::Vec3::splat(f32::MIN));
                         for v in &g.vertices {
                             lo = lo.min(*v);
                             hi = hi.max(*v);
@@ -145,25 +191,51 @@ fn main() -> anyhow::Result<()> {
             Err(err) => unpack_fail.push(format!("{} : {err}", e.name)),
         }
     }
-    println!("  secteurs .dff décompressés et lus : {dff_ok}/{} ; échecs : {:?}", ma2.entries.iter().filter(|e| e.name.ends_with(".dff")).count(), unpack_fail.iter().take(3).collect::<Vec<_>>());
+    println!(
+        "  secteurs .dff décompressés et lus : {dff_ok}/{} ; échecs : {:?}",
+        ma2.entries
+            .iter()
+            .filter(|e| e.name.ends_with(".dff"))
+            .count(),
+        unpack_fail.iter().take(3).collect::<Vec<_>>()
+    );
     // Les entrées R sont des dictionnaires de textures : on les décrit.
     if let Some(Ok(plain)) = ma2.unpack_named("R272,272.dff") {
         match TextureDictionary::parse(&plain) {
-            Ok(d) => println!("  R272,272 = TXD de {} texture(s) : {}", d.textures.len(), d.textures.iter().map(|t| format!("{} {}x{} {:?}", t.name, t.width, t.height, t.format)).collect::<Vec<_>>().join(" | ")),
+            Ok(d) => println!(
+                "  R272,272 = TXD de {} texture(s) : {}",
+                d.textures.len(),
+                d.textures
+                    .iter()
+                    .map(|t| format!("{} {}x{} {:?}", t.name, t.width, t.height, t.format))
+                    .collect::<Vec<_>>()
+                    .join(" | ")
+            ),
             Err(e) => println!("  R272,272 : TXD illisible ({e})"),
         }
     }
     let b2 = MagPack::parse(&fs::read(game.join("world/b001717x.ma2"))?)?;
     match b2.unpack(&b2.entries[0]) {
         Ok(plain) => {
-            println!("b001717x.ma2 {} : {} o décompressés ; u32 de tête {}", b2.entries[0].name, plain.len(), u32::from_le_bytes(plain[..4].try_into().unwrap()));
+            println!(
+                "b001717x.ma2 {} : {} o décompressés ; u32 de tête {}",
+                b2.entries[0].name,
+                plain.len(),
+                u32::from_le_bytes(plain[..4].try_into().unwrap())
+            );
             walk_chunks(&plain[4..], 0, 2, 3);
             match archrust_data::rw::SectorGeometry::parse(&plain) {
                 Ok(s) => {
                     let g = &s.geometry;
                     let (lo, hi) = s.bounds();
                     println!("  secteur : struct {:?}, {} sommets, {} tri, {} UV, {} mat, normales {}, couleurs {}, bornes {lo:?}..{hi:?}, meshes {}", s.atomic_struct, g.vertices.len(), g.triangles.len(), g.uv_sets.len(), g.materials.len(), g.normals.len(), g.colors.len(), g.meshes.len());
-                    println!("  matériaux : {:?}", g.materials.iter().map(|m| (m.color, m.texture.as_ref().map(|t| t.name.clone()))).collect::<Vec<_>>());
+                    println!(
+                        "  matériaux : {:?}",
+                        g.materials
+                            .iter()
+                            .map(|m| (m.color, m.texture.as_ref().map(|t| t.name.clone())))
+                            .collect::<Vec<_>>()
+                    );
                     if let Some(uv) = g.uv_sets.first() {
                         println!("  UV0 premiers : {:?}", &uv[..4.min(uv.len())]);
                     }
@@ -175,7 +247,11 @@ fn main() -> anyhow::Result<()> {
                 let t = MagPack::parse(&bytes)?;
                 match t.unpack_named("D325,389.dff") {
                     Some(Ok(p)) => match archrust_data::rw::SectorGeometry::parse(&p).map_err(|e| {
-                        println!("  D325,389 : {} o, tête {:02x?}", p.len(), &p[..p.len().min(48)]);
+                        println!(
+                            "  D325,389 : {} o, tête {:02x?}",
+                            p.len(),
+                            &p[..p.len().min(48)]
+                        );
                         walk_chunks(&p[4..], 0, 2, 4);
                         e
                     }) {
@@ -186,30 +262,70 @@ fn main() -> anyhow::Result<()> {
                         Err(e) => println!("  D325,389 : {e}"),
                     },
                     Some(Err(e)) => println!("  D325,389 : {e}"),
-                    None => println!("  D325,389 absent ; entrées : {:?}", t.entries.iter().take(3).map(|e| &e.name).collect::<Vec<_>>()),
+                    None => println!(
+                        "  D325,389 absent ; entrées : {:?}",
+                        t.entries
+                            .iter()
+                            .take(3)
+                            .map(|e| &e.name)
+                            .collect::<Vec<_>>()
+                    ),
                 }
             }
         }
         Err(e) => println!("b001717x.ma2 : {e}"),
     }
     let ma1 = MagPack::parse(&fs::read(game.join("world/a001717x.ma1"))?)?;
-    println!("a001717x.ma1 : {} entrées, {:?} {} o", ma1.entries.len(), ma1.entries[0].name, ma1.entries[0].size);
+    println!(
+        "a001717x.ma1 : {} entrées, {:?} {} o",
+        ma1.entries.len(),
+        ma1.entries[0].name,
+        ma1.entries[0].size
+    );
     match ma1.unpack(&ma1.entries[0]) {
-        Ok(plain) => println!("  {} : {} o décompressés, début {:02x?}", ma1.entries[0].name, plain.len(), &plain[..plain.len().min(24)]),
+        Ok(plain) => println!(
+            "  {} : {} o décompressés, début {:02x?}",
+            ma1.entries[0].name,
+            plain.len(),
+            &plain[..plain.len().min(24)]
+        ),
         Err(e) => println!("  {} : {e}", ma1.entries[0].name),
     }
 
     // 4. Table ini
     let t = IniTable::from_encrypted(&fs::read(game.join("ini/charactertemplate.ini"))?);
     let s = &t.sections[0];
-    println!("charactertemplate.ini : {} sections ; [{}] Name={:?} Race={:?}", t.len(), s.name, s.get("Name"), s.get("Race"));
+    println!(
+        "charactertemplate.ini : {} sections ; [{}] Name={:?} Race={:?}",
+        t.len(),
+        s.name,
+        s.get("Name"),
+        s.get("Race")
+    );
 
     // 5. Autres packs
-    for d in ["object", "etc", "images", "world/octree", "world/grass", "world/water", "character/animation", "effect/clump"] {
-        let ref_path = ["Reference.Dat", "Reference.dat"].iter().map(|n| game.join(d).join(n)).find(|p| p.exists());
+    for d in [
+        "object",
+        "etc",
+        "images",
+        "world/octree",
+        "world/grass",
+        "world/water",
+        "character/animation",
+        "effect/clump",
+    ] {
+        let ref_path = ["Reference.Dat", "Reference.dat"]
+            .iter()
+            .map(|n| game.join(d).join(n))
+            .find(|p| p.exists());
         if let Some(p) = ref_path {
             match PackIndex::parse_encrypted(&fs::read(&p)?) {
-                Ok(i) => println!("{d:<20} racine {:?} {} entrées, ex. {:?}", i.root, i.entries.len(), i.entries.first().map(|e| &e.name)),
+                Ok(i) => println!(
+                    "{d:<20} racine {:?} {} entrées, ex. {:?}",
+                    i.root,
+                    i.entries.len(),
+                    i.entries.first().map(|e| &e.name)
+                ),
                 Err(e) => println!("{d:<20} erreur {e}"),
             }
         }

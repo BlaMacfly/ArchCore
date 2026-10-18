@@ -17,7 +17,10 @@ pub struct Rc4 {
 impl Rc4 {
     /// Planifie la clé (KSA). `key` doit faire de 1 à 256 octets.
     pub fn new(key: &[u8]) -> Self {
-        assert!(!key.is_empty() && key.len() <= 256, "cle RC4 de 1 a 256 octets");
+        assert!(
+            !key.is_empty() && key.len() <= 256,
+            "cle RC4 de 1 a 256 octets"
+        );
         let mut s = [0u8; 256];
         for (n, v) in s.iter_mut().enumerate() {
             *v = n as u8;
@@ -36,7 +39,8 @@ impl Rc4 {
             self.i = self.i.wrapping_add(1);
             self.j = self.j.wrapping_add(self.s[self.i as usize]);
             self.s.swap(self.i as usize, self.j as usize);
-            let k = self.s[(self.s[self.i as usize].wrapping_add(self.s[self.j as usize])) as usize];
+            let k =
+                self.s[(self.s[self.i as usize].wrapping_add(self.s[self.j as usize])) as usize];
             *b ^= k;
         }
     }

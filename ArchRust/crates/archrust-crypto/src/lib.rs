@@ -16,7 +16,10 @@ pub mod pack;
 pub mod rc4;
 
 pub use blowfish::BlowfishLe;
-pub use pack::{decrypt_pack_index, pack_index_key_iv, PackCryptoError};
+pub use pack::{
+    decrypt_overlay_entry, decrypt_pack_index, encrypt_overlay_entry, overlay_key_iv,
+    pack_index_key_iv, PackCryptoError,
+};
 pub use rc4::{capi_crypt, capi_rc4_key, Rc4};
 
 /// Clé texte des tables `ini` et du fichier de serveurs.

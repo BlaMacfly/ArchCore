@@ -38,7 +38,8 @@ fn crypt_packet(op: i8, block: Option<Vec<u8>>) -> Vec<u8> {
     if let Some(b) = block {
         pairs.push((1, Value::Block(b)));
     }
-    build_packet(STARTUP_ENCRYPTION, &sparse(STARTUP_ENCRYPTION, &pairs)).expect("schéma statique valide")
+    build_packet(STARTUP_ENCRYPTION, &sparse(STARTUP_ENCRYPTION, &pairs))
+        .expect("schéma statique valide")
 }
 
 /// Sortie d'une étape : paquets à envoyer, en clair ou chiffrés.
@@ -70,7 +71,10 @@ impl Default for ClientHandshake {
 
 impl ClientHandshake {
     pub fn new() -> Self {
-        Self { state: ClientState::Idle, client_key: random_key() }
+        Self {
+            state: ClientState::Idle,
+            client_key: random_key(),
+        }
     }
 
     /// Premier paquet à envoyer (en clair).
@@ -80,14 +84,21 @@ impl ClientHandshake {
     }
 
     /// Traite un paquet 0x48 reçu (déjà en clair). Rend les paquets à renvoyer.
-    pub fn on_packet(&mut self, crypto: &mut CryptoSession, plain: &[u8]) -> Result<Outgoing, HandshakeError> {
+    pub fn on_packet(
+        &mut self,
+        crypto: &mut CryptoSession,
+        plain: &[u8],
+    ) -> Result<Outgoing, HandshakeError> {
         let pkt: Packet = decode_packet(STARTUP_ENCRYPTION, plain)?;
         let op = pkt.op().unwrap_or(-1);
         let mut out = Outgoing::default();
         match op as i8 {
             crypt_op::SET_ALGO => {}
             crypt_op::PUBLIC_KEY => {
-                let key = pkt.get(1).and_then(Value::as_bytes).ok_or(HandshakeError::BadKey(0))?;
+                let key = pkt
+                    .get(1)
+                    .and_then(Value::as_bytes)
+                    .ok_or(HandshakeError::BadKey(0))?;
                 if key.len() != 32 {
                     return Err(HandshakeError::BadKey(key.len()));
                 }
@@ -95,7 +106,8 @@ impl ClientHandshake {
                 crypto.set_client_key(&self.client_key);
                 let mut enc = self.client_key.to_vec();
                 crypto.server_cipher().unwrap().encrypt_buffer(&mut enc);
-                out.plain.push(crypt_packet(crypt_op::PRIVATE_KEY, Some(enc)));
+                out.plain
+                    .push(crypt_packet(crypt_op::PRIVATE_KEY, Some(enc)));
                 self.state = ClientState::WaitingComplete;
             }
             crypt_op::COMPLETE => {
@@ -115,28 +127,46 @@ pub struct ServerHandshake {
 }
 
 impl ServerHandshake {
-    pub fn on_packet(&mut self, crypto: &mut CryptoSession, plain: &[u8]) -> Result<Outgoing, HandshakeError> {
+    pub fn on_packet(
+        &mut self,
+        crypto: &mut CryptoSession,
+        plain: &[u8],
+    ) -> Result<Outgoing, HandshakeError> {
         let pkt = decode_packet(STARTUP_ENCRYPTION, plain)?;
         let op = pkt.op().unwrap_or(-1);
         let mut out = Outgoing::default();
         match op as i8 {
             crypt_op::REQUEST => {
-                out.plain.push(crypt_packet(crypt_op::SET_ALGO, Some(Vec::new())));
+                out.plain
+                    .push(crypt_packet(crypt_op::SET_ALGO, Some(Vec::new())));
                 let server_key = random_key();
                 crypto.set_server_key(&server_key);
-                out.plain.push(crypt_packet(crypt_op::PUBLIC_KEY, Some(server_key.to_vec())));
+                out.plain.push(crypt_packet(
+                    crypt_op::PUBLIC_KEY,
+                    Some(server_key.to_vec()),
+                ));
             }
             crypt_op::PRIVATE_KEY => {
-                let block = pkt.get(1).and_then(Value::as_bytes).ok_or(HandshakeError::BadKey(0))?;
+                let block = pkt
+                    .get(1)
+                    .and_then(Value::as_bytes)
+                    .ok_or(HandshakeError::BadKey(0))?;
                 if block.len() != 32 {
                     return Err(HandshakeError::BadKey(block.len()));
                 }
                 let mut client_key = block.to_vec();
-                crypto.server_cipher().ok_or(HandshakeError::BadKey(0))?.decrypt_buffer(&mut client_key);
+                crypto
+                    .server_cipher()
+                    .ok_or(HandshakeError::BadKey(0))?
+                    .decrypt_buffer(&mut client_key);
                 crypto.set_client_key(&client_key);
                 crypto.ready = true;
                 let complete = crypt_packet(crypt_op::COMPLETE, None);
-                out.encrypted.push(crypto.encode_frame(&complete, Direction::ServerToClient).expect("clé serveur posée"));
+                out.encrypted.push(
+                    crypto
+                        .encode_frame(&complete, Direction::ServerToClient)
+                        .expect("clé serveur posée"),
+                );
                 self.done = true;
             }
             other => return Err(HandshakeError::Unexpected(other as i64)),
@@ -175,7 +205,9 @@ mod tests {
 
         // Les deux côtés partagent maintenant les mêmes clés.
         let msg = crypt_packet(crypt_op::COMPLETE, None);
-        let f = ccrypto.encode_frame(&msg, Direction::ClientToServer).unwrap();
+        let f = ccrypto
+            .encode_frame(&msg, Direction::ClientToServer)
+            .unwrap();
         assert_eq!(scrypto.decode_frame(&f).unwrap(), msg);
     }
 }

@@ -61,10 +61,84 @@ pub fn decrypt_pack_index(raw: &[u8]) -> Result<Vec<u8>, PackCryptoError> {
 /// Chiffre un index en clair (pour les outils d'empaquetage) : données puis étiquette.
 pub fn encrypt_pack_index(plain: &[u8]) -> Vec<u8> {
     let (key, iv) = pack_index_key_iv();
+    gcm_encrypt(&key, &iv, plain)
+}
+
+// ---------------------------------------------------------------------------------------------
+// Entrées du pack de surcharge `etc`
+// ---------------------------------------------------------------------------------------------
+//
+// Relevé dans la lecture d'un fichier du système de fichiers virtuel du client (`FUN_1401444b0`
+// sur Archonia.exe sha256 e9c7609b…) : quand le fichier a été servi par le pack `etc`
+// (racine `packed_client`, pack de surcharge contenant des chemins complets comme
+// `character\a0001598.ecl` ou `texture\character\high\a01584aa.tx1`), son contenu est déchiffré en
+// AES-128-GCM avec une seconde clé, obfusquée de la même façon que celle de l'index. Décodées :
+// clé `AgcmCharacterOpt`, IV `AgcmOptionDesign`, étiquette de 16 octets en fin. Le résultat a
+// ensuite son format habituel (clump RenderWare, `.tx1` encore chiffré RC4…). Vérifié :
+// `etc/character\a0001598.ecl` déchiffré est identique octet pour octet à `character/a0001598.ecl`.
+
+/// Clé obfusquée (17 octets) des entrées du pack `etc`.
+const OVERLAY_KEY_OBF: [u8; 17] = [
+    0x73, 0x54, 0x57, 0x58, 0x75, 0x5f, 0x59, 0x4b, 0x5b, 0x58, 0x48, 0x58, 0x4c, 0x70, 0x30, 0x35,
+    0x42,
+];
+/// IV obfusqué (17 octets) des entrées du pack `etc`.
+const OVERLAY_IV_OBF: [u8; 17] = [
+    0x73, 0x54, 0x57, 0x58, 0x79, 0x47, 0x4c, 0x50, 0x55, 0x55, 0x78, 0x58, 0x4d, 0x56, 0x27, 0x2f,
+    0x42,
+];
+
+/// Désobfuscation du client : octet `i` XOR `(i % 0x3a) + 0x32`.
+fn deobfuscate<const N: usize>(bytes: [u8; N]) -> [u8; N] {
+    let mut out = bytes;
+    for (i, b) in out.iter_mut().enumerate() {
+        *b ^= ((i % 0x3a) as u8).wrapping_add(0x32);
+    }
+    out
+}
+
+/// Clé et IV AES des entrées du pack de surcharge `etc`.
+pub fn overlay_key_iv() -> ([u8; 16], [u8; 16]) {
+    let k = deobfuscate(OVERLAY_KEY_OBF);
+    let v = deobfuscate(OVERLAY_IV_OBF);
+    let mut key = [0u8; 16];
+    let mut iv = [0u8; 16];
+    key.copy_from_slice(&k[..16]);
+    iv.copy_from_slice(&v[..16]);
+    (key, iv)
+}
+
+/// Déchiffre une entrée lue dans le pack `etc` (étiquette de 16 octets en fin).
+pub fn decrypt_overlay_entry(raw: &[u8]) -> Result<Vec<u8>, PackCryptoError> {
+    if raw.len() < 16 {
+        return Err(PackCryptoError::TooShort(raw.len()));
+    }
+    let (key, iv) = overlay_key_iv();
     let cipher = Aes128Gcm16::new_from_slice(&key).expect("clé AES-128 de 16 octets");
-    let nonce = Nonce::<U16>::from_slice(&iv);
     cipher
-        .encrypt(nonce, Payload { msg: plain, aad: &[] })
+        .decrypt(
+            Nonce::<U16>::from_slice(&iv),
+            Payload { msg: raw, aad: &[] },
+        )
+        .map_err(|_| PackCryptoError::Auth)
+}
+
+/// Chiffre une entrée pour le pack `etc` (outils d'empaquetage).
+pub fn encrypt_overlay_entry(plain: &[u8]) -> Vec<u8> {
+    let (key, iv) = overlay_key_iv();
+    gcm_encrypt(&key, &iv, plain)
+}
+
+fn gcm_encrypt(key: &[u8; 16], iv: &[u8; 16], plain: &[u8]) -> Vec<u8> {
+    let cipher = Aes128Gcm16::new_from_slice(key).expect("clé AES-128 de 16 octets");
+    cipher
+        .encrypt(
+            Nonce::<U16>::from_slice(iv),
+            Payload {
+                msg: plain,
+                aad: &[],
+            },
+        )
         .expect("chiffrement AES-GCM")
 }
 
@@ -77,6 +151,17 @@ mod tests {
         let (key, iv) = pack_index_key_iv();
         assert_eq!(&key, b"AgcmUIOPTIONSOFA");
         assert_eq!(&iv, b"AgcmCharactersOf");
+    }
+
+    #[test]
+    fn overlay_key_decode_and_roundtrip() {
+        let (key, iv) = overlay_key_iv();
+        assert_eq!(&key, b"AgcmCharacterOpt");
+        assert_eq!(&iv, b"AgcmOptionDesign");
+        let enc = encrypt_overlay_entry(b"clump");
+        assert_eq!(decrypt_overlay_entry(&enc).unwrap(), b"clump");
+        // La clé de l'index ne déchiffre pas une entrée de surcharge, et inversement.
+        assert!(decrypt_pack_index(&enc).is_err());
     }
 
     #[test]

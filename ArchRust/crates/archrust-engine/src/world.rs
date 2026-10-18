@@ -7,10 +7,13 @@
 //! * `world/b%06dx.ma2` → `D{sx},{sy}.dff` : géométrie (1536 sommets, 512 triangles, 6 jeux d'UV) ;
 //! * `world/a%06dx.ma2` → `R{sx},{sy}.dff` : dictionnaire de textures du secteur (128×128 DXT1) ;
 //! * `world/a%06dx.ma1` → `C{sx},{sy}.amf` : grille d'attributs 16×16 (collision, zones).
+//!
+//! Un patch peut remplacer un secteur entier par un glTF (`[[models]] match = "world/D272,272.dff"`),
+//! posé à l'origine du secteur ; la hauteur du sol est alors tirée de ses sommets.
 
 use crate::assets::Assets;
 use crate::render::{DrawItem, Mesh, Renderer};
-use crate::scene::build_geometry_mesh;
+use crate::scene::{build_geometry_mesh, patched_model_meshes};
 use archrust_crypto::{capi_crypt, KEY_TEXTURE};
 use archrust_data::magpack::MagPack;
 use archrust_data::rw::{SectorGeometry, TextureDictionary};
@@ -23,7 +26,10 @@ pub const SECTOR_OFFSET: i32 = 400;
 
 /// Indice de secteur d'une position monde.
 pub fn sector_of(x: f32, z: f32) -> (i32, i32) {
-    ((x / SECTOR_SIZE).floor() as i32 + SECTOR_OFFSET, (z / SECTOR_SIZE).floor() as i32 + SECTOR_OFFSET)
+    (
+        (x / SECTOR_SIZE).floor() as i32 + SECTOR_OFFSET,
+        (z / SECTOR_SIZE).floor() as i32 + SECTOR_OFFSET,
+    )
 }
 
 /// Numéro de tuile d'un secteur.
@@ -33,12 +39,98 @@ pub fn tile_of(sx: i32, sy: i32) -> u32 {
 
 /// Origine monde (coin bas-gauche) d'un secteur.
 pub fn sector_origin(sx: i32, sy: i32) -> Vec3 {
-    Vec3::new((sx - SECTOR_OFFSET) as f32 * SECTOR_SIZE, 0.0, (sy - SECTOR_OFFSET) as f32 * SECTOR_SIZE)
+    Vec3::new(
+        (sx - SECTOR_OFFSET) as f32 * SECTOR_SIZE,
+        0.0,
+        (sy - SECTOR_OFFSET) as f32 * SECTOR_SIZE,
+    )
+}
+
+/// Cellules par secteur et taille d'une cellule (6400 / 16).
+pub const CELLS: usize = 16;
+pub const CELL_SIZE: f32 = SECTOR_SIZE / CELLS as f32;
+
+/// Hauteurs aux 17 × 17 coins de cellule d'un secteur, construites à partir des sommets de sa
+/// géométrie (chaque sommet est un coin de cellule).
+#[derive(Debug, Clone)]
+pub struct HeightField {
+    pub origin: Vec3,
+    grid: Vec<f32>,
+    filled: Vec<bool>,
+}
+
+impl HeightField {
+    pub fn from_vertices(sx: i32, sy: i32, vertices: &[Vec3]) -> Self {
+        let origin = sector_origin(sx, sy);
+        let n = CELLS + 1;
+        let mut grid = vec![0f32; n * n];
+        let mut filled = vec![false; n * n];
+        for v in vertices {
+            let i = ((v.x - origin.x) / CELL_SIZE)
+                .round()
+                .clamp(0.0, CELLS as f32) as usize;
+            let j = ((v.z - origin.z) / CELL_SIZE)
+                .round()
+                .clamp(0.0, CELLS as f32) as usize;
+            let k = j * n + i;
+            if !filled[k] || v.y > grid[k] {
+                grid[k] = v.y;
+                filled[k] = true;
+            }
+        }
+        // Les coins jamais visés prennent la hauteur d'un voisin rempli.
+        let mut hf = HeightField {
+            origin,
+            grid,
+            filled,
+        };
+        for k in 0..n * n {
+            if !hf.filled[k] {
+                let (i, j) = (k % n, k / n);
+                let neighbours = [
+                    (i.wrapping_sub(1), j),
+                    (i + 1, j),
+                    (i, j.wrapping_sub(1)),
+                    (i, j + 1),
+                ];
+                if let Some(h) = neighbours
+                    .iter()
+                    .filter(|(a, b)| *a < n && *b < n)
+                    .map(|(a, b)| b * n + a)
+                    .find(|&m| hf.filled[m])
+                    .map(|m| hf.grid[m])
+                {
+                    hf.grid[k] = h;
+                }
+            }
+        }
+        hf
+    }
+
+    fn corner(&self, i: usize, j: usize) -> f32 {
+        self.grid[j.min(CELLS) * (CELLS + 1) + i.min(CELLS)]
+    }
+
+    /// Hauteur interpolée (bilinéaire) en un point du secteur.
+    pub fn height_at(&self, x: f32, z: f32) -> f32 {
+        let fx = ((x - self.origin.x) / CELL_SIZE).clamp(0.0, CELLS as f32 - 0.0001);
+        let fz = ((z - self.origin.z) / CELL_SIZE).clamp(0.0, CELLS as f32 - 0.0001);
+        let (i, j) = (fx.floor() as usize, fz.floor() as usize);
+        let (tx, tz) = (fx - i as f32, fz - j as f32);
+        let h00 = self.corner(i, j);
+        let h10 = self.corner(i + 1, j);
+        let h01 = self.corner(i, j + 1);
+        let h11 = self.corner(i + 1, j + 1);
+        let a = h00 + (h10 - h00) * tx;
+        let b = h01 + (h11 - h01) * tx;
+        a + (b - a) * tz
+    }
 }
 
 pub struct Terrain {
     pub radius: i32,
-    sectors: HashMap<(i32, i32), Arc<Mesh>>,
+    sectors: HashMap<(i32, i32), Vec<(Arc<Mesh>, Mat4)>>,
+    heights: HashMap<(i32, i32), HeightField>,
     failed: HashSet<(i32, i32)>,
     tiles_a: HashMap<u32, Option<Arc<MagPack>>>,
     tiles_b: HashMap<u32, Option<Arc<MagPack>>>,
@@ -54,7 +146,16 @@ impl Default for Terrain {
 
 impl Terrain {
     pub fn new(radius: i32) -> Self {
-        Self { radius, sectors: HashMap::new(), failed: HashSet::new(), tiles_a: HashMap::new(), tiles_b: HashMap::new(), loads_per_frame: 2, last_center: None }
+        Self {
+            radius,
+            sectors: HashMap::new(),
+            heights: HashMap::new(),
+            failed: HashSet::new(),
+            tiles_a: HashMap::new(),
+            tiles_b: HashMap::new(),
+            loads_per_frame: 2,
+            last_center: None,
+        }
     }
 
     pub fn loaded_count(&self) -> usize {
@@ -62,7 +163,11 @@ impl Terrain {
     }
 
     fn tile(&mut self, assets: &Assets, prefix: char, tile: u32) -> Option<Arc<MagPack>> {
-        let cache = if prefix == 'a' { &mut self.tiles_a } else { &mut self.tiles_b };
+        let cache = if prefix == 'a' {
+            &mut self.tiles_a
+        } else {
+            &mut self.tiles_b
+        };
         if let Some(t) = cache.get(&tile) {
             return t.clone();
         }
@@ -77,7 +182,36 @@ impl Terrain {
         loaded
     }
 
-    fn load_sector(&mut self, renderer: &mut Renderer, assets: &Assets, sx: i32, sy: i32) -> Option<Arc<Mesh>> {
+    fn load_sector(
+        &mut self,
+        renderer: &mut Renderer,
+        assets: &Assets,
+        sx: i32,
+        sy: i32,
+    ) -> Option<Vec<(Arc<Mesh>, Mat4)>> {
+        // 1. Un patch fournit un glTF pour ce secteur : posé à l'origine du secteur, hauteurs tirées de ses sommets.
+        let key = format!("world/D{sx},{sy}.dff");
+        if let Some(meshes) = patched_model_meshes(renderer, assets, &key) {
+            let root = Mat4::from_translation(sector_origin(sx, sy));
+            if let Some(Ok(pm)) = assets.patched_model(&key) {
+                let pts = pm.model.world_positions(
+                    root * Mat4::from_scale(Vec3::splat(if pm.scale > 0.0 {
+                        pm.scale
+                    } else {
+                        1.0
+                    })),
+                );
+                self.heights
+                    .insert((sx, sy), HeightField::from_vertices(sx, sy, &pts));
+            }
+            return Some(
+                meshes
+                    .into_iter()
+                    .map(|(m, local)| (m, root * local))
+                    .collect(),
+            );
+        }
+        // 2. Géométrie du client.
         let tile = tile_of(sx, sy);
         let b = self.tile(assets, 'b', tile)?;
         let name = format!("D{sx},{sy}.dff");
@@ -100,11 +234,20 @@ impl Terrain {
         if renderer.texture(&r_name).is_none() {
             if let Some(a) = self.tile(assets, 'a', tile) {
                 if let Some(Ok(txd_plain)) = a.unpack_named(&format!("{r_name}.dff")) {
-                    let txd_plain = if txd_plain.len() > 4 && txd_plain[0] == 0x16 { txd_plain } else { capi_crypt(KEY_TEXTURE, &txd_plain) };
+                    let txd_plain = if txd_plain.len() > 4 && txd_plain[0] == 0x16 {
+                        txd_plain
+                    } else {
+                        capi_crypt(KEY_TEXTURE, &txd_plain)
+                    };
                     if let Ok(dict) = TextureDictionary::parse(&txd_plain) {
                         if let Some(t) = dict.textures.first() {
                             if let Ok(rgba) = t.to_rgba8() {
-                                renderer.upload_texture(&r_name, t.mips[0].width, t.mips[0].height, &rgba);
+                                renderer.upload_texture(
+                                    &r_name,
+                                    t.mips[0].width,
+                                    t.mips[0].height,
+                                    &rgba,
+                                );
                             }
                         }
                     }
@@ -112,14 +255,21 @@ impl Terrain {
             }
         }
         let mut geometry = sector.geometry;
+        self.heights.insert(
+            (sx, sy),
+            HeightField::from_vertices(sx, sy, &geometry.vertices),
+        );
         // Le matériau sans texture reçoit la texture du secteur (carte de couleurs).
         for m in geometry.materials.iter_mut() {
             if m.texture.is_none() && renderer.texture(&r_name).is_some() {
-                m.texture = Some(archrust_data::rw::Texture { name: r_name.clone(), ..Default::default() });
+                m.texture = Some(archrust_data::rw::Texture {
+                    name: r_name.clone(),
+                    ..Default::default()
+                });
             }
         }
         let mesh = Arc::new(build_geometry_mesh(renderer, assets, &geometry));
-        Some(mesh)
+        Some(vec![(mesh, Mat4::IDENTITY)])
     }
 
     /// Charge progressivement les secteurs autour de `center`, décharge les lointains.
@@ -128,8 +278,12 @@ impl Terrain {
         if self.last_center != Some((cx, cy)) {
             self.last_center = Some((cx, cy));
             let r = self.radius + 2;
-            self.sectors.retain(|&(sx, sy), _| (sx - cx).abs() <= r && (sy - cy).abs() <= r);
-            self.failed.retain(|&(sx, sy)| (sx - cx).abs() <= r && (sy - cy).abs() <= r);
+            self.sectors
+                .retain(|&(sx, sy), _| (sx - cx).abs() <= r && (sy - cy).abs() <= r);
+            self.heights
+                .retain(|&(sx, sy), _| (sx - cx).abs() <= r && (sy - cy).abs() <= r);
+            self.failed
+                .retain(|&(sx, sy)| (sx - cx).abs() <= r && (sy - cy).abs() <= r);
         }
         let mut budget = self.loads_per_frame;
         // Du plus proche au plus lointain.
@@ -148,8 +302,8 @@ impl Terrain {
                 continue;
             }
             match self.load_sector(renderer, assets, sx, sy) {
-                Some(mesh) => {
-                    self.sectors.insert((sx, sy), mesh);
+                Some(meshes) => {
+                    self.sectors.insert((sx, sy), meshes);
                 }
                 None => {
                     self.failed.insert((sx, sy));
@@ -160,14 +314,57 @@ impl Terrain {
     }
 
     pub fn draw_items(&self) -> Vec<DrawItem> {
-        self.sectors.values().map(|m| DrawItem { mesh: m.clone(), model: Mat4::IDENTITY, tint: [1.0; 4] }).collect()
+        self.sectors
+            .values()
+            .flatten()
+            .map(|(m, model)| DrawItem {
+                mesh: m.clone(),
+                model: *model,
+                tint: [1.0; 4],
+            })
+            .collect()
     }
 
-    /// Hauteur approximative du terrain sous (x, z) : plus haut sommet du secteur proche du point.
+    /// Hauteur du terrain sous (x, z), si le secteur est chargé.
     pub fn height_at(&self, x: f32, z: f32) -> Option<f32> {
-        let key = sector_of(x, z);
-        let mesh = self.sectors.get(&key)?;
-        Some(mesh.bounds_center.y)
+        self.heights
+            .get(&sector_of(x, z))
+            .map(|h| h.height_at(x, z))
+    }
+
+    /// Premier point du terrain touché par un rayon (marche à pas fixe puis dichotomie).
+    pub fn raycast(&self, origin: Vec3, dir: Vec3, max_dist: f32) -> Option<Vec3> {
+        let dir = dir.normalize_or_zero();
+        if dir == Vec3::ZERO {
+            return None;
+        }
+        let step = 100.0;
+        let mut t = 0.0;
+        let mut prev_above: Option<(f32, f32)> = None; // (t, écart au sol)
+        while t <= max_dist {
+            let p = origin + dir * t;
+            if let Some(h) = self.height_at(p.x, p.z) {
+                let gap = p.y - h;
+                if gap <= 0.0 {
+                    let (mut lo, mut hi) = (prev_above.map(|(t0, _)| t0).unwrap_or(t), t);
+                    for _ in 0..16 {
+                        let mid = (lo + hi) / 2.0;
+                        let q = origin + dir * mid;
+                        match self.height_at(q.x, q.z) {
+                            Some(hm) if q.y - hm <= 0.0 => hi = mid,
+                            _ => lo = mid,
+                        }
+                    }
+                    let q = origin + dir * hi;
+                    return Some(Vec3::new(q.x, self.height_at(q.x, q.z).unwrap_or(q.y), q.z));
+                }
+                prev_above = Some((t, gap));
+            } else {
+                prev_above = None;
+            }
+            t += step;
+        }
+        None
     }
 }
 
@@ -176,11 +373,45 @@ mod tests {
     use super::*;
 
     #[test]
+    fn heightfield_bilinear_and_raycast() {
+        // Plan incliné : y = x - origine.x (sur 6400 unités).
+        let origin = sector_origin(272, 272);
+        let mut verts = Vec::new();
+        for j in 0..=CELLS {
+            for i in 0..=CELLS {
+                verts.push(Vec3::new(
+                    origin.x + i as f32 * CELL_SIZE,
+                    i as f32 * CELL_SIZE,
+                    origin.z + j as f32 * CELL_SIZE,
+                ));
+            }
+        }
+        let hf = HeightField::from_vertices(272, 272, &verts);
+        assert!((hf.height_at(origin.x + 1000.0, origin.z + 3000.0) - 1000.0).abs() < 0.01);
+        let mut t = Terrain::new(1);
+        t.heights.insert((272, 272), hf);
+        let hit = t
+            .raycast(
+                Vec3::new(origin.x + 2000.0, 5000.0, origin.z + 2000.0),
+                Vec3::new(0.0, -1.0, 0.0),
+                10000.0,
+            )
+            .unwrap();
+        assert!((hit.y - 2000.0).abs() < 1.0, "{hit:?}");
+        assert!(t
+            .raycast(Vec3::new(0.0, 100.0, 0.0), Vec3::Y, 1000.0)
+            .is_none());
+    }
+
+    #[test]
     fn mapping() {
         assert_eq!(sector_of(-819200.0, -819200.0), (272, 272));
         assert_eq!(sector_of(-812800.1, -812800.1), (272, 272));
         assert_eq!(sector_of(-475955.0, -66219.0), (325, 389));
         assert_eq!(tile_of(325, 389), 2024);
-        assert_eq!(sector_origin(272, 272), Vec3::new(-819200.0, 0.0, -819200.0));
+        assert_eq!(
+            sector_origin(272, 272),
+            Vec3::new(-819200.0, 0.0, -819200.0)
+        );
     }
 }

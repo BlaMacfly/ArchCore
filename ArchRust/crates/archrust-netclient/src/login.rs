@@ -88,7 +88,12 @@ pub fn character_summary(p: &Incoming) -> Option<CharacterSummary> {
         .and_then(|(_, v)| v.get(7).cloned().flatten())
         .and_then(|v| v.as_i64())
         .unwrap_or(0) as i32;
-    Some(CharacterSummary { cid, tid, name, level })
+    Some(CharacterSummary {
+        cid,
+        tid,
+        name,
+        level,
+    })
 }
 
 impl LoginClient {
@@ -97,18 +102,38 @@ impl LoginClient {
         let mut conn = Connection::connect("login", host, port).await?;
         conn.handshake().await?;
 
-        conn.send(main::WORLD, &sparse(main::WORLD, &[(0, Value::I8(world_op::SERVER_LIST_REQ))])).await?;
-        let ans = conn.expect(packet_type::WORLD, Some(world_op::SERVER_LIST_ANS as i64)).await?;
+        conn.send(
+            main::WORLD,
+            &sparse(main::WORLD, &[(0, Value::I8(world_op::SERVER_LIST_REQ))]),
+        )
+        .await?;
+        let ans = conn
+            .expect(packet_type::WORLD, Some(world_op::SERVER_LIST_ANS as i64))
+            .await?;
         let worlds = parse_world_list(&text(ans.get(3)));
-        log::info!("[login] mondes : {:?}", worlds.iter().map(|w| &w.name).collect::<Vec<_>>());
+        log::info!(
+            "[login] mondes : {:?}",
+            worlds.iter().map(|w| &w.name).collect::<Vec<_>>()
+        );
 
-        conn.send(main::LOGIN, &sparse(main::LOGIN, &[(0, Value::I8(login_op::HASHKEY))])).await?;
-        let hk = conn.expect(packet_type::LOGIN, Some(login_op::HASHKEY as i64)).await?;
+        conn.send(
+            main::LOGIN,
+            &sparse(main::LOGIN, &[(0, Value::I8(login_op::HASHKEY))]),
+        )
+        .await?;
+        let hk = conn
+            .expect(packet_type::LOGIN, Some(login_op::HASHKEY as i64))
+            .await?;
         let hash_key = text(hk.get(1));
         if hash_key.is_empty() {
             return Err(NetError::Server("clé de hachage vide".into()));
         }
-        Ok(Self { conn, worlds, hash_key, names: Vec::new() })
+        Ok(Self {
+            conn,
+            worlds,
+            hash_key,
+            names: Vec::new(),
+        })
     }
 
     /// Authentifie le compte. Rend l'erreur du serveur (code de résultat) en cas de refus.
@@ -129,7 +154,9 @@ impl LoginClient {
         let ans = self.conn.expect(packet_type::LOGIN, None).await?;
         if ans.op() == Some(login_op::LOGIN_RESULT as i64) {
             let code = ans.get(10).and_then(Value::as_i64).unwrap_or(-1);
-            return Err(NetError::Server(format!("connexion refusée (résultat {code})")));
+            return Err(NetError::Server(format!(
+                "connexion refusée (résultat {code})"
+            )));
         }
         log::info!("[login] compte authentifié (op {:?})", ans.op());
         Ok(())
@@ -138,9 +165,17 @@ impl LoginClient {
     /// Choisit un monde et récupère les noms de personnages (op 3/4/5).
     pub async fn select_world(&mut self, world: &str) -> Result<Vec<String>, NetError> {
         self.conn
-            .send(main::LOGIN, &sparse(main::LOGIN, &[(0, Value::I8(login_op::UNION_INFO)), (7, Value::str(world))]))
+            .send(
+                main::LOGIN,
+                &sparse(
+                    main::LOGIN,
+                    &[(0, Value::I8(login_op::UNION_INFO)), (7, Value::str(world))],
+                ),
+            )
             .await?;
-        self.conn.expect(packet_type::LOGIN, Some(login_op::UNION_INFO as i64)).await?;
+        self.conn
+            .expect(packet_type::LOGIN, Some(login_op::UNION_INFO as i64))
+            .await?;
         let mut names = Vec::new();
         loop {
             let p = self.conn.expect(packet_type::LOGIN, None).await?;
@@ -161,13 +196,19 @@ impl LoginClient {
 
     /// Liste détaillée des personnages (op 6 → paquets CHARACTER → op 7).
     pub async fn list_characters(&mut self) -> Result<Vec<CharacterSummary>, NetError> {
-        self.conn.send(main::LOGIN, &sparse(main::LOGIN, &[(0, Value::I8(login_op::CHAR_LIST))])).await?;
+        self.conn
+            .send(
+                main::LOGIN,
+                &sparse(main::LOGIN, &[(0, Value::I8(login_op::CHAR_LIST))]),
+            )
+            .await?;
         let mut chars = Vec::new();
         loop {
             let p = self
                 .conn
                 .expect_where("liste des personnages", |p| {
-                    p.packet_type == packet_type::CHARACTER || p.is(packet_type::LOGIN, Some(login_op::CHAR_LIST_FINISH as i64))
+                    p.packet_type == packet_type::CHARACTER
+                        || p.is(packet_type::LOGIN, Some(login_op::CHAR_LIST_FINISH as i64))
                 })
                 .await?;
             if p.packet_type == packet_type::LOGIN {
@@ -182,13 +223,25 @@ impl LoginClient {
 
     /// Entre dans l'écran de création (op 10) et rend le nombre de modèles de base reçus.
     pub async fn enter_creation(&mut self) -> Result<usize, NetError> {
-        self.conn.send(main::LOGIN, &sparse(main::LOGIN, &[(0, Value::I8(login_op::CHAR_CREATION_ENTER))])).await?;
+        self.conn
+            .send(
+                main::LOGIN,
+                &sparse(
+                    main::LOGIN,
+                    &[(0, Value::I8(login_op::CHAR_CREATION_ENTER))],
+                ),
+            )
+            .await?;
         let mut bases = 0;
         loop {
             let p = self
                 .conn
                 .expect_where("écran de création", |p| {
-                    p.packet_type == packet_type::CHARACTER || p.is(packet_type::LOGIN, Some(login_op::CHAR_CREATION_ENTER as i64))
+                    p.packet_type == packet_type::CHARACTER
+                        || p.is(
+                            packet_type::LOGIN,
+                            Some(login_op::CHAR_CREATION_ENTER as i64),
+                        )
                 })
                 .await?;
             if p.packet_type == packet_type::LOGIN {
@@ -200,36 +253,95 @@ impl LoginClient {
     }
 
     /// Crée un personnage (op 11) ; rend son CID.
-    pub async fn create_character(&mut self, name: &str, tid: i32, hair: i32, face: i32) -> Result<i32, NetError> {
+    pub async fn create_character(
+        &mut self,
+        name: &str,
+        tid: i32,
+        hair: i32,
+        face: i32,
+    ) -> Result<i32, NetError> {
         let info = build_mini(
             mini::LOGIN_CHAR_INFO,
-            &sparse(mini::LOGIN_CHAR_INFO, &[(0, Value::I32(tid)), (1, Value::str(name)), (6, Value::I32(hair)), (7, Value::I32(face))]),
+            &sparse(
+                mini::LOGIN_CHAR_INFO,
+                &[
+                    (0, Value::I32(tid)),
+                    (1, Value::str(name)),
+                    (6, Value::I32(hair)),
+                    (7, Value::I32(face)),
+                ],
+            ),
         )?;
         self.conn
-            .send(main::LOGIN, &sparse(main::LOGIN, &[(0, Value::I8(login_op::CREATE_CHAR)), (8, Value::Packet(info))]))
+            .send(
+                main::LOGIN,
+                &sparse(
+                    main::LOGIN,
+                    &[
+                        (0, Value::I8(login_op::CREATE_CHAR)),
+                        (8, Value::Packet(info)),
+                    ],
+                ),
+            )
             .await?;
         let ans = self.conn.expect(packet_type::LOGIN, None).await?;
         if ans.op() == Some(login_op::LOGIN_RESULT as i64) {
             let code = ans.get(10).and_then(Value::as_i64).unwrap_or(-1);
-            return Err(NetError::Server(format!("création refusée (résultat {code})")));
+            return Err(NetError::Server(format!(
+                "création refusée (résultat {code})"
+            )));
         }
         self.conn.expect(packet_type::CHARACTER, None).await?;
-        let fin = self.conn.expect(packet_type::LOGIN, Some(login_op::CREATE_CHAR_FINISH as i64)).await?;
+        let fin = self
+            .conn
+            .expect(
+                packet_type::LOGIN,
+                Some(login_op::CREATE_CHAR_FINISH as i64),
+            )
+            .await?;
         let cid = fin.get(6).and_then(Value::as_i64).unwrap_or(0) as i32;
         self.names.push(name.to_string());
         Ok(cid)
     }
 
     /// Demande l'entrée dans le monde avec un personnage ; rend le billet (clé d'auth + adresse).
-    pub async fn enter_world(&mut self, character: &str, world: &str) -> Result<WorldTicket, NetError> {
-        let info = build_mini(mini::LOGIN_CHAR_INFO, &sparse(mini::LOGIN_CHAR_INFO, &[(1, Value::str(character))]))?;
+    pub async fn enter_world(
+        &mut self,
+        character: &str,
+        world: &str,
+    ) -> Result<WorldTicket, NetError> {
+        let info = build_mini(
+            mini::LOGIN_CHAR_INFO,
+            &sparse(mini::LOGIN_CHAR_INFO, &[(1, Value::str(character))]),
+        )?;
         self.conn
-            .send(main::LOGIN, &sparse(main::LOGIN, &[(0, Value::I8(login_op::WORLD_ENTER)), (8, Value::Packet(info))]))
+            .send(
+                main::LOGIN,
+                &sparse(
+                    main::LOGIN,
+                    &[
+                        (0, Value::I8(login_op::WORLD_ENTER)),
+                        (8, Value::Packet(info)),
+                    ],
+                ),
+            )
             .await?;
-        let auth = self.conn.expect(packet_type::CHAR_MANAGER, Some(char_mgr_op::AUTH_KEY as i64)).await?;
+        let auth = self
+            .conn
+            .expect(
+                packet_type::CHAR_MANAGER,
+                Some(char_mgr_op::AUTH_KEY as i64),
+            )
+            .await?;
         let auth_key = auth.get(6).and_then(Value::as_i64).unwrap_or(0) as i32;
-        let enter = self.conn.expect(packet_type::LOGIN, Some(login_op::WORLD_ENTER as i64)).await?;
-        let addr_mini = enter.get(9).and_then(Value::as_bytes).ok_or_else(|| NetError::Server("adresse du monde absente".into()))?;
+        let enter = self
+            .conn
+            .expect(packet_type::LOGIN, Some(login_op::WORLD_ENTER as i64))
+            .await?;
+        let addr_mini = enter
+            .get(9)
+            .and_then(Value::as_bytes)
+            .ok_or_else(|| NetError::Server("adresse du monde absente".into()))?;
         let (_, v) = decode_mini(mini::LOGIN_SERVER_INFO, addr_mini)?;
         let address = text(v.first().and_then(|x| x.as_ref()));
         let (host, port) = address
@@ -237,7 +349,13 @@ impl LoginClient {
             .and_then(|(h, p)| p.parse::<u16>().ok().map(|p| (h.to_string(), p)))
             .ok_or_else(|| NetError::Server(format!("adresse du monde invalide {address:?}")))?;
         log::info!("[login] billet pour {character}@{world} : clé {auth_key}, monde {host}:{port}");
-        Ok(WorldTicket { character: character.to_string(), world: world.to_string(), auth_key, host, port })
+        Ok(WorldTicket {
+            character: character.to_string(),
+            world: world.to_string(),
+            auth_key,
+            host,
+            port,
+        })
     }
 
     pub async fn close(self) {

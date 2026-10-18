@@ -1,0 +1,42 @@
+# free-assets — ressources libres d'ArchRust (publiées avec le dépôt).
+#
+# Ce dossier est un patch chargé avec la priorité la plus haute : chaque ressource qu'il fournit
+# remplace celle du client d'origine. Créations originales sous licence libre (CC0 ou CC-BY
+# recommandées), voir CREDITS.md. Aucune texture du client, même retouchée, n'est publiée ici.
+#
+# Ajoute tes fichiers puis déclare-les ci-dessous. Noms de textures : ceux du client (ex. "a0057aab",
+# ou "R325,389" pour la carte de couleurs d'un secteur, motif * accepté). Modèles : glTF/GLB.
+
+[patch]
+id = "free-assets"
+name = "Assets libres ArchRust"
+version = "0.1.0"
+author = "BlaMacfly et contributeurs"
+priority = 1000
+description = "Ressources originales libres remplaçant progressivement celles du client"
+min_archrust = "0.1"
+
+# [[textures]]
+# match = "a0057aab"
+# file = "textures/a0057aab.png"
+# scale = 1.0
+
+# Modèle glTF/GLB (scène par défaut : nœuds, maillages, UV0, couleurs, texture de base) qui remplace
+# le clump du client ET ses textures. `scale` convertit les mètres du glTF en unités ArchLord (≈ cm).
+# Pour essayer sans modèle à soi : `cargo run -p archrust-engine --example cube_glb -- patches/exemple-gltf`
+# écrit un patch avec un cube texturé, puis `cargo run -- play --no-client --screenshot docs/captures/gltf.png`.
+# [[models]]
+# match = "character/a0000060.ecl"   # TID 96, humain par défaut ; `b0000060.ecl` = armure par défaut
+# file = "models/humain.glb"
+# scale = 100.0
+
+# [[files]]
+# path = "ini/npc.ini"
+# file = "files/npc.ini"
+
+# --- Textures libres intégrées (créations originales, voir CREDITS.md) ---
+# Armure par défaut des humains : `b{dff hex}aa` = texture principale, `…ab`/`…ac` = secondaire.
+
+[[textures]]
+match = "b00007ab"                 # moine humain (TID 7), seconde texture du corps b0000007
+file = "textures/b00007ab.png"

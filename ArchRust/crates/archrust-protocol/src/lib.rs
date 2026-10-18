@@ -13,7 +13,7 @@ pub mod schema;
 
 pub use framing::{CryptoSession, Direction, Frame, FrameSplitter};
 pub use packet::{
-    build_mini, build_packet, decode_mini, decode_packet, frame_mini, parse_header, Header, Packet, Value,
-    GUARD_HEAD, GUARD_TAIL, HEADER_SIZE,
+    build_mini, build_packet, decode_mini, decode_packet, frame_mini, parse_header, Header, Packet,
+    Value, GUARD_HEAD, GUARD_TAIL, HEADER_SIZE,
 };
 pub use schema::{Field, FieldType, Schema};

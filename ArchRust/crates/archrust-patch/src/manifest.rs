@@ -36,6 +36,9 @@ pub struct ModelOverride {
     #[serde(rename = "match")]
     pub pattern: String,
     pub file: String,
+    /// Facteur d'échelle appliqué au glTF (défaut 1 ; 100 pour un modèle en mètres).
+    #[serde(default = "one")]
+    pub scale: f32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -120,6 +123,15 @@ priority = 10
 match = "a0057*"
 file = "tex/a.png"
 
+[[models]]
+match = "character/a0000060.ecl"
+file = "models/cube.glb"
+scale = 100.0
+
+[[models]]
+match = "character/*.ecl"
+file = "models/defaut.glb"
+
 [[files]]
 path = "ini/npc.ini"
 file = "npc.ini"
@@ -128,7 +140,9 @@ file = "npc.ini"
         .unwrap();
         assert_eq!(m.patch.priority, 10);
         assert_eq!(m.textures[0].scale, 1.0);
-        assert_eq!(m.referenced_files().count(), 2);
+        assert_eq!(m.models[0].scale, 100.0);
+        assert_eq!(m.models[1].scale, 1.0);
+        assert_eq!(m.referenced_files().count(), 4);
         let back = Manifest::parse(&m.to_toml()).unwrap();
         assert_eq!(back, m);
     }

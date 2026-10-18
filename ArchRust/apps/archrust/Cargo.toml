@@ -23,3 +23,4 @@ env_logger = { workspace = true }
 log = { workspace = true }
 tokio = { workspace = true }
 image = { workspace = true }
+glam = { workspace = true }

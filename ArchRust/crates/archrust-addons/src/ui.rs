@@ -88,7 +88,11 @@ impl FrameNode {
             height: 0.0,
             anchors: Vec::new(),
             text: String::new(),
-            color: if text_like { [1.0, 0.82, 0.0, 1.0] } else { [0.0, 0.0, 0.0, 0.0] },
+            color: if text_like {
+                [1.0, 0.82, 0.0, 1.0]
+            } else {
+                [0.0, 0.0, 0.0, 0.0]
+            },
             texture: None,
             alpha: 1.0,
             strata: "MEDIUM".into(),
@@ -130,9 +134,15 @@ impl UiTree {
         Self::default()
     }
 
-    pub fn create(&mut self, kind: FrameKind, name: Option<String>, parent: Option<usize>) -> usize {
+    pub fn create(
+        &mut self,
+        kind: FrameKind,
+        name: Option<String>,
+        parent: Option<usize>,
+    ) -> usize {
         let id = self.frames.len();
-        self.frames.push(FrameNode::new(id, kind, name.clone(), parent));
+        self.frames
+            .push(FrameNode::new(id, kind, name.clone(), parent));
         if let Some(p) = parent {
             if let Some(pn) = self.frames.get_mut(p) {
                 pn.children.push(id);
@@ -182,7 +192,11 @@ impl UiTree {
 
     /// Frames enregistrées pour un événement.
     pub fn listeners(&self, event: &str) -> Vec<usize> {
-        self.frames.iter().filter(|f| f.events.contains(event)).map(|f| f.id).collect()
+        self.frames
+            .iter()
+            .filter(|f| f.events.contains(event))
+            .map(|f| f.id)
+            .collect()
     }
 
     /// Calcule les rectangles de toutes les frames pour un écran `screen_w × screen_h`.
@@ -209,12 +223,22 @@ impl UiTree {
     fn rect_of(&self, f: &FrameNode, rects: &[Option<Rect>], sw: f32, sh: f32) -> Option<Rect> {
         let parent_rect = match f.parent {
             Some(p) => rects[p]?,
-            None => Rect { left: 0.0, bottom: 0.0, width: sw, height: sh },
+            None => Rect {
+                left: 0.0,
+                bottom: 0.0,
+                width: sw,
+                height: sh,
+            },
         };
         let (w, h) = (f.width, f.height);
         if f.anchors.is_empty() {
             // Sans ancre, une frame racine est centrée comme UIParent (approximation utile).
-            return Some(Rect { left: parent_rect.left + (parent_rect.width - w) / 2.0, bottom: parent_rect.bottom + (parent_rect.height - h) / 2.0, width: w, height: h });
+            return Some(Rect {
+                left: parent_rect.left + (parent_rect.width - w) / 2.0,
+                bottom: parent_rect.bottom + (parent_rect.height - h) / 2.0,
+                width: w,
+                height: h,
+            });
         }
         let a = &f.anchors[0];
         let rel = match a.relative_to {
@@ -225,7 +249,12 @@ impl UiTree {
         let (px, py) = point_offset(&a.point, w, h);
         let target_x = rel.left + rx + a.x;
         let target_y = rel.bottom + ry + a.y;
-        let mut rect = Rect { left: target_x - px, bottom: target_y - py, width: w, height: h };
+        let mut rect = Rect {
+            left: target_x - px,
+            bottom: target_y - py,
+            width: w,
+            height: h,
+        };
         // Deux ancres opposées définissent la taille (ex. TOPLEFT + BOTTOMRIGHT).
         if let Some(b) = f.anchors.get(1) {
             let relb = match b.relative_to {
@@ -276,14 +305,26 @@ mod tests {
             let f = t.get_mut(root).unwrap();
             f.width = 200.0;
             f.height = 100.0;
-            f.anchors.push(Anchor { point: "TOPLEFT".into(), relative_to: None, relative_point: "TOPLEFT".into(), x: 10.0, y: -20.0 });
+            f.anchors.push(Anchor {
+                point: "TOPLEFT".into(),
+                relative_to: None,
+                relative_point: "TOPLEFT".into(),
+                x: 10.0,
+                y: -20.0,
+            });
         }
         let child = t.create(FrameKind::FontString, None, Some(root));
         {
             let f = t.get_mut(child).unwrap();
             f.width = 50.0;
             f.height = 10.0;
-            f.anchors.push(Anchor { point: "CENTER".into(), relative_to: None, relative_point: "CENTER".into(), x: 0.0, y: 0.0 });
+            f.anchors.push(Anchor {
+                point: "CENTER".into(),
+                relative_to: None,
+                relative_point: "CENTER".into(),
+                x: 0.0,
+                y: 0.0,
+            });
         }
         let rects = t.layout(1920.0, 1080.0);
         let r = rects[root].unwrap();

@@ -223,13 +223,21 @@ mod tests {
         client.set_server_key(&skey);
         client.set_client_key(&ckey);
 
-        let plain = build_packet(TIMER, &sparse(TIMER, &[(0, Value::U8(1)), (1, Value::U64(123456))])).unwrap();
-        let frame = server.encode_frame(&plain, Direction::ServerToClient).unwrap();
+        let plain = build_packet(
+            TIMER,
+            &sparse(TIMER, &[(0, Value::U8(1)), (1, Value::U64(123456))]),
+        )
+        .unwrap();
+        let frame = server
+            .encode_frame(&plain, Direction::ServerToClient)
+            .unwrap();
         assert_eq!(frame[0], FRAME_SERVER);
         assert_eq!(*frame.last().unwrap(), FRAME_TAIL_SERVER);
         assert_eq!(client.decode_frame(&frame).unwrap(), plain);
 
-        let frame = client.encode_frame(&plain, Direction::ClientToServer).unwrap();
+        let frame = client
+            .encode_frame(&plain, Direction::ClientToServer)
+            .unwrap();
         assert_eq!(frame[0], FRAME_CLIENT);
         assert_eq!(server.decode_frame(&frame).unwrap(), plain);
     }

@@ -3,7 +3,9 @@
 
 use archrust_protocol::framing::{CryptoSession, Direction, FrameSplitter};
 use archrust_protocol::handshake::{ClientHandshake, ClientState};
-use archrust_protocol::packet::{build_packet, decode_packet, hex_dump, parse_header, Packet, PacketError, Value};
+use archrust_protocol::packet::{
+    build_packet, decode_packet, hex_dump, parse_header, Packet, PacketError, Value,
+};
 use archrust_protocol::schema::{main, packet_type, Schema};
 use std::collections::VecDeque;
 use std::time::Duration;
@@ -76,10 +78,20 @@ impl Connection {
 
     /// Envoie un paquet principal déjà construit, chiffré si la session est prête.
     pub async fn send_raw(&mut self, plain: &[u8]) -> Result<(), NetError> {
-        let out = if self.crypto.ready { self.crypto.encode_frame(plain, Direction::ClientToServer)? } else { plain.to_vec() };
+        let out = if self.crypto.ready {
+            self.crypto.encode_frame(plain, Direction::ClientToServer)?
+        } else {
+            plain.to_vec()
+        };
         if log::log_enabled!(log::Level::Trace) {
             if let Some(h) = parse_header(plain) {
-                log::trace!("[{}] → type 0x{:02x} {} o{}", self.label, h.packet_type, plain.len(), if self.crypto.ready { " (chiffré)" } else { "" });
+                log::trace!(
+                    "[{}] → type 0x{:02x} {} o{}",
+                    self.label,
+                    h.packet_type,
+                    plain.len(),
+                    if self.crypto.ready { " (chiffré)" } else { "" }
+                );
             }
         }
         self.stream.write_all(&out).await?;
@@ -87,9 +99,21 @@ impl Connection {
     }
 
     /// Construit et envoie un paquet selon un schéma.
-    pub async fn send(&mut self, schema: &Schema, values: &[Option<Value>]) -> Result<(), NetError> {
+    pub async fn send(
+        &mut self,
+        schema: &Schema,
+        values: &[Option<Value>],
+    ) -> Result<(), NetError> {
         let plain = build_packet(schema, values)?;
-        log::debug!("[{}] → {} op={:?}", self.label, schema.name, values.first().and_then(|v| v.as_ref()).and_then(Value::as_i64));
+        log::debug!(
+            "[{}] → {} op={:?}",
+            self.label,
+            schema.name,
+            values
+                .first()
+                .and_then(|v| v.as_ref())
+                .and_then(Value::as_i64)
+        );
         self.send_raw(&plain).await
     }
 
@@ -100,16 +124,29 @@ impl Connection {
         }
         let chunk = self.read_buf[..n].to_vec();
         for frame in self.splitter.push(&chunk)? {
-            let plain = if frame.encrypted { self.crypto.decode_frame(&frame.data)? } else { frame.data };
+            let plain = if frame.encrypted {
+                self.crypto.decode_frame(&frame.data)?
+            } else {
+                frame.data
+            };
             let Some(h) = parse_header(&plain) else {
-                log::warn!("[{}] paquet sans en-tête : {}", self.label, hex_dump(&plain, 48));
+                log::warn!(
+                    "[{}] paquet sans en-tête : {}",
+                    self.label,
+                    hex_dump(&plain, 48)
+                );
                 continue;
             };
             let packet = match main::by_id(h.packet_type) {
                 Some(schema) => match decode_packet(schema, &plain) {
                     Ok(p) => Some(p),
                     Err(e) => {
-                        log::warn!("[{}] décodage {} : {e} — {}", self.label, schema.name, hex_dump(&plain, 64));
+                        log::warn!(
+                            "[{}] décodage {} : {e} — {}",
+                            self.label,
+                            schema.name,
+                            hex_dump(&plain, 64)
+                        );
                         None
                     }
                 },
@@ -122,7 +159,11 @@ impl Connection {
                 packet.as_ref().and_then(Packet::op),
                 plain.len()
             );
-            self.queue.push_back(Incoming { packet_type: h.packet_type, packet, raw: plain });
+            self.queue.push_back(Incoming {
+                packet_type: h.packet_type,
+                packet,
+                raw: plain,
+            });
         }
         Ok(())
     }
@@ -146,7 +187,11 @@ impl Connection {
     }
 
     /// Attend le premier paquet satisfaisant `pred` ; les autres sont consommés et journalisés.
-    pub async fn expect_where<F: Fn(&Incoming) -> bool>(&mut self, what: &str, pred: F) -> Result<Incoming, NetError> {
+    pub async fn expect_where<F: Fn(&Incoming) -> bool>(
+        &mut self,
+        what: &str,
+        pred: F,
+    ) -> Result<Incoming, NetError> {
         let deadline = tokio::time::Instant::now() + self.timeout;
         loop {
             let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
@@ -161,9 +206,16 @@ impl Connection {
                 return Ok(p);
             }
             if p.packet_type == packet_type::RETURN_TO_LOGIN {
-                return Err(NetError::Server("retour à l'écran de connexion demandé par le serveur".into()));
+                return Err(NetError::Server(
+                    "retour à l'écran de connexion demandé par le serveur".into(),
+                ));
             }
-            log::debug!("[{}] ignoré en attendant {what} : type 0x{:02x} op={:?}", self.label, p.packet_type, p.op());
+            log::debug!(
+                "[{}] ignoré en attendant {what} : type 0x{:02x} op={:?}",
+                self.label,
+                p.packet_type,
+                p.op()
+            );
         }
     }
 

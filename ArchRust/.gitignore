@@ -4,3 +4,11 @@
 /addons/*/SavedVariables/
 /patches/*.ahp
 /client-data/
+# Données du client ArchLord : jamais publiées (voir assets-archonia/README.md).
+/assets-archonia/*
+!/assets-archonia/README.md
+!/assets-archonia/.gitignore
+
+# Atelier free-assets : exports de reference du client (OBJ/MTL/PNG extraits), jamais publies.
+/free-assets/[0-9][0-9]-*/
+

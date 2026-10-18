@@ -48,10 +48,16 @@ pub struct Schema {
 
 macro_rules! f {
     ($ty:ident) => {
-        Field { ty: FieldType::$ty, size: 1 }
+        Field {
+            ty: FieldType::$ty,
+            size: 1,
+        }
     };
     ($ty:ident, $n:expr) => {
-        Field { ty: FieldType::$ty, size: $n }
+        Field {
+            ty: FieldType::$ty,
+            size: $n,
+        }
     };
 }
 
@@ -129,6 +135,14 @@ pub mod main {
         f!(Char, 16),       // 27 signature
         f!(MemoryBlock),    // 28 données GameGuard
         f!(UInt64),         // 29 dernière mort en Battle Square
+    ]);
+
+    // AgpmItem — drapeaux 4 (constructeur relevé dans ap_item.c).
+    schema!(pub ITEM = "AGPMITEM", T::ITEM, 4, [
+        f!(UInt8), f!(Int8), f!(Int32), f!(Int32), f!(Int32), f!(Int32),
+        f!(Packet), f!(Packet), f!(Packet), f!(Packet), f!(Packet), f!(Packet),
+        f!(Int32), f!(Packet), f!(Packet), f!(Packet), f!(Packet), f!(Int32),
+        f!(UInt32), f!(Int32), f!(Packet), f!(Packet), f!(UInt32), f!(Packet), f!(Packet),
     ]);
 
     // AgcmCharacter (type 3) — drapeaux 4 (SetFlagLength(4))
@@ -222,6 +236,7 @@ pub mod main {
     pub fn by_id(id: u8) -> Option<&'static Schema> {
         Some(match id {
             T::CONFIG => CONFIG,
+            T::ITEM => ITEM,
             T::CHARACTER => CHARACTER,
             T::CHAR_MANAGER => CHAR_MANAGER,
             T::LOGIN => LOGIN,
@@ -324,6 +339,9 @@ pub mod mini {
         f!(Int32), f!(Int32), f!(Int32), f!(Int32), f!(Int32), f!(Int32), f!(Int32), f!(Int32), f!(Int32),
         f!(UInt16), f!(UInt16), f!(UInt16), f!(UInt16), f!(UInt16), f!(MemoryBlock),
     ]);
+
+    // Position dans l'inventaire / banque : trois INT16 (ap_item.c).
+    schema!(pub ITEM_GRID = "AGPMITEM_INVENTORY", 123, 1, [f!(Int16), f!(Int16), f!(Int16)]);
 }
 
 /// Opérations (champ 0) du paquet de connexion (AgpmLogin).
@@ -385,4 +403,13 @@ pub mod char_mgr_op {
 /// Opérations de la vue optimisée (type 0x42).
 pub mod view_op {
     pub const ADD_CHAR: i8 = 1;
+    pub const ADD_CHARACTER_ITEMS: i8 = 2;
+}
+
+/// Opérations `AGPMCHARACTER` (type 0x02), relevées dans `ap_character.h`.
+pub mod character_op {
+    pub const ADD: i8 = 0;
+    pub const UPDATE: i8 = 1;
+    pub const REMOVE: i8 = 2;
+    pub const REMOVE_FOR_VIEW: i8 = 3;
 }

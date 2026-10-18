@@ -1,0 +1,16 @@
+# Patch d'exemple généré par `cargo run -p archrust-engine --example cube_glb -- patches/exemple-gltf`.
+# Remplace le corps du personnage humain par défaut (TID 96 → character/a0000060.ecl) par un cube
+# texturé en GLB. Sert à vérifier le chargeur glTF : `archrust play --no-client --screenshot docs/captures/gltf.png`.
+
+[patch]
+id = "exemple-gltf"
+name = "Exemple glTF (cube texturé)"
+version = "0.1.0"
+author = "ArchRust"
+priority = 10
+description = "Cube GLB généré, à la place du modèle du joueur"
+
+[[models]]
+match = "character/a0000060.ecl"
+file = "models/cube.glb"
+scale = 100.0   # le GLB est en mètres, ArchLord en unités ≈ centimètre

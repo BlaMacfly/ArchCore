@@ -71,11 +71,17 @@ impl PackIndex {
     pub fn parse_plain(mut buf: &[u8]) -> Result<Self, PackError> {
         let count = u32le(&mut buf)? as usize;
         if (count as u64) * 14 + 6 > buf.len() as u64 + 8 {
-            return Err(PackError::Invalid("nombre d'entrées trop grand pour la taille"));
+            return Err(PackError::Invalid(
+                "nombre d'entrées trop grand pour la taille",
+            ));
         }
         let root_len = u32le(&mut buf)? as usize;
         let root = cstr(take(&mut buf, root_len)?);
-        let mut idx = PackIndex { root, entries: Vec::with_capacity(count), by_name: HashMap::with_capacity(count) };
+        let mut idx = PackIndex {
+            root,
+            entries: Vec::with_capacity(count),
+            by_name: HashMap::with_capacity(count),
+        };
         for _ in 0..count {
             let len = u32le(&mut buf)? as usize;
             let name = cstr(take(&mut buf, len)?).to_ascii_lowercase();
@@ -101,11 +107,19 @@ impl PackIndex {
 
     /// Taille totale des données référencées (fin de la dernière entrée).
     pub fn data_size(&self) -> u64 {
-        self.entries.iter().map(|e| e.offset + e.size).max().unwrap_or(0)
+        self.entries
+            .iter()
+            .map(|e| e.offset + e.size)
+            .max()
+            .unwrap_or(0)
     }
 
     /// Lit une entrée depuis un flux `Data.Dat` ouvert.
-    pub fn read_entry<R: Read + Seek>(&self, data: &mut R, entry: &PackEntry) -> Result<Vec<u8>, PackError> {
+    pub fn read_entry<R: Read + Seek>(
+        &self,
+        data: &mut R,
+        entry: &PackEntry,
+    ) -> Result<Vec<u8>, PackError> {
         data.seek(SeekFrom::Start(entry.offset))?;
         let mut out = vec![0u8; entry.size as usize];
         data.read_exact(&mut out)?;
@@ -138,9 +152,20 @@ mod tests {
 
     #[test]
     fn roundtrip_plain() {
-        let mut idx = PackIndex { root: "character".into(), ..Default::default() };
-        idx.entries.push(PackEntry { name: "a0000001.ecl".into(), offset: 0, size: 9932 });
-        idx.entries.push(PackEntry { name: "a0000002.ecl".into(), offset: 9932, size: 6374 });
+        let mut idx = PackIndex {
+            root: "character".into(),
+            ..Default::default()
+        };
+        idx.entries.push(PackEntry {
+            name: "a0000001.ecl".into(),
+            offset: 0,
+            size: 9932,
+        });
+        idx.entries.push(PackEntry {
+            name: "a0000002.ecl".into(),
+            offset: 9932,
+            size: 6374,
+        });
         let plain = idx.to_plain();
         let back = PackIndex::parse_plain(&plain).unwrap();
         assert_eq!(back.root, "character");

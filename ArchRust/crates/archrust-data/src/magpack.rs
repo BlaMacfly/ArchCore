@@ -69,18 +69,28 @@ impl MagPack {
             if pos + size + 4 > bytes.len() {
                 return Err(MagPackError::Truncated);
             }
-            entries.push(MagEntry { name, offset: pos, size });
+            entries.push(MagEntry {
+                name,
+                offset: pos,
+                size,
+            });
             pos += size;
             if bytes[pos..pos + 4] != [0, 0, 0, 0] {
                 return Err(MagPackError::BadSeparator(i));
             }
             pos += 4;
         }
-        Ok(Self { entries, data: bytes.to_vec() })
+        Ok(Self {
+            entries,
+            data: bytes.to_vec(),
+        })
     }
 
     pub fn get(&self, name: &str) -> Option<&[u8]> {
-        self.entries.iter().find(|e| e.name.eq_ignore_ascii_case(name)).map(|e| &self.data[e.offset..e.offset + e.size])
+        self.entries
+            .iter()
+            .find(|e| e.name.eq_ignore_ascii_case(name))
+            .map(|e| &self.data[e.offset..e.offset + e.size])
     }
 
     pub fn entry_data(&self, e: &MagEntry) -> &[u8] {
@@ -94,7 +104,10 @@ impl MagPack {
 
     /// Entrée décompressée par nom.
     pub fn unpack_named(&self, name: &str) -> Option<Result<Vec<u8>, crate::aplib::ApLibError>> {
-        let e = self.entries.iter().find(|e| e.name.eq_ignore_ascii_case(name))?;
+        let e = self
+            .entries
+            .iter()
+            .find(|e| e.name.eq_ignore_ascii_case(name))?;
         Some(self.unpack(e))
     }
 

@@ -14,11 +14,18 @@ async fn main() -> anyhow::Result<()> {
     let mut login = LoginClient::connect(host, 11002).await?;
     println!("mondes : {:?}", login.worlds);
     login.authenticate(user, pass).await?;
-    let world = login.worlds.first().map(|w| w.name.clone()).unwrap_or_else(|| "ArchCore".into());
+    let world = login
+        .worlds
+        .first()
+        .map(|w| w.name.clone())
+        .unwrap_or_else(|| "ArchCore".into());
     let names = login.select_world(&world).await?;
     println!("personnages : {names:?}");
     for c in login.list_characters().await? {
-        println!("  {} (cid {}, tid {}, niveau {})", c.name, c.cid, c.tid, c.level);
+        println!(
+            "  {} (cid {}, tid {}, niveau {})",
+            c.name, c.cid, c.tid, c.level
+        );
     }
     if !names.iter().any(|n| n == name) {
         let bases = login.enter_creation().await?;
@@ -32,8 +39,14 @@ async fn main() -> anyhow::Result<()> {
 
     let mut world = WorldClient::connect(ticket).await?;
     let events = world.enter().await?;
-    let seen = events.iter().filter(|e| matches!(e, WorldEvent::CharacterSeen(_))).count();
-    println!("en jeu : cid {}, position {:?}, {} personnages en vue", world.cid, world.position, seen);
+    let seen = events
+        .iter()
+        .filter(|e| matches!(e, WorldEvent::CharacterSeen(_)))
+        .count();
+    println!(
+        "en jeu : cid {}, position {:?}, {} personnages en vue",
+        world.cid, world.position, seen
+    );
     for e in events.iter().take(12) {
         println!("  {e:?}");
     }

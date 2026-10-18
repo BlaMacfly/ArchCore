@@ -11,6 +11,7 @@
 //! structures Rust. Aucun fichier du jeu n'est embarqué.
 
 pub mod aplib;
+pub mod ean;
 pub mod ini;
 pub mod magpack;
 pub mod pack;

@@ -30,13 +30,21 @@ pub enum PacketError {
     #[error("en-tête de paquet invalide")]
     BadHeader,
     #[error("type {got} différent du schéma {schema} ({expected})")]
-    TypeMismatch { got: u8, expected: u8, schema: &'static str },
+    TypeMismatch {
+        got: u8,
+        expected: u8,
+        schema: &'static str,
+    },
     #[error("lecture hors limites (champ {field} de {schema})")]
     OutOfBounds { field: usize, schema: &'static str },
     #[error("type de champ {0:?} non pris en charge")]
     Unsupported(FieldType),
     #[error("valeur incompatible avec le champ {field} de {schema} (attendu {expected:?})")]
-    BadValue { field: usize, schema: &'static str, expected: FieldType },
+    BadValue {
+        field: usize,
+        schema: &'static str,
+        expected: FieldType,
+    },
     #[error("longueur de drapeaux invalide {0}")]
     BadFlagLen(u8),
 }
@@ -148,7 +156,10 @@ pub struct Packet {
 
 impl Packet {
     pub fn op(&self) -> Option<i64> {
-        self.values.first().and_then(|v| v.as_ref()).and_then(Value::as_i64)
+        self.values
+            .first()
+            .and_then(|v| v.as_ref())
+            .and_then(Value::as_i64)
     }
     pub fn get(&self, i: usize) -> Option<&Value> {
         self.values.get(i).and_then(|v| v.as_ref())
@@ -195,13 +206,22 @@ fn get<'a>(buf: &mut &'a [u8], n: usize) -> Option<&'a [u8]> {
 }
 
 /// Encode les champs d'un schéma : rend `(drapeaux, corps)`.
-pub fn encode_fields(schema: &Schema, values: &[Option<Value>]) -> Result<(u32, BytesMut), PacketError> {
+pub fn encode_fields(
+    schema: &Schema,
+    values: &[Option<Value>],
+) -> Result<(u32, BytesMut), PacketError> {
     let mut w = BytesMut::with_capacity(128);
     let mut flags: u32 = 0;
     for (i, field) in schema.fields.iter().enumerate() {
-        let Some(v) = values.get(i).and_then(|v| v.as_ref()) else { continue };
+        let Some(v) = values.get(i).and_then(|v| v.as_ref()) else {
+            continue;
+        };
         let bit = 1u32 << i;
-        let bad = || PacketError::BadValue { field: i, schema: schema.name, expected: field.ty };
+        let bad = || PacketError::BadValue {
+            field: i,
+            schema: schema.name,
+            expected: field.ty,
+        };
         match field.ty {
             FieldType::Char => {
                 let Value::Str(s) = v else { return Err(bad()) };
@@ -237,14 +257,18 @@ pub fn encode_fields(schema: &Schema, values: &[Option<Value>]) -> Result<(u32, 
                         w.put_slice(m);
                     }
                 } else {
-                    let Value::Packet(m) = v else { return Err(bad()) };
+                    let Value::Packet(m) = v else {
+                        return Err(bad());
+                    };
                     w.put_u32_le(m.len() as u32);
                     w.put_slice(m);
                 }
                 flags |= bit;
             }
             FieldType::MemoryBlock => {
-                let Value::Block(b) = v else { return Err(bad()) };
+                let Value::Block(b) = v else {
+                    return Err(bad());
+                };
                 w.put_u32_le(b.len() as u32);
                 if !b.is_empty() {
                     w.put_slice(b);
@@ -262,7 +286,9 @@ pub fn encode_fields(schema: &Schema, values: &[Option<Value>]) -> Result<(u32, 
             }
             scalar => {
                 if field.size > 1 {
-                    let Value::Ints(list) = v else { return Err(bad()) };
+                    let Value::Ints(list) = v else {
+                        return Err(bad());
+                    };
                     for x in list {
                         write_scalar(&mut w, scalar, *x)?;
                     }
@@ -348,7 +374,11 @@ pub fn frame_mini(payload: &[u8]) -> Vec<u8> {
 }
 
 /// Décode les champs d'un schéma à partir de `buf` selon `flags`.
-pub fn decode_fields(schema: &Schema, mut buf: &[u8], flags: u32) -> Result<Vec<Option<Value>>, PacketError> {
+pub fn decode_fields(
+    schema: &Schema,
+    mut buf: &[u8],
+    flags: u32,
+) -> Result<Vec<Option<Value>>, PacketError> {
     let mut values: Vec<Option<Value>> = vec![None; schema.fields.len()];
     for (i, field) in schema.fields.iter().enumerate() {
         let bit = 1u32 << i;
@@ -358,16 +388,25 @@ pub fn decode_fields(schema: &Schema, mut buf: &[u8], flags: u32) -> Result<Vec<
         if flags & bit == 0 {
             continue;
         }
-        let oob = || PacketError::OutOfBounds { field: i, schema: schema.name };
+        let oob = || PacketError::OutOfBounds {
+            field: i,
+            schema: schema.name,
+        };
         let v = match field.ty {
-            FieldType::Char => Value::Str(get(&mut buf, field.size as usize).ok_or_else(oob)?.to_vec()),
+            FieldType::Char => {
+                Value::Str(get(&mut buf, field.size as usize).ok_or_else(oob)?.to_vec())
+            }
             FieldType::Vec3F => {
                 let mut list = Vec::with_capacity(field.size as usize);
                 for _ in 0..field.size {
                     let mut s = get(&mut buf, 12).ok_or_else(oob)?;
                     list.push([s.get_f32_le(), s.get_f32_le(), s.get_f32_le()]);
                 }
-                if field.size > 1 { Value::Vec3List(list) } else { Value::Vec3(list[0]) }
+                if field.size > 1 {
+                    Value::Vec3List(list)
+                } else {
+                    Value::Vec3(list[0])
+                }
             }
             FieldType::Packet => {
                 if field.size > 1 {
@@ -427,7 +466,11 @@ pub fn parse_header(buf: &[u8]) -> Option<Header> {
 pub fn decode_packet(schema: &Schema, buf: &[u8]) -> Result<Packet, PacketError> {
     let header = parse_header(buf).ok_or(PacketError::BadHeader)?;
     if header.packet_type != schema.id {
-        return Err(PacketError::TypeMismatch { got: header.packet_type, expected: schema.id, schema: schema.name });
+        return Err(PacketError::TypeMismatch {
+            got: header.packet_type,
+            expected: schema.id,
+            schema: schema.name,
+        });
     }
     let end = (header.size as usize).min(buf.len()).saturating_sub(1); // exclut le pied
     if end < HEADER_SIZE {
@@ -436,11 +479,18 @@ pub fn decode_packet(schema: &Schema, buf: &[u8]) -> Result<Packet, PacketError>
     let mut body = &buf[HEADER_SIZE..end];
     let flags = read_flags(&mut body, schema.flag_len)?;
     let values = decode_fields(schema, body, flags)?;
-    Ok(Packet { header, flags, values })
+    Ok(Packet {
+        header,
+        flags,
+        values,
+    })
 }
 
 /// Décode un mini-paquet (tampon **sans** son `u32` de longueur).
-pub fn decode_mini(schema: &Schema, payload: &[u8]) -> Result<(u32, Vec<Option<Value>>), PacketError> {
+pub fn decode_mini(
+    schema: &Schema,
+    payload: &[u8],
+) -> Result<(u32, Vec<Option<Value>>), PacketError> {
     let mut b = payload;
     let flags = read_flags(&mut b, schema.flag_len)?;
     Ok((flags, decode_fields(schema, b, flags)?))
@@ -473,11 +523,22 @@ mod tests {
 
     #[test]
     fn roundtrip_login() {
-        let values = sparse(LOGIN, &[(0, Value::I8(1)), (2, Value::str("test")), (3, Value::I8(4)), (6, Value::I32(0x1234))]);
+        let values = sparse(
+            LOGIN,
+            &[
+                (0, Value::I8(1)),
+                (2, Value::str("test")),
+                (3, Value::I8(4)),
+                (6, Value::I32(0x1234)),
+            ],
+        );
         let bytes = build_packet(LOGIN, &values).unwrap();
         assert_eq!(bytes[0], GUARD_HEAD);
         assert_eq!(*bytes.last().unwrap(), GUARD_TAIL);
-        assert_eq!(u32::from_le_bytes(bytes[1..5].try_into().unwrap()) as usize, bytes.len());
+        assert_eq!(
+            u32::from_le_bytes(bytes[1..5].try_into().unwrap()) as usize,
+            bytes.len()
+        );
         let pkt = decode_packet(LOGIN, &bytes).unwrap();
         assert_eq!(pkt.op(), Some(1));
         assert_eq!(pkt.get(2).unwrap().as_text().unwrap(), "test");
@@ -487,7 +548,10 @@ mod tests {
 
     #[test]
     fn empty_block_does_not_set_flag() {
-        let values = sparse(STARTUP_ENCRYPTION, &[(0, Value::I8(6)), (1, Value::Block(vec![]))]);
+        let values = sparse(
+            STARTUP_ENCRYPTION,
+            &[(0, Value::I8(6)), (1, Value::Block(vec![]))],
+        );
         let bytes = build_packet(STARTUP_ENCRYPTION, &values).unwrap();
         let pkt = decode_packet(STARTUP_ENCRYPTION, &bytes).unwrap();
         assert_eq!(pkt.flags, 1);
@@ -495,21 +559,30 @@ mod tests {
 
     #[test]
     fn mini_roundtrip() {
-        let values = sparse(CHAR_MOVE, &[(0, Value::Vec3([1.0, 2.0, 3.0])), (6, Value::I8(2))]);
+        let values = sparse(
+            CHAR_MOVE,
+            &[(0, Value::Vec3([1.0, 2.0, 3.0])), (6, Value::I8(2))],
+        );
         let mini = build_mini(CHAR_MOVE, &values).unwrap();
         assert_eq!(mini.len(), 1 + 12 + 1);
         let (flags, vals) = decode_mini(CHAR_MOVE, &mini).unwrap();
         assert_eq!(flags, 0b100_0001);
         assert_eq!(vals[0].as_ref().unwrap().as_vec3(), Some([1.0, 2.0, 3.0]));
         let framed = frame_mini(&mini);
-        assert_eq!(u32::from_le_bytes(framed[..4].try_into().unwrap()) as usize, mini.len());
+        assert_eq!(
+            u32::from_le_bytes(framed[..4].try_into().unwrap()) as usize,
+            mini.len()
+        );
     }
 
     #[test]
     fn packet_field_carries_single_length_prefix() {
         // Un champ PACKET embarque la charge utile précédée d'une seule longueur u32.
         let mini = build_mini(CHAR_MOVE, &sparse(CHAR_MOVE, &[(6, Value::I8(1))])).unwrap();
-        let values = sparse(LOGIN, &[(0, Value::I8(8)), (8, Value::Packet(mini.clone()))]);
+        let values = sparse(
+            LOGIN,
+            &[(0, Value::I8(8)), (8, Value::Packet(mini.clone()))],
+        );
         let bytes = build_packet(LOGIN, &values).unwrap();
         // en-tête 19 + drapeaux 2 + op 1 + u32 longueur + mini + pied 1
         assert_eq!(bytes.len(), 19 + 2 + 1 + 4 + mini.len() + 1);

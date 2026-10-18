@@ -35,7 +35,12 @@ struct BitReader<'a> {
 
 impl<'a> BitReader<'a> {
     fn new(data: &'a [u8]) -> Self {
-        Self { data, pos: 0, tag: 0, bits_left: 0 }
+        Self {
+            data,
+            pos: 0,
+            tag: 0,
+            bits_left: 0,
+        }
     }
     fn byte(&mut self) -> Result<u8, ApLibError> {
         let b = *self.data.get(self.pos).ok_or(ApLibError::Truncated)?;
@@ -74,7 +79,10 @@ pub fn depack(src: &[u8], expected: usize) -> Result<Vec<u8>, ApLibError> {
     let mut last_offset: usize = 0;
     let copy = |out: &mut Vec<u8>, offset: usize, len: usize| -> Result<(), ApLibError> {
         if offset == 0 || offset > out.len() {
-            return Err(ApLibError::BadOffset { offset, pos: out.len() });
+            return Err(ApLibError::BadOffset {
+                offset,
+                pos: out.len(),
+            });
         }
         for _ in 0..len {
             let b = out[out.len() - offset];
@@ -84,7 +92,10 @@ pub fn depack(src: &[u8], expected: usize) -> Result<Vec<u8>, ApLibError> {
     };
     loop {
         if out.len() > expected + 64 {
-            return Err(ApLibError::SizeMismatch { got: out.len(), expected });
+            return Err(ApLibError::SizeMismatch {
+                got: out.len(),
+                expected,
+            });
         }
         if r.bit()? == 0 {
             let b = r.byte()?;
@@ -130,14 +141,20 @@ pub fn depack(src: &[u8], expected: usize) -> Result<Vec<u8>, ApLibError> {
             out.push(0);
         } else {
             if offset > out.len() {
-                return Err(ApLibError::BadOffset { offset, pos: out.len() });
+                return Err(ApLibError::BadOffset {
+                    offset,
+                    pos: out.len(),
+                });
             }
             let b = out[out.len() - offset];
             out.push(b);
         }
     }
     if out.len() != expected {
-        return Err(ApLibError::SizeMismatch { got: out.len(), expected });
+        return Err(ApLibError::SizeMismatch {
+            got: out.len(),
+            expected,
+        });
     }
     Ok(out)
 }
@@ -188,7 +205,11 @@ pub fn pack(data: &[u8]) -> Vec<u8> {
             }
         }
     }
-    let mut w = BitWriter { out: Vec::with_capacity(data.len() + 8), tag_pos: None, bits: 0 };
+    let mut w = BitWriter {
+        out: Vec::with_capacity(data.len() + 8),
+        tag_pos: None,
+        bits: 0,
+    };
     if data.is_empty() {
         return w.out;
     }
@@ -267,6 +288,9 @@ mod tests {
         let packed = pack_entry(b"hello hello hello hello hello hello");
         let mut bad = packed.clone();
         bad[0] ^= 1;
-        assert!(matches!(depack_entry(&bad), Err(ApLibError::SizeMismatch { .. })));
+        assert!(matches!(
+            depack_entry(&bad),
+            Err(ApLibError::SizeMismatch { .. })
+        ));
     }
 }

@@ -23,6 +23,7 @@
 //! [[models]]                       # remplace un modèle (clump) par un glTF/GLB
 //! match = "character/a0000001.ecl"
 //! file = "models/a0000001.glb"
+//! scale = 100.0                    # facteur d'échelle facultatif (glTF en mètres → unités ArchLord)
 //!
 //! [[files]]                        # surcharge brute d'un chemin du client (ini, sons, cartes…)
 //! path = "sound/effect/aa.pk"

@@ -18,13 +18,25 @@ pub struct OrbitCamera {
 
 impl Default for OrbitCamera {
     fn default() -> Self {
-        Self { target: Vec3::ZERO, yaw: 0.6, pitch: 0.45, distance: 1500.0, fov_y: 55f32.to_radians(), near: 10.0, far: 200_000.0 }
+        Self {
+            target: Vec3::ZERO,
+            yaw: 0.6,
+            pitch: 0.45,
+            distance: 1500.0,
+            fov_y: 55f32.to_radians(),
+            near: 10.0,
+            far: 200_000.0,
+        }
     }
 }
 
 impl OrbitCamera {
     pub fn eye(&self) -> Vec3 {
-        let dir = Vec3::new(self.yaw.cos() * self.pitch.cos(), self.pitch.sin(), self.yaw.sin() * self.pitch.cos());
+        let dir = Vec3::new(
+            self.yaw.cos() * self.pitch.cos(),
+            self.pitch.sin(),
+            self.yaw.sin() * self.pitch.cos(),
+        );
         self.target + dir * self.distance
     }
 

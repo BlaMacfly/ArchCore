@@ -29,7 +29,9 @@ impl CodePage {
     /// Page de code d'un dossier de tables d'après son nom (`ini`, `ini_fr`, `ini_ko`…).
     pub fn for_dir(dir_name: &str) -> CodePage {
         match dir_name.to_ascii_lowercase().as_str() {
-            "ini_fr" | "ini_de" | "ini_es" | "ini_en" | "ini_it" | "ini_pt" => CodePage::Windows1252,
+            "ini_fr" | "ini_de" | "ini_es" | "ini_en" | "ini_it" | "ini_pt" => {
+                CodePage::Windows1252
+            }
             _ => CodePage::Cp949,
         }
     }
@@ -78,11 +80,17 @@ pub struct IniSection {
 impl IniSection {
     /// Première valeur de `key`.
     pub fn get(&self, key: &str) -> Option<&str> {
-        self.entries.iter().find(|(k, _)| k.eq_ignore_ascii_case(key)).map(|(_, v)| v.as_str())
+        self.entries
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(key))
+            .map(|(_, v)| v.as_str())
     }
     /// Toutes les valeurs de `key`, dans l'ordre.
     pub fn get_all<'a>(&'a self, key: &'a str) -> impl Iterator<Item = &'a str> + 'a {
-        self.entries.iter().filter(move |(k, _)| k.eq_ignore_ascii_case(key)).map(|(_, v)| v.as_str())
+        self.entries
+            .iter()
+            .filter(move |(k, _)| k.eq_ignore_ascii_case(key))
+            .map(|(_, v)| v.as_str())
     }
     pub fn get_i64(&self, key: &str) -> Option<i64> {
         self.get(key)?.trim().parse().ok()
@@ -106,19 +114,29 @@ impl IniTable {
         let mut current: Option<IniSection> = None;
         for raw_line in text.lines() {
             let line = raw_line.trim_end_matches('\r').trim();
-            if line.is_empty() || line.starts_with(';') || line.starts_with('#') || line.starts_with("//") {
+            if line.is_empty()
+                || line.starts_with(';')
+                || line.starts_with('#')
+                || line.starts_with("//")
+            {
                 continue;
             }
             if let Some(name) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
                 if let Some(sec) = current.take() {
                     table.push(sec);
                 }
-                current = Some(IniSection { name: name.trim().to_string(), entries: Vec::new() });
+                current = Some(IniSection {
+                    name: name.trim().to_string(),
+                    entries: Vec::new(),
+                });
                 continue;
             }
-            let Some((k, v)) = line.split_once('=') else { continue };
+            let Some((k, v)) = line.split_once('=') else {
+                continue;
+            };
             let sec = current.get_or_insert_with(IniSection::default);
-            sec.entries.push((k.trim().to_string(), v.trim().to_string()));
+            sec.entries
+                .push((k.trim().to_string(), v.trim().to_string()));
         }
         if let Some(sec) = current.take() {
             table.push(sec);
@@ -132,13 +150,17 @@ impl IniTable {
     }
 
     fn push(&mut self, sec: IniSection) {
-        self.index.entry(sec.name.to_ascii_lowercase()).or_insert(self.sections.len());
+        self.index
+            .entry(sec.name.to_ascii_lowercase())
+            .or_insert(self.sections.len());
         self.sections.push(sec);
     }
 
     /// Section par nom (insensible à la casse) ; en cas de doublon, la première.
     pub fn section(&self, name: &str) -> Option<&IniSection> {
-        self.index.get(&name.to_ascii_lowercase()).map(|&i| &self.sections[i])
+        self.index
+            .get(&name.to_ascii_lowercase())
+            .map(|&i| &self.sections[i])
     }
 
     pub fn len(&self) -> usize {
@@ -163,14 +185,25 @@ pub fn parse_server_list(text: &str) -> Vec<ServerEntry> {
     let table = IniTable::parse(text);
     let mut out = Vec::new();
     for sec in &table.sections {
-        if let (Some(ip), Some(port)) = (sec.get("IP").or_else(|| sec.get("Address")), sec.get_i64("Port")) {
-            out.push(ServerEntry { name: sec.name.clone(), address: ip.to_string(), port: port as u16 });
+        if let (Some(ip), Some(port)) = (
+            sec.get("IP").or_else(|| sec.get("Address")),
+            sec.get_i64("Port"),
+        ) {
+            out.push(ServerEntry {
+                name: sec.name.clone(),
+                address: ip.to_string(),
+                port: port as u16,
+            });
             continue;
         }
         for (k, v) in &sec.entries {
             if let Some((addr, port)) = v.rsplit_once(':') {
                 if let Ok(port) = port.trim().parse::<u16>() {
-                    out.push(ServerEntry { name: k.clone(), address: addr.trim().to_string(), port });
+                    out.push(ServerEntry {
+                        name: k.clone(),
+                        address: addr.trim().to_string(),
+                        port,
+                    });
                 }
             }
         }
@@ -195,7 +228,14 @@ mod tests {
     #[test]
     fn server_list_forms() {
         let v = parse_server_list("Local=127.0.0.1:11002\n");
-        assert_eq!(v, vec![ServerEntry { name: "Local".into(), address: "127.0.0.1".into(), port: 11002 }]);
+        assert_eq!(
+            v,
+            vec![ServerEntry {
+                name: "Local".into(),
+                address: "127.0.0.1".into(),
+                port: 11002
+            }]
+        );
         let v = parse_server_list("[Prod]\nIP=5.135.137.163\nPort=11002\n");
         assert_eq!(v[0].port, 11002);
     }
@@ -205,7 +245,13 @@ mod tests {
         let ko = "ArchLord 한글";
         assert_eq!(decode_cp949(&encode_cp949(ko)), ko);
         let fr = "Créer un personnage";
-        assert_eq!(decode_text(&encode_text(fr, CodePage::Windows1252), CodePage::Windows1252), fr);
+        assert_eq!(
+            decode_text(
+                &encode_text(fr, CodePage::Windows1252),
+                CodePage::Windows1252
+            ),
+            fr
+        );
         assert_eq!(CodePage::for_dir("ini_fr"), CodePage::Windows1252);
         assert_eq!(CodePage::for_dir("ini"), CodePage::Cp949);
     }
