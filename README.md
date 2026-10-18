@@ -1,4 +1,8 @@
-# ArchLord Client Rust
+<p align="center">
+  <img src="docs/assets/ArchRust.png" alt="Illustration du client ArchRust" width="340">
+</p>
+
+<h1 align="center">ArchLord Client Rust</h1>
 
 **Client ArchLord 64 bits réécrit en Rust**, avec rendu 3D `wgpu`, interface `egui`, connexion au
 serveur ArchCore, AddOns Lua et prise en charge des patchs graphiques HD. Le code source du client
