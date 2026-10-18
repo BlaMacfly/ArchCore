@@ -22,3 +22,6 @@ serde_json.workspace = true
 rand.workspace = true
 sha2.workspace = true
 chrono.workspace = true
+regex.workspace = true
+unicode-normalization.workspace = true
+encoding_rs.workspace = true

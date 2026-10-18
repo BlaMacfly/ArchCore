@@ -39,6 +39,13 @@ impl Pool {
         Ok(conn.last_insert_id().unwrap_or(0))
     }
 
+    /// Même requête pour chaque jeu de paramètres (insertions en masse).
+    pub async fn batch<P: Into<Params> + Send>(&self, sql: &str, rows: Vec<P>) -> anyhow::Result<()> {
+        let mut conn = self.0.get_conn().await?;
+        conn.exec_batch(sql, rows).await?;
+        Ok(())
+    }
+
     pub async fn close(self) {
         let _ = self.0.disconnect().await;
     }

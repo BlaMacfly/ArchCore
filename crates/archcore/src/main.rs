@@ -1,7 +1,17 @@
-//! Point d'entrée ArchCore : `archcore [login|world|all]`.
+//! ArchCore : émulateur de serveur ArchLord et ses outils, en un seul exécutable.
 //!
-//! Lit `config/archcore.json` (ou `ARCHCORE_CONFIG`) depuis le dossier courant (ou `ARCHCORE_ROOT`),
-//! comme le serveur Node d'origine, et utilise les mêmes bases MariaDB.
+//! ```text
+//!   archcore [login|world|all]                 serveur (par défaut : all)
+//!   archcore db-init [--account nom mdp [mj]]  crée les bases et applique sql/*.sql
+//!   archcore import [dossier]                  importe les tables déchiffrées du client
+//!   archcore decrypt [source] [destination]    déchiffre Game/ini vers data/client-ini
+//!   archcore i18n strings|coverage [Game]      mesure ce qui reste à traduire
+//!   archcore i18n apply [--ascii] [--dry]      applique data/i18n/fr.json à Game/ini_fr
+//!   archcore sim client|move|shop [args…]      client simulé (tests sans le jeu)
+//!   archcore re extract-schemas <fichiers…>    relevé des schémas de paquets (sorties REA)
+//! ```
+//! La configuration est lue dans `config/archcore.json` (ou `ARCHCORE_CONFIG`) depuis le dossier
+//! courant (ou `ARCHCORE_ROOT`).
 
 mod character;
 mod config;
@@ -9,66 +19,34 @@ mod db;
 mod log;
 mod login;
 mod net;
+mod server;
+mod tools;
 mod world;
 
-use std::sync::Arc;
-use std::time::Duration;
+const USAGE: &str = "usage : archcore [login|world|all] | db-init | import | decrypt | i18n | sim | re (voir le wiki, page Outils)";
 
 #[tokio::main]
 async fn main() {
     log::init();
-    if let Err(e) = run().await {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let cmd = args.first().map(String::as_str).unwrap_or("all");
+    let rest = args.get(1..).unwrap_or_default().to_vec();
+    let result = match cmd {
+        "login" | "world" | "all" => server::run(cmd).await,
+        "db-init" => tools::db_init::run(&rest).await,
+        "import" => tools::import::run(&rest).await,
+        "decrypt" => tools::decrypt::run(&rest),
+        "i18n" => tools::i18n::run(&rest),
+        "sim" => tools::sim::run(&rest).await,
+        "re" => tools::re::run(&rest),
+        "-h" | "--help" | "help" => {
+            println!("{USAGE}");
+            Ok(())
+        }
+        other => Err(anyhow::anyhow!("commande inconnue {other:?}\n{USAGE}")),
+    };
+    if let Err(e) = result {
         error!("{e:#}");
         std::process::exit(1);
     }
-}
-
-async fn run() -> anyhow::Result<()> {
-    let mode = std::env::args().nth(1).unwrap_or_else(|| "all".into());
-    if !matches!(mode.as_str(), "login" | "world" | "all") {
-        anyhow::bail!("mode inconnu {mode:?} : login, world ou all");
-    }
-    let config = Arc::new(config::load()?);
-    let db = db::Databases::new(&config.database);
-    db.check().await?;
-    let templates = Arc::new(character::Templates::load(&db).await?);
-
-    if mode == "login" || mode == "all" {
-        let svc = Arc::new(login::LoginService::new(db.clone(), templates.clone(), config.clone()));
-        svc.refresh_world_list().await?;
-        net::serve("login", &config.login, Arc::new(svc.clone())).await?;
-        tokio::spawn(async move {
-            let mut tick = tokio::time::interval(Duration::from_secs(60));
-            tick.tick().await;
-            loop {
-                tick.tick().await;
-                if let Err(e) = svc.refresh_world_list().await {
-                    warn!("liste des mondes : {e:#}");
-                }
-            }
-        });
-    }
-
-    if mode == "world" || mode == "all" {
-        let translator = world::npcs::Translator::load(&config.root, &config.world.language);
-        let npcs = world::npcs::NpcRegistry::load(&db, &translator).await?;
-        let catalog = world::items::ItemCatalog::load(&db).await?;
-        let state = world::WorldState {
-            view_radius: config.world.view_radius,
-            rates: world::gm::ServerRates::new(&config.world.rates),
-            ..Default::default()
-        };
-        let w = Arc::new(world::World {
-            ctx: world::WorldCtx { db: db.clone(), templates: templates.clone(), config: config.clone(), npcs, catalog, view_radius: config.world.view_radius },
-            state: tokio::sync::Mutex::new(state),
-        });
-        world::presence::spawn_autosave(w.clone());
-        let listen = config::Listen { port: config.world.port, bind: config.world.bind.clone() };
-        net::serve("world", &listen, Arc::new(world::WorldService(w.clone()))).await?;
-    }
-
-    tokio::signal::ctrl_c().await?;
-    info!("arrêt…");
-    db.close().await;
-    Ok(())
 }

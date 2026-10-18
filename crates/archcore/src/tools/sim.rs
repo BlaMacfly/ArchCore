@@ -1,0 +1,444 @@
+//! Client simulé : rejoue le flux d'un client ArchLord contre le login puis le monde, pour valider le
+//! serveur sans lancer le jeu.
+//!
+//! ```text
+//!   archcore sim client [compte] [mdp] [perso] [commandes…]   connexion complète (+ commandes de discussion)
+//!   archcore sim move [compteA mdpA persoA compteB mdpB persoB] deux joueurs : visibilité et déplacement
+//!   archcore sim shop [compte] [mdp] [perso]                  boutique de Darryl : liste, achat, revente
+//! ```
+//! À lancer contre un serveur de test (`ARCHCORE_CONFIG`) : les personnages sont créés au besoin,
+//! déplacés, et `sim shop` leur donne 1000 pièces d'or.
+
+use crate::config::Config;
+use archcore_net::blowfish::Blowfish;
+use archcore_net::framing::{FrameSplitter, FRAME_CLIENT, FRAME_HEADER, FRAME_OVERHEAD, FRAME_TAIL_CLIENT};
+use archcore_net::schema::{self, char_mgr_op, chat_type, crypt_op, login_op, mini, world_op};
+use archcore_net::{build_mini, build_packet, decode_mini, decode_packet, parse_header, Fields, Packet, Schema, Vec3};
+use rand::RngCore;
+use std::collections::VecDeque;
+use std::time::Duration;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
+
+/// Valeur facultative affichée sans « Some(…) ».
+fn o<T: std::fmt::Display>(v: Option<T>) -> String {
+    v.map(|x| x.to_string()).unwrap_or_else(|| "-".into())
+}
+
+pub async fn run(args: &[String]) -> anyhow::Result<()> {
+    let a = |i: usize, d: &str| args.get(i).cloned().unwrap_or_else(|| d.to_string());
+    match args.first().map(String::as_str) {
+        Some("client") => client(&a(1, "test"), &a(2, "test"), &a(3, "Testeur"), args.get(4..).unwrap_or_default()).await,
+        Some("move") => movement(&a(1, "sima"), &a(2, "sima"), &a(3, "SimA"), &a(4, "simb"), &a(5, "simb"), &a(6, "SimB")).await,
+        Some("shop") => shop(&a(1, "sima"), &a(2, "sima"), &a(3, "SimA")).await,
+        _ => anyhow::bail!("usage : archcore sim client|move|shop [arguments]"),
+    }
+}
+
+/// Paquet reçu : décodé si le type est connu.
+#[derive(Debug, Clone)]
+pub struct Recv {
+    pub ptype: u8,
+    pub packet: Option<Packet>,
+}
+
+impl Recv {
+    fn int(&self, i: usize) -> Option<i64> {
+        self.packet.as_ref().and_then(|p| p.int(i))
+    }
+    fn is(&self, s: &Schema, op: Option<i64>) -> bool {
+        self.ptype == s.id && (op.is_none() || self.int(0) == op)
+    }
+    fn fields(&self) -> &Fields {
+        &self.packet.as_ref().expect("paquet décodé").fields
+    }
+}
+
+pub struct TestClient {
+    label: String,
+    stream: TcpStream,
+    splitter: FrameSplitter,
+    queue: VecDeque<Recv>,
+    server_cipher: Option<Blowfish>,
+    client_cipher: Option<Blowfish>,
+    counter: u32,
+    encrypted: bool,
+}
+
+impl TestClient {
+    pub async fn connect(label: &str, addr: &str) -> anyhow::Result<Self> {
+        let stream = TcpStream::connect(addr).await.map_err(|e| anyhow::anyhow!("[{label}] connexion à {addr} : {e}"))?;
+        println!("[{label}] connecté à {addr}");
+        Ok(TestClient { label: label.into(), stream, splitter: FrameSplitter::default(), queue: VecDeque::new(), server_cipher: None, client_cipher: None, counter: 0, encrypted: false })
+    }
+
+    pub async fn send(&mut self, schema: &Schema, fields: Fields) -> anyhow::Result<()> {
+        let plain = build_packet(schema, &fields);
+        println!("[{}] → {} op={} ({} o)", self.label, schema.name, o(fields.int(0)), plain.len());
+        if !self.encrypted {
+            self.stream.write_all(&plain).await?;
+            return Ok(());
+        }
+        let padded = plain.len().div_ceil(8) * 8;
+        let mut frame = vec![0u8; FRAME_OVERHEAD + padded];
+        frame[FRAME_HEADER..FRAME_HEADER + plain.len()].copy_from_slice(&plain);
+        self.client_cipher.as_ref().unwrap().encrypt_le(&mut frame[FRAME_HEADER..FRAME_HEADER + padded])?;
+        self.counter += 1;
+        let len = frame.len() as u32;
+        frame[0] = FRAME_CLIENT;
+        frame[1..5].copy_from_slice(&len.to_le_bytes());
+        frame[5..9].copy_from_slice(&self.counter.to_le_bytes());
+        *frame.last_mut().unwrap() = FRAME_TAIL_CLIENT;
+        self.stream.write_all(&frame).await?;
+        Ok(())
+    }
+
+    async fn read_more(&mut self) -> anyhow::Result<()> {
+        let mut buf = vec![0u8; 64 * 1024];
+        let n = self.stream.read(&mut buf).await?;
+        if n == 0 {
+            anyhow::bail!("[{}] connexion fermée par le serveur", self.label);
+        }
+        for f in self.splitter.push(&buf[..n])? {
+            let plain = if f.encrypted {
+                let mut body = f.data[FRAME_HEADER..f.data.len() - 1].to_vec();
+                self.server_cipher.as_ref().unwrap().decrypt_le(&mut body)?;
+                let size = u32::from_le_bytes(body[1..5].try_into().unwrap()) as usize;
+                body.truncate(size);
+                body
+            } else {
+                f.data
+            };
+            let h = parse_header(&plain).ok_or_else(|| anyhow::anyhow!("en-tête invalide"))?;
+            let schema = schema::main_by_id(h.ptype);
+            let packet = schema.and_then(|s| decode_packet(s, &plain).ok());
+            println!(
+                "[{}] ← {} op={} ({} o)",
+                self.label,
+                schema.map(|s| s.name.to_string()).unwrap_or(format!("type 0x{:x}", h.ptype)),
+                o(packet.as_ref().and_then(|p| p.int(0))),
+                plain.len()
+            );
+            self.queue.push_back(Recv { ptype: h.ptype, packet });
+        }
+        Ok(())
+    }
+
+    /// Attend le premier paquet qui satisfait `pred` (les autres sont écartés), sous `timeout_ms`.
+    pub async fn expect_where(&mut self, pred: impl Fn(&Recv) -> bool, timeout_ms: u64, what: &str) -> anyhow::Result<Recv> {
+        let deadline = tokio::time::Instant::now() + Duration::from_millis(timeout_ms);
+        loop {
+            while let Some(p) = self.queue.pop_front() {
+                if pred(&p) {
+                    return Ok(p);
+                }
+            }
+            let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+            if left.is_zero() || tokio::time::timeout(left, self.read_more()).await.is_err() {
+                anyhow::bail!("[{}] attente dépassée : {what}", self.label);
+            }
+        }
+    }
+
+    pub async fn expect(&mut self, s: &Schema, op: Option<i64>) -> anyhow::Result<Recv> {
+        let what = format!("{} op {:?}", s.name, op);
+        self.expect_where(|p| p.is(s, op), 5000, &what).await
+    }
+
+    pub async fn handshake(&mut self) -> anyhow::Result<()> {
+        let se = &schema::STARTUP_ENCRYPTION;
+        self.send(se, Fields::new(se).with(0, crypt_op::REQUEST)).await?;
+        self.expect(se, Some(crypt_op::SET_ALGO)).await?;
+        let public = self.expect(se, Some(crypt_op::PUBLIC_KEY)).await?;
+        let server_key = public.fields().bytes(1).unwrap_or_default().to_vec();
+        anyhow::ensure!(server_key.len() == 32, "clé serveur invalide");
+        let server = Blowfish::new(&server_key)?;
+        let mut client_key = vec![0u8; 32];
+        rand::thread_rng().fill_bytes(&mut client_key);
+        self.client_cipher = Some(Blowfish::new(&client_key)?);
+        let mut enc = client_key.clone();
+        server.encrypt_le(&mut enc)?;
+        self.server_cipher = Some(server);
+        self.send(se, Fields::new(se).with(0, crypt_op::PRIVATE_KEY).with(1, enc)).await?;
+        self.encrypted = true;
+        self.expect(se, Some(crypt_op::COMPLETE)).await?;
+        println!("[{}] chiffrement établi", self.label);
+        Ok(())
+    }
+}
+
+pub struct InWorld {
+    pub world: TestClient,
+    pub cid: u32,
+    pub start: Vec3,
+}
+
+/// Se connecte au login, entre dans le monde avec `char_name` (créé s'il n'existe pas).
+pub async fn enter_world(cfg: &Config, user: &str, pass: &str, char_name: &str, label: &str) -> anyhow::Result<InWorld> {
+    let lg = &schema::LOGIN;
+    let mut login = TestClient::connect(&format!("{label}login"), &format!("127.0.0.1:{}", cfg.login.port)).await?;
+    login.handshake().await?;
+
+    let ws = &schema::WORLD;
+    login.send(ws, Fields::new(ws).with(0, world_op::SERVER_LIST_REQ)).await?;
+    let worlds = login.expect(ws, Some(world_op::SERVER_LIST_ANS)).await?;
+    let world_str = worlds.fields().text(3).unwrap_or_default();
+    println!("  mondes : {world_str}");
+    let world_name = world_str.split('=').next().unwrap_or("").to_string();
+
+    login.send(lg, Fields::new(lg).with(0, login_op::HASHKEY)).await?;
+    let hash_key = login.expect(lg, Some(login_op::HASHKEY)).await?.fields().text(1).unwrap_or_default();
+    println!("  clé de hachage : {hash_key}");
+    let enc_user = archcore_net::rc4::capi_crypt(hash_key.as_bytes(), &crate::tools::to_cp1252(user));
+    let enc_pass = archcore_net::rc4::capi_crypt(hash_key.as_bytes(), &crate::tools::to_cp1252(pass));
+    let (ul, pl) = (enc_user.len(), enc_pass.len());
+    login.send(lg, Fields::new(lg).with(0, login_op::USER_LOGIN).with(2, enc_user).with(3, ul).with(4, enc_pass).with(5, pl)).await?;
+    let ans = login.expect(lg, None).await?;
+    if ans.int(0) == Some(login_op::LOGIN_RESULT) {
+        anyhow::bail!("login refusé, résultat {:?}", ans.int(10));
+    }
+    println!("  authentifié (op {})", o(ans.int(0)));
+
+    login.send(lg, Fields::new(lg).with(0, login_op::UNION_INFO).with(7, world_name.as_str())).await?;
+    login.expect(lg, Some(login_op::UNION_INFO)).await?;
+    let mut names = Vec::new();
+    loop {
+        let p = login.expect(lg, None).await?;
+        match p.int(0) {
+            Some(login_op::CHAR_NAME_FINISH) => break,
+            Some(login_op::CHAR_NAME) => {
+                let info = decode_mini(&mini::LOGIN_CHAR_INFO, p.fields().bytes(8).unwrap_or_default())?;
+                names.push(info.text(1).unwrap_or_default());
+            }
+            _ => {}
+        }
+    }
+    println!("  personnages : {}", if names.is_empty() { "(aucun)".into() } else { names.join(", ") });
+
+    login.send(lg, Fields::new(lg).with(0, login_op::CHAR_LIST)).await?;
+    loop {
+        let p = login
+            .expect_where(|p| p.is(&schema::CHARACTER, None) || p.is(lg, Some(login_op::CHAR_LIST_FINISH)), 5000, "liste des personnages")
+            .await?;
+        if p.ptype == lg.id {
+            break;
+        }
+        let f = p.fields();
+        let factors = decode_mini(&mini::CHAR_FACTORS, f.bytes(7).unwrap_or_default())?;
+        let status = decode_mini(&mini::FACTOR_STATUS, factors.bytes(1).unwrap_or_default())?;
+        println!("  personnage cid={} tid={} nom={} niveau={}", o(f.int(1)), o(f.int(2)), f.text(3).unwrap_or_default(), o(status.int(7)));
+    }
+
+    if !names.iter().any(|n| n == char_name) {
+        login.send(lg, Fields::new(lg).with(0, login_op::CHAR_CREATION_ENTER)).await?;
+        let mut bases = 0;
+        loop {
+            let p = login
+                .expect_where(|p| p.is(&schema::CHARACTER, None) || p.is(lg, Some(login_op::CHAR_CREATION_ENTER)), 5000, "écran de création")
+                .await?;
+            if p.ptype == lg.id {
+                break;
+            }
+            bases += 1;
+        }
+        println!("  {bases} personnage(s) de base reçus");
+        let m = &mini::LOGIN_CHAR_INFO;
+        let info = build_mini(m, &Fields::new(m).with(0, 96).with(1, char_name).with(6, 1).with(7, 2));
+        login.send(lg, Fields::new(lg).with(0, login_op::CREATE_CHAR).with(8, info)).await?;
+        let created = login.expect(lg, None).await?;
+        if created.int(0) == Some(login_op::LOGIN_RESULT) {
+            anyhow::bail!("création refusée : {:?}", created.int(10));
+        }
+        login.expect(&schema::CHARACTER, None).await?;
+        let fin = login.expect(lg, Some(login_op::CREATE_CHAR_FINISH)).await?;
+        println!("  personnage créé, cid={}", o(fin.int(6)));
+    }
+
+    let m = &mini::LOGIN_CHAR_INFO;
+    let enter_info = build_mini(m, &Fields::new(m).with(1, char_name));
+    login.send(lg, Fields::new(lg).with(0, login_op::WORLD_ENTER).with(8, enter_info)).await?;
+    let cm = &schema::CHAR_MANAGER;
+    let auth_key = login.expect(cm, Some(char_mgr_op::AUTH_KEY)).await?.int(6).unwrap_or(0);
+    let enter = login.expect(lg, Some(login_op::WORLD_ENTER)).await?;
+    let address = decode_mini(&mini::LOGIN_SERVER_INFO, enter.fields().bytes(9).unwrap_or_default())?.text(0).unwrap_or_default();
+    println!("  clé d'auth {auth_key}, monde {address}");
+    drop(login);
+
+    let mut world = TestClient::connect(&format!("{label}world"), &address).await?;
+    world.handshake().await?;
+    // Comme le client : op 2, champ 2 = 17, nom, clé d'auth, bloc de 248 octets ; puis un keepalive op 13.
+    world.send(cm, Fields::new(cm).with(0, char_mgr_op::GAME_ENTER).with(2, 17).with(3, format!("{char_name}#{world_name}").as_str()).with(6, auth_key).with(7, "")).await?;
+    world.send(cm, Fields::new(cm).with(0, char_mgr_op::KEEPALIVE).with(2, 0)).await?;
+    world.expect(&schema::CONFIG, None).await?;
+    world.expect(&schema::CHARACTER, Some(25)).await?;
+    let loading = world.expect(cm, Some(char_mgr_op::LOADING_POS)).await?;
+    let start = loading.fields().vec3(5).unwrap_or_default();
+    let cid = loading.int(4).unwrap_or(0) as u32;
+    println!("  position de chargement : {:.0}, {:.0}, {:.0}", start.x, start.y, start.z);
+    world.expect(&schema::TIMER, None).await?;
+    world.send(cm, Fields::new(cm).with(0, char_mgr_op::ENTER_WORLD)).await?;
+    world.expect(&schema::CHARACTER, Some(0)).await?;
+    let mut npc_names = Vec::new();
+    loop {
+        let p = world
+            .expect_where(
+                |q| q.is(&schema::ADMIN, None) || q.is(&schema::OPT_VIEW, Some(1)) || q.is(cm, Some(char_mgr_op::FINISH_ENTER)),
+                5000,
+                "entrée en jeu",
+            )
+            .await?;
+        if p.ptype == cm.id {
+            break;
+        }
+        if p.ptype == schema::ADMIN.id {
+            let a = decode_mini(&mini::ADMIN_CHAR, p.fields().bytes(2).unwrap_or_default())?;
+            println!("  niveau MJ reçu : {}", o(a.int(3)));
+            continue;
+        }
+        let view = decode_mini(&mini::OPT_VIEW_CHAR, p.fields().bytes(1).unwrap_or_default())?;
+        npc_names.push(view.text(2).unwrap_or_default());
+    }
+    let shown: Vec<&str> = npc_names.iter().take(6).map(String::as_str).collect();
+    println!("  {} PNJ reçu(s) : {}{}", npc_names.len(), shown.join(", "), if npc_names.len() > 6 { ", …" } else { "" });
+    println!("  entrée en jeu confirmée");
+    Ok(InWorld { world, cid, start })
+}
+
+async fn client(user: &str, pass: &str, char_name: &str, commands: &[String]) -> anyhow::Result<()> {
+    let cfg = crate::config::load()?;
+    let mut w = enter_world(&cfg, user, pass, char_name, "").await?;
+    let commands: Vec<String> = if commands.is_empty() { vec!["/GetExp".into()] } else { commands.to_vec() };
+    let ch = &schema::CHATTING;
+    for command in &commands {
+        w.world
+            .send(ch, Fields::new(ch).with(0, 0).with(1, w.cid).with(2, chat_type::NORMAL).with(6, crate::tools::to_cp1252(command)))
+            .await?;
+        let mut replies = vec![w.world.expect_where(|q| q.ptype == ch.id, 5000, &format!("réponse à {command}")).await?];
+        while let Ok(more) = w.world.expect_where(|q| q.ptype == ch.id, 300, "suite").await {
+            replies.push(more);
+        }
+        println!("  {command}");
+        for r in replies {
+            println!("    → [type {}] {}", o(r.int(2)), r.fields().text(6).unwrap_or_default());
+        }
+    }
+    println!("  flux complet OK");
+    Ok(())
+}
+
+fn step(t: &str) {
+    println!("\n=== {t}");
+}
+
+async fn movement(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> anyhow::Result<()> {
+    const STOP: i64 = 0x04;
+    let cfg = crate::config::load()?;
+    let c = &schema::CHARACTER;
+    let mv = &schema::OPT_CHAR_MOVE;
+    let is_char = |op: i64, cid: u32| move |p: &Recv| p.is(c, Some(op)) && p.int(1) == Some(cid as i64);
+    step(&format!("{ca} entre en jeu"));
+    let mut a = enter_world(&cfg, ua, pa, ca, "A-").await?;
+    step(&format!("{cb} entre en jeu"));
+    let mut b = enter_world(&cfg, ub, pb, cb, "B-").await?;
+    let start = b.start;
+
+    b.world.expect_where(is_char(0, a.cid), 3000, &format!("{cb} reçoit {ca}")).await?;
+    a.world.expect_where(is_char(0, b.cid), 3000, &format!("{ca} reçoit {cb}")).await?;
+    println!("  ✓ {ca} et {cb} se voient");
+
+    let dest = Vec3::new(start.x + 600.0, start.y, start.z + 300.0);
+    a.world.send(mv, Fields::new(mv).with(0, a.cid).with(1, start).with(2, dest).with(5, 0).with(6, 0)).await?;
+    let acid = a.cid as i64;
+    let m = b.world.expect_where(|p| p.is(mv, None) && p.int(0) == Some(acid), 3000, "déplacement relayé").await?;
+    let d = m.fields().vec3(2).unwrap_or_default();
+    anyhow::ensure!((d.x - dest.x).abs() <= 0.5 && (d.z - dest.z).abs() <= 0.5, "destination relayée inattendue : {d:?}");
+    println!("  ✓ {cb} voit {ca} partir vers {:.0}, {:.0}", d.x, d.z);
+
+    let far = Vec3::new(start.x + 50_000.0, start.y, start.z);
+    a.world.send(mv, Fields::new(mv).with(0, a.cid).with(1, far).with(2, far).with(5, STOP).with(6, 0)).await?;
+    b.world.expect_where(is_char(2, a.cid), 3000, &format!("{cb} retire {ca}")).await?;
+    a.world.expect_where(is_char(2, b.cid), 3000, &format!("{ca} retire {cb}")).await?;
+    println!("  ✓ hors de portée : chacun retire l'autre");
+
+    a.world.send(mv, Fields::new(mv).with(0, a.cid).with(1, start).with(2, start).with(5, STOP).with(6, 0)).await?;
+    b.world.expect_where(is_char(0, a.cid), 3000, &format!("{cb} revoit {ca}")).await?;
+    println!("  ✓ de retour à portée : ils se revoient");
+
+    let cm = &schema::CHAR_MANAGER;
+    a.world.send(cm, Fields::new(cm).with(0, char_mgr_op::KEEPALIVE).with(2, 0)).await?;
+    drop(a);
+    b.world.expect_where(is_char(2, acid as u32), 3000, &format!("{cb} retire {ca} déconnecté")).await?;
+    println!("  ✓ déconnexion : le personnage disparaît chez l'autre joueur");
+    println!("\ndéplacement à deux joueurs : OK");
+    Ok(())
+}
+
+async fn shop(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
+    const DARRYL: Vec3 = Vec3 { x: -479_091.0, y: 4753.0, z: -66_202.0 };
+    const DARRYL_CID: u32 = 0x4000_0000 + 3;
+    const POTION_TID: i64 = 190;
+    let cfg = crate::config::load()?;
+    step("préparation : 1000 pièces d'or");
+    let db = crate::db::Databases::new(&cfg.database);
+    db.characters
+        .exec("UPDATE characters SET money = 1000, pos_x = ?, pos_y = ?, pos_z = ? WHERE name = ?", (DARRYL.x as f64 + 200.0, DARRYL.y as f64, DARRYL.z as f64, char_name.to_string()))
+        .await?;
+    db.close().await;
+
+    step(&format!("{char_name} entre en jeu près de Darryl"));
+    let mut a = enter_world(&cfg, user, pass, char_name, "A-").await?;
+    let near = Vec3::new(DARRYL.x + 200.0, DARRYL.y, DARRYL.z);
+    let mv = &schema::OPT_CHAR_MOVE;
+    a.world.send(mv, Fields::new(mv).with(0, a.cid).with(1, near).with(2, near).with(5, 0x04).with(6, 0)).await?;
+
+    step("ouverture de la boutique");
+    let eb = &mini::EVENT_BASE;
+    let base = build_mini(eb, &Fields::new(eb).with(0, 3).with(1, DARRYL_CID).with(3, 9));
+    let tr = &schema::EVENT_NPC_TRADE;
+    a.world.send(tr, Fields::new(tr).with(0, base.clone()).with(1, 0).with(2, a.cid)).await?;
+    let mut items: Vec<(i64, Fields)> = Vec::new();
+    loop {
+        let p = a.world.expect_where(|p| p.is_trade(), 5000, "fin de liste (op 1)").await?;
+        match p.fields().int(1) {
+            Some(0) => items.push((p.fields().int(3).unwrap_or(0), decode_mini(&mini::NPC_TRADE_DETAIL, p.fields().bytes(4).unwrap_or_default())?)),
+            Some(1) => break,
+            _ => {}
+        }
+    }
+    println!("  ✓ {} objet(s) reçus", items.len());
+    let (iid, detail) = items.iter().find(|(_, d)| d.int(0) == Some(POTION_TID)).ok_or_else(|| anyhow::anyhow!("potion absente de la boutique"))?;
+    println!("  ✓ potion TID {POTION_TID} : IID {iid}, prix {}, case {}/{}/{}", o(detail.int(1)), o(detail.int(4)), o(detail.int(5)), o(detail.int(6)));
+
+    step("achat de 3 potions");
+    let d = &mini::NPC_TRADE_DETAIL;
+    a.world.send(tr, Fields::new(tr).with(0, base.clone()).with(1, 2).with(2, a.cid).with(3, *iid).with(4, build_mini(d, &Fields::new(d).with(2, 3)))).await?;
+    let mut bought: Option<Fields> = None;
+    loop {
+        let p = a.world.expect_where(|p| p.is(&schema::ITEM, Some(0)) || (p.is_trade() && p.fields().int(1) == Some(2)), 5000, "résultat d'achat").await?;
+        if p.ptype == schema::ITEM.id {
+            if p.fields().int(3) == Some(POTION_TID) && p.fields().int(1) == Some(2) {
+                bought = Some(p.fields().clone());
+            }
+            continue;
+        }
+        anyhow::ensure!(p.fields().int(6) == Some(2), "achat refusé : résultat {:?}", p.fields().int(6));
+        break;
+    }
+    let bought = bought.ok_or_else(|| anyhow::anyhow!("objet acheté non reçu"))?;
+    let grid = decode_mini(&mini::ITEM_GRID, bought.bytes(7).unwrap_or_default())?;
+    println!("  ✓ achat réussi : IID {}, quantité {}, case {}/{}/{}", o(bought.int(2)), o(bought.int(5)), o(grid.int(0)), o(grid.int(1)), o(grid.int(2)));
+
+    step("revente");
+    a.world.send(tr, Fields::new(tr).with(0, base).with(1, 3).with(2, a.cid).with(3, bought.int(2).unwrap_or(0))).await?;
+    let sell = a.world.expect_where(|p| p.is_trade() && p.fields().int(1) == Some(3), 5000, "résultat de vente").await?;
+    anyhow::ensure!(sell.fields().int(6) == Some(0), "vente refusée : résultat {:?}", sell.fields().int(6));
+    println!("  ✓ vente réussie");
+    println!("\nboutique : OK");
+    Ok(())
+}
+
+impl Recv {
+    fn is_trade(&self) -> bool {
+        self.ptype == schema::EVENT_NPC_TRADE.id && self.packet.is_some()
+    }
+}

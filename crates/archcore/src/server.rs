@@ -1,0 +1,52 @@
+//! Serveur ArchCore : connexion (login) et monde, sur les bases MariaDB du projet.
+
+use crate::{info, warn};
+use std::sync::Arc;
+use std::time::Duration;
+
+/// Lance le serveur de connexion, le serveur monde, ou les deux.
+pub async fn run(mode: &str) -> anyhow::Result<()> {
+    let config = Arc::new(crate::config::load()?);
+    let db = crate::db::Databases::new(&config.database);
+    db.check().await?;
+    let templates = Arc::new(crate::character::Templates::load(&db).await?);
+
+    if mode == "login" || mode == "all" {
+        let svc = Arc::new(crate::login::LoginService::new(db.clone(), templates.clone(), config.clone()));
+        svc.refresh_world_list().await?;
+        crate::net::serve("login", &config.login, Arc::new(svc.clone())).await?;
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(Duration::from_secs(60));
+            tick.tick().await;
+            loop {
+                tick.tick().await;
+                if let Err(e) = svc.refresh_world_list().await {
+                    warn!("liste des mondes : {e:#}");
+                }
+            }
+        });
+    }
+
+    if mode == "world" || mode == "all" {
+        let translator = crate::world::npcs::Translator::load(&config.root, &config.world.language);
+        let npcs = crate::world::npcs::NpcRegistry::load(&db, &translator).await?;
+        let catalog = crate::world::items::ItemCatalog::load(&db).await?;
+        let state = crate::world::WorldState {
+            view_radius: config.world.view_radius,
+            rates: crate::world::gm::ServerRates::new(&config.world.rates),
+            ..Default::default()
+        };
+        let w = Arc::new(crate::world::World {
+            ctx: crate::world::WorldCtx { db: db.clone(), templates: templates.clone(), config: config.clone(), npcs, catalog, view_radius: config.world.view_radius },
+            state: tokio::sync::Mutex::new(state),
+        });
+        crate::world::presence::spawn_autosave(w.clone());
+        let listen = crate::config::Listen { port: config.world.port, bind: config.world.bind.clone() };
+        crate::net::serve("world", &listen, Arc::new(crate::world::WorldService(w.clone()))).await?;
+    }
+
+    tokio::signal::ctrl_c().await?;
+    info!("arrêt…");
+    db.close().await;
+    Ok(())
+}
