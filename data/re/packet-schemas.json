@@ -1,0 +1,9690 @@
+[
+ {
+  "address": "0x14026f470",
+  "fn": "undefined8 * FUN_14026f470(undefined8 *param_1)",
+  "name": "AgpmConfig",
+  "packetTypes": [
+   1
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0x329)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x32a)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x32a)",
+    "value": 4
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x2f9",
+    "fields": [
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      1,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT32 INT32 INT8"
+   }
+  ]
+ },
+ {
+  "address": "0x14016d640",
+  "fn": "undefined8 * FUN_14016d640(undefined8 *param_1)",
+  "name": "AgpmCharacter",
+  "packetTypes": [
+   2,
+   105,
+   101
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0x3f8)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x3f9)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x214c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x2154)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x45b)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x45c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x2464)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x246c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x4be)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x4bf)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x246c)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x4bf)",
+    "value": 4
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x3f9)",
+    "value": 4
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x2154)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x45c)",
+    "value": 2
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x22e4)",
+    "fields": [
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT32 INT32"
+   },
+   {
+    "target": "param_1 + 0x48e",
+    "fields": [
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT32 INT32 INT32 INT32 INT32 INT32 INT32 INT32 INT32 INT32 INT32 INT32 INT32 INT32 INT32 INT32 INT32"
+   },
+   {
+    "target": "param_1 + 0x3c8",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      13,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      7,
+      1
+     ],
+     [
+      7,
+      1
+     ],
+     [
+      7,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      2,
+      1
+     ],
+     [
+      2,
+      1
+     ],
+     [
+      8,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      0,
+      32
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      4,
+      1
+     ],
+     [
+      7,
+      1
+     ],
+     [
+      7,
+      1
+     ],
+     [
+      0,
+      16
+     ],
+     [
+      13,
+      1
+     ],
+     [
+      8,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT32 INT32 MEMORY_BLOCK INT8 PACKET PACKET PACKET INT64 INT64 INT64 INT8 INT8 INT32 INT8 UINT8 UINT8 UINT64 INT8 CHAR[32] INT8 INT8 INT32 INT8 UINT16 INT64 INT64 CHAR[16] MEMORY_BLOCK UINT64"
+   },
+   {
+    "target": "param_1 + 0x42b",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      10,
+      1
+     ],
+     [
+      2,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      6,
+      1
+     ],
+     [
+      2,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT32 INT32 INT8 PACKET VEC3F UINT8 INT8 UINT32 UINT8"
+   }
+  ]
+ },
+ {
+  "address": "0x1401a9140",
+  "fn": "undefined8 * FUN_1401a9140(undefined8 *param_1)",
+  "name": "AgpmItem",
+  "packetTypes": [
+   4
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0x3f8)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x3f9)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x214c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x2154)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x45b)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x45c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x2464)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x246c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x4be)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x4bf)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x277c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x2784)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x521)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x522)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x2a94)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x2a9c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x584)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x585)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x2dac)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x2db4)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x5e7)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x5e8)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x30c4)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x30cc)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x64a)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x64b)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x3f9)",
+    "value": 4
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x2784)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x45c)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x246c)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x4bf)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x2154)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x522)",
+    "value": 2
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x2a9c)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x585)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x2db4)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x5e8)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x30cc)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x64b)",
+    "value": 1
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x3c8",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      3
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      8,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      8,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      13,
+      1
+     ],
+     [
+      8,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT8 INT8 INT32 INT32[3] INT32 PACKET PACKET PACKET PACKET PACKET PACKET INT32 PACKET PACKET PACKET PACKET INT32 UINT64 INT32 PACKET PACKET UINT64 PACKET PACKET MEMORY_BLOCK UINT64"
+   },
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x25fc)",
+    "fields": [
+     [
+      10,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "VEC3F"
+   },
+   {
+    "target": "param_1 + 0x42b",
+    "fields": [
+     [
+      3,
+      1
+     ],
+     [
+      3,
+      1
+     ],
+     [
+      3,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT16 INT16 INT16"
+   },
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x22e4)",
+    "fields": [
+     [
+      3,
+      1
+     ],
+     [
+      3,
+      1
+     ],
+     [
+      3,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT16 INT16 INT16"
+   },
+   {
+    "target": "param_1 + 0x48e",
+    "fields": [
+     [
+      3,
+      1
+     ],
+     [
+      3,
+      1
+     ],
+     [
+      3,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT16 INT16 INT16"
+   },
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x1fcc)",
+    "fields": [],
+    "unresolved": false,
+    "pretty": ""
+   },
+   {
+    "target": "param_1 + 0x4f1",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      9,
+      1
+     ],
+     [
+      1,
+      10
+     ],
+     [
+      5,
+      10
+     ],
+     [
+      1,
+      10
+     ],
+     [
+      1,
+      10
+     ],
+     [
+      12,
+      10
+     ],
+     [
+      12,
+      10
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT32 INT8 FLOAT INT8[10] INT32[10] INT8[10] INT8[10] PACKET[10] PACKET[10] INT8 INT32 INT8 INT8 PACKET PACKET"
+   },
+   {
+    "target": "(longlong)param_1 + 0x2914",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT32 INT32 INT32"
+   },
+   {
+    "target": "param_1 + 0x554",
+    "fields": [
+     [
+      4,
+      1
+     ],
+     [
+      4,
+      1
+     ],
+     [
+      4,
+      1
+     ],
+     [
+      4,
+      1
+     ],
+     [
+      4,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "UINT16 UINT16 UINT16 UINT16 UINT16"
+   },
+   {
+    "target": "(longlong)param_1 + 0x2c2c",
+    "fields": [
+     [
+      4,
+      1
+     ],
+     [
+      4,
+      1
+     ],
+     [
+      4,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "UINT16 UINT16 UINT16"
+   },
+   {
+    "target": "param_1 + 0x5b7",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      7,
+      1
+     ],
+     [
+      8,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      7,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT64 UINT64 INT32 INT64"
+   },
+   {
+    "target": "(longlong)param_1 + 0x2f44",
+    "fields": [
+     [
+      3,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT16"
+   },
+   {
+    "target": "param_1 + 0x61a",
+    "fields": [
+     [
+      0,
+      64
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "CHAR[64]"
+   }
+  ]
+ },
+ {
+  "address": "0x1402f0720",
+  "fn": "undefined8 * FUN_1402f0720(undefined8 *param_1)",
+  "name": "AgpmSkill",
+  "packetTypes": [
+   5
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0x317)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x318)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1a44)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1a4c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x37a)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x37b)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1d5c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1d64)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x3dd)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x3de)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x318)",
+    "value": 2
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1a4c)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x37b)",
+    "value": 2
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x3de)",
+    "value": 2
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x2e7",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      2,
+      1
+     ],
+     [
+      12,
+      96
+     ],
+     [
+      13,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT32 PACKET PACKET INT32 INT8 PACKET UINT8 PACKET[96] MEMORY_BLOCK"
+   },
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x18c4)",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT32"
+   },
+   {
+    "target": "param_1 + 0x34a",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      10,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      6,
+      1
+     ],
+     [
+      6,
+      1
+     ],
+     [
+      6,
+      1
+     ],
+     [
+      2,
+      1
+     ],
+     [
+      2,
+      1
+     ],
+     [
+      6,
+      1
+     ],
+     [
+      13,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 PACKET PACKET VEC3F INT8 UINT32 UINT32 UINT32 UINT8 UINT8 UINT32 MEMORY_BLOCK"
+   },
+   {
+    "target": "param_1 + 0x3ad",
+    "fields": [
+     [
+      5,
+      1
+     ],
+     [
+      8,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      2,
+      1
+     ],
+     [
+      8,
+      1
+     ],
+     [
+      13,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT32 UINT64 INT32 UINT8 UINT64 MEMORY_BLOCK"
+   }
+  ]
+ },
+ {
+  "address": "0x1402dbfc0",
+  "fn": "undefined8 * FUN_1402dbfc0(undefined8 *param_1)",
+  "name": "AgpmParty",
+  "packetTypes": [
+   8
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0x37c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x37d)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1d6c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1d74)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x3df)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x3e0)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x2084)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x208c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x37d)",
+    "value": 2
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1d74)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x3e0)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x208c)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x312)",
+    "value": 0
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x34c",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      13,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      12,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT32 INT8 INT8 INT32 MEMORY_BLOCK PACKET PACKET INT8 PACKET INT8 PACKET"
+   },
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x1bec)",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT8 INT8 INT8 INT8"
+   },
+   {
+    "target": "param_1 + 0x3af",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      3,
+      1
+     ],
+     [
+      3,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT8 INT16 INT16"
+   },
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x1f04)",
+    "fields": [
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT32 INT32 INT32 INT32 INT32"
+   }
+  ]
+ },
+ {
+  "address": "0x140268ab0",
+  "fn": "undefined8 * FUN_140268ab0(undefined8 *param_1)",
+  "name": "AgpmAuction",
+  "packetTypes": [
+   11
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1864)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x186c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x33e)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x33f)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1b7c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1b84)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x3a1)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x3a2)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1e94)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1e9c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x404)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x405)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x21ac)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x21b4)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x467)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x468)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x24c4)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x24cc)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x4ca)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x4cb)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x186c)",
+    "value": 2
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x33f)",
+    "value": 2
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1b84)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x3a2)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1e9c)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x405)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x21b4)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x468)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x4cb)",
+    "value": 2
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x16e4)",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      33,
+      0
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT32 PACKET INT32 33[0]"
+   },
+   {
+    "target": "param_1 + 0x30e",
+    "fields": [
+     [
+      5,
+      1
+     ],
+     [
+      8,
+      1
+     ],
+     [
+      8,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      33,
+      1
+     ],
+     [
+      7,
+      1
+     ],
+     [
+      3,
+      1
+     ],
+     [
+      3,
+      1
+     ],
+     [
+      0,
+      33
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT32 UINT64 UINT64 INT32 33 INT64 INT16 INT16 CHAR[33] INT32"
+   },
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x19fc)",
+    "fields": [
+     [
+      5,
+      1
+     ],
+     [
+      6,
+      1
+     ],
+     [
+      12,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT32 UINT32 PACKET"
+   },
+   {
+    "target": "param_1 + 0x371",
+    "fields": [
+     [
+      5,
+      1
+     ],
+     [
+      8,
+      1
+     ],
+     [
+      3,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      12,
+      33
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT32 UINT64 INT16 INT32 PACKET[33]"
+   },
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x1d14)",
+    "fields": [
+     [
+      5,
+      1
+     ],
+     [
+      3,
+      1
+     ],
+     [
+      7,
+      1
+     ],
+     [
+      7,
+      1
+     ],
+     [
+      0,
+      33
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT32 INT16 INT64 INT64 CHAR[33] INT32"
+   },
+   {
+    "target": "param_1 + 0x3d4",
+    "fields": [
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      3,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT32 INT32 INT16"
+   },
+   {
+    "target": "(longlong)param_1 + 0x202c",
+    "fields": [
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      3,
+      1
+     ],
+     [
+      7,
+      1
+     ],
+     [
+      7,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT32 INT32 INT16 INT64 INT64"
+   },
+   {
+    "target": "param_1 + 0x437",
+    "fields": [
+     [
+      7,
+      1
+     ],
+     [
+      3,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      7,
+      1
+     ],
+     [
+      7,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT64 INT16 INT32 INT64 INT64"
+   },
+   {
+    "target": "param_1 + 0x49a",
+    "fields": [
+     [
+      5,
+      1
+     ],
+     [
+      13,
+      1
+     ],
+     [
+      13,
+      1
+     ],
+     [
+      6,
+      1
+     ],
+     [
+      6,
+      1
+     ],
+     [
+      6,
+      1
+     ],
+     [
+      13,
+      1
+     ],
+     [
+      13,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT32 MEMORY_BLOCK MEMORY_BLOCK UINT32 UINT32 UINT32 MEMORY_BLOCK MEMORY_BLOCK"
+   }
+  ]
+ },
+ {
+  "address": "0x1402e1a80",
+  "fn": "undefined8 * FUN_1402e1a80(undefined8 *param_1)",
+  "name": "AgpmChatting",
+  "packetTypes": [
+   15
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1a04)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1a0c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1a0c)",
+    "value": 1
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x1884)",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      0,
+      49
+     ],
+     [
+      0,
+      49
+     ],
+     [
+      13,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT32 INT8 INT32 CHAR[49] CHAR[49] MEMORY_BLOCK"
+   }
+  ]
+ },
+ {
+  "address": "0x14022e080",
+  "fn": "undefined8 * FUN_14022e080(undefined8 *param_1)",
+  "name": "AgpmTimer",
+  "packetTypes": [
+   17
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1853)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x185b)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x185b)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x2d8)",
+    "value": 1
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x16d3)",
+    "fields": [
+     [
+      2,
+      1
+     ],
+     [
+      8,
+      1
+     ],
+     [
+      6,
+      1
+     ],
+     [
+      6,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "UINT8 UINT64 UINT32 UINT32"
+   }
+  ]
+ },
+ {
+  "address": "0x14024a220",
+  "fn": "undefined8 * FUN_14024a220(undefined8 *param_1)",
+  "name": "AgpmAdmin",
+  "packetTypes": [
+   18
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x189c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x18a4)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x345)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x346)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1bb4)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1bbc)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x3a8)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x3a9)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1ecc)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1ed4)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x40b)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x40c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x21e4)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x21ec)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x46e)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x46f)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x24fc)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x2504)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x4d1)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x4d2)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x2814)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x281c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x534)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x535)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x2b2c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x2b34)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x597)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x598)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x2e44)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x2e4c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x18a4)",
+    "value": 2
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x346)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1bbc)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x3a9)",
+    "value": 2
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1ed4)",
+    "value": 2
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x40c)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x21ec)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x2504)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x4d2)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x281c)",
+    "value": 2
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x535)",
+    "value": 2
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x2b34)",
+    "value": 2
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x598)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x2e4c)",
+    "value": 2
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x2d8)",
+    "value": 0
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x171c)",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT32 PACKET PACKET PACKET PACKET PACKET PACKET PACKET PACKET PACKET PACKET PACKET PACKET PACKET"
+   },
+   {
+    "target": "param_1 + 0x315",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      0,
+      49
+     ],
+     [
+      3,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      0,
+      49
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT32 CHAR[49] INT16 INT8 CHAR[49]"
+   },
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x1a34)",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      0,
+      49
+     ],
+     [
+      12,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT8 INT32 CHAR[49] PACKET"
+   },
+   {
+    "target": "param_1 + 0x378",
+    "fields": [
+     [
+      3,
+      1
+     ],
+     [
+      3,
+      1
+     ],
+     [
+      0,
+      49
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      0,
+      49
+     ],
+     [
+      0,
+      49
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      0,
+      16
+     ],
+     [
+      0,
+      16
+     ],
+     [
+      0,
+      16
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT16 INT16 CHAR[49] INT8 CHAR[49] CHAR[49] INT32 INT32 CHAR[16] CHAR[16] CHAR[16] INT32"
+   },
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x1d4c)",
+    "fields": [
+     [
+      5,
+      1
+     ],
+     [
+      0,
+      49
+     ],
+     [
+      0,
+      49
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      0,
+      16
+     ],
+     [
+      0,
+      16
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT32 CHAR[49] CHAR[49] INT8 CHAR[16] CHAR[16]"
+   },
+   {
+    "target": "param_1 + 0x3db",
+    "fields": [
+     [
+      5,
+      1
+     ],
+     [
+      0,
+      49
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      9,
+      0
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT32 CHAR[49] INT8 FLOAT[0]"
+   },
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x2064)",
+    "fields": [
+     [
+      5,
+      1
+     ],
+     [
+      0,
+      49
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      9,
+      0
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT32 CHAR[49] INT8 FLOAT[0]"
+   },
+   {
+    "target": "(longlong)param_1 + 0x237c",
+    "fields": [
+     [
+      5,
+      1
+     ],
+     [
+      13,
+      1
+     ],
+     [
+      1,
+      0
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT32 MEMORY_BLOCK INT8[0]"
+   },
+   {
+    "target": "param_1 + 0x4a1",
+    "fields": [
+     [
+      0,
+      49
+     ],
+     [
+      0,
+      49
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      9,
+      1
+     ],
+     [
+      9,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "CHAR[49] CHAR[49] INT8 FLOAT FLOAT"
+   },
+   {
+    "target": "(longlong)param_1 + 0x2694",
+    "fields": [
+     [
+      13,
+      1
+     ],
+     [
+      13,
+      1
+     ],
+     [
+      1,
+      0
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "MEMORY_BLOCK MEMORY_BLOCK INT8[0]"
+   },
+   {
+    "target": "param_1 + 0x504",
+    "fields": [
+     [
+      0,
+      49
+     ],
+     [
+      0,
+      49
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      1,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "CHAR[49] CHAR[49] INT8 INT8 INT32 INT8 INT32 INT8 INT32 INT8"
+   },
+   {
+    "target": "(longlong)param_1 + 0x29ac",
+    "fields": [
+     [
+      13,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "MEMORY_BLOCK"
+   },
+   {
+    "target": "param_1 + 0x567",
+    "fields": [
+     [
+      0,
+      16
+     ],
+     [
+      3,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "CHAR[16] INT16"
+   },
+   {
+    "target": "(longlong)param_1 + 0x2cc4",
+    "fields": [
+     [
+      13,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "MEMORY_BLOCK"
+   }
+  ]
+ },
+ {
+  "address": "0x140278960",
+  "fn": "undefined8 * FUN_140278960(undefined8 *param_1)",
+  "name": "AgpmQuest",
+  "packetTypes": [
+   19
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0x37d)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x37e)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1d74)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1d7c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x37e)",
+    "value": 2
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1d7c)",
+    "value": 1
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x34d",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      13,
+      1
+     ],
+     [
+      13,
+      1
+     ],
+     [
+      13,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT32 PACKET PACKET INT32 INT32 INT32 INT32 MEMORY_BLOCK MEMORY_BLOCK MEMORY_BLOCK"
+   },
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x1bf4)",
+    "fields": [
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      0,
+      49
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT32 INT32 INT32 INT32 INT32 CHAR[49]"
+   }
+  ]
+ },
+ {
+  "address": "0x140266120",
+  "fn": "undefined8 * FUN_140266120(undefined8 *param_1)",
+  "name": "AgpmUIStatus",
+  "packetTypes": [
+   20
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1854)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x185c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x185c)",
+    "value": 2
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x16d4)",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      12,
+      50
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      13,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      13,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT32 PACKET[50] INT8 PACKET MEMORY_BLOCK INT32 INT32 INT8 INT8 INT8 MEMORY_BLOCK"
+   }
+  ]
+ },
+ {
+  "address": "0x1401f42c0",
+  "fn": "undefined8 * FUN_1401f42c0(undefined8 *param_1)",
+  "name": "AgpmGuild",
+  "packetTypes": [
+   21
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1ea4)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1eac)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x406)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x407)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x21bc)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x21c4)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x469)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x46a)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x24d4)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x24dc)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x4cc)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x4cd)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x27ec)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x27f4)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x52f)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x530)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x3a4)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1eac)",
+    "value": 4
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x407)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x21c4)",
+    "value": 2
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x46a)",
+    "value": 4
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x24dc)",
+    "value": 2
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x4cd)",
+    "value": 4
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x27f4)",
+    "value": 4
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x530)",
+    "value": 2
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x1d24)",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      0,
+      33
+     ],
+     [
+      0,
+      49
+     ],
+     [
+      5,
+      8
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      7,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      0,
+      13
+     ],
+     [
+      13,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT32 CHAR[33] CHAR[49] INT32[8] INT32 INT64 INT32 INT32 CHAR[13] MEMORY_BLOCK INT8 INT32 INT32 INT32 INT32 PACKET PACKET PACKET PACKET PACKET PACKET INT32 INT32 INT32"
+   },
+   {
+    "target": "param_1 + 0x3d6",
+    "fields": [
+     [
+      0,
+      49
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      7,
+      1
+     ],
+     [
+      8,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      1,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "CHAR[49] INT32 INT64 UINT64 INT32 INT8"
+   },
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x203c)",
+    "fields": [
+     [
+      0,
+      33
+     ],
+     [
+      0,
+      49
+     ],
+     [
+      8,
+      1
+     ],
+     [
+      8,
+      1
+     ],
+     [
+      8,
+      1
+     ],
+     [
+      6,
+      1
+     ],
+     [
+      6,
+      1
+     ],
+     [
+      6,
+      1
+     ],
+     [
+      8,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      6,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "CHAR[33] CHAR[49] UINT64 UINT64 UINT64 UINT32 UINT32 UINT32 UINT64 INT32 INT32 INT32 INT32 INT8 UINT32"
+   },
+   {
+    "target": "param_1 + 0x439",
+    "fields": [
+     [
+      3,
+      1
+     ],
+     [
+      13,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT16 MEMORY_BLOCK"
+   },
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x2354)",
+    "fields": [
+     [
+      0,
+      33
+     ],
+     [
+      0,
+      49
+     ],
+     [
+      6,
+      1
+     ],
+     [
+      6,
+      1
+     ],
+     [
+      6,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "CHAR[33] CHAR[49] UINT32 UINT32 UINT32"
+   },
+   {
+    "target": "param_1 + 0x49c",
+    "fields": [
+     [
+      6,
+      1
+     ],
+     [
+      13,
+      1
+     ],
+     [
+      6,
+      1
+     ],
+     [
+      13,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "UINT32 MEMORY_BLOCK UINT32 MEMORY_BLOCK"
+   },
+   {
+    "target": "(longlong)param_1 + 0x266c",
+    "fields": [
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      3,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT32 INT32 INT16 PACKET PACKET PACKET PACKET PACKET PACKET PACKET PACKET PACKET PACKET PACKET PACKET PACKET PACKET PACKET PACKET PACKET PACKET PACKET"
+   },
+   {
+    "target": "param_1 + 0x4ff",
+    "fields": [
+     [
+      0,
+      33
+     ],
+     [
+      0,
+      49
+     ],
+     [
+      0,
+      49
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      6,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "CHAR[33] CHAR[49] CHAR[49] INT32 UINT32 INT32 INT32 INT32 INT32 INT32 INT32"
+   }
+  ]
+ },
+ {
+  "address": "0x14028b960",
+  "fn": "undefined8 * FUN_14028b960(undefined8 *param_1)",
+  "name": "AgpmItemConvert",
+  "packetTypes": [
+   22
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x3344)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x334c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x69a)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x69b)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x334c)",
+    "value": 2
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x69b)",
+    "value": 1
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x31c4)",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      12,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT32 INT32 INT32 INT8 INT8 INT8 INT8 INT32 PACKET"
+   },
+   {
+    "target": "param_1 + 0x66a",
+    "fields": [
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT32 INT32 INT32 INT32 INT32 INT32 INT32 INT32"
+   }
+  ]
+ },
+ {
+  "address": "0x1402a5910",
+  "fn": "undefined8 * FUN_1402a5910(undefined8 *param_1)",
+  "name": "AgpmProduct",
+  "packetTypes": [
+   23
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0x386)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x387)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x387)",
+    "value": 2
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x356",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      13,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT32 INT32 INT32 INT32 INT32 INT32 MEMORY_BLOCK"
+   }
+  ]
+ },
+ {
+  "address": "0x1402e3d90",
+  "fn": "undefined8 * FUN_1402e3d90(undefined8 *param_1)",
+  "name": "AgpmWorld",
+  "packetTypes": [
+   24
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0x305)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x306)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x306)",
+    "value": 1
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x2d5",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      0,
+      32
+     ],
+     [
+      3,
+      1
+     ],
+     [
+      13,
+      1
+     ],
+     [
+      0,
+      32
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 CHAR[32] INT16 MEMORY_BLOCK CHAR[32]"
+   }
+  ]
+ },
+ {
+  "address": "0x14027c4b0",
+  "fn": "undefined8 * FUN_14027c4b0(undefined8 *param_1)",
+  "name": "AgpmCasper",
+  "packetTypes": [
+   25
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0x305)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x306)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x306)",
+    "value": 1
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x2d5",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT32"
+   }
+  ]
+ },
+ {
+  "address": "0x140276670",
+  "fn": "undefined8 * FUN_140276670(undefined8 *param_1)",
+  "name": "AgpmRemission",
+  "packetTypes": [
+   42
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0x309)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x30a)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x19d4)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x19dc)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x30a)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x19dc)",
+    "value": 1
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x2d9",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      12,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT32 PACKET"
+   },
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x1854)",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT32"
+   }
+  ]
+ },
+ {
+  "address": "0x1402aacc0",
+  "fn": "undefined8 * FUN_1402aacc0(undefined8 *param_1)",
+  "name": "AgpmBuddy",
+  "packetTypes": [
+   43
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1844)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x184c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x33a)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x33b)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x184c)",
+    "value": 4
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x33b)",
+    "value": 4
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x16c4)",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      0,
+      33
+     ],
+     [
+      6,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT32 CHAR[33] UINT32 INT32 INT32 INT32"
+   },
+   {
+    "target": "param_1 + 0x30a",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      3,
+      1
+     ],
+     [
+      0,
+      990
+     ],
+     [
+      6,
+      30
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT32 INT16 CHAR[990] UINT32[30]"
+   }
+  ]
+ },
+ {
+  "address": "0x1402af1d0",
+  "fn": "undefined8 * FUN_1402af1d0(undefined8 *param_1)",
+  "name": "AgpmChannel",
+  "packetTypes": [
+   44
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0x309)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x30a)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x30a)",
+    "value": 4
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x2d9",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      0,
+      41
+     ],
+     [
+      0,
+      9
+     ],
+     [
+      0,
+      33
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      0,
+      121
+     ],
+     [
+      13,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT32 CHAR[41] CHAR[9] CHAR[33] INT32 INT32 CHAR[121] MEMORY_BLOCK"
+   }
+  ]
+ },
+ {
+  "address": "0x1402ea930",
+  "fn": "undefined8 * FUN_1402ea930(undefined8 *param_1)",
+  "name": "AgpmMailBox",
+  "packetTypes": [
+   45
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0x342)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x343)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1b9c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1ba4)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x343)",
+    "value": 2
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1ba4)",
+    "value": 2
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x312",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT32 PACKET INT32 INT32"
+   },
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x1a1c)",
+    "fields": [
+     [
+      5,
+      1
+     ],
+     [
+      0,
+      33
+     ],
+     [
+      0,
+      33
+     ],
+     [
+      0,
+      51
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      3,
+      1
+     ],
+     [
+      13,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT32 CHAR[33] CHAR[33] CHAR[51] INT32 INT32 INT32 INT16 MEMORY_BLOCK"
+   }
+  ]
+ },
+ {
+  "address": "0x1402853f0",
+  "fn": "undefined8 * FUN_1402853f0(undefined8 *param_1)",
+  "name": "AgpmCashMall",
+  "packetTypes": [
+   46
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0x10383)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x10384)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x10384)",
+    "value": 2
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x10353",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      2,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      13,
+      1
+     ],
+     [
+      13,
+      1
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT8 UINT8 INT32 INT32 INT32 MEMORY_BLOCK MEMORY_BLOCK INT32"
+   }
+  ]
+ },
+ {
+  "address": "0x1402cf130",
+  "fn": "undefined8 * FUN_1402cf130(undefined8 *param_1)",
+  "name": "AgpmReturnToLogin",
+  "packetTypes": [
+   47
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0x306)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x307)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x307)",
+    "value": 1
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x2d6",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      0,
+      49
+     ],
+     [
+      0,
+      32
+     ],
+     [
+      0,
+      25
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT32 CHAR[49] CHAR[32] CHAR[25] INT32"
+   }
+  ]
+ },
+ {
+  "address": "0x1401e99b0",
+  "fn": "undefined8 * FUN_1401e99b0(undefined8 *param_1)",
+  "name": "AgpmEventNature",
+  "packetTypes": [
+   48
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0x315)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x316)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x316)",
+    "value": 1
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x2e5",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      7,
+      1
+     ],
+     [
+      7,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT64 INT64"
+   }
+  ]
+ },
+ {
+  "address": "0x1402e4dd0",
+  "fn": "undefined8 * FUN_1402e4dd0(undefined8 *param_1)",
+  "name": "AgpmEventTeleport",
+  "packetTypes": [
+   49
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0x3b9)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x3ba)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x3ba)",
+    "value": 1
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x389",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      0,
+      33
+     ],
+     [
+      10,
+      1
+     ],
+     [
+      13,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 PACKET INT32 CHAR[33] VEC3F MEMORY_BLOCK"
+   }
+  ]
+ },
+ {
+  "address": "0x14026fe00",
+  "fn": "undefined8 * FUN_14026fe00(undefined8 *param_1)",
+  "name": "AgpmRaceWar",
+  "packetTypes": [
+   51
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0x354)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x355)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x355)",
+    "value": 1
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x324",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      0,
+      4
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 CHAR[4]"
+   }
+  ]
+ },
+ {
+  "address": "0x1402b3750",
+  "fn": "undefined8 * FUN_1402b3750(undefined8 *param_1)",
+  "name": "AgpmEventItemRepair",
+  "packetTypes": [
+   52
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0x309)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x30a)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x19d4)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x19dc)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x30a)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x19dc)",
+    "value": 1
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x2d9",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      20
+     ],
+     [
+      7,
+      1
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 PACKET INT32 INT32[20] INT64 INT32"
+   },
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x1854)",
+    "fields": [
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT32"
+   }
+  ]
+ },
+ {
+  "address": "0x1402b2170",
+  "fn": "undefined8 * FUN_1402b2170(undefined8 *param_1)",
+  "name": "AgpmEventBank",
+  "packetTypes": [
+   54
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0x307)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x308)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x308)",
+    "value": 1
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x2d7",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 PACKET INT32"
+   }
+  ]
+ },
+ {
+  "address": "0x140288260",
+  "fn": "undefined8 * FUN_140288260(undefined8 *param_1)",
+  "name": "AgpmEventNPCDialog",
+  "packetTypes": [
+   55
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1be4)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1bec)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x3ae)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x3af)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1bec)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x3af)",
+    "value": 1
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x1a64)",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 PACKET INT32"
+   },
+   {
+    "target": "param_1 + 0x37e",
+    "fields": [
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT32"
+   }
+  ]
+ },
+ {
+  "address": "0x14029eae0",
+  "fn": "undefined8 * FUN_14029eae0(undefined8 *param_1)",
+  "name": "AgpmEventItemConvert",
+  "packetTypes": [
+   56
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0x309)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x30a)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x30a)",
+    "value": 1
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x2d9",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 PACKET INT32"
+   }
+  ]
+ },
+ {
+  "address": "0x14027af40",
+  "fn": "undefined8 * FUN_14027af40(undefined8 *param_1)",
+  "name": "AgpmEventGuild",
+  "packetTypes": [
+   57
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0x307)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x308)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x308)",
+    "value": 1
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x2d7",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 PACKET INT32"
+   }
+  ]
+ },
+ {
+  "address": "0x1402cfd80",
+  "fn": "undefined8 * FUN_1402cfd80(undefined8 *param_1)",
+  "name": "AgpmEventProduct",
+  "packetTypes": [
+   58
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0x309)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x30a)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x19d4)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x19dc)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x30a)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x19dc)",
+    "value": 1
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x2d9",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 PACKET INT32 INT32 INT32"
+   },
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x1854)",
+    "fields": [
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT32"
+   }
+  ]
+ },
+ {
+  "address": "0x1402b6880",
+  "fn": "undefined8 * FUN_1402b6880(undefined8 *param_1)",
+  "name": "AgpmEventSkillMaster",
+  "packetTypes": [
+   59
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0x12ba)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x12bb)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x975c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x9764)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x12bb)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x9764)",
+    "value": 1
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x128a",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 PACKET INT32 INT32 INT32 INT8 INT8 INT8"
+   },
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x95dc)",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT8"
+   }
+  ]
+ },
+ {
+  "address": "0x140301580",
+  "fn": "undefined8 * FUN_140301580(undefined8 *param_1)",
+  "name": "ApmEventManager",
+  "packetTypes": [
+   60
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0x317)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x46d)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x46e)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x24f4)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x24fc)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x46e)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x24fc)",
+    "value": 1
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x43d",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT32 INT32 INT32"
+   },
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x2374)",
+    "fields": [
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "PACKET PACKET"
+   }
+  ]
+ },
+ {
+  "address": "0x1402c2a80",
+  "fn": "undefined8 * FUN_1402c2a80(undefined8 *param_1)",
+  "name": "AgpmRift",
+  "packetTypes": [
+   61
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0x309)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x30a)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x19d4)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x19dc)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x30a)",
+    "value": 4
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x19dc)",
+    "value": 1
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x2d9",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      0,
+      513
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      0,
+      49
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      8,
+      1
+     ],
+     [
+      8,
+      1
+     ],
+     [
+      0,
+      2049
+     ],
+     [
+      0,
+      177536
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      0,
+      120
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 CHAR[513] INT32 CHAR[49] INT8 INT32 UINT64 UINT64 CHAR[2049] CHAR[177536] PACKET CHAR[120]"
+   },
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x1854)",
+    "fields": [
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT32"
+   }
+  ]
+ },
+ {
+  "address": "0x1402a4ce0",
+  "fn": "undefined8 * FUN_1402a4ce0(undefined8 *param_1)",
+  "name": "AgpmEventQuest",
+  "packetTypes": [
+   62
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0x307)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x308)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x19c4)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x19cc)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x308)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x19cc)",
+    "value": 1
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x2d7",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 PACKET INT32 INT32"
+   },
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x1844)",
+    "fields": [
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT32"
+   }
+  ]
+ },
+ {
+  "address": "0x14029d0f0",
+  "fn": "undefined8 * FUN_14029d0f0(undefined8 *param_1)",
+  "name": "AgpmEventRefinery",
+  "packetTypes": [
+   63
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0x307)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x308)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x19c4)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x19cc)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x308)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x19cc)",
+    "value": 1
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x2d7",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 PACKET INT32"
+   },
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x1844)",
+    "fields": [
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT32"
+   }
+  ]
+ },
+ {
+  "address": "0x14025fb60",
+  "fn": "undefined8 * FUN_14025fb60(undefined8 *param_1)",
+  "name": "AgpmOptimizedPacket2",
+  "packetTypes": [
+   64,
+   65,
+   66
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0x311)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x312)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1a14)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1a1c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x374)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x375)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1d2c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1d34)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x3d7)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x3d8)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x312)",
+    "value": 2
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1a1c)",
+    "value": 4
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x375)",
+    "value": 4
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1d34)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x3d8)",
+    "value": 2
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x2e1",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      32
+     ],
+     [
+      13,
+      1
+     ],
+     [
+      13,
+      1
+     ],
+     [
+      0,
+      33
+     ],
+     [
+      13,
+      1
+     ],
+     [
+      13,
+      1
+     ],
+     [
+      13,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      13,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 PACKET PACKET[32] MEMORY_BLOCK MEMORY_BLOCK CHAR[33] MEMORY_BLOCK MEMORY_BLOCK MEMORY_BLOCK INT32 INT32 INT32 INT32 MEMORY_BLOCK"
+   },
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x1894)",
+    "fields": [
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      13,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      10,
+      1
+     ],
+     [
+      10,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      4,
+      1
+     ],
+     [
+      3,
+      1
+     ],
+     [
+      3,
+      1
+     ],
+     [
+      8,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      4,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      0,
+      16
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT32 INT32 MEMORY_BLOCK INT8 INT8 PACKET INT8 INT8 VEC3F VEC3F INT32 UINT16 INT16 INT16 UINT64 INT8 INT8 INT8 INT8 UINT16 INT8 INT32 CHAR[16] INT32 INT32 INT32"
+   },
+   {
+    "target": "param_1 + 0x344",
+    "fields": [
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      3,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      4,
+      1
+     ],
+     [
+      4,
+      1
+     ],
+     [
+      4,
+      1
+     ],
+     [
+      4,
+      1
+     ],
+     [
+      4,
+      1
+     ],
+     [
+      13,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT32 INT32 INT16 INT8 INT8 INT8 INT32 INT32 INT32 INT32 INT32 INT32 INT32 INT32 INT32 UINT16 UINT16 UINT16 UINT16 UINT16 MEMORY_BLOCK"
+   },
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x1bac)",
+    "fields": [
+     [
+      5,
+      1
+     ],
+     [
+      10,
+      1
+     ],
+     [
+      10,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      4,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT32 VEC3F VEC3F INT32 UINT16 INT8 INT8 INT8 INT32"
+   },
+   {
+    "target": "param_1 + 0x3a7",
+    "fields": [
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      6,
+      1
+     ],
+     [
+      2,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT32 INT32 INT8 PACKET INT32 INT8 INT8 UINT32 UINT8"
+   }
+  ]
+ },
+ {
+  "address": "0x14022cab0",
+  "fn": "undefined8 * FUN_14022cab0(undefined8 *param_1)",
+  "name": "AgpmEventCharCustomize",
+  "packetTypes": [
+   67
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0x30a)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x30b)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x30b)",
+    "value": 1
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x2da",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 PACKET INT32 INT8 INT8"
+   }
+  ]
+ },
+ {
+  "address": "0x1402e3410",
+  "fn": "undefined8 * FUN_1402e3410(undefined8 *param_1)",
+  "name": "AgpmSystemMessage",
+  "packetTypes": [
+   68
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0x306)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x307)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x307)",
+    "value": 1
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x2d6",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      0,
+      65
+     ],
+     [
+      0,
+      65
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT32 INT32 INT32 CHAR[65] CHAR[65]"
+   }
+  ]
+ },
+ {
+  "address": "0x140289c80",
+  "fn": "undefined8 * FUN_140289c80(undefined8 *param_1)",
+  "name": "AgpmWantedCriminal",
+  "packetTypes": [
+   70
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0x340)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x341)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1b8c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1b94)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x341)",
+    "value": 2
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1b94)",
+    "value": 2
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x310",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      12,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT32 INT32 INT32 INT32 PACKET"
+   },
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x1a0c)",
+    "fields": [
+     [
+      0,
+      33
+     ],
+     [
+      7,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "CHAR[33] INT64 INT32 INT32 INT32"
+   }
+  ]
+ },
+ {
+  "address": "0x1402c20d0",
+  "fn": "undefined8 * FUN_1402c20d0(undefined8 *param_1)",
+  "name": "AgpmNatureEffect",
+  "packetTypes": [
+   71
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x182c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1834)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1834)",
+    "value": 2
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x16ac)",
+    "fields": [
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT32"
+   }
+  ]
+ },
+ {
+  "address": "0x14020fa90",
+  "fn": "undefined8 * FUN_14020fa90(undefined8 *param_1)",
+  "name": "AgpmSiegeWar",
+  "packetTypes": [
+   73
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0xba3)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0xba4)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x5ea4)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x5eac)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0xc06)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0xc07)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x61bc)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x61c4)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0xc69)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0xc6a)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x64d4)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x64dc)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0xccc)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0xccd)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0xba4)",
+    "value": 2
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x5eac)",
+    "value": 2
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0xc07)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x61c4)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0xc6a)",
+    "value": 2
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x64dc)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0xccd)",
+    "value": 1
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0xb73",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      8,
+      1
+     ],
+     [
+      12,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT8 PACKET INT32 PACKET INT32 PACKET INT32 PACKET UINT64 PACKET"
+   },
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x5d24)",
+    "fields": [
+     [
+      13,
+      1
+     ],
+     [
+      13,
+      1
+     ],
+     [
+      13,
+      1
+     ],
+     [
+      2,
+      1
+     ],
+     [
+      8,
+      1
+     ],
+     [
+      8,
+      1
+     ],
+     [
+      2,
+      1
+     ],
+     [
+      2,
+      1
+     ],
+     [
+      2,
+      1
+     ],
+     [
+      2,
+      1
+     ],
+     [
+      13,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "MEMORY_BLOCK MEMORY_BLOCK MEMORY_BLOCK UINT8 UINT64 UINT64 UINT8 UINT8 UINT8 UINT8 MEMORY_BLOCK"
+   },
+   {
+    "target": "param_1 + 0xbd6",
+    "fields": [
+     [
+      3,
+      1
+     ],
+     [
+      3,
+      1
+     ],
+     [
+      12,
+      15
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT16 INT16 PACKET[15]"
+   },
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x603c)",
+    "fields": [
+     [
+      13,
+      1
+     ],
+     [
+      13,
+      1
+     ],
+     [
+      6,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "MEMORY_BLOCK MEMORY_BLOCK UINT32"
+   },
+   {
+    "target": "param_1 + 0xc39",
+    "fields": [
+     [
+      2,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      2,
+      1
+     ],
+     [
+      2,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      2,
+      1
+     ],
+     [
+      13,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "UINT8 INT32 UINT8 UINT8 INT32 INT32 INT32 INT32 INT32 INT32 INT32 INT32 UINT8 MEMORY_BLOCK"
+   },
+   {
+    "target": "param_1 + 0xc9c",
+    "fields": [
+     [
+      2,
+      1
+     ],
+     [
+      4,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "UINT8 UINT16"
+   }
+  ]
+ },
+ {
+  "address": "0x1402d1700",
+  "fn": "undefined8 * FUN_1402d1700(undefined8 *param_1)",
+  "name": "AgpmPvP",
+  "packetTypes": [
+   74
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1e2c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1e34)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1e34)",
+    "value": 2
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x1cac)",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      0,
+      33
+     ],
+     [
+      0,
+      49
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT32 INT32 INT32 INT32 INT8 INT8 INT8 CHAR[33] CHAR[49]"
+   }
+  ]
+ },
+ {
+  "address": "0x1401e4d30",
+  "fn": "undefined8 * FUN_1401e4d30(undefined8 *param_1)",
+  "name": "AgpmRefinery",
+  "packetTypes": [
+   75
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0x34c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x34d)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x34d)",
+    "value": 2
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x31c",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      20
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      7,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT32 INT32 INT32[20] INT32 INT32 INT64"
+   }
+  ]
+ },
+ {
+  "address": "0x1402b45c0",
+  "fn": "undefined8 * FUN_1402b45c0(undefined8 *param_1)",
+  "name": "AgpmAreaChatting",
+  "packetTypes": [
+   76
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0x306)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x307)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x307)",
+    "value": 1
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x2d6",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      6,
+      1
+     ],
+     [
+      0,
+      49
+     ],
+     [
+      13,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT32 INT8 INT8 UINT32 CHAR[49] MEMORY_BLOCK"
+   }
+  ]
+ },
+ {
+  "address": "0x14027a980",
+  "fn": "undefined8 * FUN_14027a980(undefined8 *param_1)",
+  "name": "AgpmRide",
+  "packetTypes": [
+   77
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0x308)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x309)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x309)",
+    "value": 1
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x2d8",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT32 INT32 INT32"
+   }
+  ]
+ },
+ {
+  "address": "0x1402aa120",
+  "fn": "undefined8 * FUN_1402aa120(undefined8 *param_1)",
+  "name": "AgpmBillInfo",
+  "packetTypes": [
+   78
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1834)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x183c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x183c)",
+    "value": 1
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x16b4)",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      8,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      6,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT32 INT8 UINT64 INT8 UINT32"
+   }
+  ]
+ },
+ {
+  "address": "0x14028f2d0",
+  "fn": "undefined8 * FUN_14028f2d0(undefined8 *param_1)",
+  "name": "AgpmSummons",
+  "packetTypes": [
+   79
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x184c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1854)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1854)",
+    "value": 2
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x16cc)",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      8,
+      1
+     ],
+     [
+      8,
+      1
+     ],
+     [
+      2,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT32 INT32 INT32 INT8 INT8 UINT64 UINT64 UINT8"
+   }
+  ]
+ },
+ {
+  "address": "0x140284960",
+  "fn": "undefined8 * FUN_140284960(undefined8 *param_1)",
+  "name": "AgpmEventSiegeWarNPC",
+  "packetTypes": [
+   80
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0x305)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x306)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x19b4)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x19bc)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x306)",
+    "value": 1
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x2d5",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 PACKET INT32"
+   }
+  ]
+ },
+ {
+  "address": "0x140300dd0",
+  "fn": "undefined8 * FUN_140300dd0(undefined8 *param_1)",
+  "name": "AgpmSearch",
+  "packetTypes": [
+   82
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0x305)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x306)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x306)",
+    "value": 1
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x2d5",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      13,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 MEMORY_BLOCK"
+   }
+  ]
+ },
+ {
+  "address": "0x14026bd10",
+  "fn": "undefined8 * FUN_14026bd10(undefined8 *param_1)",
+  "name": "AgpmTax",
+  "packetTypes": [
+   83
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0x30d)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x30e)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x19f4)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x19fc)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x370)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x371)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x30e)",
+    "value": 2
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x19fc)",
+    "value": 2
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x371)",
+    "value": 2
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x2dd",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT32 INT32 PACKET PACKET PACKET PACKET PACKET"
+   },
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x1874)",
+    "fields": [
+     [
+      0,
+      128
+     ],
+     [
+      7,
+      1
+     ],
+     [
+      8,
+      1
+     ],
+     [
+      8,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "CHAR[128] INT64 UINT64 UINT64"
+   },
+   {
+    "target": "param_1 + 0x340",
+    "fields": [
+     [
+      0,
+      33
+     ],
+     [
+      7,
+      1
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "CHAR[33] INT64 INT32"
+   }
+  ]
+ },
+ {
+  "address": "0x1403096d0",
+  "fn": "undefined8 * FUN_1403096d0(undefined8 *param_1)",
+  "name": "AgpmGuildWarehouse",
+  "packetTypes": [
+   84
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x184c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1854)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1854)",
+    "value": 2
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x16cc)",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      7,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT32 INT64 INT32 INT32 INT32 INT32 INT32 INT32"
+   }
+  ]
+ },
+ {
+  "address": "0x140293750",
+  "fn": "undefined8 * FUN_140293750(undefined8 *param_1)",
+  "name": "AgpmArchlord",
+  "packetTypes": [
+   85
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1874)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x187c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x187c)",
+    "value": 2
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x16f4)",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      0,
+      32
+     ],
+     [
+      0,
+      32
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 CHAR[32] CHAR[32] INT8 INT32 INT32 INT32 INT32"
+   }
+  ]
+ },
+ {
+  "address": "0x14027c900",
+  "fn": "undefined8 * FUN_14027c900(undefined8 *param_1)",
+  "name": "AgpmEventGacha",
+  "packetTypes": [
+   87
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0x307)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x308)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x308)",
+    "value": 2
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x2d7",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      13,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 PACKET INT32 INT32 INT32 INT32 INT32 INT32 MEMORY_BLOCK"
+   }
+  ]
+ },
+ {
+  "address": "0x1401ebbb0",
+  "fn": "undefined8 * FUN_1401ebbb0(undefined8 *param_1)",
+  "name": "AgpmBattlePass",
+  "packetTypes": [
+   90
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)((longlong)puVar4 + 0xc)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)puVar4 + 0x1c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)puVar4 + 0x2c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)puVar4 + 0x3c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)puVar4 + 0x4c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)puVar4 + 0x5c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)puVar4 + 0x6c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)puVar4 + 0x7c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)puVar4 + 0x8c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)puVar4 + 0x9c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x16af)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x16b0)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x16b0)",
+    "value": 2
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x167f",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      3,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      100
+     ],
+     [
+      0,
+      120
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT16 INT8 INT8 INT8 INT32[100] CHAR[120]"
+   }
+  ]
+ },
+ {
+  "address": "0x1402b0f10",
+  "fn": "undefined8 * FUN_1402b0f10(undefined8 *param_1)",
+  "name": "AgpmPartyBoard",
+  "packetTypes": [
+   91
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0x305)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x306)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x306)",
+    "value": 2
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x2d5",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      3,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      3,
+      1
+     ],
+     [
+      3,
+      1
+     ],
+     [
+      3,
+      1
+     ],
+     [
+      0,
+      64
+     ],
+     [
+      0,
+      49
+     ],
+     [
+      13,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      0,
+      9
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      3,
+      1
+     ],
+     [
+      3,
+      1
+     ],
+     [
+      3,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT16 INT32 INT32 INT16 INT16 INT16 CHAR[64] CHAR[49] MEMORY_BLOCK INT8 CHAR[9] INT8 INT16 INT16 INT16"
+   }
+  ]
+ },
+ {
+  "address": "0x140309360",
+  "fn": "undefined8 * FUN_140309360(undefined8 *param_1)",
+  "name": "AgpmWarInfo",
+  "packetTypes": [
+   97
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0x305)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x306)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x306)",
+    "value": 1
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x2d5",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT8 INT8 INT8"
+   }
+  ]
+ },
+ {
+  "address": "0x14027bff0",
+  "fn": "undefined8 * FUN_14027bff0(undefined8 *param_1)",
+  "name": "AgpmReconnect",
+  "packetTypes": [
+   99
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0x305)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x306)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x306)",
+    "value": 4
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x2d5",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      0,
+      48
+     ],
+     [
+      0,
+      1024
+     ],
+     [
+      0,
+      1024
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      1,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT32 CHAR[48] CHAR[1024] CHAR[1024] INT32 INT8"
+   }
+  ]
+ },
+ {
+  "address": "0x1402ecfe0",
+  "fn": "undefined8 * FUN_1402ecfe0(undefined8 *param_1)",
+  "name": "AgpmBoss",
+  "packetTypes": [
+   100
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0x33e)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x33f)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1b7c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1b84)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x3a1)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x3a2)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1e94)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1e9c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x404)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x405)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x21ac)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x21b4)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x467)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x468)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x33f)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1b84)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x3a2)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1e9c)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x405)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x468)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x21b4)",
+    "value": 1
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x30e",
+    "fields": [
+     [
+      2,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      12,
+      32
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "UINT8 INT8 PACKET[32] PACKET INT32 PACKET PACKET"
+   },
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x19fc)",
+    "fields": [
+     [
+      0,
+      48
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "CHAR[48]"
+   },
+   {
+    "target": "param_1 + 0x371",
+    "fields": [
+     [
+      0,
+      196
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "CHAR[196]"
+   },
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x1d14)",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      0,
+      49
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      12,
+      16
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT8 INT8 CHAR[49] INT32 PACKET[16]"
+   },
+   {
+    "target": "param_1 + 0x3d4",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      0,
+      49
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 CHAR[49] INT32"
+   },
+   {
+    "target": "param_1 + 0x437",
+    "fields": [
+     [
+      0,
+      49
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      0,
+      33
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      7,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "CHAR[49] INT32 INT32 CHAR[33] INT32 INT32 INT64"
+   },
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x202c)",
+    "fields": [
+     [
+      5,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      12,
+      20
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT32 INT8 PACKET[20]"
+   }
+  ]
+ },
+ {
+  "address": "0x140267b60",
+  "fn": "undefined8 * FUN_140267b60(undefined8 *param_1)",
+  "name": "AgpmSurvey",
+  "packetTypes": [
+   104
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0x306)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x307)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x19bc)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x19c4)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x307)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x19c4)",
+    "value": 1
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x2d6",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      12,
+      15
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT32 PACKET[15]"
+   },
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x183c)",
+    "fields": [
+     [
+      0,
+      1025
+     ],
+     [
+      0,
+      129
+     ],
+     [
+      0,
+      129
+     ],
+     [
+      0,
+      129
+     ],
+     [
+      0,
+      129
+     ],
+     [
+      2,
+      1
+     ],
+     [
+      3,
+      1
+     ],
+     [
+      0,
+      257
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "CHAR[1025] CHAR[129] CHAR[129] CHAR[129] CHAR[129] UINT8 INT16 CHAR[257]"
+   }
+  ]
+ },
+ {
+  "address": "0x14024f710",
+  "fn": "undefined8 * FUN_14024f710(undefined8 *param_1)",
+  "name": "AgpmItemSet",
+  "packetTypes": [
+   106
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1834)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x183c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x183c)",
+    "value": 1
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x16b4)",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      0,
+      4000
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT32 INT8 CHAR[4000]"
+   }
+  ]
+ },
+ {
+  "address": "0x1402b3350",
+  "fn": "undefined8 * FUN_1402b3350(undefined8 *param_1)",
+  "name": "AgpmCerariumExtra",
+  "packetTypes": [
+   107
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0x305)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x306)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x306)",
+    "value": 1
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x2d5",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      8,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      0,
+      48
+     ],
+     [
+      3,
+      1
+     ],
+     [
+      0,
+      32000
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT32 UINT64 INT32 CHAR[48] INT16 CHAR[32000]"
+   }
+  ]
+ },
+ {
+  "address": "0x1402a3c90",
+  "fn": "undefined8 * FUN_1402a3c90(undefined8 *param_1)",
+  "name": "AgpmGameEvent",
+  "packetTypes": [
+   108
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0x306)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x307)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x19bc)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x19c4)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x369)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x36a)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1cd4)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1cdc)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x3cc)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x3cd)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x307)",
+    "value": 2
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x19c4)",
+    "value": 2
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x36a)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1cdc)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x3cd)",
+    "value": 1
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x2d6",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      12,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 PACKET"
+   },
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x183c)",
+    "fields": [
+     [
+      0,
+      49
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      0,
+      49
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      12,
+      8
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "CHAR[49] INT32 INT8 INT8 INT8 CHAR[49] INT32 PACKET[8]"
+   },
+   {
+    "target": "param_1 + 0x339",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      0,
+      49
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 CHAR[49] INT32 INT32 INT32"
+   },
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x1b54)",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT32 INT32 INT32"
+   },
+   {
+    "target": "param_1 + 0x39c",
+    "fields": [
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT32 INT32 INT32"
+   }
+  ]
+ },
+ {
+  "address": "0x1402aa6a0",
+  "fn": "undefined8 * FUN_1402aa6a0(undefined8 *param_1)",
+  "name": "AgpmDungeon",
+  "packetTypes": [
+   109
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0x305)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x306)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x306)",
+    "value": 1
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x2d5",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      0,
+      152
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 CHAR[152]"
+   }
+  ]
+ },
+ {
+  "address": "0x1402ef210",
+  "fn": "undefined8 * FUN_1402ef210(undefined8 *param_1)",
+  "name": "AgpmArena",
+  "packetTypes": [
+   111
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x18c4)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x18cc)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x18cc)",
+    "value": 4
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x1744)",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      0,
+      72
+     ],
+     [
+      0,
+      176
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      10
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT32 INT32 INT32 INT32 CHAR[72] CHAR[176] INT32 INT8 INT8 INT8 INT8 INT32 INT32[10] INT32"
+   }
+  ]
+ },
+ {
+  "address": "0x1402776e0",
+  "fn": "undefined8 * FUN_1402776e0(undefined8 *param_1)",
+  "name": "AgpmAssistance",
+  "packetTypes": [
+   112
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0x307)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x308)",
+    "value": 0
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x2d7",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      13,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT32 INT32 MEMORY_BLOCK"
+   }
+  ]
+ },
+ {
+  "address": "0x14025f460",
+  "fn": "undefined8 * FUN_14025f460(undefined8 *param_1)",
+  "name": "AgpmCharacterConfig",
+  "packetTypes": [
+   113
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1834)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x183c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x183c)",
+    "value": 1
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x16b4)",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      0,
+      40
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT32 INT32 CHAR[40] INT32 INT32"
+   }
+  ]
+ },
+ {
+  "address": "0x140250e00",
+  "fn": "undefined8 * FUN_140250e00(undefined8 *param_1)",
+  "name": "AgpmPrestige",
+  "packetTypes": [
+   114
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x188c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1894)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1894)",
+    "value": 4
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x170c)",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      10
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      8,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT32 INT32[10] INT32 INT8 INT32 INT32 INT32 UINT64"
+   }
+  ]
+ },
+ {
+  "address": "0x140250640",
+  "fn": "undefined8 * FUN_140250640(undefined8 *param_1)",
+  "name": "AgpmEventCounter",
+  "packetTypes": [
+   115
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0x306)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x307)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x310)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x307)",
+    "value": 4
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x2d6",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      0,
+      72
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 CHAR[72]"
+   }
+  ]
+ },
+ {
+  "address": "0x1402b4af0",
+  "fn": "undefined8 * FUN_1402b4af0(undefined8 *param_1)",
+  "name": "AgpmRegionFlag",
+  "packetTypes": [
+   116
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0x305)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x306)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x306)",
+    "value": 4
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x2d5",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      0,
+      4
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 CHAR[4]"
+   }
+  ]
+ },
+ {
+  "address": "0x1402a1d00",
+  "fn": "undefined8 * FUN_1402a1d00(undefined8 *param_1)",
+  "name": "AgpmGameTeam",
+  "packetTypes": [
+   117
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1834)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x183c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x338)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x339)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1b4c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1b54)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x183c)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x339)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1b54)",
+    "value": 1
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x16b4)",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      6,
+      1
+     ],
+     [
+      0,
+      256
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 PACKET UINT32 CHAR[256]"
+   },
+   {
+    "target": "param_1 + 0x308",
+    "fields": [
+     [
+      0,
+      32
+     ],
+     [
+      0,
+      512
+     ],
+     [
+      12,
+      15
+     ],
+     [
+      0,
+      49
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "CHAR[32] CHAR[512] PACKET[15] CHAR[49]"
+   },
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x19cc)",
+    "fields": [
+     [
+      0,
+      49
+     ],
+     [
+      6,
+      1
+     ],
+     [
+      6,
+      1
+     ],
+     [
+      1,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "CHAR[49] UINT32 UINT32 INT8"
+   }
+  ]
+ },
+ {
+  "address": "0x1402a8990",
+  "fn": "undefined8 * FUN_1402a8990(undefined8 *param_1)",
+  "name": "AgpmDeathMatch",
+  "packetTypes": [
+   118
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0x306)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x307)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x19bc)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x19c4)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x369)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x36a)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x307)",
+    "value": 2
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x19c4)",
+    "value": 2
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x36a)",
+    "value": 1
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x2d6",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      8,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      0,
+      36
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      0,
+      32
+     ],
+     [
+      3,
+      4
+     ],
+     [
+      12,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 UINT64 INT8 CHAR[36] INT8 INT8 CHAR[32] INT16[4] PACKET"
+   },
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x183c)",
+    "fields": [
+     [
+      5,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      0,
+      49
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      12,
+      8
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT32 INT8 INT8 INT8 CHAR[49] INT32 PACKET[8]"
+   },
+   {
+    "target": "param_1 + 0x339",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      0,
+      49
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 CHAR[49] INT32"
+   }
+  ]
+ },
+ {
+  "address": "0x1402a00f0",
+  "fn": "undefined8 * FUN_1402a00f0(undefined8 *param_1)",
+  "name": "AgpmTournament",
+  "packetTypes": [
+   119
+  ],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0x306)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x307)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x19bc)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x19c4)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x369)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x36a)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1cd4)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1cdc)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x3cc)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x3cd)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x5ba84)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x307)",
+    "value": 2
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x36a)",
+    "value": 2
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x19c4)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x1cdc)",
+    "value": 2
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x3cd)",
+    "value": 1
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x2d6",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      8,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      0,
+      36
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      12,
+      100
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      50
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 UINT64 INT8 CHAR[36] INT8 INT8 PACKET[100] PACKET INT32 INT32[50]"
+   },
+   {
+    "target": "param_1 + 0x339",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      0,
+      32
+     ],
+     [
+      0,
+      32
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      12,
+      15
+     ],
+     [
+      12,
+      15
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT8 INT8 INT8 CHAR[32] CHAR[32] INT8 PACKET[15] PACKET[15]"
+   },
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x183c)",
+    "fields": [
+     [
+      0,
+      49
+     ],
+     [
+      6,
+      1
+     ],
+     [
+      6,
+      1
+     ],
+     [
+      1,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "CHAR[49] UINT32 UINT32 INT8"
+   },
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x1b54)",
+    "fields": [
+     [
+      5,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      0,
+      49
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      12,
+      8
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT32 INT8 INT8 INT8 CHAR[49] INT32 PACKET[8]"
+   },
+   {
+    "target": "param_1 + 0x39c",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      0,
+      49
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 CHAR[49] INT32"
+   }
+  ]
+ },
+ {
+  "address": "0x14012c350",
+  "fn": "undefined8 * FUN_14012c350(undefined8 *param_1)",
+  "name": null,
+  "packetTypes": [],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0x40)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x41)",
+    "value": 1
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x10",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      13,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 MEMORY_BLOCK"
+   }
+  ]
+ },
+ {
+  "address": "0x14019d520",
+  "fn": "undefined8 * FUN_14019d520(undefined8 *param_1)",
+  "name": "AgpmFactors",
+  "packetTypes": [],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x8d14)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x8d1c)",
+    "value": 0
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x8d1c)",
+    "value": 2
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x11d5)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x9034)",
+    "value": 2
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x1238)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x934c)",
+    "value": 4
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x129b)",
+    "value": 2
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x9664)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x12fe)",
+    "value": 2
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x997c)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x1361)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x9c94)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x13c4)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x9fac)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)(param_1 + 0x1427)",
+    "value": 1
+   },
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0xa2c4)",
+    "value": 1
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "(undefined8 *)((longlong)param_1 + 0x8b94)",
+    "fields": [
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "PACKET PACKET PACKET PACKET PACKET PACKET PACKET PACKET PACKET PACKET PACKET PACKET PACKET"
+   },
+   {
+    "target": "param_1 + 0x11a4",
+    "fields": [
+     [
+      12,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "PACKET"
+   },
+   {
+    "target": "(longlong)param_1 + 0x8eac",
+    "fields": [
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT32 INT32 INT32 INT32 INT32 INT32 INT32 INT32 INT32 INT32 INT32 INT32 INT32"
+   },
+   {
+    "target": "param_1 + 0x1207",
+    "fields": [
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT32 INT32 INT32"
+   },
+   {
+    "target": "(longlong)param_1 + 0x91c4",
+    "fields": [
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT32 INT32 INT32 INT32 INT32 INT32 INT32 INT32 INT32 INT32 INT32 INT32 INT32 INT32 INT32 INT32 INT32 INT32 INT32 INT32"
+   },
+   {
+    "target": "param_1 + 0x126a",
+    "fields": [
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT32 INT32 INT32 INT32 INT32 INT32 INT32 INT32 INT32 INT32 INT32"
+   },
+   {
+    "target": "(longlong)param_1 + 0x94dc",
+    "fields": [
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT32 INT32 INT32"
+   },
+   {
+    "target": "param_1 + 0x12cd",
+    "fields": [
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT32 INT32 INT32 INT32 INT32 INT32 INT32 INT32 INT32 INT32 INT32 INT32 INT32 INT32 INT32"
+   },
+   {
+    "target": "(longlong)param_1 + 0x97f4",
+    "fields": [
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "PACKET PACKET"
+   },
+   {
+    "target": "param_1 + 0x1330",
+    "fields": [
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "PACKET PACKET"
+   },
+   {
+    "target": "(longlong)param_1 + 0x9b0c",
+    "fields": [
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT32 INT32 INT32 INT32 INT32 INT32 INT32 INT32"
+   },
+   {
+    "target": "param_1 + 0x1393",
+    "fields": [
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT32 INT32 INT32 INT32 INT32"
+   },
+   {
+    "target": "(longlong)param_1 + 0x9e24",
+    "fields": [
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT32 INT32 INT32 INT32 INT32 INT32 INT32 INT32"
+   },
+   {
+    "target": "param_1 + 0x13f6",
+    "fields": [
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT32 INT32 INT32 INT32"
+   },
+   {
+    "target": "(longlong)param_1 + 0xa13c",
+    "fields": [],
+    "unresolved": false,
+    "pretty": ""
+   }
+  ]
+ },
+ {
+  "address": "0x1401a6c20",
+  "fn": "void FUN_1401a6c20(longlong param_1)",
+  "name": null,
+  "packetTypes": [],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)(param_1 + 0x188)",
+    "value": 4
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "param_1",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      8,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      8,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      13,
+      1
+     ],
+     [
+      8,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT8 INT32 INT32 INT32 INT32 PACKET PACKET PACKET PACKET PACKET PACKET INT32 PACKET PACKET PACKET PACKET INT32 UINT64 INT32 PACKET PACKET UINT64 PACKET PACKET MEMORY_BLOCK UINT64"
+   }
+  ]
+ },
+ {
+  "address": "0x1404a74c0",
+  "fn": "undefined8 * FUN_1404a74c0(undefined8 *param_1)",
+  "name": "AgcmCharacter",
+  "packetTypes": [],
+  "flagLens": [
+   {
+    "target": "*(undefined2 *)((longlong)param_1 + 0x571c)",
+    "value": 1
+   }
+  ],
+  "fieldCalls": [
+   {
+    "target": "(longlong)param_1 + 0x21fc",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      0,
+      12
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      0,
+      49
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      10,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      0,
+      248
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 CHAR[12] INT32 CHAR[49] INT32 VEC3F INT32 CHAR[248]"
+   }
+  ]
+ },
+ {
+  "address": "0x140608df0",
+  "fn": "undefined8 * FUN_140608df0(undefined8 *param_1)",
+  "name": "AgcmConnectManager",
+  "packetTypes": [],
+  "flagLens": [],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x2d9",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      0,
+      23
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      12,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT32 INT8 CHAR[23] INT32 PACKET"
+   }
+  ]
+ },
+ {
+  "address": "0x1406608c0",
+  "fn": "undefined8 * FUN_1406608c0(undefined8 *param_1)",
+  "name": "AgcmPrivateTrade",
+  "packetTypes": [],
+  "flagLens": [],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x2e0",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      7,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT32 INT32 INT32 INT32 INT64 PACKET PACKET INT32"
+   },
+   {
+    "target": "(longlong)param_1 + 0x188c",
+    "fields": [
+     [
+      3,
+      1
+     ],
+     [
+      3,
+      1
+     ],
+     [
+      3,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT16 INT16 INT16"
+   },
+   {
+    "target": "param_1 + 0x343",
+    "fields": [
+     [
+      3,
+      1
+     ],
+     [
+      3,
+      1
+     ],
+     [
+      3,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT16 INT16 INT16"
+   }
+  ]
+ },
+ {
+  "address": "0x14067e440",
+  "fn": "undefined8 * FUN_14067e440(undefined8 *param_1)",
+  "name": "AgcmRecruit",
+  "packetTypes": [],
+  "flagLens": [],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x2e0",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT32 INT32 PACKET PACKET PACKET INT32"
+   },
+   {
+    "target": "(longlong)param_1 + 0x188c",
+    "fields": [
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      0,
+      5
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT32 INT32 INT32 INT32 CHAR[5] INT32"
+   },
+   {
+    "target": "param_1 + 0x343",
+    "fields": [
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      0,
+      20
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      0,
+      49
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT32 INT32 CHAR[20] INT32 INT32 INT32 INT32 INT32 CHAR[49] INT32"
+   },
+   {
+    "target": "(longlong)param_1 + 0x1ba4",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT32 INT32 INT32"
+   }
+  ]
+ },
+ {
+  "address": "0x1406dbd10",
+  "fn": "undefined8 * FUN_1406dbd10(undefined8 *param_1)",
+  "name": "AgcmObject",
+  "packetTypes": [],
+  "flagLens": [],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x412",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      1,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT32 INT8"
+   }
+  ]
+ },
+ {
+  "address": "0x1406eb4a0",
+  "fn": "undefined8 * FUN_1406eb4a0(undefined8 *param_1)",
+  "name": "AgcmParty",
+  "packetTypes": [],
+  "flagLens": [],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x2dd",
+    "fields": [
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      0,
+      49
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT8 INT32 INT32 CHAR[49]"
+   }
+  ]
+ },
+ {
+  "address": "0x1406fcb90",
+  "fn": "undefined8 * FUN_1406fcb90(undefined8 *param_1)",
+  "name": "AgcmUIPartyOption",
+  "packetTypes": [],
+  "flagLens": [],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x2f0",
+    "fields": [
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT32 INT32 INT32 INT8 INT8 INT8 INT8 INT32"
+   }
+  ]
+ },
+ {
+  "address": "0x140739110",
+  "fn": "undefined8 * FUN_140739110(undefined8 *param_1)",
+  "name": "AgcmEventNPCTrade",
+  "packetTypes": [],
+  "flagLens": [],
+  "fieldCalls": [
+   {
+    "target": "param_1 + 0x2e1",
+    "fields": [
+     [
+      12,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      12,
+      1
+     ],
+     [
+      7,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      1,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "PACKET INT8 INT32 INT32 PACKET INT64 INT32 INT8 INT8 INT8"
+   },
+   {
+    "target": "(longlong)param_1 + 0x1894",
+    "fields": [
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      3,
+      1
+     ],
+     [
+      3,
+      1
+     ],
+     [
+      3,
+      1
+     ],
+     [
+      3,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ],
+     [
+      5,
+      1
+     ]
+    ],
+    "unresolved": false,
+    "pretty": "INT32 INT32 INT32 INT16 INT16 INT16 INT16 INT32 INT32 INT32"
+   }
+  ]
+ }
+]

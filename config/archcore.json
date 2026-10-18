@@ -1,0 +1,55 @@
+{
+  "login": {
+    "port": 11002,
+    "bind": "0.0.0.0"
+  },
+  "world": {
+    "port": 11008,
+    "bind": "0.0.0.0",
+    "name": "ArchCore",
+    "group": "ArchCore",
+    "publicAddress": "127.0.0.1",
+    "startPositions": {
+      "1": {
+        "village": "Anchorville",
+        "x": -475955,
+        "y": 4608.5,
+        "z": -66219
+      },
+      "2": {
+        "village": "Golundo",
+        "x": 136249,
+        "y": 11765.5,
+        "z": 512721
+      },
+      "3": {
+        "village": "Norine",
+        "x": 517472,
+        "y": 18310.5,
+        "z": 38020
+      },
+      "4": {
+        "village": "Cien (à confirmer)",
+        "x": -591942,
+        "y": 24446.5,
+        "z": 335917
+      },
+      "_comment": "Villages de départ par race (Race de chartype.ini), d'après les PNJ « <Village> Event » de npc.ini. Décalage de 300 en X pour ne pas apparaître dans le PNJ."
+    },
+    "viewRadius": 8000,
+    "language": "fr"
+  },
+  "database": {
+    "host": "127.0.0.1",
+    "port": 3306,
+    "user": "root",
+    "password": "archcore",
+    "connectionLimit": 8,
+    "auth": "archcore_auth",
+    "characters": "archcore_characters",
+    "world": "archcore_world"
+  },
+  "client": {
+    "dataDir": "../client/ArchLord/Game"
+  }
+}

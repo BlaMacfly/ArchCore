@@ -1,0 +1,20 @@
+# Dépendances / dependencies
+node_modules/
+
+# Instance MariaDB locale (données) / local MariaDB instance data
+db/data/
+
+# Données du jeu déchiffrées : propriété de l'éditeur, jamais publiées
+# Decrypted game data: owned by the publisher, never published
+data/client-ini/
+
+# Fichiers générés / generated files
+data/*.log
+data/*.err
+data/i18n/pending-en.json
+
+# Fichiers locaux / local files
+Logo ArchCore.png
+tools/try-keys.mjs
+*.bak
+.env
