@@ -1,7 +1,7 @@
 # Configuration
 
 Toute la configuration est dans `config/archcore.json`. Les clés absentes prennent la valeur par défaut
-de `src/common/config.js`.
+de `crates/archcore/src/config.rs`.
 
 ## `login`
 

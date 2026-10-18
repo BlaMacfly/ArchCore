@@ -11,16 +11,16 @@ Les modèles d'objets viennent eux aussi du dossier de la langue : le client lit
 `ini_fr/ItemTemplateAll.ini`, puis `ini_fr/ItemTemplateAll2.ini`, mais seulement si le premier a été
 chargé. Sans `ItemTemplateAll.ini`, aucun objet n'existe côté client : l'inventaire et les boutiques
 restent vides. Ce fichier manquait dans `ini_fr`, il a été copié depuis `Game/ini` (noms des objets
-en anglais, à traduire). `apply.mjs` ne le supprime pas.
+en anglais, à traduire). `archcore i18n apply` ne le supprime pas.
 
 ## Chaîne d'outils
 
-1. `node tools/i18n/strings.mjs` liste ce qui reste en anglais dans `data/i18n/pending-en.json`.
+1. `archcore i18n strings` liste ce qui reste en anglais dans `data/i18n/pending-en.json`.
 2. Les traductions sont ajoutées à `data/i18n/fr.json`, la mémoire de traduction.
-3. `node tools/i18n/apply.mjs` reconstruit `Game/ini_fr` à partir de la copie d'origine `ini_fr.orig`.
+3. `archcore i18n apply` reconstruit `Game/ini_fr` à partir de la copie d'origine `ini_fr.orig`.
    Il rechiffre les fichiers en RC4 et les encode en Windows-1252, ce qui garde les accents.
 
-Options de `apply.mjs` : `--dry` pour un essai sans écriture, `--ascii` pour retirer les accents.
+Options de `archcore i18n apply` : `--dry` pour un essai sans écriture, `--ascii` pour retirer les accents.
 L'outil repart toujours de `ini_fr.orig`, on peut donc le relancer autant de fois que nécessaire.
 
 ## Format de `fr.json`

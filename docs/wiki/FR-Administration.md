@@ -15,8 +15,8 @@ correspond à un joueur normal. Plus le nombre est élevé, plus le compte a de 
 Créer un compte MJ, ou changer le niveau d'un compte existant :
 
 ```bash
-node tools/db-init.mjs --account <identifiant> <mot_de_passe> <niveau>
-# exemple : node tools/db-init.mjs --account admin MotDePasseSolide 3
+archcore db-init --account <identifiant> <mot_de_passe> <niveau>
+# exemple : archcore db-init --account admin MotDePasseSolide 3
 ```
 
 Ou directement en SQL :

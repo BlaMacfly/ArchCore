@@ -10,17 +10,17 @@ The client reads an integer from `Launcher/LanguageInfo.txt`. The value **17** s
 Item templates also come from the language folder: the client reads `ini_fr/ItemTemplateAll.ini`,
 then `ini_fr/ItemTemplateAll2.ini`, but only if the first one loaded. Without `ItemTemplateAll.ini`,
 no item exists on the client side: the inventory and the shops stay empty. This file was missing from
-`ini_fr` and was copied from `Game/ini` (item names in English, to be translated). `apply.mjs` does
-not delete it.
+`ini_fr` and was copied from `Game/ini` (item names in English, to be translated). `archcore i18n apply`
+does not delete it.
 
 ## Tool chain
 
-1. `node tools/i18n/strings.mjs` lists what is still in English in `data/i18n/pending-en.json`.
+1. `archcore i18n strings` lists what is still in English in `data/i18n/pending-en.json`.
 2. Translations are added to `data/i18n/fr.json`, the translation memory.
-3. `node tools/i18n/apply.mjs` rebuilds `Game/ini_fr` from the original copy `ini_fr.orig`.
+3. `archcore i18n apply` rebuilds `Game/ini_fr` from the original copy `ini_fr.orig`.
    It re-encrypts the files with RC4 and encodes them in Windows-1252, which keeps accents.
 
-`apply.mjs` options: `--dry` for a trial without writing, `--ascii` to strip accents.
+`archcore i18n apply` options: `--dry` for a trial without writing, `--ascii` to strip accents.
 The tool always starts from `ini_fr.orig`, so it can be run again as often as needed.
 
 ## `fr.json` format

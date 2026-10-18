@@ -1,7 +1,7 @@
 # Configuration
 
 All settings live in `config/archcore.json`. Missing keys fall back to the defaults in
-`src/common/config.js`.
+`crates/archcore/src/config.rs`.
 
 ## `login`
 

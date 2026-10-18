@@ -2,68 +2,72 @@
 
 ## Requirements
 
-- **Node.js 20 or later** (tested with version 24).
+- **Rust 1.85 or later**, installed with [rustup](https://rustup.rs) (tested with 1.99).
 - **MariaDB** 10.6 or later (tested with 13.0). On Windows: `winget install MariaDB.Server`.
 - An extracted **64-bit ArchLord client**, by default in `../client/ArchLord/Game` relative to the ArchCore folder.
   ArchCore ships no game data.
 
-## 1. Get the code
+## 1. Get and build the code
 
 ```bash
 git clone https://github.com/BlaMacfly/ArchCore.git
 cd ArchCore
-npm install
+cargo build --release
 ```
+
+The build produces a single executable, `target/release/archcore` (`archcore.exe` on Windows). It
+holds the server and every tool. Below, `archcore` means that executable; `cargo run --release --`
+works too. Run the commands from the repository root, where `config/` lives.
 
 ## 2. Start MariaDB
 
-`db/start-mariadb.cmd` starts a local instance whose data lives in `db/data` (port 3306, user
-`root`, password `archcore`). An existing MariaDB server works too: put its credentials in
-`config/archcore.json` (see [[Configuration|EN-Configuration]]).
+The `db/start-mariadb.cmd` script starts a local instance whose data lives in `db/data`
+(port 3306, user `root`, password `archcore`). An existing MariaDB server works too: just set its
+credentials in `config/archcore.json` (see [[Configuration|EN-Configuration]]).
 
 ## 3. Create the databases and an account
 
 ```bash
-node tools/db-init.mjs --account test test
+archcore db-init --account test test
 ```
 
-This creates `archcore_auth`, `archcore_characters` and `archcore_world`. It applies the `sql/`
-scripts, then creates the account `test` with password `test`. A game master level can be given
+This creates `archcore_auth`, `archcore_characters` and `archcore_world`, applies the scripts in
+`sql/`, then creates the account `test` with the password `test`. A game master level can be given
 as a fourth argument.
 
 ## 4. Import the client data
 
 ```bash
-node tools/decrypt-client-data.mjs     # Game/ini → data/client-ini (plain text)
-node tools/import-client-data.mjs      # data/client-ini → archcore_world
+archcore decrypt     # Game/ini → data/client-ini (plain text)
+archcore import      # data/client-ini → archcore_world
 ```
 
-The client tables are RC4-encrypted, with a key derived from MD5("1111"), and written in CP949.
-The import converts them to UTF-8: character templates, experience, NPCs, items, skills.
+The client tables are RC4-encrypted, with a key derived from MD5("1111"), and written in CP949. The
+import converts them to UTF-8: character templates, experience, NPCs, items, shops, skills.
 
-## 5. Run the server
+## 5. Start the server
 
 ```bash
-npm start                    # login (11002) + world (11008)
-npm run login                # login only
-npm run world                # world only
-ARCHCORE_TRACE=1 npm start   # detailed log of every packet
+archcore                     # login (11002) + world (11008)
+archcore login               # login only
+archcore world               # world only
+ARCHCORE_TRACE=1 archcore    # detailed log of every packet
 ```
 
 ## 6. Check without the game
 
 ```bash
-npm run sim -- test test Testeur
+archcore sim client test test Testeur
 ```
 
-The simulator replays the handshake, login, character list and world entry. It should end with
-« entrée en jeu confirmée — flux complet OK », meaning the full flow worked.
+The simulator replays the handshake, the login, the character list and the world entry. It should
+end with "entrée en jeu confirmée", then "flux complet OK".
 
 ## 7. Connect the real client
 
-The client reads its server list from an encrypted `.ini` file next to its executable. It first
-reads, when present, a plain-text file with the same name followed by `Test` (for example
-`<ClientName>Test.ini`). Create that file in `Game/` with this content:
+The client reads the server list from an encrypted `.ini` file next to its executable. It first
+reads, if present, a plain-text file with the same name followed by `Test` (for example
+`<ClientName>Test.ini`). Create that file in `Game/` with:
 
 ```xml
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -72,8 +76,8 @@ reads, when present, a plain-text file with the same name followed by `Test` (fo
 </IPInfo>
 ```
 
-The client runs with administrator rights. Type the login in the game window yourself: other
-programs cannot send it keystrokes.
+The client runs with administrator rights, so type the login in the game window: another program
+cannot send it keystrokes.
 
 To play in French, write `17` in `Launcher/LanguageInfo.txt` (see [[Translation|EN-Translation]]).
 
@@ -81,6 +85,7 @@ To play in French, write `17` in `Launcher/LanguageInfo.txt` (see [[Translation|
 
 | Symptom | Lead |
 |---|---|
-| "Cannot access the login server" | ArchCore is not listening on 11002, or the `<ClientName>Test.ini` file is missing |
-| Endless loading on world entry | Run with `ARCHCORE_TRACE=1` and read `data/archcore.log` |
+| "Cannot access the login server" | ArchCore is not listening on 11002, or `<ClientName>Test.ini` is missing |
+| Endless loading when entering the world | Run with `ARCHCORE_TRACE=1` and read the log |
+| Empty inventory or shop | The client's language folder (`ini_fr`…) must hold `ItemTemplateAll.ini` (see [[Translation|EN-Translation]]) |
 | No sound | Check `[Sound_Option]` in `Game/ini/COption.ini`; the game rewrites this file on exit |

@@ -15,8 +15,8 @@ is a regular player. The higher the number, the more rights the account has.
 Create a GM account, or change the level of an existing one:
 
 ```bash
-node tools/db-init.mjs --account <username> <password> <level>
-# example: node tools/db-init.mjs --account admin StrongPassword 3
+archcore db-init --account <username> <password> <level>
+# example: archcore db-init --account admin StrongPassword 3
 ```
 
 Or directly in SQL:

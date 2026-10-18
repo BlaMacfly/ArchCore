@@ -1,52 +1,62 @@
 # Tools
 
-All tools live in `tools/` and run with Node.js from the ArchCore folder.
+Every tool is a subcommand of the `archcore` executable (see [[Installation|EN-Installation]]). Run
+them from the repository root; they read `config/archcore.json`, or the file named by `ARCHCORE_CONFIG`.
 
-| Tool | Purpose |
+| Command | Role |
 |---|---|
-| `db-init.mjs` | Creates the databases and applies `sql/`. With `--account name pass [gm]`, creates an account |
-| `decrypt-client-data.mjs` | Decrypts `Game/ini` (RC4, MD5("1111")) into `data/client-ini` |
-| `import-client-data.mjs` | Imports `data/client-ini` into `archcore_world` (CP949 → UTF-8) |
-| `client-sim.mjs` | Test client: replays the full login up to game entry |
-| `i18n/strings.mjs` | Lists texts still in English in `data/i18n/pending-en.json` |
-| `i18n/coverage.mjs` | Measures how much of `ini_fr` is translated |
-| `i18n/apply.mjs` | Applies the translation memory to the client (see [[Translation|EN-Translation]]) |
-| `re/extract-schemas.mjs` | Extracts packet schemas from Ghidra pseudocode into `data/re/packet-schemas.json` |
+| `archcore db-init [--account name pass [gm]]` | Creates the databases and applies `sql/`; with `--account`, creates or updates an account |
+| `archcore decrypt [source] [destination]` | Decrypts `Game/ini` (RC4, MD5("1111")) into `data/client-ini` |
+| `archcore import [folder]` | Imports `data/client-ini` into `archcore_world` (CP949 → UTF-8) |
+| `archcore sim client\|move\|shop …` | Simulated clients (see below) |
+| `archcore i18n strings [Game]` | Lists the texts still in English in `data/i18n/pending-en.json` |
+| `archcore i18n coverage [Game]` | Measures how much of `ini_fr` is translated |
+| `archcore i18n apply [--ascii] [--dry]` | Applies the translation memory to the client (see [[Translation|EN-Translation]]) |
+| `archcore re extract-schemas <files…>` | Extracts packet schemas from Ghidra pseudocode into `data/re/packet-schemas.json` |
 
 ## Client simulator
 
 ```bash
-npm run sim -- <user> <password> [character]
+archcore sim client <user> <password> [character] [commands…]
 ```
 
-It prints every packet exchanged and the number of NPCs received, and ends with "flux complet OK"
-(full flow OK). It is the fastest way to check a server change without starting the game.
+It prints every packet exchanged, the number of NPCs received, and ends with "flux complet OK".
+Arguments after the character are sent as chat once in game (`/GetExp` by default), which tests GM
+commands. It is the quickest way to check a server change without starting the game.
+
+In Git Bash, prefix with `MSYS_NO_PATHCONV=1`, otherwise `/GetExp` is turned into a Windows path.
 
 ## Two-player test
 
 ```bash
-node tools/sim-move.mjs [userA] [passA] [charA] [userB] [passB] [charB]
+archcore sim move [userA] [passA] [charA] [userB] [passB] [charB]
 ```
 
-Two simulated clients enter the game (accounts `sima` and `simb` by default, characters created
-when needed). The test checks that they see each other, that one player's movement reaches the
-other, that they lose sight of each other out of range, and that disconnecting removes the
-character. It moves characters and saves their position, so run it against a test server:
+Two simulated clients enter the world (accounts `sima` and `simb` by default, characters created as
+needed). The test checks that they see each other, that one's movement is relayed to the other, that
+they lose sight of each other out of range, and that disconnecting removes the character. It moves
+the characters and saves their position: run it against a test server, for example:
 
 ```bash
-ARCHCORE_CONFIG=config/test.json node src/index.js all      # other ports, other databases
-ARCHCORE_CONFIG=config/test.json node tools/sim-move.mjs
+ARCHCORE_CONFIG=config/test.json archcore all      # other ports, other databases
+ARCHCORE_CONFIG=config/test.json archcore sim move
 ```
 
 ## Shop test
 
 ```bash
-ARCHCORE_CONFIG=config/test.json npm run sim:shop -- [user] [password] [character]
+ARCHCORE_CONFIG=config/test.json archcore sim shop [user] [pass] [character]
 ```
 
-The character (`sima` / `SimA` by default) gets 1,000 gold and appears next to Darryl (Anchorville).
-The test opens his shop, checks the list it receives, buys 3 small life potions and sells them back.
-It changes the character's gold, position and inventory, so run it against a test server as well.
+The character (`sima` / `SimA` by default) gets 1000 gold and appears next to Darryl (Anchorville).
+The test opens his shop, checks the list, buys 3 small life potions and sells them back. It changes
+the character's gold, position and inventory: run it against a test server too.
+
+## Unit tests
+
+```bash
+cargo test
+```
 
 ## Reverse engineering
 

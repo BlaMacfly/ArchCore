@@ -6,7 +6,7 @@
 
 <p align="center">
   <b>Émulateur serveur ArchLord — ArchLord server emulator</b><br>
-  Node.js · MariaDB · rétro-ingénierie du client / client reverse engineering
+  Rust · MariaDB · rétro-ingénierie du client / client reverse engineering
 </p>
 
 <p align="center">
@@ -24,7 +24,7 @@
 
 ## 🇫🇷 Français
 
-**ArchCore** est un émulateur de serveur (login + monde) pour le client **ArchLord 64 bits**. Il est écrit en Node.js et stocke ses données dans **MariaDB**. Le protocole a été
+**ArchCore** est un émulateur de serveur (login + monde) pour le client **ArchLord 64 bits**. Il est écrit en **Rust** et stocke ses données dans **MariaDB**. Le protocole a été
 reconstruit par rétro-ingénierie de l'exécutable du client avec Ghidra, via [REA](https://github.com/morluto/rea),
 et à partir des tables de données du client.
 
@@ -51,17 +51,21 @@ et à partir des tables de données du client.
 
 ### Démarrage rapide
 
-Prérequis : Node.js 20 ou plus, MariaDB, et un client ArchLord 64 bits extrait dans `../client/ArchLord/Game`.
+Prérequis : Rust 1.85 ou plus ([rustup](https://rustup.rs)), MariaDB, et un client ArchLord 64 bits extrait dans
+`../client/ArchLord/Game`. Tout passe par un seul exécutable, `archcore`.
 
 ```bash
-npm install
+cargo build --release                         # produit target/release/archcore
 db\start-mariadb.cmd                          # instance MariaDB locale (Windows)
-node tools/db-init.mjs --account test test    # schéma + compte de test
-node tools/decrypt-client-data.mjs            # déchiffre les tables du client
-node tools/import-client-data.mjs             # importe les tables dans MariaDB
-npm start                                     # login sur 11002, monde sur 11008
-npm run sim -- test test Testeur              # rejoue un client complet, sans le jeu
+archcore db-init --account test test          # schéma + compte de test
+archcore decrypt                              # déchiffre les tables du client
+archcore import                               # importe les tables dans MariaDB
+archcore                                      # login sur 11002, monde sur 11008
+archcore sim client test test Testeur         # rejoue un client complet, sans le jeu
 ```
+
+Les commandes se lancent depuis la racine du dépôt (là où se trouve `config/`), avec
+`target/release/archcore` ou `cargo run --release --` à la place de `archcore`.
 
 Pour connecter le jeu, voir la page [Installation](https://github.com/BlaMacfly/ArchCore/wiki/FR-Installation) du wiki.
 
@@ -86,7 +90,7 @@ propre client.
 
 ## 🇬🇧 English
 
-**ArchCore** is a server emulator (login + world) for the **64-bit ArchLord** client. It is written in Node.js and stores its data in **MariaDB**. The protocol was rebuilt by
+**ArchCore** is a server emulator (login + world) for the **64-bit ArchLord** client. It is written in **Rust** and stores its data in **MariaDB**. The protocol was rebuilt by
 reverse engineering the client executable with Ghidra, through [REA](https://github.com/morluto/rea), and
 from the client's data tables.
 
@@ -113,17 +117,21 @@ from the client's data tables.
 
 ### Quick start
 
-Requirements: Node.js 20 or later, MariaDB, and a 64-bit ArchLord client extracted to `../client/ArchLord/Game`.
+Requirements: Rust 1.85 or later ([rustup](https://rustup.rs)), MariaDB, and a 64-bit ArchLord client extracted to
+`../client/ArchLord/Game`. Everything goes through a single executable, `archcore`.
 
 ```bash
-npm install
+cargo build --release                         # builds target/release/archcore
 db\start-mariadb.cmd                          # local MariaDB instance (Windows)
-node tools/db-init.mjs --account test test    # schema + test account
-node tools/decrypt-client-data.mjs            # decrypts the client tables
-node tools/import-client-data.mjs             # imports the tables into MariaDB
-npm start                                     # login on 11002, world on 11008
-npm run sim -- test test Testeur              # replays a full client, without the game
+archcore db-init --account test test          # schema + test account
+archcore decrypt                              # decrypts the client tables
+archcore import                               # imports the tables into MariaDB
+archcore                                      # login on 11002, world on 11008
+archcore sim client test test Testeur         # replays a full client, without the game
 ```
+
+Run the commands from the repository root (where `config/` lives), using
+`target/release/archcore` or `cargo run --release --` in place of `archcore`.
 
 To connect the game, see the wiki's [Installation](https://github.com/BlaMacfly/ArchCore/wiki/EN-Installation) page.
 

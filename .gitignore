@@ -1,5 +1,3 @@
-# Dépendances / dependencies
-node_modules/
 
 # Instance MariaDB locale (données) / local MariaDB instance data
 db/data/
@@ -16,7 +14,6 @@ data/i18n/pending-en.json
 # Fichiers locaux / local files
 Logo ArchCore.png
 ArchCore.png
-tools/try-keys.mjs
 *.bak
 .env
 

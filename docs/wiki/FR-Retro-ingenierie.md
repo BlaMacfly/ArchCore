@@ -10,7 +10,7 @@ piloté par [REA](https://github.com/morluto/rea). Le client est un exécutable 
 1. Repérer une chaîne parlante (« LG_LoginMainCreateButtonClick », « Sound_Option »…).
 2. Remonter à la fonction qui l'utilise, puis décompiler ses appels.
 3. Pour les paquets : décompiler les constructeurs des modules `Agpm*`, qui déclarent chaque champ
-   avec `AuPacket::SetFieldType`. `tools/re/extract-schemas.mjs` en tire `data/re/packet-schemas.json`.
+   avec `AuPacket::SetFieldType`. `archcore re extract-schemas` en tire `data/re/packet-schemas.json`.
 4. Vérifier chaque hypothèse avec le simulateur, puis avec le vrai client et le journal `ARCHCORE_TRACE=1`.
 
 ## Relevés principaux

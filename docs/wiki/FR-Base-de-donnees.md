@@ -1,6 +1,6 @@
 # Base de données
 
-ArchCore utilise trois bases MariaDB, créées par `tools/db-init.mjs` à partir de `sql/`.
+ArchCore utilise trois bases MariaDB, créées par `archcore db-init` à partir de `sql/`.
 Toutes sont en `utf8mb4`.
 
 ## `archcore_auth` — comptes et mondes (`sql/001_auth.sql`)
@@ -21,7 +21,7 @@ Toutes sont en `utf8mb4`.
 
 ## `archcore_world` — données du jeu (`sql/003_world.sql`)
 
-Remplie par `tools/import-client-data.mjs` à partir des tables du client.
+Remplie par `archcore import` à partir des tables du client.
 
 | Table | Source dans le client | Contenu |
 |---|---|---|
@@ -38,5 +38,5 @@ Remplie par `tools/import-client-data.mjs` à partir des tables du client.
 ## Ajouter un compte
 
 ```bash
-node tools/db-init.mjs --account <nom> <mot_de_passe> [niveau_MJ]
+archcore db-init --account <nom> <mot_de_passe> [niveau_MJ]
 ```

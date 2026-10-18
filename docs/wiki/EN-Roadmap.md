@@ -2,6 +2,7 @@
 
 ## Working with the real client
 
+- Server and tools entirely in Rust (a single `archcore` executable).
 - Encrypted handshake, world list, account login.
 - Character list and creation screen.
 - World entry, with a starting village per race.
@@ -40,6 +41,5 @@
 - **PlayerBots**: a server module for player characters driven by the server, modelled on the
   PlayerBots of World of Warcraft servers and adapted to ArchLord (movement, combat, parties, trade).
   To start once monsters, combat and parties work.
-- Port the core to Rust, once the protocol is well understood.
 
 Contributions are welcome: open an issue to suggest or report something.
