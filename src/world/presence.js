@@ -51,6 +51,7 @@ export class Presence {
   async leave(session) {
     const ch = session.state.character;
     if (!ch || !session.state.inGame) return;
+    log.info(`[world] #${session.id} ${ch.name} quitte le monde en ${ch.pos_x.toFixed(0)}, ${ch.pos_z.toFixed(0)} (${session.state.moveCount ?? 0} déplacement(s))`);
     session.state.inGame = false;
     for (const other of this.players.values()) {
       if (other === session || !other.state.seenPlayers?.has(ch.id)) continue;
@@ -79,6 +80,8 @@ export class Presence {
     session.state.followTarget = v[3] ?? 0;
     session.state.followDistance = v[4] ?? 0;
     session.state.dirty = true;
+    session.state.moveCount = (session.state.moveCount ?? 0) + 1;
+    if (session.state.moveCount === 1) log.info(`[world] #${session.id} premier déplacement reçu de ${ch.name}`);
     log.debug(`[world] #${session.id} ${ch.name} → ${dest ? `${dest.x.toFixed(0)}, ${dest.z.toFixed(0)}` : 'arrêt'} (drapeaux 0x${flags.toString(16)})`);
 
     for (const other of this.players.values()) {
