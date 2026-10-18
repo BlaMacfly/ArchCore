@@ -18,7 +18,8 @@
 ## Next steps
 
 1. Verify full character creation in game.
-2. Player movement (type 0x40) and broadcast to other players.
+2. Players and NPCs disappearing when they leave view range (movement itself, type 0x40, is done:
+   position saved, players revealed to each other, moves relayed).
 3. NPC functions: dialogues, shops, quests (type 0x3C).
 4. Monsters, combat, experience.
 5. Items, inventory, skills.

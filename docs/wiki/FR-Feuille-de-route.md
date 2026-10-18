@@ -14,11 +14,13 @@
 - Niveau MJ envoyé au panneau « Admin Commands ».
 - Premières commandes MJ : taux, modération, objets, annonce de redémarrage, téléportation. Voir
   [[Administration|FR-Administration]].
+- Déplacement du joueur (type 0x40) : position en base, apparition mutuelle des joueurs à portée et
+  rediffusion du mouvement (validé avec le client [ArchRust](https://github.com/BlaMacfly/ArchRust)).
 
 ## Prochaines étapes
 
 1. Valider la création complète d'un personnage en jeu.
-2. Déplacement du joueur (type 0x40) et diffusion aux autres joueurs.
+2. Disparition des joueurs et PNJ qui sortent de la portée de vue.
 3. Fonctions des PNJ : dialogues, boutiques, quêtes (type 0x3C).
 4. Monstres, combat, expérience.
 5. Objets, inventaire, compétences.

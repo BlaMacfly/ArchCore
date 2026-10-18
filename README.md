@@ -28,7 +28,8 @@ et dans le [wiki ArchCore](https://github.com/BlaMacfly/ArchCore/wiki).
 | Rendu `wgpu`, caméra orbitale et interface `egui` | 🟡 moteur et affichage de base en place |
 | AddOns Lua : manifestes `.toc`, frames, événements et variables sauvegardées | ✅ API de base |
 | Patchs HD : textures, modèles, fichiers et archives `.ahp` | ✅ format et chargement pris en charge |
-| Animations, déplacement de personnage, combat, objets et compétences | ⏳ à développer |
+| Déplacement des joueurs (type 0x40) : position en base, apparition mutuelle, rediffusion à portée | ✅ validé avec deux clients |
+| Animations, combat, objets et compétences | ⏳ à développer |
 
 Le client est un projet en cours. Les fonctionnalités marquées « de base » ne représentent pas
 encore une parité complète avec le client officiel.

@@ -14,6 +14,7 @@ import { log } from '../common/log.js';
 import { NpcRegistry } from './npcs.js';
 import { buildChatPacket, buildAdminLevelPacket, chatText, chatColor } from './chat.js';
 import { GmCommands, ServerRates, formatDuration } from './gm-commands.js';
+import { Movement } from './movement.js';
 
 // Inventaire : 4 sacs (InventorySmall_Layer0..3 dans le client) de 4 × 4 cases (à confirmer).
 const INVENTORY = { layers: 4, rows: 4, columns: 4 };
@@ -32,6 +33,7 @@ export class WorldHandlers {
     this.viewRadius = ctx.config.world.viewRadius ?? 8000;
     this.chatBans = new Map(); // id personnage → fin de l'interdiction (ms)
     this.restart = null; // { at, timer }
+    this.movement = new Movement({ db: ctx.db, players: this.players, viewRadius: this.viewRadius });
     this.gm = new GmCommands({
       world: this,
       rates: new ServerRates(ctx.config.world.rates ?? {}),
@@ -58,6 +60,11 @@ export class WorldHandlers {
   async onCharacter(session, packet) {
     const op = packet.values[0];
     log.debug(`[world] #${session.id} AGPMCHARACTER op ${op} (ignoré)`);
+  }
+
+  /** Déplacement du joueur (type 0x40) : voir movement.js. */
+  async onCharMove(session, packet) {
+    return this.movement.onMove(session, packet);
   }
 
   async #gameEnter(session, packet) {
@@ -91,7 +98,10 @@ export class WorldHandlers {
     session.state.factors = makeFactors(tpl, ch);
     session.state.seenNpcs = new Set();
     this.players.set(ch.id, session);
-    session.once('close', () => { if (this.players.get(ch.id) === session) this.players.delete(ch.id); });
+    session.once('close', () => {
+      if (this.players.get(ch.id) === session) this.players.delete(ch.id);
+      this.movement.onLeave(session).catch((err) => log.warn(`[world] #${session.id} sauvegarde à la déconnexion : ${err.message}`));
+    });
     log.info(`[world] #${session.id} ${account.username} entre avec ${ch.name} (cid ${ch.id}${session.state.gmLevel ? `, MJ ${session.state.gmLevel}` : ''})`);
 
     const pos = { x: ch.pos_x, y: ch.pos_y, z: ch.pos_z };
@@ -121,7 +131,8 @@ export class WorldHandlers {
     session.send(Main.OPT_VIEW, sparse(Main.OPT_VIEW, { 0: 2, 6: empty, 7: empty }));
     session.send(Main.OPT_CHAR_MOVE, sparse(Main.OPT_CHAR_MOVE, { 0: ch.id, 1: pos, 2: pos, 5: MOVE_STOP_SYNC, 6: 0 }));
     const sent = this.#sendNearbyNpcs(session, pos);
-    log.info(`[world] #${session.id} ${sent} PNJ envoyé(s) dans un rayon de ${this.viewRadius}`);
+    const seen = this.movement.onEnter(session);
+    log.info(`[world] #${session.id} ${sent} PNJ et ${seen} joueur(s) envoyé(s) dans un rayon de ${this.viewRadius}`);
     session.send(Main.CHAR_MANAGER, sparse(Main.CHAR_MANAGER, { 0: CharMgrOp.FINISH_ENTER, 4: ch.id }));
     session.send(Main.CHARACTER, sparse(Main.CHARACTER, { 0: 1, 1: ch.id, 4: 2, 5: buildMoveMini({ pos }) }));
     session.send(Main.CHARACTER, sparse(Main.CHARACTER, { 0: 1, 1: ch.id, 4: 2, 7: buildFactorsMini(factors) }));
