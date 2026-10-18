@@ -38,9 +38,11 @@ test('PNJ : une demande de dialogue près du PNJ est accordée avec le même év
   events.onDialog(session, request({ 0: 1, 1: npc.cid, 3: EventFunction.NPC_DIALOG }));
   assert.equal(sent.length, 1);
   assert.equal(sent[0].schema, Main.EVENT_NPC_DIALOG);
-  assert.equal(sent[0].values[0], DialogOp.GRANT);
-  assert.equal(sent[0].values[2], 1);
-  const base = decodeMini(Mini.EVENT_BASE, sent[0].values[1]).values;
+  // Aller-retour complet par l'encodeur, comme sur le réseau.
+  const wire = decodePacket(Main.EVENT_NPC_DIALOG, buildPacket(Main.EVENT_NPC_DIALOG, sent[0].values));
+  assert.equal(wire.values[0], DialogOp.GRANT);
+  assert.equal(wire.values[2], 1);
+  const base = decodeMini(Mini.EVENT_BASE, wire.values[1]).values;
   assert.equal(base[1], npc.cid);
   assert.equal(base[3], EventFunction.NPC_DIALOG);
 });

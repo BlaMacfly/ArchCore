@@ -63,8 +63,11 @@ export class NpcEvents {
       log.info(`[pnj] ${ch.name} → ${npc.name} : fonction ${event.function} demandée par le dialogue (${desc})`);
     }
     log.info(`[pnj] ${ch.name} parle à ${npc.name} (${desc})`);
-    // Accord : mêmes données que la demande. Le mini est renvoyé tel quel s'il est présent.
-    const grantBase = raw ?? buildMini(Mini.EVENT_BASE, sparse(Mini.EVENT_BASE, { 0: 1, 1: npc.cid, 3: EventFunction.NPC_DIALOG }));
+    // Accord : mêmes données que la demande. Le décodeur rend un mini sans son préfixe de longueur u32,
+    // il faut donc le reconstruire (renvoyer le tampon brut produirait un paquet invalide pour le client).
+    const grantBase = raw
+      ? buildMini(Mini.EVENT_BASE, base.values)
+      : buildMini(Mini.EVENT_BASE, sparse(Mini.EVENT_BASE, { 0: 3, 1: npc.cid, 3: EventFunction.NPC_DIALOG }));
     session.send(Main.EVENT_NPC_DIALOG, sparse(Main.EVENT_NPC_DIALOG, { 0: DialogOp.GRANT, 1: grantBase, 2: v[2] ?? ch.id }));
   }
 }
