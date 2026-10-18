@@ -169,6 +169,14 @@ export const Main = Object.freeze({
     [T.INT32, 1], // 2 CID du joueur
   ], V),
 
+  // ApmEventManager (0x3C) — drapeaux 1 (FUN_1403044d0) : désignation de l'événement (mini EVENT_BASE)
+  // puis données propres à la fonction (mini EVENT_DATA_INT32 pour le dialogue, la boutique, les quêtes).
+  // Une suite de ces paquets complets forme le champ 4 de la vue d'un personnage (FUN_140263070).
+  EVENT_MANAGER: S('APMEVENTMANAGER', PacketType.EVENT_MANAGER, 1, [
+    [T.PACKET, 1], // 0 événement (EVENT_BASE)
+    [T.PACKET, 1], // 1 données de la fonction
+  ], V),
+
   // AgpmSystemMessage — drapeaux 1
   SYSTEM_MESSAGE: S('AGPMSYSTEMMESSAGE', PacketType.SYSTEM_MESSAGE, 1, [
     [T.INT8, 1], [T.INT32, 1], [T.INT32, 1], [T.INT32, 1], [T.CHAR, 65], [T.CHAR, 65],
@@ -295,6 +303,10 @@ export const Mini = Object.freeze({
     [T.INT32, 1], // 2 identifiant d'événement
     [T.INT32, 1], // 3 fonction
   ], V),
+
+  // Données d'une fonction d'événement réduites à un entier : modèle de dialogue (AgpmEventNPCDialog),
+  // groupe de quêtes (AgpmEventQuest), modèle de boutique (à confirmer).
+  EVENT_DATA_INT32: S('APMEVENT_DATA_INT32', 60, 1, [[T.INT32, 1]], V),
 
   // AgpmAdmin : données MJ d'un personnage — drapeaux 1. Op 1 = ajout/mise à jour (FUN_14024b9b0),
   // op 0 = retrait (FUN_14024bc00). Le client garde le CID et le niveau (INT16).

@@ -59,3 +59,26 @@ test('PNJ : refus si le joueur est trop loin ou si le PNJ est inconnu', () => {
   events.onDialog(session, request({ 0: 1, 1: 12345, 3: EventFunction.NPC_DIALOG }));
   assert.equal(sent.length, 0);
 });
+
+test('PNJ : la vue contient les fonctions sous forme de paquets ApmEventManager (champ 4)', async () => {
+  const { NpcRegistry, BASE_TYPE_CHARACTER } = await import('../src/world/npcs.js');
+  const { parseHeader } = await import('../src/net/packet.js');
+  const npc = { cid: NPC_CID_BASE + 3, tid: 584, name: '<Marchand> Darryl', pos: { x: 1, y: 2, z: 3 }, degreeX: 0, degreeY: 81, events: parseEvents(DARRYL_RAW) };
+  const view = decodePacket(Main.OPT_VIEW, NpcRegistry.viewPacket(npc));
+  const block = view.values[4];
+  assert.ok(Buffer.isBuffer(block) && block.length > 0, 'champ 4 présent');
+  const found = [];
+  for (let off = 0; off < block.length;) {
+    const h = parseHeader(block.subarray(off));
+    const pkt = decodePacket(Main.EVENT_MANAGER, block.subarray(off, off + h.size));
+    const base = decodeMini(Mini.EVENT_BASE, pkt.values[0]).values;
+    const data = decodeMini(Mini.EVENT_DATA_INT32, pkt.values[1]).values;
+    found.push([base[0], base[1], base[3], data[0]]);
+    off += h.size;
+  }
+  assert.deepEqual(found, [
+    [BASE_TYPE_CHARACTER, npc.cid, EventFunction.NPC_DIALOG, 1],
+    [BASE_TYPE_CHARACTER, npc.cid, EventFunction.NPC_TRADE, 104],
+    [BASE_TYPE_CHARACTER, npc.cid, EventFunction.QUEST, 1],
+  ]);
+});

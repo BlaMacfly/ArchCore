@@ -32,6 +32,27 @@ export function loadNpcTranslator(language) {
 /** Fonctions d'événement (ApmEventManager) des PNJ, numéros relevés dans npc.ini. */
 export const EventFunction = Object.freeze({ NPC_TRADE: 9, NPC_DIALOG: 21, QUEST: 27 });
 
+// Type d'objet « personnage » dans les mini EVENT_BASE (énumération ApBase du client d'origine :
+// 0 aucun, 1 objet, 2 modèle d'objet, 3 personnage). Non vérifié dans le client x64.
+export const BASE_TYPE_CHARACTER = 3;
+
+// Paramètre entier transmis pour chaque fonction, lu dans la section npc.ini.
+const EVENT_INT_PARAM = { [EventFunction.NPC_DIALOG]: 'Template', [EventFunction.NPC_TRADE]: 'Template', [EventFunction.QUEST]: 'QuestGroupID' };
+
+/** Paquets ApmEventManager (0x3C) d'un PNJ, concaténés pour le champ 4 de sa vue. */
+export function eventBlock(npc) {
+  const parts = [];
+  for (const ev of npc.events ?? []) {
+    const key = EVENT_INT_PARAM[ev.function];
+    if (!key) continue; // fonctions pas encore gérées
+    const base = buildMini(Mini.EVENT_BASE, sparse(Mini.EVENT_BASE, { 0: BASE_TYPE_CHARACTER, 1: npc.cid, 3: ev.function }));
+    const value = Number(ev.params?.[key] ?? 0);
+    const data = buildMini(Mini.EVENT_DATA_INT32, [value]);
+    parts.push(buildPacket(Main.EVENT_MANAGER, [base, data]));
+  }
+  return Buffer.concat(parts);
+}
+
 /**
  * Lit les fonctions d'un PNJ dans la section npc.ini brute (liste de paires clé/valeur) :
  * chaque « Function » ouvre un événement, suivi de son « EventID » et de ses paramètres.
@@ -106,6 +127,7 @@ export class NpcRegistry {
       12: clamp16(npc.degreeX),
       13: clamp16(npc.degreeY),
     }));
-    return buildPacket(Main.OPT_VIEW, sparse(Main.OPT_VIEW, { 0: 1, 1: view }));
+    const events = eventBlock(npc);
+    return buildPacket(Main.OPT_VIEW, sparse(Main.OPT_VIEW, { 0: 1, 1: view, 4: events.length ? events : null }));
   }
 }
