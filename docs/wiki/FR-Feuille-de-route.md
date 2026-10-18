@@ -17,6 +17,7 @@
 5. Objets, inventaire, compétences.
 6. Discussion, groupes, guildes.
 7. Reconnexion automatique (type 0x63).
-8. Fin de la traduction : environ 54 000 textes restants.
+8. Commandes MJ : discussion (type 0x0F), niveau MJ (type 0x12) et commandes de la page [[Administration|FR-Administration]].
+9. Fin de la traduction : environ 54 000 textes restants.
 
 Les contributions sont bienvenues : ouvrir une *issue* pour proposer ou signaler quelque chose.

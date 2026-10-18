@@ -8,6 +8,7 @@
 - [[Base de données|FR-Base-de-donnees]]
 - [[Outils|FR-Outils]]
 - [[Traduction|FR-Traduction]]
+- [[Administration (MJ)|FR-Administration]]
 - [[Rétro-ingénierie|FR-Retro-ingenierie]]
 - [[Feuille de route|FR-Feuille-de-route]]
 
@@ -19,5 +20,6 @@
 - [[Database|EN-Database]]
 - [[Tools|EN-Tools]]
 - [[Translation|EN-Translation]]
+- [[Administration (GM)|EN-Administration]]
 - [[Reverse engineering|EN-Reverse-engineering]]
 - [[Roadmap|EN-Roadmap]]

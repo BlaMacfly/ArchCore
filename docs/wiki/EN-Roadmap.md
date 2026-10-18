@@ -17,6 +17,7 @@
 5. Items, inventory, skills.
 6. Chat, parties, guilds.
 7. Automatic reconnection (type 0x63).
-8. Finish the translation: about 54,000 texts left.
+8. GM commands: chat (type 0x0F), GM level (type 0x12) and the commands on the [[Administration|EN-Administration]] page.
+9. Finish the translation: about 54,000 texts left.
 
 Contributions are welcome: open an issue to suggest or report something.
