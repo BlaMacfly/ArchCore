@@ -1,4 +1,4 @@
-<p align="center"><img src="https://raw.githubusercontent.com/BlaMacfly/ArchCore/main/docs/assets/archcore-logo.png" alt="ArchCore" width="480"></p>
+<p align="center"><img src="https://raw.githubusercontent.com/BlaMacfly/ArchCore/main/docs/assets/archcore-logo.png" alt="ArchCore" width="200"></p>
 
 # ArchCore — Wiki
 

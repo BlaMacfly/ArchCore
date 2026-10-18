@@ -1,6 +1,8 @@
 <p align="center">
-  <img src="docs/assets/archcore-logo.png" alt="ArchCore" width="560">
+  <img src="docs/assets/archcore-logo.png" alt="ArchCore" width="220">
 </p>
+
+<h1 align="center">ArchCore</h1>
 
 <p align="center">
   <b>Émulateur serveur ArchLord — ArchLord server emulator</b><br>

@@ -15,6 +15,7 @@ data/i18n/pending-en.json
 
 # Fichiers locaux / local files
 Logo ArchCore.png
+ArchCore.png
 tools/try-keys.mjs
 *.bak
 .env
