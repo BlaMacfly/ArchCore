@@ -10,7 +10,12 @@
 <p align="center">
   <a href="#-français">🇫🇷 Français</a> ·
   <a href="#-english">🇬🇧 English</a> ·
-  <a href="https://github.com/BlaMacfly/ArchCore/wiki">📖 Wiki</a>
+  <a href="https://github.com/BlaMacfly/ArchCore/wiki">📖 Wiki</a> ·
+  <a href="https://discord.gg/T3jfR6ftak">💬 Discord</a>
+</p>
+
+<p align="center">
+  <a href="https://discord.gg/T3jfR6ftak"><img src="https://img.shields.io/badge/Discord-ArchCore-5865F2?logo=discord&logoColor=white" alt="Discord ArchCore"></a>
 </p>
 
 ---
@@ -57,6 +62,11 @@ Pour connecter le jeu, voir la page [Installation](https://github.com/BlaMacfly/
 Le [wiki](https://github.com/BlaMacfly/ArchCore/wiki) détaille l'installation, la configuration,
 l'architecture du code, le protocole réseau, la base de données, les outils et la traduction.
 Les mêmes pages sont dans [`docs/wiki`](docs/wiki).
+
+### Communauté
+
+Rejoignez le Discord officiel pour suivre le projet, poser vos questions et proposer votre aide :
+https://discord.gg/T3jfR6ftak
 
 ### Avertissement
 
@@ -108,6 +118,11 @@ To connect the game, see the wiki's [Installation](https://github.com/BlaMacfly/
 The [wiki](https://github.com/BlaMacfly/ArchCore/wiki) covers installation, configuration, code
 architecture, the network protocol, the database, the tools and the translation. The same pages
 are in [`docs/wiki`](docs/wiki).
+
+### Community
+
+Join the official Discord to follow the project, ask questions and offer help:
+https://discord.gg/T3jfR6ftak
 
 ### Disclaimer
 

@@ -19,6 +19,8 @@
 | [Administration (MJ)](FR-Administration) | [Administration (GM)](EN-Administration) |
 | [État et feuille de route](FR-Feuille-de-route) | [Status and roadmap](EN-Roadmap) |
 
+**💬 Discord** : https://discord.gg/T3jfR6ftak
+
 > ArchLord est une marque de son éditeur. ArchCore est indépendant et ne distribue aucune donnée du jeu.
 >
 > ArchLord is a trademark of its publisher. ArchCore is independent and distributes no game data.
