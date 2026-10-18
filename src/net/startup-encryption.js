@@ -6,7 +6,7 @@
 //   client → CRYPT_PRIVATE_KEY (2) + clé    en clair, 32 octets chiffrés Blowfish avec la clé serveur
 //   serveur → CRYPT_COMPLETE (3)            chiffré ; tout le reste de la session est chiffré
 //
-// Schéma confirmé dans Archonia.exe (constructeur AgpmStartupEncryption : drapeau 1 octet,
+// Schéma confirmé dans l'exécutable du client (constructeur AgpmStartupEncryption : drapeau 1 octet,
 // champs INT8 + MEMORY_BLOCK, type 0x48).
 
 import { randomBytes } from 'node:crypto';

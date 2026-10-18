@@ -1,6 +1,6 @@
 // Framing réseau ArchLord : encapsulation chiffrée et découpage des trames TCP.
 //
-// Trame chiffrée (après le handshake AGPMSTARTUPENCRYPTION), relevée dans Archonia.exe
+// Trame chiffrée (après le handshake AGPMSTARTUPENCRYPTION), relevée dans l'exécutable du client
 // (FUN_14014f5e0, AuPacket::Encrypt) :
 //   0x00  u8   0xA1 (serveur → client) ou 0xB1 (client → serveur)
 //   0x01  u32  taille totale de la trame (en-tête 9 + données + pied 1)

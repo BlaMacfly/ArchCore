@@ -1,8 +1,8 @@
-// RC4 tel que dérivé par CryptoAPI dans le client Archonia :
+// RC4 tel que dérivé par CryptoAPI dans le client ArchLord 64 bits :
 //   CryptCreateHash(MD5) → CryptHashData(clé texte) → CryptDeriveKey(CALG_RC4, CRYPT_CREATE_SALT)
 // Sur le « Microsoft Base Cryptographic Provider », la clé RC4 effective est constituée des
 // 16 octets du MD5 (5 octets de clé + 11 octets de sel dérivés du hachage).
-// Vérifié : déchiffre Archonia.ini et toutes les tables ini du client avec la clé "1111".
+// Vérifié : déchiffre le fichier de serveurs et toutes les tables ini du client avec la clé "1111".
 // Le même mécanisme est utilisé par le client pour chiffrer compte et mot de passe au login,
 // avec pour clé la chaîne de 8 caractères envoyée par le serveur (opération HASHKEY).
 

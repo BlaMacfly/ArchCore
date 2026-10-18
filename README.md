@@ -17,9 +17,8 @@
 
 ## 🇫🇷 Français
 
-**ArchCore** est un émulateur de serveur (login + monde) pour le client ArchLord **Archonia**
-(client 64 bits). Il est écrit en Node.js et stocke ses données dans **MariaDB**. Le protocole a été
-reconstruit par rétro-ingénierie de `Archonia.exe` avec Ghidra, via [REA](https://github.com/morluto/rea),
+**ArchCore** est un émulateur de serveur (login + monde) pour le client **ArchLord 64 bits**. Il est écrit en Node.js et stocke ses données dans **MariaDB**. Le protocole a été
+reconstruit par rétro-ingénierie de l'exécutable du client avec Ghidra, via [REA](https://github.com/morluto/rea),
 et à partir des tables de données du client.
 
 ### État du projet
@@ -37,7 +36,7 @@ et à partir des tables de données du client.
 
 ### Démarrage rapide
 
-Prérequis : Node.js 20 ou plus, MariaDB, et le client Archonia extrait dans `../client/ArchLord/Game`.
+Prérequis : Node.js 20 ou plus, MariaDB, et un client ArchLord 64 bits extrait dans `../client/ArchLord/Game`.
 
 ```bash
 npm install
@@ -67,9 +66,8 @@ propre client.
 
 ## 🇬🇧 English
 
-**ArchCore** is a server emulator (login + world) for the ArchLord **Archonia** client (64-bit
-build). It is written in Node.js and stores its data in **MariaDB**. The protocol was rebuilt by
-reverse engineering `Archonia.exe` with Ghidra, through [REA](https://github.com/morluto/rea), and
+**ArchCore** is a server emulator (login + world) for the **64-bit ArchLord** client. It is written in Node.js and stores its data in **MariaDB**. The protocol was rebuilt by
+reverse engineering the client executable with Ghidra, through [REA](https://github.com/morluto/rea), and
 from the client's data tables.
 
 ### Project status
@@ -87,7 +85,7 @@ from the client's data tables.
 
 ### Quick start
 
-Requirements: Node.js 20 or later, MariaDB, and the Archonia client extracted to `../client/ArchLord/Game`.
+Requirements: Node.js 20 or later, MariaDB, and a 64-bit ArchLord client extracted to `../client/ArchLord/Game`.
 
 ```bash
 npm install

@@ -1,8 +1,8 @@
 # Protocole réseau
 
-Le client Archonia est une reconstruction 64 bits du client ArchLord. Son protocole reprend celui
+Le client ArchLord 64 bits est une reconstruction du client d'origine. Son protocole reprend celui
 du client 32 bits d'origine, avec des longueurs élargies. Tout ce qui suit a été relevé dans
-`Archonia.exe` et vérifié avec le vrai client.
+l'exécutable du client et vérifié avec le vrai client.
 
 ## Paquet AuPacket
 

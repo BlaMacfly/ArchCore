@@ -1,6 +1,6 @@
 // Schémas des paquets ArchLord connus d'ArchCore.
 //
-// Définitions relevées dans Archonia.exe (Ghidra via REA) : chaque module Agpm*/Agcm* appelle
+// Définitions relevées dans l'exécutable du client (Ghidra via REA) : chaque module Agpm*/Agcm* appelle
 // AuPacket::SetFieldType (FUN_14014e850) dans son constructeur avec la liste (type, taille)…
 // Le relevé complet de tous les modules est dans data/re/packet-schemas.json
 // (tools/re/extract-schemas.mjs). `verified: true` = confronté à ce relevé.
@@ -81,11 +81,11 @@ export const Main = Object.freeze({
     [T.INT32, 1], // 22 option flag
     [T.INT8, 1], // 23 taille de banque
     [T.UINT16, 1], // 24 event status flag
-    [T.INT64, 1], // 25 temps criminel restant (INT64 dans Archonia, INT32 dans ALEmu)
+    [T.INT64, 1], // 25 temps criminel restant (INT64 dans le client x64, INT32 dans ALEmu)
     [T.INT64, 1], // 26 temps meurtrier restant
     [T.CHAR, 16], // 27 signature
     [T.MEMORY_BLOCK, 1], // 28 données GameGuard
-    [T.UINT64, 1], // 29 dernière mort en Battle Square (UINT64 dans Archonia)
+    [T.UINT64, 1], // 29 dernière mort en Battle Square (UINT64 dans le client x64)
   ], V),
 
   // AgcmCharacter (type 3, « AgsmCharManager » côté serveur) — drapeaux sur 4 octets
@@ -98,7 +98,7 @@ export const Main = Object.freeze({
     [T.INT32, 1], // 4 CID
     [T.VEC3F, 1], // 5 position
     [T.INT32, 1], // 6 clé d'authentification
-    [T.CHAR, 248], // 7 (nouveau dans Archonia)
+    [T.CHAR, 248], // 7 (nouveau dans le client x64)
   ], V),
 
   // AgpmLogin — drapeaux 2
@@ -107,7 +107,7 @@ export const Main = Object.freeze({
     [T.CHAR, 32], // 1 clé de hachage (8 octets utiles)
     [T.CHAR, 49], // 2 compte (chiffré RC4 côté client)
     [T.INT8, 1], // 3 longueur du compte
-    [T.CHAR, 65], // 4 mot de passe (chiffré RC4) — 65 dans Archonia (33 dans ALEmu)
+    [T.CHAR, 65], // 4 mot de passe (chiffré RC4) — 65 dans le client x64 (33 dans ALEmu)
     [T.INT8, 1], // 5 longueur du mot de passe
     [T.INT32, 1], // 6 CID
     [T.CHAR, 32], // 7 nom du monde
@@ -181,7 +181,7 @@ export const Main = Object.freeze({
   OPT_VIEW: S('AGPMOPTIMIZEDVIEW', PacketType.OPT_VIEW, 2, [
     [T.INT8, 1], // 0 opération
     [T.PACKET, 1], // 1
-    [T.PACKET, 32], // 2 liste de vues (u8 compteur + minis) — 32 dans Archonia
+    [T.PACKET, 32], // 2 liste de vues (u8 compteur + minis) — 32 dans le client x64
     [T.MEMORY_BLOCK, 1], // 3
     [T.MEMORY_BLOCK, 1], // 4
     [T.CHAR, 33], // 5
@@ -218,7 +218,7 @@ export const Mini = Object.freeze({
     [T.INT32, 1], // 6 cheveux
     [T.INT32, 1], // 7 visage
     [T.CHAR, 49], // 8
-    [T.INT32, 1], // 9 (nouveau dans Archonia)
+    [T.INT32, 1], // 9 (nouveau dans le client x64)
   ], V),
 
   LOGIN_SERVER_INFO: S('AGPMLOGIN_SERVER_INFO', 102, 1, [[T.CHAR, 23]], V),

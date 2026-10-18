@@ -1,6 +1,6 @@
 # Client reverse engineering
 
-The protocol and data formats were rebuilt from `Archonia.exe`, with Ghidra 12 driven by
+The protocol and data formats were rebuilt from the client executable, with Ghidra 12 driven by
 [REA](https://github.com/morluto/rea). The client is an x86-64 PE executable of about 70,000
 functions, without symbols but with RTTI for its C++ classes (`AgcmLogin`, `SoundManager`…).
 
@@ -16,7 +16,7 @@ functions, without symbols but with RTTI for its C++ classes (`AgcmLogin`, `Soun
 
 | Topic | Finding |
 |---|---|
-| Server address | `Archonia.ini` is RC4-encrypted with key MD5("1111") through CryptoAPI; the plain `ArchoniaTest.ini` is read first |
+| Server address | The server list file is RC4-encrypted with key MD5("1111") through CryptoAPI; its plain `…Test.ini` variant is read first |
 | `Game/ini` tables | Same encryption; CP949 text. A second key, "asdfqwer", is used by another loader |
 | Packet header | 19 bytes, u32 lengths (u16 in the 32-bit client) |
 | Encryption | Blowfish ECB, little-endian words; `A1`/`B1` … `AF`/`BF` frames |

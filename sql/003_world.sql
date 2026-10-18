@@ -1,4 +1,4 @@
--- ArchCore — base monde (archcore_world) : données importées du client Archonia.
+-- ArchCore — base monde (archcore_world) : données importées du client ArchLord 64 bits.
 -- Remplie par tools/import-client-data.mjs à partir de data/client-ini (tables déchiffrées).
 
 CREATE TABLE IF NOT EXISTS character_template (

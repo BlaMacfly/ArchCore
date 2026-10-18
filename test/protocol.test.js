@@ -38,7 +38,7 @@ test('Blowfish : aller-retour little-endian sur tampon', () => {
 });
 
 test('Paquet : en-tête, drapeaux et champs', () => {
-  // en-tête relevé sur le client Archonia : d6 | u32 taille | u16 type | u64 owner | u32 tick
+  // en-tête relevé sur le client ArchLord 64 bits : d6 | u32 taille | u16 type | u64 owner | u32 tick
   const req = buildPacket(Main.STARTUP_ENCRYPTION, [0, null]);
   assert.equal(req.toString('hex'), 'd616000000' + '48' + '00' + '00000000' + '00000000' + '00000000' + '01' + '00' + '6b');
   const values = sparse(Main.LOGIN, { 0: LoginOp.HASHKEY, 1: 'abcdefgh' });
@@ -97,7 +97,7 @@ test('Framing : chiffrement, découpage et déchiffrement', () => {
   assert.deepEqual(back, plain);
 });
 
-test('AGSMCHARMANAGER : drapeaux sur 4 octets, comme le client Archonia', () => {
+test('AGSMCHARMANAGER : drapeaux sur 4 octets, comme le client ArchLord 64 bits', () => {
   // Octets relevés sur le fil (keepalive du client) : drapeaux 05 00 00 00, op 0x0d, champ 2 = 0x0d00?
   const pkt = buildPacket(Main.CHAR_MANAGER, sparse(Main.CHAR_MANAGER, { 0: 2, 2: 17, 3: 'Testeur#ArchCore', 6: 1234, 7: '' }));
   assert.deepEqual([...pkt.subarray(19, 25)], [0xcd, 0, 0, 0, 2, 17]);

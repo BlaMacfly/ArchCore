@@ -1,7 +1,7 @@
 // Client de test ArchCore : rejoue le flux complet d'un client ArchLord contre le login puis le monde.
 //   node tools/client-sim.mjs [utilisateur] [motdepasse] [nomPerso]
 // Sert à valider le serveur sans lancer le jeu. Les échanges suivent le protocole relevé
-// dans Archonia.exe et ALEmu ; le vrai client peut différer dans l'ordre des opérations.
+// dans l'exécutable du client et ALEmu ; le vrai client peut différer dans l'ordre des opérations.
 
 import net from 'node:net';
 import { randomBytes } from 'node:crypto';
@@ -182,7 +182,7 @@ const [host, port] = address.split(':');
 const world = new TestClient('world');
 await world.connect(host, Number(port));
 await world.handshake();
-// comme Archonia (FUN_1404b8100) : op 2, champ 2 = 17, nom, clé d'auth, bloc de 248 octets ; puis un keepalive op 13
+// comme le client (FUN_1404b8100) : op 2, champ 2 = 17, nom, clé d'auth, bloc de 248 octets ; puis un keepalive op 13
 world.send(Main.CHAR_MANAGER, sparse(Main.CHAR_MANAGER, { 0: CharMgrOp.GAME_ENTER, 2: 17, 3: `${charName}#${worldName}`, 6: authKey, 7: '' }));
 world.send(Main.CHAR_MANAGER, sparse(Main.CHAR_MANAGER, { 0: CharMgrOp.KEEPALIVE, 2: 0 }));
 await world.expect(Main.CONFIG.id);

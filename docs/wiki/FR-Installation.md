@@ -4,7 +4,7 @@
 
 - **Node.js 20 ou plus** (testé avec la version 24).
 - **MariaDB** 10.6 ou plus (testé avec 13.0). Sous Windows : `winget install MariaDB.Server`.
-- Le **client Archonia** extrait, par défaut dans `../client/ArchLord/Game` par rapport au dossier ArchCore.
+- Un **client ArchLord 64 bits** extrait, par défaut dans `../client/ArchLord/Game` par rapport au dossier ArchCore.
   ArchCore ne fournit aucune donnée du jeu.
 
 ## 1. Récupérer le code
@@ -61,7 +61,9 @@ Il doit finir par « entrée en jeu confirmée — flux complet OK ».
 
 ## 7. Connecter le vrai client
 
-Créer `Game/ArchoniaTest.ini` en texte clair. Le client le lit avant `Archonia.ini`, qui est chiffré :
+Le client lit la liste des serveurs dans un fichier `.ini` chiffré placé à côté de son exécutable.
+Il lit d'abord, s'il existe, un fichier en texte clair du même nom suivi de `Test` (par exemple
+`<NomDuClient>Test.ini`). Créer ce fichier dans `Game/` avec le contenu suivant :
 
 ```xml
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -79,6 +81,6 @@ Pour jouer en français, écrire `17` dans `Launcher/LanguageInfo.txt` (voir [[T
 
 | Symptôme | Piste |
 |---|---|
-| « Cannot access the login server » | ArchCore n'écoute pas sur 11002, ou `ArchoniaTest.ini` est absent |
+| « Cannot access the login server » | ArchCore n'écoute pas sur 11002, ou le fichier `<NomDuClient>Test.ini` est absent |
 | Chargement infini à l'entrée en jeu | Lancer avec `ARCHCORE_TRACE=1` et lire `data/archcore.log` |
 | Pas de son | Vérifier `[Sound_Option]` dans `Game/ini/COption.ini` ; le jeu réécrit ce fichier en quittant |

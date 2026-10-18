@@ -4,7 +4,7 @@
 
 - **Node.js 20 or later** (tested with version 24).
 - **MariaDB** 10.6 or later (tested with 13.0). On Windows: `winget install MariaDB.Server`.
-- The extracted **Archonia client**, by default in `../client/ArchLord/Game` relative to the ArchCore folder.
+- An extracted **64-bit ArchLord client**, by default in `../client/ArchLord/Game` relative to the ArchCore folder.
   ArchCore ships no game data.
 
 ## 1. Get the code
@@ -61,7 +61,9 @@ The simulator replays the handshake, login, character list and world entry. It s
 
 ## 7. Connect the real client
 
-Create `Game/ArchoniaTest.ini` in plain text. The client reads it before `Archonia.ini`, which is encrypted:
+The client reads its server list from an encrypted `.ini` file next to its executable. It first
+reads, when present, a plain-text file with the same name followed by `Test` (for example
+`<ClientName>Test.ini`). Create that file in `Game/` with this content:
 
 ```xml
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -79,6 +81,6 @@ To play in French, write `17` in `Launcher/LanguageInfo.txt` (see [[Translation|
 
 | Symptom | Lead |
 |---|---|
-| "Cannot access the login server" | ArchCore is not listening on 11002, or `ArchoniaTest.ini` is missing |
+| "Cannot access the login server" | ArchCore is not listening on 11002, or the `<ClientName>Test.ini` file is missing |
 | Endless loading on world entry | Run with `ARCHCORE_TRACE=1` and read `data/archcore.log` |
 | No sound | Check `[Sound_Option]` in `Game/ini/COption.ini`; the game rewrites this file on exit |

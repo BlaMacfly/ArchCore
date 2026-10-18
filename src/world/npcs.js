@@ -2,7 +2,7 @@
 //
 // Apparition côté client : paquet AGPMOPTIMIZEDVIEW (type 0x42) opération 1, dont le champ 1
 // est un mini-paquet « vue de personnage » (AGPMOPTIMIZEDPACKET_VIEW, drapeaux 4 octets).
-// Relevé dans Archonia.exe (FUN_140260d40) : le client lit
+// Relevé dans l'exécutable du client (FUN_140260d40) : le client lit
 //   0 CID, 1 TID, 2 nom (bloc mémoire, 48 octets max), 3-4 INT8, 5 mini action,
 //   6 drapeaux de déplacement, 7 direction, 8 position, 9 destination (utilisée si non nulle),
 //   10 cible suivie, 11 distance de suivi, 12-13 axes X/Y (INT16, convertis en flottants),

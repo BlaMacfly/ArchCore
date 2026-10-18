@@ -1,6 +1,6 @@
 # Rétro-ingénierie du client
 
-Le protocole et les formats de données ont été reconstruits à partir de `Archonia.exe`, avec Ghidra 12
+Le protocole et les formats de données ont été reconstruits à partir de l'exécutable du client, avec Ghidra 12
 piloté par [REA](https://github.com/morluto/rea). Le client est un exécutable PE x86-64 d'environ
 70 000 fonctions, sans symboles, mais avec les informations RTTI des classes C++ (`AgcmLogin`,
 `SoundManager`…).
@@ -17,7 +17,7 @@ piloté par [REA](https://github.com/morluto/rea). Le client est un exécutable 
 
 | Sujet | Résultat |
 |---|---|
-| Adresse du serveur | `Archonia.ini` chiffré en RC4, clé MD5(« 1111 ») via CryptoAPI ; `ArchoniaTest.ini` en clair est lu en priorité |
+| Adresse du serveur | Fichier de serveurs chiffré en RC4, clé MD5(« 1111 ») via CryptoAPI ; sa variante `…Test.ini` en clair est lue en priorité |
 | Tables `Game/ini` | Même chiffrement ; texte en CP949. Une seconde clé, « asdfqwer », sert à un autre chargeur |
 | En-tête de paquet | 19 octets, longueurs en u32 (u16 dans le client 32 bits) |
 | Chiffrement | Blowfish ECB, mots petit-boutistes ; trames `A1`/`B1` … `AF`/`BF` |

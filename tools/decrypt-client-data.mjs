@@ -1,12 +1,12 @@
-// Déchiffre les tables de données du client Archonia (dossier Game/ini) vers data/client-ini/.
-// Chiffrement constaté dans Archonia.exe (FUN_14015ae00) : CryptoAPI MD5("1111") → RC4.
+// Déchiffre les tables de données du client ArchLord 64 bits (dossier Game/ini) vers data/client-ini/.
+// Chiffrement constaté dans l'exécutable du client (FUN_14015ae00) : CryptoAPI MD5("1111") → RC4.
 // Les fichiers déjà en clair sont copiés tels quels. Les sous-dossiers sont parcourus.
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { capiDecrypt } from './capi-rc4.js';
 import { loadConfig } from '../src/common/config.js';
 
-const KEY = process.env.ARCHONIA_INI_KEY || '1111';
+const KEY = process.env.ARCHCORE_INI_KEY || '1111';
 const src = process.argv[2] || path.join(loadConfig().client.dataDir, 'ini');
 const dst = process.argv[3] || path.resolve('data/client-ini');
 

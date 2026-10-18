@@ -1,6 +1,6 @@
 // Gestionnaires du serveur de login ArchCore.
 //
-// Flux (d'après ALEmu, à confronter au client Archonia) :
+// Flux (d'après ALEmu, à confronter au client ArchLord 64 bits) :
 //   AGPMSTARTUPENCRYPTION  handshake Blowfish (startup-encryption.js)
 //   AGPMWORLD      op 0  → op 2 : liste des mondes "Nom=Groupe=0=Statut=Drapeau;…"
 //   AGPMLOGIN      op 0  HASHKEY     → clé de 8 caractères (chiffrement RC4 du compte/mot de passe)
@@ -169,7 +169,7 @@ export class LoginHandlers {
     if (!this.#requireAccount(session)) return;
     const st = session.state;
     st.world = packet.values[7]?.text ?? '';
-    // Archonia (FUN_1405a4fc0) range ce champ comme race courante de l'écran de connexion. Le bouton
+    // Le client (FUN_1405a4fc0) range ce champ comme race courante de l'écran de connexion. Le bouton
     // « Créer » (FUN_1405a5650) n'envoie la demande op 10 que pour la race 1 ou 2 et ouvre la scène
     // de création de cette race : avec 0, aucune demande ne part et le chargement ne finit jamais.
     session.send(Main.LOGIN, sparse(Main.LOGIN, { 0: LoginOp.UNION_INFO, 8: this.#charInfoMini({ 4: CREATION_RACE }) }));
@@ -279,7 +279,7 @@ export class LoginHandlers {
     session.send(Main.CHAR_MANAGER, sparse(Main.CHAR_MANAGER, { 0: CharMgrOp.AUTH_KEY, 3: fullName, 6: authKey }));
     const charInfo = this.#charInfoMini({ 0: ch.template_id, 1: fullName });
     const serverInfo = buildMini(Mini.LOGIN_SERVER_INFO, [address]);
-    // Archonia (AgcmLogin::OnReceive, cas 8) : CHAR_INFO au champ 8, SERVER_INFO au champ 9
+    // Le client (AgcmLogin::OnReceive, cas 8) : CHAR_INFO au champ 8, SERVER_INFO au champ 9
     // (champ 11 dans ALEmu), CID du personnage au champ 6 ; les trois sont transmis à
     // AgcmCharacter pour la connexion au serveur monde.
     session.send(Main.LOGIN, sparse(Main.LOGIN, { 0: LoginOp.WORLD_ENTER, 6: ch.id, 8: charInfo, 9: serverInfo }));

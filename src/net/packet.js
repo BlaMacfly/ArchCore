@@ -18,7 +18,7 @@
 //
 // Les entiers et flottants sont little-endian.
 // NB : l'en-tête original (32 bits) faisait 13 octets (u16 taille, u16 type, u32 owner, u32 tick) ;
-// le client Archonia x64 l'a élargi à 19 octets (relevé sur le fil : d6 16000000 4800 … ).
+// le client x64 l'a élargi à 19 octets (relevé sur le fil : d6 16000000 4800 … ).
 
 export const T = Object.freeze({
   CHAR: 0,

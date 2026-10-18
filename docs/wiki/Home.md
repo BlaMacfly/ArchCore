@@ -2,9 +2,9 @@
 
 # ArchCore — Wiki
 
-**🇫🇷** Bienvenue sur le wiki d'ArchCore, émulateur serveur (login + monde) pour le client ArchLord *Archonia*, écrit en Node.js sur MariaDB.
+**🇫🇷** Bienvenue sur le wiki d'ArchCore, émulateur serveur (login + monde) pour le client ArchLord 64 bits, écrit en Node.js sur MariaDB.
 
-**🇬🇧** Welcome to the ArchCore wiki, a server emulator (login + world) for the ArchLord *Archonia* client, written in Node.js on MariaDB.
+**🇬🇧** Welcome to the ArchCore wiki, a server emulator (login + world) for the 64-bit ArchLord client, written in Node.js on MariaDB.
 
 | 🇫🇷 Français | 🇬🇧 English |
 |---|---|
