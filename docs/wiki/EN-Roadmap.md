@@ -7,11 +7,13 @@
 - World entry, with a starting village per race.
 - Spawning of the 567 NPCs around the player, with translated titles.
 - French client interface, accents included (translation in progress).
+- Player movement, with position saving.
+- NPC dialog: the npc.ini functions (dialog, shop, quests) are sent with each NPC, and clicking opens
+  the dialog window.
 
 ## Verified with the simulator, to confirm in game
 
-- Player movement (type 0x40), relayed to nearby players; players see each other and
-  disappear from view when out of range; position saved.
+- Player visibility: movement relayed to nearby players, appearing and disappearing by distance.
 - Chat within view range, and whispers.
 - GM level sent to the "Admin Commands" panel.
 - First GM commands: rates, moderation, items, restart announcement, teleport. See
@@ -20,8 +22,8 @@
 ## Next steps
 
 1. Verify full character creation in game.
-2. Verify movement and player visibility with the real client.
-3. NPC functions: dialogues, shops, quests (type 0x3C).
+2. Verify player visibility with two real clients.
+3. NPC functions: shops, quests, teleport, bank.
 4. Monsters, combat, experience.
 5. Items, inventory, skills.
 6. Chat, parties, guilds.

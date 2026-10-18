@@ -73,6 +73,23 @@ The world list goes through type 0x18 (AgpmWorld), formatted as `Name=Group=0=St
 Op 1 carries, in field 1, a 26-field "character view" mini-packet: CID, TID, name, position,
 destination, orientation, and so on. ArchCore gives NPCs CIDs starting at `0x40000000`.
 
+## NPC functions (types 0x3C and 0x37)
+
+The client only knows an NPC has functions if they come with its view: **field 4** of the view packet
+(0x42) holds a sequence of full **ApmEventManager (0x3C)** packets, one per function.
+
+| 0x3C field | Content |
+|---|---|
+| 0 | event designation (EVENT_BASE mini): object type **3** (character), NPC CID, function |
+| 1 | function data (single-integer mini): dialog template, shop template, quest group |
+
+Functions read from `npc.ini`: **21** dialog, **9** shop, **27** quests.
+
+On click, the client sends **AgpmEventNPCDialog (0x37) op 0**: event in field 1 (type 3, NPC CID,
+function 21), player CID in field 2. The server answers **op 1** with the same fields, and the client
+opens the window; the text comes from the client (`npcdialog.txt`). ArchCore grants the dialog when
+the player is within 1500 units of the NPC.
+
 ## Movement (type 0x40, AgpmOptimizedCharMove)
 
 The client sends a 0x40 packet on every movement click (`FUN_140264010`), with 1-byte header flags:
@@ -80,7 +97,7 @@ The client sends a 0x40 packet on every movement click (`FUN_140264010`), with 1
 | Field | Content |
 |---|---|
 | 0 | Character CID |
-| 1 | current position |
+| 1 | current position (often missing: ArchCore then uses the previous destination) |
 | 2 | destination |
 | 3, 4 | followed target and follow distance (u16) |
 | 5 | movement flags: `0x04` stop, `0x08` sync, `0x01` direction… |

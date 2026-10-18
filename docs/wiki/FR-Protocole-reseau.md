@@ -74,6 +74,23 @@ La liste des mondes passe par le type 0x18 (AgpmWorld), au format `Nom=Groupe=0=
 L'op 1 porte au champ 1 un mini-paquet « vue de personnage » de 26 champs : CID, TID, nom,
 position, destination, orientation, etc. ArchCore donne aux PNJ des CID à partir de `0x40000000`.
 
+## Fonctions des PNJ (types 0x3C et 0x37)
+
+Le client ne sait qu'un PNJ a des fonctions que si elles arrivent avec sa vue : le **champ 4** du paquet
+de vue (0x42) contient une suite de paquets **ApmEventManager (0x3C)** complets, un par fonction.
+
+| Champ du 0x3C | Contenu |
+|---|---|
+| 0 | désignation de l'événement (mini EVENT_BASE) : type d'objet **3** (personnage), CID du PNJ, fonction |
+| 1 | donnée de la fonction (mini à un entier) : modèle de dialogue, modèle de boutique, groupe de quêtes |
+
+Fonctions lues dans `npc.ini` : **21** dialogue, **9** boutique, **27** quêtes.
+
+Au clic, le client envoie **AgpmEventNPCDialog (0x37) op 0** : événement au champ 1 (type 3, CID du
+PNJ, fonction 21), CID du joueur au champ 2. Le serveur répond **op 1** avec les mêmes champs, et le
+client ouvre la fenêtre ; le texte vient du client (`npcdialog.txt`). ArchCore accorde le dialogue si
+le joueur est à moins de 1500 unités du PNJ.
+
 ## Déplacement (type 0x40, AgpmOptimizedCharMove)
 
 Le client envoie un paquet 0x40 à chaque clic de déplacement (`FUN_140264010`), avec des drapeaux
@@ -82,7 +99,7 @@ d'en-tête sur 1 octet :
 | Champ | Contenu |
 |---|---|
 | 0 | CID du personnage |
-| 1 | position actuelle |
+| 1 | position actuelle (souvent absente : ArchCore prend alors la destination précédente) |
 | 2 | destination |
 | 3, 4 | cible suivie et distance de suivi (u16) |
 | 5 | drapeaux de déplacement : `0x04` arrêt, `0x08` synchronisation, `0x01` direction… |

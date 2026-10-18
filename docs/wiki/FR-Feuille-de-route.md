@@ -7,11 +7,14 @@
 - Entrée dans le monde, avec un village de départ par race.
 - Apparition des 567 PNJ autour du joueur, avec titres traduits.
 - Interface du client en français, accents compris (traduction en cours).
+- Déplacement du joueur, avec sauvegarde de la position.
+- Dialogue avec les PNJ : les fonctions de npc.ini (dialogue, boutique, quêtes) sont envoyées avec
+  chaque PNJ, et le clic ouvre la fenêtre de dialogue.
 
 ## Validé avec le simulateur, à confirmer en jeu
 
-- Déplacement du joueur (type 0x40), relayé aux joueurs proches ; les joueurs se voient et
-  disparaissent de la vue hors de portée ; position sauvegardée.
+- Visibilité entre joueurs : déplacement relayé aux joueurs proches, apparition et disparition
+  selon la distance.
 - Discussion à portée de vue et chuchotements.
 - Niveau MJ envoyé au panneau « Admin Commands ».
 - Premières commandes MJ : taux, modération, objets, annonce de redémarrage, téléportation. Voir
@@ -20,8 +23,8 @@
 ## Prochaines étapes
 
 1. Valider la création complète d'un personnage en jeu.
-2. Vérifier le déplacement et la visibilité entre joueurs avec le vrai client.
-3. Fonctions des PNJ : dialogues, boutiques, quêtes (type 0x3C).
+2. Vérifier la visibilité entre joueurs avec deux vrais clients.
+3. Fonctions des PNJ : boutiques, quêtes, téléportation, banque.
 4. Monstres, combat, expérience.
 5. Objets, inventaire, compétences.
 6. Discussion, groupes, guildes.
