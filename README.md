@@ -21,6 +21,8 @@
 reconstruit par rétro-ingénierie de l'exécutable du client avec Ghidra, via [REA](https://github.com/morluto/rea),
 et à partir des tables de données du client.
 
+> ArchCore est basé sur le client 64 bits du serveur Archonia.
+
 ### État du projet
 
 | Fonction | État |
@@ -69,6 +71,8 @@ propre client.
 **ArchCore** is a server emulator (login + world) for the **64-bit ArchLord** client. It is written in Node.js and stores its data in **MariaDB**. The protocol was rebuilt by
 reverse engineering the client executable with Ghidra, through [REA](https://github.com/morluto/rea), and
 from the client's data tables.
+
+> ArchCore is based on the 64-bit client of the Archonia server.
 
 ### Project status
 
