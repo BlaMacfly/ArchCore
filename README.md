@@ -74,11 +74,6 @@ Les mêmes pages sont dans [`docs/wiki`](docs/wiki).
 Rejoignez le Discord officiel pour suivre le projet, poser vos questions et proposer votre aide :
 https://discord.gg/T3jfR6ftak
 
-### Avertissement
-
-ArchLord est une marque de son éditeur. ArchCore est un projet indépendant, non affilié, à but
-d'étude et de préservation. Ce dépôt ne contient **aucune donnée du jeu** : il faut posséder son
-propre client.
 
 ---
 
@@ -134,7 +129,3 @@ are in [`docs/wiki`](docs/wiki).
 Join the official Discord to follow the project, ask questions and offer help:
 https://discord.gg/T3jfR6ftak
 
-### Disclaimer
-
-ArchLord is a trademark of its publisher. ArchCore is an independent, unaffiliated project for
-study and preservation. This repository contains **no game data**: you need your own client.
