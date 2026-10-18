@@ -14,7 +14,8 @@ const DEFAULTS = {
   client: { dataDir: '../client/ArchLord/Game' },
 };
 
-export function loadConfig(file = path.join(ROOT, 'config', 'archcore.json')) {
+// ARCHCORE_CONFIG=<fichier> permet d'utiliser une autre configuration (serveur de test, autres ports…).
+export function loadConfig(file = process.env.ARCHCORE_CONFIG || path.join(ROOT, 'config', 'archcore.json')) {
   let user = {};
   try {
     user = JSON.parse(readFileSync(file, 'utf8'));
@@ -24,5 +25,6 @@ export function loadConfig(file = path.join(ROOT, 'config', 'archcore.json')) {
   const merged = {};
   for (const key of Object.keys(DEFAULTS)) merged[key] = { ...DEFAULTS[key], ...(user[key] || {}) };
   merged.client.dataDir = path.resolve(ROOT, merged.client.dataDir);
+  merged.file = file;
   return merged;
 }

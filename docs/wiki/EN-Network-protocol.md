@@ -73,6 +73,24 @@ The world list goes through type 0x18 (AgpmWorld), formatted as `Name=Group=0=St
 Op 1 carries, in field 1, a 26-field "character view" mini-packet: CID, TID, name, position,
 destination, orientation, and so on. ArchCore gives NPCs CIDs starting at `0x40000000`.
 
+## Movement (type 0x40, AgpmOptimizedCharMove)
+
+The client sends a 0x40 packet on every movement click (`FUN_140264010`), with 1-byte header flags:
+
+| Field | Content |
+|---|---|
+| 0 | Character CID |
+| 1 | current position |
+| 2 | destination |
+| 3, 4 | followed target and follow distance (u16) |
+| 5 | movement flags: `0x04` stop, `0x08` sync, `0x01` direction… |
+| 6 | direction |
+
+ArchCore updates the character's position, relays the same packet to the players who see it, then
+recomputes visibility: a character packet **op 0** adds a player who entered the view radius, **op 2**
+(CID in field 1) removes a player who left it or disconnected. The position is saved on disconnect
+and every minute.
+
 ## Chat (type 0x0F, AgpmChatting)
 
 1-byte field flags: op, sender CID, channel type, target CID, sender name (49), target name (49),

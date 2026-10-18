@@ -11,6 +11,7 @@
     "world": "node src/index.js world",
     "db:init": "node tools/db-init.mjs",
     "sim": "node tools/client-sim.mjs",
+    "sim:move": "node tools/sim-move.mjs",
     "test": "node --test"
   },
   "dependencies": {

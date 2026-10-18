@@ -22,6 +22,22 @@ npm run sim -- <user> <password> [character]
 It prints every packet exchanged and the number of NPCs received, and ends with "flux complet OK"
 (full flow OK). It is the fastest way to check a server change without starting the game.
 
+## Two-player test
+
+```bash
+node tools/sim-move.mjs [userA] [passA] [charA] [userB] [passB] [charB]
+```
+
+Two simulated clients enter the game (accounts `sima` and `simb` by default, characters created
+when needed). The test checks that they see each other, that one player's movement reaches the
+other, that they lose sight of each other out of range, and that disconnecting removes the
+character. It moves characters and saves their position, so run it against a test server:
+
+```bash
+ARCHCORE_CONFIG=config/test.json node src/index.js all      # other ports, other databases
+ARCHCORE_CONFIG=config/test.json node tools/sim-move.mjs
+```
+
 ## Reverse engineering
 
 The findings were made with [REA](https://github.com/morluto/rea) and Ghidra 12. The approach is

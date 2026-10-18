@@ -14,6 +14,7 @@ import { log } from '../common/log.js';
 import { NpcRegistry } from './npcs.js';
 import { buildChatPacket, buildAdminLevelPacket, chatText, chatColor } from './chat.js';
 import { GmCommands, ServerRates, formatDuration } from './gm-commands.js';
+import { Presence } from './presence.js';
 
 // Inventaire : 4 sacs (InventorySmall_Layer0..3 dans le client) de 4 × 4 cases (à confirmer).
 const INVENTORY = { layers: 4, rows: 4, columns: 4 };
@@ -32,6 +33,7 @@ export class WorldHandlers {
     this.viewRadius = ctx.config.world.viewRadius ?? 8000;
     this.chatBans = new Map(); // id personnage → fin de l'interdiction (ms)
     this.restart = null; // { at, timer }
+    this.presence = new Presence({ players: this.players, db: this.db, viewRadius: this.viewRadius, onArea: (s, p) => this.#sendNearbyNpcs(s, p) });
     this.gm = new GmCommands({
       world: this,
       rates: new ServerRates(ctx.config.world.rates ?? {}),
@@ -58,6 +60,11 @@ export class WorldHandlers {
   async onCharacter(session, packet) {
     const op = packet.values[0];
     log.debug(`[world] #${session.id} AGPMCHARACTER op ${op} (ignoré)`);
+  }
+
+  /** AGPMOPTIMIZEDCHARMOVE (0x40) : le joueur se déplace. */
+  onCharMove(session, packet) {
+    this.presence.onMove(session, packet);
   }
 
   async #gameEnter(session, packet) {
@@ -123,6 +130,7 @@ export class WorldHandlers {
     const sent = this.#sendNearbyNpcs(session, pos);
     log.info(`[world] #${session.id} ${sent} PNJ envoyé(s) dans un rayon de ${this.viewRadius}`);
     session.send(Main.CHAR_MANAGER, sparse(Main.CHAR_MANAGER, { 0: CharMgrOp.FINISH_ENTER, 4: ch.id }));
+    this.presence.enter(session);
     session.send(Main.CHARACTER, sparse(Main.CHARACTER, { 0: 1, 1: ch.id, 4: 2, 5: buildMoveMini({ pos }) }));
     session.send(Main.CHARACTER, sparse(Main.CHARACTER, { 0: 1, 1: ch.id, 4: 2, 7: buildFactorsMini(factors) }));
     log.info(`[world] #${session.id} ${ch.name} est en jeu`);
@@ -319,6 +327,8 @@ export class WorldHandlers {
     session.send(Main.OPT_CHAR_MOVE, sparse(Main.OPT_CHAR_MOVE, { 0: ch.id, 1: pos, 2: pos, 5: MOVE_STOP_SYNC, 6: 0 }));
     session.send(Main.CHARACTER, sparse(Main.CHARACTER, { 0: 1, 1: ch.id, 5: buildMoveMini({ pos, flags: MOVE_STOP_SYNC }) }));
     const sent = this.#sendNearbyNpcs(session, pos);
+    session.state.dest = null;
+    this.presence.refresh(session);
     await this.db.characters.query('UPDATE characters SET pos_x = ?, pos_y = ?, pos_z = ? WHERE id = ?', [pos.x, pos.y, pos.z, ch.id]);
     log.info(`[mj] ${ch.name} téléporté en ${pos.x}, ${pos.y}, ${pos.z} (${sent} PNJ envoyé(s))`);
     return pos;

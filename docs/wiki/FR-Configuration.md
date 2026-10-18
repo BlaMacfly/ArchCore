@@ -54,3 +54,4 @@ Villages de départ actuels :
 | Variable | Effet |
 |---|---|
 | `ARCHCORE_TRACE=1` | Journalise chaque paquet reçu et envoyé |
+| `ARCHCORE_CONFIG=<fichier>` | Utilise un autre fichier de configuration, par exemple pour un serveur de test sur d'autres ports et d'autres bases |

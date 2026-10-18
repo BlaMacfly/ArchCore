@@ -74,6 +74,25 @@ La liste des mondes passe par le type 0x18 (AgpmWorld), au format `Nom=Groupe=0=
 L'op 1 porte au champ 1 un mini-paquet « vue de personnage » de 26 champs : CID, TID, nom,
 position, destination, orientation, etc. ArchCore donne aux PNJ des CID à partir de `0x40000000`.
 
+## Déplacement (type 0x40, AgpmOptimizedCharMove)
+
+Le client envoie un paquet 0x40 à chaque clic de déplacement (`FUN_140264010`), avec des drapeaux
+d'en-tête sur 1 octet :
+
+| Champ | Contenu |
+|---|---|
+| 0 | CID du personnage |
+| 1 | position actuelle |
+| 2 | destination |
+| 3, 4 | cible suivie et distance de suivi (u16) |
+| 5 | drapeaux de déplacement : `0x04` arrêt, `0x08` synchronisation, `0x01` direction… |
+| 6 | direction |
+
+ArchCore met à jour la position du personnage, relaie le même paquet aux joueurs qui le voient, puis
+recalcule la visibilité : un paquet personnage **op 0** ajoute un joueur entré dans le rayon de vue,
+l'**op 2** (CID au champ 1) retire un joueur sorti du rayon ou déconnecté. La position est
+sauvegardée à la déconnexion et toutes les minutes.
+
 ## Discussion (type 0x0F, AgpmChatting)
 
 Drapeaux de champs sur 1 octet : op, CID émetteur, type de canal, CID cible, nom émetteur (49),

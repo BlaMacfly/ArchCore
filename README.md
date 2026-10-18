@@ -40,7 +40,8 @@ et à partir des tables de données du client.
 | Entrée dans le monde, village de départ par race | ✅ validée |
 | Apparition des PNJ autour du joueur (567 PNJ) | ✅ validée |
 | Traduction française du client et des PNJ | 🟡 en cours |
-| Déplacement, dialogues, boutiques, monstres, combat | ⏳ à faire |
+| Déplacement, joueurs visibles entre eux | 🟡 validés au simulateur, à confirmer en jeu |
+| Dialogues, boutiques, monstres, combat | ⏳ à faire |
 | Discussion, niveau MJ, premières commandes MJ | 🟡 validés au simulateur, à confirmer en jeu |
 | Objets, compétences, groupes, reconnexion | ⏳ à faire |
 
@@ -97,7 +98,8 @@ from the client's data tables.
 | World entry, per-race starting village | ✅ verified |
 | NPC spawning around the player (567 NPCs) | ✅ verified |
 | French translation of the client and NPCs | 🟡 in progress |
-| Movement, dialogues, shops, monsters, combat | ⏳ to do |
+| Movement, players seeing each other | 🟡 verified with the simulator, to confirm in game |
+| Dialogues, shops, monsters, combat | ⏳ to do |
 | Chat, GM level, first GM commands | 🟡 verified with the simulator, to confirm in game |
 | Items, skills, parties, reconnection | ⏳ to do |
 

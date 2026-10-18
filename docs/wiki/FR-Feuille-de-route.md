@@ -10,6 +10,8 @@
 
 ## Validé avec le simulateur, à confirmer en jeu
 
+- Déplacement du joueur (type 0x40), relayé aux joueurs proches ; les joueurs se voient et
+  disparaissent de la vue hors de portée ; position sauvegardée.
 - Discussion à portée de vue et chuchotements.
 - Niveau MJ envoyé au panneau « Admin Commands ».
 - Premières commandes MJ : taux, modération, objets, annonce de redémarrage, téléportation. Voir
@@ -18,7 +20,7 @@
 ## Prochaines étapes
 
 1. Valider la création complète d'un personnage en jeu.
-2. Déplacement du joueur (type 0x40) et diffusion aux autres joueurs.
+2. Vérifier le déplacement et la visibilité entre joueurs avec le vrai client.
 3. Fonctions des PNJ : dialogues, boutiques, quêtes (type 0x3C).
 4. Monstres, combat, expérience.
 5. Objets, inventaire, compétences.

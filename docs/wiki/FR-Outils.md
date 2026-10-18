@@ -22,6 +22,22 @@ npm run sim -- <utilisateur> <mot_de_passe> [personnage]
 Il affiche chaque paquet échangé, le nombre de PNJ reçus, et termine par « flux complet OK ».
 C'est la manière la plus rapide de vérifier une modification du serveur sans lancer le jeu.
 
+## Test à deux joueurs
+
+```bash
+node tools/sim-move.mjs [compteA] [mdpA] [persoA] [compteB] [mdpB] [persoB]
+```
+
+Deux clients simulés entrent en jeu (comptes `sima` et `simb` par défaut, personnages créés au
+besoin). Le test vérifie qu'ils se voient, que le déplacement de l'un est relayé à l'autre, qu'ils
+se perdent de vue hors de portée, et que la déconnexion retire le personnage. Il déplace les
+personnages et sauvegarde leur position : à lancer contre un serveur de test, par exemple :
+
+```bash
+ARCHCORE_CONFIG=config/test.json node src/index.js all      # autres ports, autres bases
+ARCHCORE_CONFIG=config/test.json node tools/sim-move.mjs
+```
+
 ## Rétro-ingénierie
 
 Les relevés ont été faits avec [REA](https://github.com/morluto/rea) et Ghidra 12. La démarche est

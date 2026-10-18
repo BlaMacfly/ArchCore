@@ -54,3 +54,4 @@ Current starting villages:
 | Variable | Effect |
 |---|---|
 | `ARCHCORE_TRACE=1` | Logs every packet received and sent |
+| `ARCHCORE_CONFIG=<file>` | Uses another configuration file, for example a test server on other ports and databases |

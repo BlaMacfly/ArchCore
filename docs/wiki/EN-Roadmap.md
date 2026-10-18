@@ -10,6 +10,8 @@
 
 ## Verified with the simulator, to confirm in game
 
+- Player movement (type 0x40), relayed to nearby players; players see each other and
+  disappear from view when out of range; position saved.
 - Chat within view range, and whispers.
 - GM level sent to the "Admin Commands" panel.
 - First GM commands: rates, moderation, items, restart announcement, teleport. See
@@ -18,7 +20,7 @@
 ## Next steps
 
 1. Verify full character creation in game.
-2. Player movement (type 0x40) and broadcast to other players.
+2. Verify movement and player visibility with the real client.
 3. NPC functions: dialogues, shops, quests (type 0x3C).
 4. Monsters, combat, experience.
 5. Items, inventory, skills.
