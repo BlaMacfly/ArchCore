@@ -5,7 +5,7 @@ World of Warcraft et un format de patch graphique HD pour les développeurs.
 
 Les formats de fichiers et le protocole réseau ont été reconstruits par rétro-ingénierie de
 l'exécutable du client (Ghidra piloté par [REA](https://github.com/morluto/rea)) et validés contre
-les vrais fichiers du jeu et l'émulateur serveur [ArchCore](../ArchCore). Ce dépôt ne contient
+les vrais fichiers du jeu et l'émulateur serveur [ArchCore](https://github.com/BlaMacfly/ArchCore). Ce dépôt ne contient
 **aucune donnée du jeu** : il faut posséder son propre client. Licence : [GPL-3.0-or-later](LICENSE.md).
 
 ## État
@@ -18,8 +18,8 @@ les vrais fichiers du jeu et l'émulateur serveur [ArchCore](../ArchCore). Ce d�
 | Packs `Reference.Dat`/`Data.Dat` (character, object, textures, octree…) | ✅ tous les index lus |
 | Modèles RenderWare (`.ecl`/`.dff` : frames, géométries, peaux, matériaux) | ✅ 200/200 testés |
 | Textures `.tx1` (TXD RenderWare, DXT1/3/5, BGRA, palette) | ✅ 66/66 testées |
-| Tuiles du monde (`MagPack` + aPLib) : secteurs, textures, attributs | ✅ décompression ; géométrie en cours |
-| Rendu wgpu (terrain, modèles, caméra orbitale), interface egui | 🟡 premier affichage |
+| Tuiles du monde (`MagPack` + aPLib) : secteurs, textures, attributs | ✅ 256/256 secteurs lus dans la tuile d'Anchorville |
+| Rendu wgpu (terrain, modèles, caméra orbitale), interface egui | 🟡 moteur et affichage de base en place |
 | AddOns Lua (`.toc`, frames, événements, slash, minuteurs, SavedVariables) | ✅ API de base |
 | Patchs HD (`patch.toml`, dossier ou `.ahp`, priorités, motifs) | ✅ textures/modèles/fichiers |
 | Animations `.ean`, déplacement, combat, objets, compétences | ⏳ à faire |
