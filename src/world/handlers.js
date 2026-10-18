@@ -15,6 +15,7 @@ import { NpcRegistry } from './npcs.js';
 import { buildChatPacket, buildAdminLevelPacket, chatText, chatColor } from './chat.js';
 import { GmCommands, ServerRates, formatDuration } from './gm-commands.js';
 import { Presence } from './presence.js';
+import { NpcEvents } from './npc-events.js';
 
 // Inventaire : 4 sacs (InventorySmall_Layer0..3 dans le client) de 4 × 4 cases (à confirmer).
 const INVENTORY = { layers: 4, rows: 4, columns: 4 };
@@ -33,6 +34,7 @@ export class WorldHandlers {
     this.viewRadius = ctx.config.world.viewRadius ?? 8000;
     this.chatBans = new Map(); // id personnage → fin de l'interdiction (ms)
     this.restart = null; // { at, timer }
+    this.npcEvents = new NpcEvents({ npcs: this.npcs });
     this.presence = new Presence({ players: this.players, db: this.db, viewRadius: this.viewRadius, onArea: (s, p) => this.#sendNearbyNpcs(s, p) });
     this.gm = new GmCommands({
       world: this,
@@ -60,6 +62,11 @@ export class WorldHandlers {
   async onCharacter(session, packet) {
     const op = packet.values[0];
     log.debug(`[world] #${session.id} AGPMCHARACTER op ${op} (ignoré)`);
+  }
+
+  /** AGPMEVENTNPCDIALOG (0x37) : le joueur veut parler à un PNJ. */
+  onNpcDialog(session, packet) {
+    this.npcEvents.onDialog(session, packet);
   }
 
   /** AGPMOPTIMIZEDCHARMOVE (0x40) : le joueur se déplace. */

@@ -29,6 +29,28 @@ export function loadNpcTranslator(language) {
   };
 }
 
+/** Fonctions d'événement (ApmEventManager) des PNJ, numéros relevés dans npc.ini. */
+export const EventFunction = Object.freeze({ NPC_TRADE: 9, NPC_DIALOG: 21, QUEST: 27 });
+
+/**
+ * Lit les fonctions d'un PNJ dans la section npc.ini brute (liste de paires clé/valeur) :
+ * chaque « Function » ouvre un événement, suivi de son « EventID » et de ses paramètres.
+ */
+export function parseEvents(raw) {
+  let pairs = raw;
+  if (typeof raw === 'string') { try { pairs = JSON.parse(raw); } catch { return []; } }
+  if (!Array.isArray(pairs)) return [];
+  const events = [];
+  let cur = null;
+  for (const [k, v] of pairs) {
+    if (k === 'Function') { cur = { function: Number(v), params: {} }; events.push(cur); continue; }
+    if (!cur) continue;
+    if (k === 'EventID') cur.eventId = Number(v);
+    else if (k !== 'EnumEnd') cur.params[k] = v;
+  }
+  return events;
+}
+
 /** Les PNJ reçoivent des CID dans une plage séparée de celle des joueurs. */
 export const NPC_CID_BASE = 0x40000000;
 
@@ -40,7 +62,7 @@ export class NpcRegistry {
   }
 
   async load() {
-    const rows = await this.db.world.query('SELECT id, tid, name, pos_x, pos_y, pos_z, degree_x, degree_y FROM npc_spawn');
+    const rows = await this.db.world.query('SELECT id, tid, name, pos_x, pos_y, pos_z, degree_x, degree_y, raw FROM npc_spawn');
     this.npcs = rows.map((r) => ({
       cid: NPC_CID_BASE + Number(r.id),
       id: Number(r.id),
@@ -49,8 +71,15 @@ export class NpcRegistry {
       pos: { x: r.pos_x, y: r.pos_y, z: r.pos_z },
       degreeX: r.degree_x,
       degreeY: r.degree_y,
+      events: parseEvents(r.raw),
     }));
+    this.byCid = new Map(this.npcs.map((n) => [n.cid, n]));
     log.info(`${this.npcs.length} PNJ chargé(s)`);
+  }
+
+  /** PNJ par CID. */
+  get(cid) {
+    return this.byCid?.get(cid) ?? null;
   }
 
   /** PNJ dont la distance horizontale (X/Z) à `pos` est inférieure à `radius`. */

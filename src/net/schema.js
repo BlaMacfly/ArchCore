@@ -36,6 +36,7 @@ export const PacketType = Object.freeze({
   GUILD: 0x15,
   WORLD: 0x18,
   RETURN_TO_LOGIN: 0x2f,
+  EVENT_NPC_DIALOG: 0x37,
   EVENT_MANAGER: 0x3c,
   OPT_CHAR_MOVE: 0x40,
   OPT_CHAR_ACTION: 0x41,
@@ -160,6 +161,14 @@ export const Main = Object.freeze({
     ...Array.from({ length: 13 }, () => [T.PACKET, 1]), // 2-14 mini-paquets (2 = ADMIN_CHAR)
   ], V),
 
+  // AgpmEventNPCDialog (0x37) — drapeaux 1. Relevé dans FUN_140289c40 / FUN_140289cd0 :
+  // op 0 = demande du client, op 1 = accord du serveur (le client ouvre alors le dialogue).
+  EVENT_NPC_DIALOG: S('AGPMEVENTNPCDIALOG', PacketType.EVENT_NPC_DIALOG, 1, [
+    [T.INT8, 1], // 0 opération
+    [T.PACKET, 1], // 1 événement (mini EVENT_BASE)
+    [T.INT32, 1], // 2 CID du joueur
+  ], V),
+
   // AgpmSystemMessage — drapeaux 1
   SYSTEM_MESSAGE: S('AGPMSYSTEMMESSAGE', PacketType.SYSTEM_MESSAGE, 1, [
     [T.INT8, 1], [T.INT32, 1], [T.INT32, 1], [T.INT32, 1], [T.CHAR, 65], [T.CHAR, 65],
@@ -275,6 +284,16 @@ export const Mini = Object.freeze({
     [T.INT32, 1], [T.INT32, 1], [T.MEMORY_BLOCK, 1], [T.INT8, 1], [T.INT8, 1], [T.PACKET, 1], [T.INT8, 1], [T.INT8, 1], [T.VEC3F, 1],
     [T.VEC3F, 1], [T.INT32, 1], [T.UINT16, 1], [T.INT16, 1], [T.INT16, 1], [T.UINT64, 1], [T.INT8, 1], [T.INT8, 1], [T.INT8, 1],
     [T.INT8, 1], [T.UINT16, 1], [T.INT8, 1], [T.INT32, 1], [T.CHAR, 16], [T.INT32, 1], [T.INT32, 1], [T.INT32, 1],
+  ], V),
+
+  // ApmEventManager : désignation d'un événement — drapeaux 1 (FUN_1403042f0).
+  // Événement connu du serveur : champ 2 seul (identifiant). Sinon : type de l'objet source (champ 0),
+  // identifiant de la source (champ 1, CID du PNJ) et fonction demandée (champ 3).
+  EVENT_BASE: S('APMEVENTMANAGER_BASE', 60, 1, [
+    [T.INT8, 1], // 0 type de l'objet source
+    [T.INT32, 1], // 1 identifiant de la source
+    [T.INT32, 1], // 2 identifiant d'événement
+    [T.INT32, 1], // 3 fonction
   ], V),
 
   // AgpmAdmin : données MJ d'un personnage — drapeaux 1. Op 1 = ajout/mise à jour (FUN_14024b9b0),
