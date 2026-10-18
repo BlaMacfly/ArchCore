@@ -1,0 +1,28 @@
+[package]
+name = "archrust-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Moteur du client ArchRust : fenêtre, rendu wgpu, caméra, chargement des ressources (packs, patchs HD), interface (egui + frames Lua), liaison réseau"
+
+[dependencies]
+archrust-crypto = { path = "../archrust-crypto" }
+archrust-data = { path = "../archrust-data" }
+archrust-protocol = { path = "../archrust-protocol" }
+archrust-netclient = { path = "../archrust-netclient" }
+archrust-addons = { path = "../archrust-addons" }
+archrust-patch = { path = "../archrust-patch" }
+anyhow = { workspace = true }
+log = { workspace = true }
+glam = { workspace = true }
+bytemuck = { workspace = true }
+winit = { workspace = true }
+wgpu = { workspace = true }
+pollster = { workspace = true }
+image = { workspace = true }
+tokio = { workspace = true }
+egui = "0.31"
+egui-wgpu = { version = "0.31", features = ["winit"] }
+egui-winit = { version = "0.31", default-features = false }
+serde = { workspace = true }
+toml = { workspace = true }

@@ -1,0 +1,18 @@
+[package]
+name = "archrust-netclient"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Client réseau ArchLord sans affichage : poignée de main, connexion au compte, personnages, entrée dans le monde, keepalive"
+
+[dependencies]
+archrust-crypto = { path = "../archrust-crypto" }
+archrust-protocol = { path = "../archrust-protocol" }
+tokio = { workspace = true }
+thiserror = { workspace = true }
+log = { workspace = true }
+glam = { workspace = true }
+
+[dev-dependencies]
+anyhow = { workspace = true }
+env_logger = { workspace = true }

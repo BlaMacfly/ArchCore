@@ -1,0 +1,17 @@
+[package]
+name = "archrust-patch"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Patchs graphiques HD (.ahp) : manifeste TOML, surcharge de textures, modèles et fichiers par priorité, système de fichiers virtuel en couches"
+
+[dependencies]
+serde = { workspace = true }
+toml = { workspace = true }
+zip = { workspace = true }
+thiserror = { workspace = true }
+log = { workspace = true }
+walkdir = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

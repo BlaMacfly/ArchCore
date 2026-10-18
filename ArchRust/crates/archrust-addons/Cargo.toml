@@ -1,0 +1,14 @@
+[package]
+name = "archrust-addons"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Système d'AddOns Lua façon World of Warcraft : fichiers .toc, API de frames, événements, commandes slash, SavedVariables"
+
+[dependencies]
+mlua = { workspace = true }
+thiserror = { workspace = true }
+log = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

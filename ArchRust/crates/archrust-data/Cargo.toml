@@ -1,0 +1,16 @@
+[package]
+name = "archrust-data"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Formats de données du client ArchLord : tables ini chiffrées, packs Data.Dat/Reference.Dat, archives MagPack, flux RenderWare (DFF/TXD), textures tx1"
+
+[dependencies]
+archrust-crypto = { path = "../archrust-crypto" }
+encoding_rs = { workspace = true }
+thiserror = { workspace = true }
+glam = { workspace = true }
+log = { workspace = true }
+
+[dev-dependencies]
+anyhow = { workspace = true }

@@ -1,0 +1,12 @@
+[package]
+name = "archrust-protocol"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Protocole réseau du client ArchLord 64 bits : paquets AuPacket (en-tête 19 octets), schémas de champs, trames chiffrées Blowfish, poignée de main"
+
+[dependencies]
+archrust-crypto = { path = "../archrust-crypto" }
+bytes = { workspace = true }
+thiserror = { workspace = true }
+rand = { workspace = true }

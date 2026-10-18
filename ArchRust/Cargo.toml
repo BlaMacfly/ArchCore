@@ -1,0 +1,53 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/archrust-crypto",
+    "crates/archrust-protocol",
+    "crates/archrust-data",
+    "crates/archrust-netclient",
+    "crates/archrust-addons",
+    "crates/archrust-patch",
+    "crates/archrust-engine",
+    "apps/archrust",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "GPL-3.0-or-later"
+authors = ["BlaMacfly"]
+repository = "https://github.com/BlaMacfly/ArchRust"
+description = "ArchRust — réécriture en Rust (x86-64) du client ArchLord 64 bits : formats, protocole, moteur, AddOns Lua, patchs HD"
+
+[workspace.dependencies]
+anyhow = "1"
+thiserror = "2"
+bytes = "1"
+log = "0.4"
+env_logger = "0.11"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+glam = { version = "0.30", features = ["serde"] }
+encoding_rs = "0.8"
+md-5 = "0.10"
+rand = "0.9"
+tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "time", "macros", "sync"] }
+mlua = { version = "0.11", features = ["lua54", "vendored", "serialize"] }
+winit = "0.30"
+wgpu = "24"
+pollster = "0.4"
+image = { version = "0.25", default-features = false, features = ["png", "bmp", "dds"] }
+bytemuck = { version = "1", features = ["derive"] }
+walkdir = "2"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+clap = { version = "4", features = ["derive"] }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 4
+
+[profile.dev]
+opt-level = 1

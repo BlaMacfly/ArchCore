@@ -1,0 +1,25 @@
+[package]
+name = "archrust"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Client ArchRust : jeu, inspection des données, connexion sans affichage, outils AddOns et patchs HD"
+default-run = "archrust"
+
+[[bin]]
+name = "archrust"
+path = "src/main.rs"
+
+[dependencies]
+archrust-crypto = { path = "../../crates/archrust-crypto" }
+archrust-data = { path = "../../crates/archrust-data" }
+archrust-netclient = { path = "../../crates/archrust-netclient" }
+archrust-addons = { path = "../../crates/archrust-addons" }
+archrust-patch = { path = "../../crates/archrust-patch" }
+archrust-engine = { path = "../../crates/archrust-engine" }
+anyhow = { workspace = true }
+clap = { workspace = true }
+env_logger = { workspace = true }
+log = { workspace = true }
+tokio = { workspace = true }
+image = { workspace = true }

@@ -1,0 +1,13 @@
+[package]
+name = "archrust-crypto"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Primitives cryptographiques du client ArchLord : RC4 CryptoAPI (MD5), Blowfish petit-boutiste, AES-128-GCM des index de packs"
+
+[dependencies]
+md-5 = { workspace = true }
+blowfish = "0.9"
+cipher = "0.4"
+aes-gcm = "0.10"
+thiserror = { workspace = true }

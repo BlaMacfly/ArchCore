@@ -1,0 +1,8 @@
+## Title: Hello ArchLord
+## Version: 1.0
+## Author: BlaMacfly
+## Interface: 10000
+## Notes: AddOn d'exemple : message de bienvenue, compteur de connexions, commande /hello
+## SavedVariables: HelloArchDB
+
+core.lua
