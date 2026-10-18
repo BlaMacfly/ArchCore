@@ -1,0 +1,13 @@
+[package]
+name = "archcore-net"
+description = "Protocole réseau ArchLord (client 64 bits) : paquets AuPacket, schémas, Blowfish, trames chiffrées"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+md-5.workspace = true
+encoding_rs.workspace = true

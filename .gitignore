@@ -19,3 +19,6 @@ ArchCore.png
 tools/try-keys.mjs
 *.bak
 .env
+
+# Compilation Rust / Rust build output
+target/
