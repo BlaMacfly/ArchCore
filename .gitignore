@@ -2,9 +2,10 @@
 # Instance MariaDB locale (données) / local MariaDB instance data
 db/data/
 
-# Données du jeu déchiffrées : propriété de l'éditeur, jamais publiées
-# Decrypted game data: owned by the publisher, never published
+# Données du jeu (tables du client déchiffrées, tables du serveur) : propriété de l'éditeur, jamais publiées
+# Game data (decrypted client tables, server tables): owned by the publisher, never published
 data/client-ini/
+data/server-ini/
 
 # Fichiers générés / generated files
 data/*.log

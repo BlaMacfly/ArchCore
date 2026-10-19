@@ -29,6 +29,8 @@ crates/archcore/           serveur et outils
     npcs.rs                PNJ (npc_spawn), fonctions de npc.ini, paquet de vue, traduction des titres
     npc_events.rs          dialogue avec les PNJ
     npc_trade.rs           boutiques : liste, achat, vente
+    monsters.rs            créatures (monster_spawn) : placement, caractéristiques, paquet de vue
+    map.rs                 carte serveur (map_segment) : sol infranchissable, régions
     items.rs               catalogue d'objets, inventaire, paquets AGPMITEM
     chat.rs, gm.rs         discussion et commandes MJ
     addon.rs               messages d'AddOn des extensions ArchRust

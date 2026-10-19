@@ -1,0 +1,344 @@
+//! Monstres placés dans le monde (importés des tables du serveur d'origine dans `archcore_world.monster_spawn`).
+//!
+//! Chaque point d'apparition porte `count` monstres d'un même modèle, dispersés dans le carré de côté
+//! 2 × rayon centré sur le point, hors des segments de sol infranchissable de la carte serveur (`map.rs`),
+//! avec une orientation au hasard. Le tirage part d'une graine fixe
+//! (identifiant du point) : un monstre réapparaît au même endroit d'un démarrage à l'autre. La hauteur est
+//! celle de la table (souvent 0) : le client pose le monstre sur le terrain.
+//!
+//! Apparition côté client : la même vue optimisée (0x42, op 1) que les PNJ, sans fonctions d'événement, mais
+//! avec les facteurs du monstre (niveau, vitesses, PV) tirés de CharacterDataTable.txt : sans eux le client
+//! le croit à 0 PV.
+
+use super::npcs::Translator;
+use crate::character::{factors_mini, Factors};
+use crate::db::{col, Databases};
+use crate::info;
+use archcore_net::schema::{self, mini};
+use archcore_net::{build_mini, build_packet, Fields, Vec3};
+use rand::{Rng, SeedableRng};
+use std::collections::HashMap;
+
+/// Les monstres reçoivent des CID dans une plage séparée de celles des joueurs et des PNJ.
+pub const MONSTER_CID_BASE: u32 = 0x5000_0000;
+/// Côté d'une case de la grille de recherche.
+const CELL: f64 = 4096.0;
+/// Drapeau de déplacement « arrêté ».
+const MOVE_STOP: i64 = 0x04;
+/// Tirages au plus pour trouver une position libre ; à défaut, le monstre est placé au centre du point.
+const PLACEMENT_TRIES: usize = 16;
+
+/// Caractéristiques d'un modèle de monstre (CharacterDataTable.txt).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct MonsterStats {
+    pub race: i32,
+    pub class: i32,
+    pub max_hp: i32,
+    pub max_mp: i32,
+    pub max_sp: i32,
+    pub walk: i32,
+    pub run: i32,
+    pub ar: i32,
+    pub min_damage: i32,
+    pub max_damage: i32,
+    pub attack_speed: i32,
+    pub range: i32,
+    pub exp: i32,
+}
+
+impl MonsterStats {
+    /// Lit une ligne de `character_data_table.data` (clés de l'en-tête de CharacterDataTable.txt).
+    pub fn from_data(v: &serde_json::Value) -> Self {
+        let n = |k: &str| -> i32 {
+            match v.get(k) {
+                Some(serde_json::Value::String(t)) => t.trim().parse::<f64>().map(|x| x as i32).unwrap_or(0),
+                Some(serde_json::Value::Number(x)) => x.as_f64().unwrap_or(0.0) as i32,
+                _ => 0,
+            }
+        };
+        MonsterStats {
+            race: n("Race"),
+            class: n("Class"),
+            max_hp: n("MAX_HP"),
+            max_mp: n("MAX_MP"),
+            max_sp: n("MAX_SP"),
+            walk: n("Movement Walk"),
+            run: n("Movement Run"),
+            ar: n("AR"),
+            min_damage: n("Min_Damage"),
+            max_damage: n("Max_Damage"),
+            attack_speed: n("ATK Speed"),
+            range: n("Range"),
+            exp: n("Exp"),
+        }
+    }
+}
+
+/// Facteurs d'un monstre envoyés avec sa vue : niveau et vitesses, type, PV/PM/PE, attaque.
+pub fn monster_factors(level: i64, s: &MonsterStats, hp: i32) -> Factors {
+    let mut f = Factors::default();
+    f.status[7] = level as i32;
+    f.status[8] = s.walk;
+    f.status[9] = s.run;
+    f.ftype = [s.race, 0, s.class];
+    f.point[0] = hp;
+    f.point[1] = s.max_mp;
+    f.point[2] = s.max_sp;
+    f.point_max = [s.max_hp, s.max_mp, s.max_sp, 0, s.exp, 0, 0, 0, s.ar, 0, 0];
+    f.attack = [s.range, 50, s.attack_speed, 0, 0, 0, 0, 0];
+    f.damage_min[0] = s.min_damage;
+    f.damage_max[0] = s.max_damage;
+    f
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Monster {
+    pub cid: u32,
+    pub spawn_id: u32,
+    pub tid: u32,
+    pub level: i64,
+    pub name: String,
+    pub pos: Vec3,
+    pub degree_x: f64,
+    pub degree_y: f64,
+    pub hp: i32,
+}
+
+/// Point d'apparition tel que lu dans `monster_spawn`.
+#[derive(Clone, Debug)]
+pub struct SpawnPoint {
+    pub id: u32,
+    pub tid: u32,
+    pub name: String,
+    pub level: i64,
+    pub count: i64,
+    pub pos: Vec3,
+    pub degree_x: f64,
+    pub radius: f64,
+    pub max_hp: i32,
+}
+
+/// Monstres du monde, avec une grille X/Z pour retrouver vite ceux qui sont à portée.
+#[derive(Default)]
+pub struct MonsterRegistry {
+    pub monsters: Vec<Monster>,
+    /// Caractéristiques par modèle.
+    pub stats: HashMap<u32, MonsterStats>,
+    by_cid: HashMap<u32, usize>,
+    grid: HashMap<(i64, i64), Vec<usize>>,
+}
+
+fn cell_of(x: f64, z: f64) -> (i64, i64) {
+    ((x / CELL).floor() as i64, (z / CELL).floor() as i64)
+}
+
+/// Monstres d'un point, dispersés uniformément dans le carré [x ± rayon] × [z ± rayon] en évitant les
+/// positions où `blocked(x, z)`, chacun tourné au hasard (orientation Y entre -180 et 180°).
+pub fn spawn_point(p: &SpawnPoint, first_cid: u32, blocked: &dyn Fn(f64, f64) -> bool) -> Vec<Monster> {
+    let mut rng = rand::rngs::StdRng::seed_from_u64(p.id as u64);
+    let r = p.radius.max(0.0);
+    let (cx, cz) = (p.pos.x as f64, p.pos.z as f64);
+    (0..p.count.max(0) as u32)
+        .map(|i| {
+            let mut offset = (0.0, 0.0);
+            if r > 0.0 {
+                for _ in 0..PLACEMENT_TRIES {
+                    let (dx, dz): (f64, f64) = (rng.gen_range(-r..r), rng.gen_range(-r..r));
+                    if !blocked(cx + dx, cz + dz) {
+                        offset = (dx, dz);
+                        break;
+                    }
+                }
+            }
+            let (dx, dz) = offset;
+            let degree_y = rng.gen_range(-180..180) as f64;
+            Monster {
+                cid: first_cid + i,
+                spawn_id: p.id,
+                tid: p.tid,
+                level: p.level,
+                name: p.name.clone(),
+                pos: Vec3::new(p.pos.x + dx as f32, p.pos.y, p.pos.z + dz as f32),
+                degree_x: p.degree_x,
+                degree_y,
+                hp: p.max_hp,
+            }
+        })
+        .collect()
+}
+
+impl MonsterRegistry {
+    pub async fn load(db: &Databases, translator: &Translator, map: &super::map::WorldMap) -> anyhow::Result<Self> {
+        // Toutes les créatures, y compris celles des guerres de siège ; la table peut manquer si l'import n'a
+        // pas eu les tables du serveur.
+        let rows = match db
+            .world
+            .rows("SELECT id, tid, display_name, level, count, pos_x, pos_y, pos_z, degree_x, radius FROM monster_spawn WHERE count > 0 ORDER BY id", ())
+            .await
+        {
+            Ok(rows) => rows,
+            Err(e) => {
+                crate::warn!("monstres non chargés ({e:#}) : lancer `archcore db-init` puis `archcore import --server …`");
+                Vec::new()
+            }
+        };
+        let mut stats = HashMap::new();
+        for r in db.world.rows("SELECT tid, data FROM character_data_table", ()).await? {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&col::<String>(&r, "data")) {
+                stats.insert(col::<u32>(&r, "tid"), MonsterStats::from_data(&v));
+            }
+        }
+        let points: Vec<SpawnPoint> = rows
+            .iter()
+            .map(|r| SpawnPoint {
+                id: col(r, "id"),
+                tid: col(r, "tid"),
+                name: translator.translate(&col::<String>(r, "display_name")),
+                level: col(r, "level"),
+                count: col(r, "count"),
+                pos: Vec3::new(col::<f64>(r, "pos_x") as f32, col::<f64>(r, "pos_y") as f32, col::<f64>(r, "pos_z") as f32),
+                degree_x: col(r, "degree_x"),
+                radius: col(r, "radius"),
+                max_hp: stats.get(&col::<u32>(r, "tid")).map(|s| s.max_hp).unwrap_or(0),
+            })
+            .collect();
+        let without = points.iter().filter(|p| !stats.contains_key(&p.tid)).count();
+        let mut reg = Self::from_points(&points, &|x, z| map.is_blocked(x, z));
+        reg.stats = stats;
+        info!("{} monstre(s) chargé(s) sur {} point(s) d'apparition ({without} point(s) sans caractéristiques)", reg.monsters.len(), points.len());
+        Ok(reg)
+    }
+
+    pub fn from_points(points: &[SpawnPoint], blocked: &dyn Fn(f64, f64) -> bool) -> Self {
+        let mut monsters = Vec::new();
+        for p in points {
+            let first = MONSTER_CID_BASE + monsters.len() as u32;
+            monsters.extend(spawn_point(p, first, blocked));
+        }
+        Self::from_monsters(monsters)
+    }
+
+    pub fn from_monsters(monsters: Vec<Monster>) -> Self {
+        let mut reg = MonsterRegistry { monsters, ..Default::default() };
+        for (i, m) in reg.monsters.iter().enumerate() {
+            reg.by_cid.insert(m.cid, i);
+            reg.grid.entry(cell_of(m.pos.x as f64, m.pos.z as f64)).or_default().push(i);
+        }
+        reg
+    }
+
+    pub fn get(&self, cid: u32) -> Option<&Monster> {
+        self.by_cid.get(&cid).map(|&i| &self.monsters[i])
+    }
+
+    /// Monstres dont la distance horizontale (X/Z) à `pos` est au plus `radius`.
+    pub fn near(&self, pos: Vec3, radius: f64) -> impl Iterator<Item = &Monster> {
+        let (x, z) = (pos.x as f64, pos.z as f64);
+        let (lo, hi) = (cell_of(x - radius, z - radius), cell_of(x + radius, z + radius));
+        let r2 = radius * radius;
+        (lo.0..=hi.0)
+            .flat_map(move |cx| (lo.1..=hi.1).map(move |cz| (cx, cz)))
+            .filter_map(|c| self.grid.get(&c))
+            .flatten()
+            .map(|&i| &self.monsters[i])
+            .filter(move |m| {
+                let (dx, dz) = (m.pos.x as f64 - x, m.pos.z as f64 - z);
+                dx * dx + dz * dz <= r2
+            })
+    }
+
+    /// Paquet d'apparition d'un monstre (vue optimisée, opération 1) : immobile (drapeau d'arrêt, pas de
+    /// destination), avec ses facteurs.
+    pub fn view_packet(&self, m: &Monster) -> Vec<u8> {
+        let clamp16 = |v: f64| v.round().clamp(-32768.0, 32767.0) as i64;
+        let stats = self.stats.get(&m.tid).cloned().unwrap_or_default();
+        let vs = &mini::OPT_VIEW_CHAR;
+        let view = build_mini(
+            vs,
+            &Fields::new(vs)
+                .with(0, m.cid)
+                .with(1, m.tid)
+                .with(2, archcore_net::text::encode(&m.name))
+                .with(3, 0)
+                .with(5, factors_mini(&monster_factors(m.level, &stats, m.hp)))
+                .with(6, MOVE_STOP)
+                .with(7, 0)
+                .with(8, m.pos)
+                .with(12, clamp16(m.degree_x))
+                .with(13, clamp16(m.degree_y)),
+        );
+        let ov = &schema::OPT_VIEW;
+        build_packet(ov, &Fields::new(ov).with(0, 1).with(1, view))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use archcore_net::{decode_mini, decode_packet};
+
+    fn point(id: u32, x: f32, z: f32, count: i64, radius: f64) -> SpawnPoint {
+        SpawnPoint { id, tid: 450, name: "Ver vert".into(), level: 1, count, pos: Vec3::new(x, 0.0, z), degree_x: 0.0, radius, max_hp: 136 }
+    }
+
+    #[test]
+    fn dispersion_stable_dans_le_carre() {
+        let p = point(7, 1000.0, -2000.0, 50, 2500.0);
+        let a = spawn_point(&p, MONSTER_CID_BASE, &|_, _| false);
+        assert_eq!(a.len(), 50);
+        assert_eq!(a, spawn_point(&p, MONSTER_CID_BASE, &|_, _| false), "même graine, mêmes positions");
+        for m in &a {
+            assert!((m.pos.x - 1000.0).abs() <= 2500.0 && (m.pos.z + 2000.0).abs() <= 2500.0);
+            assert!((-180.0..180.0).contains(&m.degree_y));
+            assert_eq!(m.hp, 136);
+        }
+        assert_eq!(spawn_point(&point(1, 0.0, 0.0, 3, 0.0), 0, &|_, _| false).iter().filter(|m| m.pos == Vec3::new(0.0, 0.0, 0.0)).count(), 3);
+    }
+
+    #[test]
+    fn evite_le_sol_bloque() {
+        // Moitié ouest (x < 1000) bloquée : tous les monstres finissent à l'est.
+        let a = spawn_point(&point(3, 1000.0, 0.0, 40, 2000.0), MONSTER_CID_BASE, &|x, _| x < 1000.0);
+        assert!(a.iter().all(|m| m.pos.x >= 1000.0));
+        // Tout bloqué : repli au centre du point.
+        let b = spawn_point(&point(3, 1000.0, 0.0, 3, 2000.0), MONSTER_CID_BASE, &|_, _| true);
+        assert!(b.iter().all(|m| m.pos == Vec3::new(1000.0, 0.0, 0.0)));
+    }
+
+    #[test]
+    fn recherche_par_grille() {
+        let reg = MonsterRegistry::from_points(&[point(1, 0.0, 0.0, 4, 100.0), point(2, 20_000.0, 0.0, 2, 0.0), point(3, -9000.0, -9000.0, 1, 0.0)], &|_, _| false);
+        assert_eq!(reg.monsters.len(), 7);
+        assert_eq!(reg.near(Vec3::new(0.0, 0.0, 0.0), 8000.0).count(), 4);
+        assert_eq!(reg.near(Vec3::new(19_000.0, 0.0, 0.0), 1000.0).count(), 2);
+        assert_eq!(reg.near(Vec3::new(-9000.0, 0.0, -9000.0), 10.0).count(), 1);
+        // CID consécutifs, retrouvables.
+        assert_eq!(reg.get(MONSTER_CID_BASE + 4).unwrap().spawn_id, 2);
+    }
+
+    #[test]
+    fn caracteristiques_depuis_la_table() {
+        let v: serde_json::Value = serde_json::json!({"TID":"450","Race":"11","Class":"5","MAX_HP":"136","MAX_MP":"35","MAX_SP":"62",
+            "Movement Walk":"450","Movement Run":"3850","AR":"21","Min_Damage":"15","Max_Damage":"15","ATK Speed":"32","Range":"170","Exp":"14"});
+        let s = MonsterStats::from_data(&v);
+        assert_eq!((s.race, s.class, s.max_hp, s.walk, s.run, s.range, s.exp), (11, 5, 136, 450, 3850, 170, 14));
+        let f = monster_factors(1, &s, 100);
+        assert_eq!((f.status[7], f.status[8], f.status[9], f.point[0], f.point_max[0]), (1, 450, 3850, 100, 136));
+    }
+
+    #[test]
+    fn paquet_de_vue() {
+        let m = spawn_point(&point(1, 10.0, 20.0, 1, 0.0), MONSTER_CID_BASE, &|_, _| false).remove(0);
+        let mut reg = MonsterRegistry::from_monsters(vec![m.clone()]);
+        reg.stats.insert(450, MonsterStats { max_hp: 136, walk: 450, run: 3850, ..Default::default() });
+        let p = decode_packet(&schema::OPT_VIEW, &reg.view_packet(&m)).unwrap();
+        assert_eq!(p.int(0), Some(1));
+        let v = decode_mini(&mini::OPT_VIEW_CHAR, p.bytes(1).unwrap()).unwrap();
+        assert_eq!((v.int(0), v.int(1)), (Some(MONSTER_CID_BASE as i64), Some(450)));
+        assert_eq!(v.vec3(8), Some(Vec3::new(10.0, 0.0, 20.0)));
+        assert_eq!(v.int(6), Some(MOVE_STOP), "immobile");
+        assert!(v.vec3(9).is_none(), "pas de destination");
+        assert!(v.bytes(5).is_some_and(|b| !b.is_empty()), "facteurs présents");
+        assert!(p.bytes(4).is_none(), "pas de fonctions d'événement");
+    }
+}

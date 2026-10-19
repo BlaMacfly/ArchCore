@@ -17,6 +17,8 @@ pub mod addon;
 pub mod chat;
 pub mod gm;
 pub mod items;
+pub mod map;
+pub mod monsters;
 pub mod npc_events;
 pub mod npc_trade;
 pub mod npcs;
@@ -48,6 +50,8 @@ pub struct WorldCtx {
     pub config: Arc<Config>,
     pub npcs: NpcRegistry,
     pub catalog: ItemCatalog,
+    /// Carte serveur : sol infranchissable, régions.
+    pub map: map::WorldMap,
     pub view_radius: f64,
 }
 
@@ -81,6 +85,7 @@ pub struct Player {
     pub ch: CharacterRow,
     pub factors: Factors,
     pub seen_npcs: HashSet<u32>,
+    pub seen_monsters: HashSet<u32>,
     pub seen_players: HashSet<u32>,
     pub in_game: bool,
     pub dest: Option<Vec3>,
@@ -124,6 +129,8 @@ pub struct WorldState {
     /// Identifiant de personnage → fin de l'interdiction de discussion.
     pub chat_bans: HashMap<u32, Instant>,
     pub restart: Option<RestartState>,
+    /// Monstres du monde.
+    pub monsters: monsters::MonsterRegistry,
 }
 
 impl WorldState {
@@ -271,6 +278,7 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
             ch,
             factors,
             seen_npcs: HashSet::new(),
+            seen_monsters: HashSet::new(),
             seen_players: HashSet::new(),
             in_game: false,
             dest: None,
@@ -313,7 +321,7 @@ fn enter_world(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle) {
     let mv = &schema::OPT_CHAR_MOVE;
     p.send(mv, Fields::new(mv).with(0, p.ch.id).with(1, pos).with(2, pos).with(5, MOVE_STOP_SYNC).with(6, 0));
     let sent = send_nearby_npcs(ctx, st, sid, pos);
-    info!("[world] #{sid} {sent} PNJ envoyé(s) dans un rayon de {}", ctx.view_radius);
+    info!("[world] #{sid} {sent} PNJ et {} monstre(s) envoyés dans un rayon de {}", st.players[&sid].seen_monsters.len(), ctx.view_radius);
     let p = &st.players[&sid];
     let cm = &schema::CHAR_MANAGER;
     p.send(cm, Fields::new(cm).with(0, char_mgr_op::FINISH_ENTER).with(4, p.ch.id));
@@ -322,10 +330,12 @@ fn enter_world(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle) {
     let c = &schema::CHARACTER;
     p.send(c, Fields::new(c).with(0, 1).with(1, p.ch.id).with(4, 2).with(5, move_mini(MoveMini { pos, dest: None, flags: 0 })));
     p.send(c, Fields::new(c).with(0, 1).with(1, p.ch.id).with(4, 2).with(7, factors_mini(&p.factors)));
-    info!("[world] #{sid} {} est en jeu", p.ch.name);
+    let region = ctx.map.region(pos.x as f64, pos.z as f64).map(|r| r.to_string()).unwrap_or_else(|| "inconnue".into());
+    info!("[world] #{sid} {} est en jeu (région {region})", p.ch.name);
 }
 
-/// PNJ autour de `pos` pas encore envoyés à ce joueur (vue optimisée op 1, un paquet par PNJ).
+/// PNJ autour de `pos` pas encore envoyés à ce joueur (vue optimisée op 1, un paquet par PNJ) ; met aussi
+/// à jour les monstres visibles (voir `sync_monsters`). Rend le nombre de PNJ envoyés.
 pub fn send_nearby_npcs(ctx: &WorldCtx, st: &mut WorldState, sid: u32, pos: Vec3) -> usize {
     let Some(p) = st.players.get_mut(&sid) else { return 0 };
     let mut sent = 0;
@@ -335,7 +345,38 @@ pub fn send_nearby_npcs(ctx: &WorldCtx, st: &mut WorldState, sid: u32, pos: Vec3
             sent += 1;
         }
     }
+    sync_monsters(ctx, st, sid, pos);
     sent
+}
+
+/// Montre les monstres entrés dans le rayon de vue et retire ceux qui en sont sortis. Le retrait se fait
+/// un peu au-delà du rayon, pour ne pas faire clignoter un monstre en bordure. Rend (ajoutés, retirés).
+pub fn sync_monsters(ctx: &WorldCtx, st: &mut WorldState, sid: u32, pos: Vec3) -> (usize, usize) {
+    let Some(p) = st.players.get_mut(&sid) else { return (0, 0) };
+    let mut added = 0;
+    for m in st.monsters.near(pos, ctx.view_radius) {
+        if p.seen_monsters.insert(m.cid) {
+            p.sess.send_raw(st.monsters.view_packet(m));
+            added += 1;
+        }
+    }
+    let keep = (ctx.view_radius * 1.2).powi(2);
+    let gone: Vec<u32> = p
+        .seen_monsters
+        .iter()
+        .copied()
+        .filter(|cid| {
+            st.monsters.get(*cid).is_none_or(|m| {
+                let (dx, dz) = ((m.pos.x - pos.x) as f64, (m.pos.z - pos.z) as f64);
+                dx * dx + dz * dz > keep
+            })
+        })
+        .collect();
+    for cid in &gone {
+        p.seen_monsters.remove(cid);
+        p.sess.send_raw(character_remove_packet(*cid));
+    }
+    (added, gone.len())
 }
 
 // ---------------------------------------------------------------------------------------------

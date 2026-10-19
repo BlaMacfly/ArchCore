@@ -1,5 +1,7 @@
-//! `archcore import [dossier]` : importe les tables déchiffrées du client (`data/client-ini`) dans
-//! `archcore_world`. Les fichiers sont en CP949 (coréen) ; ils sont convertis en UTF-8.
+//! `archcore import [dossier] [--server dossier]` : importe les tables déchiffrées du client
+//! (`data/client-ini`) dans `archcore_world`. Les fichiers sont en CP949 (coréen) ; ils sont convertis en
+//! UTF-8. Avec `--server` (par défaut `data/server-ini` s'il existe), importe aussi les apparitions de
+//! monstres depuis les tables du serveur d'origine (`spawndatatable.txt`, `spawninstancetable.txt`).
 
 use crate::db::Databases;
 use mysql_async::Value;
@@ -120,11 +122,169 @@ async fn replace(db: &Databases, table: &str, sql: &str, rows: Vec<Vec<Value>>) 
 
 pub async fn run(args: &[String]) -> anyhow::Result<()> {
     let cfg = crate::config::load()?;
-    let dir = args.first().map(PathBuf::from).unwrap_or_else(|| cfg.root.join("data").join("client-ini"));
+    let mut positional = Vec::new();
+    let mut server_dir = None;
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        if a == "--server" {
+            server_dir = Some(PathBuf::from(it.next().ok_or_else(|| anyhow::anyhow!("--server : dossier attendu"))?));
+        } else {
+            positional.push(a);
+        }
+    }
+    let dir = positional.first().map(PathBuf::from).unwrap_or_else(|| cfg.root.join("data").join("client-ini"));
+    let server_dir = server_dir.or_else(|| Some(cfg.root.join("data").join("server-ini")).filter(|d| d.exists()));
     let src = Source(dir);
     let db = Databases::new(&cfg.database);
     import_all(&db, &src).await?;
+    match server_dir {
+        Some(d) => {
+            import_spawns(&db, &src, &Source(d.clone())).await?;
+            import_map(&db, &d).await?;
+        }
+        None => println!("· monster_spawn : pas de tables du serveur (data/server-ini ou --server), ignoré"),
+    }
     db.close().await;
+    Ok(())
+}
+
+/// Ligne d'apparition prête à insérer : spawndatatable.txt (quoi) jointe à spawninstancetable.txt (où).
+#[derive(Debug, Clone, PartialEq)]
+pub struct SpawnRow {
+    pub id: u32,
+    pub group: String,
+    pub name: String,
+    pub tid: u32,
+    pub level: i64,
+    pub count: i64,
+    pub max_count: i64,
+    pub respawn_sec: i64,
+    pub rate: i64,
+    pub ai_tid: i64,
+    pub siege_war: i64,
+    pub is_boss: i64,
+    pub pos: [f64; 3],
+    pub degree: [f64; 2],
+    pub radius: f64,
+}
+
+/// Joint les deux tables par nom de point. Un nom peut avoir plusieurs positions : la ligne est alors
+/// reprise à chacune. Rend les lignes et le nombre de lignes sans aucune position.
+pub fn join_spawns(data: &str, instances: &str) -> (Vec<SpawnRow>, usize) {
+    let (ih, irows) = parse_tsv(instances);
+    let icol = |n: &str| ih.iter().position(|h| h == n);
+    let (i_name, i_pos, i_rot, i_rad) = (icol("Name"), icol("Position"), icol("Rotation"), icol("Radius"));
+    let cell = |r: &[String], c: Option<usize>| c.and_then(|i| r.get(i)).map(|x| x.trim().to_string()).unwrap_or_default();
+    let floats = |t: &str| t.split(',').map(|x| js_number(x, 0.0)).collect::<Vec<f64>>();
+    let mut places: std::collections::HashMap<String, Vec<([f64; 3], [f64; 2], f64)>> = std::collections::HashMap::new();
+    for r in &irows {
+        let name = cell(r, i_name);
+        if name.is_empty() {
+            continue;
+        }
+        let p = floats(&cell(r, i_pos));
+        let d = floats(&cell(r, i_rot));
+        let g = |a: &Vec<f64>, i: usize| a.get(i).copied().unwrap_or(0.0);
+        places.entry(name).or_default().push(([g(&p, 0), g(&p, 1), g(&p, 2)], [g(&d, 0), g(&d, 1)], js_number(&cell(r, i_rad), 0.0)));
+    }
+    let (dh, drows) = parse_tsv(data);
+    let dcol = |n: &str| dh.iter().position(|h| h == n);
+    let c = ["GroupName", "Name", "TotalMobCount", "Spawntime", "MobTID", "MobLV", "Rate", "MaxMobCount", "MobAITID", "SiegeWarType", "IsBoss"].map(dcol);
+    let (mut out, mut missing) = (Vec::new(), 0);
+    for r in &drows {
+        let n = |i: usize| js_number(&cell(r, c[i]), 0.0) as i64;
+        let name = cell(r, c[1]);
+        let tid = n(4);
+        if name.is_empty() || tid <= 0 {
+            continue;
+        }
+        let Some(at) = places.get(&name) else {
+            missing += 1;
+            continue;
+        };
+        for &(pos, degree, radius) in at {
+            out.push(SpawnRow {
+                id: out.len() as u32 + 1,
+                group: cell(r, c[0]),
+                name: name.clone(),
+                tid: tid as u32,
+                level: n(5),
+                count: n(2),
+                max_count: n(7),
+                respawn_sec: n(3),
+                rate: if cell(r, c[6]).is_empty() { 10_000 } else { n(6) },
+                ai_tid: n(8),
+                siege_war: n(9),
+                is_boss: n(10),
+                pos,
+                degree,
+                radius,
+            });
+        }
+    }
+    (out, missing)
+}
+
+/// `node_data` : à côté des tables, dans `world/`, ou dans le `world/` voisin du dossier des tables.
+fn find_node_data(dir: &std::path::Path) -> Option<PathBuf> {
+    [dir.join("node_data"), dir.join("world").join("node_data"), dir.join("..").join("world").join("node_data")].into_iter().find(|p| p.is_file())
+}
+
+/// Découpe `node_data` : enregistrements de 1032 octets (secteur X u32, secteur Z u32, 256 segments u32).
+pub fn parse_node_data(bytes: &[u8]) -> Vec<(u16, u16, Vec<u8>)> {
+    bytes
+        .chunks_exact(1032)
+        .filter_map(|r| {
+            let x = u32::from_le_bytes(r[0..4].try_into().unwrap());
+            let z = u32::from_le_bytes(r[4..8].try_into().unwrap());
+            (x < 800 && z < 800).then(|| (x as u16, z as u16, r[8..].to_vec()))
+        })
+        .collect()
+}
+
+async fn import_map(db: &Databases, server_dir: &std::path::Path) -> anyhow::Result<()> {
+    let Some(path) = find_node_data(server_dir) else {
+        println!("· map_segment : node_data introuvable près de {}, ignoré", server_dir.display());
+        return Ok(());
+    };
+    let bytes = std::fs::read(&path).map_err(|e| anyhow::anyhow!("{} : {e}", path.display()))?;
+    let out: Vec<Vec<Value>> = parse_node_data(&bytes).into_iter().map(|(x, z, segs)| vec![v(x), v(z), v(segs)]).collect();
+    let n = replace(db, "map_segment", "INSERT INTO map_segment (sector_x,sector_z,segments) VALUES (?,?,?)", out).await?;
+    println!("✓ map_segment : {n} secteur(s)");
+    Ok(())
+}
+
+async fn import_spawns(db: &Databases, client: &Source, server: &Source) -> anyhow::Result<()> {
+    let (rows, missing) = join_spawns(&server.read("spawndatatable.txt")?, &server.read("spawninstancetable.txt")?);
+    // Noms publics des monstres (clé 1 de CharacterTemplatePublic.ini), en anglais.
+    let public: std::collections::HashMap<u32, String> = if client.exists("CharacterTemplatePublic.ini") {
+        parse_ini(&client.read("CharacterTemplatePublic.ini")?)
+            .iter()
+            .filter_map(|s| Some((s.id.parse::<u32>().ok()?, s.first("1")?.to_string())))
+            .collect()
+    } else {
+        Default::default()
+    };
+    let monsters: i64 = rows.iter().map(|r| r.count).sum();
+    let out: Vec<Vec<Value>> = rows
+        .iter()
+        .map(|r| {
+            let display: String = public.get(&r.tid).cloned().unwrap_or_default().chars().take(96).collect();
+            vec![
+                v(r.id), v(r.group.clone()), v(r.name.clone()), v(r.tid), v(display), v(r.level), v(r.count), v(r.max_count),
+                v(r.respawn_sec), v(r.rate), v(r.ai_tid), v(r.siege_war), v(r.is_boss),
+                v(r.pos[0]), v(r.pos[1]), v(r.pos[2]), v(r.degree[0]), v(r.degree[1]), v(r.radius),
+            ]
+        })
+        .collect();
+    let n = replace(
+        db,
+        "monster_spawn",
+        "INSERT INTO monster_spawn (id,group_name,name,tid,display_name,level,count,max_count,respawn_sec,rate,ai_tid,siege_war,is_boss,pos_x,pos_y,pos_z,degree_x,degree_y,radius) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        out,
+    )
+    .await?;
+    println!("✓ monster_spawn : {n} point(s), {monsters} monstre(s) ; {missing} ligne(s) sans position ignorée(s)");
     Ok(())
 }
 
@@ -352,5 +512,38 @@ mod tests {
         assert_eq!(s[0].keys_json().to_string(), r#"{"Name":"Foo","MinDamage":["1","3"]}"#);
         let t = parse_ini("[1]\nb=x\n10=y\n2=z\na=w\n");
         assert_eq!(t[0].keys_json().to_string(), r#"{"2":"z","10":"y","b":"x","a":"w"}"#);
+    }
+    #[test]
+    fn decoupage_de_node_data() {
+        let mut bytes = Vec::new();
+        for (x, z) in [(325u32, 389u32), (900, 1)] {
+            bytes.extend(x.to_le_bytes());
+            bytes.extend(z.to_le_bytes());
+            bytes.extend(vec![7u8; 1024]);
+        }
+        bytes.extend([1, 2, 3]); // reste incomplet ignoré
+        let s = parse_node_data(&bytes);
+        assert_eq!(s.len(), 1, "secteur hors du monde écarté");
+        assert_eq!((s[0].0, s[0].1, s[0].2.len()), (325, 389, 1024));
+    }
+
+    #[test]
+    fn jointure_des_apparitions() {
+        let data = "GroupName\tName\tTotalMobCount\tSpawntime\tMobTID\tMobLV\tRate\tMaxMobCount\tMobAITID\tSiegeWarType\tIsBoss\r\n\
+                    g1\tg1_1\t5\t8\t459\t13\t10000\t0\t4590\t0\t0\r\n\
+                    g1\tg1_2\t3\t30\t292\t12\t\t0\t2920\t0\t1\r\n\
+                    g2\tg2_1\t4\t9\t645\t14\t10000\t0\t6450\t10\t0\r\n";
+        let inst = "Name\tPosition\tRotation\tRadius\r\n\
+                    g1_1\t-100,0,200.5\t0,90\t2500\r\n\
+                    g2_1\t1,2,3\t0,0\t0\r\n\
+                    g1_1\t9,9,9\t0,0\t1\r\n";
+        let (rows, missing) = join_spawns(data, inst);
+        assert_eq!(missing, 1, "g1_2 n'a pas de position");
+        assert_eq!(rows.len(), 3, "g1_1 a deux positions");
+        let a = &rows[0];
+        assert_eq!((a.id, a.group.as_str(), a.name.as_str(), a.tid, a.level, a.count, a.respawn_sec), (1, "g1", "g1_1", 459, 13, 5, 8));
+        assert_eq!((a.pos, a.degree, a.radius), ([-100.0, 0.0, 200.5], [0.0, 90.0], 2500.0));
+        assert_eq!((rows[1].id, rows[1].name.as_str(), rows[1].pos), (2, "g1_1", [9.0, 9.0, 9.0]));
+        assert_eq!((rows[2].id, rows[2].siege_war), (3, 10));
     }
 }

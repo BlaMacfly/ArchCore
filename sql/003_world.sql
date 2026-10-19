@@ -143,3 +143,34 @@ CREATE TABLE IF NOT EXISTS npc_trade_list (
   count       INT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'quantité vendue par achat',
   PRIMARY KEY (template_id, idx)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='listes des boutiques des PNJ (npctradeitemlist.txt)';
+
+CREATE TABLE IF NOT EXISTS monster_spawn (
+  id          INT UNSIGNED NOT NULL COMMENT 'ordre d''import (une ligne par position du point)',
+  group_name  VARCHAR(32)  NOT NULL COMMENT 'groupe d''apparition (GroupName)',
+  name        VARCHAR(32)  NOT NULL COMMENT 'point d''apparition (spawninstancetable.txt)',
+  tid         INT UNSIGNED NOT NULL COMMENT 'modèle de personnage du monstre',
+  display_name VARCHAR(96) NOT NULL DEFAULT '' COMMENT 'nom public (CharacterTemplatePublic.ini)',
+  level       INT NOT NULL DEFAULT 1,
+  count       INT NOT NULL DEFAULT 0 COMMENT 'monstres sur ce point (TotalMobCount)',
+  max_count   INT NOT NULL DEFAULT 0,
+  respawn_sec INT NOT NULL DEFAULT 0 COMMENT 'délai de réapparition (Spawntime)',
+  rate        INT NOT NULL DEFAULT 10000 COMMENT 'probabilité sur 10 000',
+  ai_tid      INT NOT NULL DEFAULT 0,
+  siege_war   INT NOT NULL DEFAULT 0 COMMENT '0 : hors guerre de siège',
+  is_boss     TINYINT NOT NULL DEFAULT 0,
+  pos_x       DOUBLE NOT NULL,
+  pos_y       DOUBLE NOT NULL,
+  pos_z       DOUBLE NOT NULL,
+  degree_x    DOUBLE NOT NULL DEFAULT 0,
+  degree_y    DOUBLE NOT NULL DEFAULT 0,
+  radius      DOUBLE NOT NULL DEFAULT 0 COMMENT 'rayon de dispersion autour du point',
+  PRIMARY KEY (id),
+  KEY ix_ms_xz (pos_x, pos_z)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='apparitions des monstres (tables du serveur d''origine)';
+
+CREATE TABLE IF NOT EXISTS map_segment (
+  sector_x  SMALLINT UNSIGNED NOT NULL COMMENT 'secteur de 6400 unités, 0..799 depuis X = -2 560 000',
+  sector_z  SMALLINT UNSIGNED NOT NULL COMMENT 'secteur de 6400 unités, 0..799 depuis Z = -2 560 000',
+  segments  BLOB NOT NULL COMMENT '16 × 16 segments de 400 unités, u32 LE, ligne Z puis colonne X : octet 0 type de case, octet 1 blocage (bit 0 sol, bit 1 ciel), octets 2-3 région',
+  PRIMARY KEY (sector_x, sector_z)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='carte serveur du monde (node_data des tables du serveur d''origine)';

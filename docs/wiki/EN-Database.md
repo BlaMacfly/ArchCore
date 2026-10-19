@@ -25,7 +25,7 @@ Filled by `archcore import` from the client tables.
 | Table | Client source | Content |
 |---|---|---|
 | `character_template` | `charactertemplate.ini` | Character and NPC templates: race, class, stats |
-| `character_data_table` | `CharacterDataTable.txt` | Names of the playable base templates |
+| `character_data_table` | `CharacterDataTable.txt` | Server stats per template (HP, speeds, damage, experience…); names of the playable base templates |
 | `level_exp` | `LevelUpExp.txt` | Experience per level |
 | `growup_factor` | `GrowUpFactor.txt` | Stat growth |
 | `login_char_pos` | `logincharpos.ini` | Character selection screen positions |
@@ -33,6 +33,8 @@ Filled by `archcore import` from the client tables.
 | `skill_template` | `SKILLTEMPLATE.ini` | Skills |
 | `npc_spawn` | `npc.ini` | 567 NPCs: template, name, position, orientation, raw functions |
 | `client_table` | other `.txt` tables | Rows as JSON, for tables not modelled yet |
+| `monster_spawn` | original server tables (`spawndatatable.txt` + `spawninstancetable.txt`) | 12,802 spawn points, 36,960 creatures: template, level, count, respawn, position, radius, public name (`CharacterTemplatePublic.ini`) |
+| `map_segment` | original server `world/node_data` | 45,312 sectors: blocked ground and region per 400-unit segment |
 
 ## Add an account
 

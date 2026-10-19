@@ -26,7 +26,7 @@ Remplie par `archcore import` à partir des tables du client.
 | Table | Source dans le client | Contenu |
 |---|---|---|
 | `character_template` | `charactertemplate.ini` | Modèles de personnages et de PNJ : race, classe, statistiques |
-| `character_data_table` | `CharacterDataTable.txt` | Noms des modèles de base jouables |
+| `character_data_table` | `CharacterDataTable.txt` | Caractéristiques serveur par modèle (PV, vitesses, dégâts, expérience…) ; noms des modèles de base jouables |
 | `level_exp` | `LevelUpExp.txt` | Expérience par niveau |
 | `growup_factor` | `GrowUpFactor.txt` | Progression des statistiques |
 | `login_char_pos` | `logincharpos.ini` | Positions de l'écran de sélection |
@@ -34,6 +34,8 @@ Remplie par `archcore import` à partir des tables du client.
 | `skill_template` | `SKILLTEMPLATE.ini` | Compétences |
 | `npc_spawn` | `npc.ini` | 567 PNJ : modèle, nom, position, orientation, fonctions brutes |
 | `client_table` | autres tables `.txt` | Lignes en JSON, pour les tables pas encore modélisées |
+| `monster_spawn` | tables du serveur d'origine (`spawndatatable.txt` + `spawninstancetable.txt`) | 12 802 points d'apparition, 36 960 créatures : modèle, niveau, nombre, réapparition, position, rayon, nom public (`CharacterTemplatePublic.ini`) |
+| `map_segment` | `world/node_data` du serveur d'origine | 45 312 secteurs : sol infranchissable et région par segment de 400 unités |
 
 ## Ajouter un compte
 

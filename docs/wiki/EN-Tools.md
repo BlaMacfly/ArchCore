@@ -7,7 +7,7 @@ them from the repository root; they read `config/archcore.json`, or the file nam
 |---|---|
 | `archcore db-init [--account name pass [gm]]` | Creates the databases and applies `sql/`; with `--account`, creates or updates an account |
 | `archcore decrypt [source] [destination]` | Decrypts `Game/ini` (RC4, MD5("1111")) into `data/client-ini` |
-| `archcore import [folder]` | Imports `data/client-ini` into `archcore_world` (CP949 → UTF-8) |
+| `archcore import [folder] [--server folder]` | Imports `data/client-ini` into `archcore_world` (CP949 → UTF-8); with the original server tables (`--server`, or `data/server-ini` if it exists), also imports monster spawns and the server map |
 | `archcore sim client\|move\|shop\|addon …` | Simulated clients (see below) |
 | `archcore i18n strings [Game]` | Lists the texts still in English in `data/i18n/pending-en.json` |
 | `archcore i18n coverage [Game]` | Measures how much of `ini_fr` is translated |
@@ -71,6 +71,24 @@ original client and must be a GM (`archcore db-init --account gmtest gmtest 3`).
 - that C never receives a `0xAC` packet.
 
 The protocol is described on the [[ArchRust extensions|EN-ArchRust-extensions]] page.
+
+## Original server tables
+
+Monster spawns and the server map are not in the client: they come from the original ArchLord server
+tables, to be placed in `data/server-ini` (never committed) or pointed to with `--server`:
+
+| File | Content | Table |
+|---|---|---|
+| `spawndatatable.txt` | What: group, monster template and level, count, respawn delay, siege war | `monster_spawn` |
+| `spawninstancetable.txt` | Where: position, orientation, radius of each point (a name may have several positions) | `monster_spawn` |
+| `world/node_data` (next to it or in the sibling folder) | Map: 16 × 16 segments of 400 units per sector, blocked ground and region | `map_segment` |
+
+```bash
+archcore db-init
+archcore import data/client-ini --server path/to/ini
+```
+
+Rows of `spawndatatable.txt` without a position in `spawninstancetable.txt` are skipped and counted.
 
 ## Unit tests
 

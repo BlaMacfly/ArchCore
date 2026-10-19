@@ -73,6 +73,12 @@ The world list goes through type 0x18 (AgpmWorld), formatted as `Name=Group=0=St
 Op 1 carries, in field 1, a 26-field "character view" mini-packet: CID, TID, name, position,
 destination, orientation, and so on. ArchCore gives NPCs CIDs starting at `0x40000000`.
 
+Monsters use the same packet, with CIDs starting at `0x50000000`. They also need field 5 (factors: level
+and speeds, type, current and maximum HP/MP/SP, attack), otherwise the client believes they have 0 HP;
+field 6 is `0x04` (stopped) and field 9 (destination) is absent. The height sent is the one from the
+tables (often 0): the client puts the creature on the ground. A monster leaving the view radius (× 1.2) is
+removed with AGPMCHARACTER op 2.
+
 ## NPC functions (types 0x3C and 0x37)
 
 The client only knows an NPC has functions if they come with its view: **field 4** of the view packet

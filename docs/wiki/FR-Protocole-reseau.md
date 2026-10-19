@@ -74,6 +74,12 @@ La liste des mondes passe par le type 0x18 (AgpmWorld), au format `Nom=Groupe=0=
 L'op 1 porte au champ 1 un mini-paquet « vue de personnage » de 26 champs : CID, TID, nom,
 position, destination, orientation, etc. ArchCore donne aux PNJ des CID à partir de `0x40000000`.
 
+Les monstres passent par le même paquet, avec des CID à partir de `0x50000000`. Il leur faut en plus le
+champ 5 (facteurs : niveau et vitesses, type, PV/PM/PE actuels et maximum, attaque), sans quoi le client
+les croit à 0 PV ; le champ 6 vaut `0x04` (arrêté) et le champ 9 (destination) est absent. La hauteur
+envoyée est celle des tables (souvent 0) : le client pose la créature sur le terrain. Un monstre sorti
+du rayon de vue (× 1,2) est retiré par AGPMCHARACTER op 2.
+
 ## Fonctions des PNJ (types 0x3C et 0x37)
 
 Le client ne sait qu'un PNJ a des fonctions que si elles arrivent avec sa vue : le **champ 4** du paquet

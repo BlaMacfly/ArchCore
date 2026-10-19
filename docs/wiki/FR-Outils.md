@@ -8,7 +8,7 @@ Ils se lancent depuis la racine du dépôt et lisent `config/archcore.json`, ou 
 |---|---|
 | `archcore db-init [--account nom mdp [mj]]` | Crée les bases et applique `sql/` ; avec `--account`, crée ou met à jour un compte |
 | `archcore decrypt [source] [destination]` | Déchiffre `Game/ini` (RC4, MD5(« 1111 »)) vers `data/client-ini` |
-| `archcore import [dossier]` | Importe `data/client-ini` dans `archcore_world` (CP949 → UTF-8) |
+| `archcore import [dossier] [--server dossier]` | Importe `data/client-ini` dans `archcore_world` (CP949 → UTF-8) ; avec les tables du serveur d'origine (`--server`, ou `data/server-ini` s'il existe), importe aussi les apparitions de monstres et la carte serveur |
 | `archcore sim client\|move\|shop\|addon …` | Clients simulés (voir plus bas) |
 | `archcore i18n strings [Game]` | Liste les textes encore en anglais dans `data/i18n/pending-en.json` |
 | `archcore i18n coverage [Game]` | Mesure la part déjà traduite de `ini_fr` |
@@ -74,6 +74,25 @@ comme le client d'origine et doit être MJ (`archcore db-init --account gmtest g
 - que C ne reçoit jamais de paquet `0xAC`.
 
 Le protocole est décrit sur la page [[Extensions ArchRust|FR-Extensions-ArchRust]].
+
+## Tables du serveur d'origine
+
+Les apparitions de monstres et la carte serveur ne sont pas dans le client : elles viennent des tables du
+serveur d'origine d'ArchLord, à placer dans `data/server-ini` (jamais versionné) ou à désigner avec
+`--server` :
+
+| Fichier | Contenu | Table |
+|---|---|---|
+| `spawndatatable.txt` | Quoi : groupe, modèle et niveau du monstre, nombre, délai de réapparition, guerre de siège | `monster_spawn` |
+| `spawninstancetable.txt` | Où : position, orientation, rayon de chaque point (un nom peut avoir plusieurs positions) | `monster_spawn` |
+| `world/node_data` (à côté ou dans le dossier voisin) | Carte : 16 × 16 segments de 400 unités par secteur, sol infranchissable et région | `map_segment` |
+
+```bash
+archcore db-init
+archcore import data/client-ini --server chemin/vers/ini
+```
+
+Les lignes de `spawndatatable.txt` sans position dans `spawninstancetable.txt` sont ignorées et comptées.
 
 ## Tests unitaires
 

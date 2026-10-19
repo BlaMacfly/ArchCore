@@ -31,13 +31,16 @@ pub async fn run(mode: &str) -> anyhow::Result<()> {
         let translator = crate::world::npcs::Translator::load(&config.root, &config.world.language);
         let npcs = crate::world::npcs::NpcRegistry::load(&db, &translator).await?;
         let catalog = crate::world::items::ItemCatalog::load(&db).await?;
+        let map = crate::world::map::WorldMap::load(&db).await?;
+        let monsters = crate::world::monsters::MonsterRegistry::load(&db, &translator, &map).await?;
         let state = crate::world::WorldState {
             view_radius: config.world.view_radius,
+            monsters,
             rates: crate::world::gm::ServerRates::new(&config.world.rates),
             ..Default::default()
         };
         let w = Arc::new(crate::world::World {
-            ctx: crate::world::WorldCtx { db: db.clone(), templates: templates.clone(), config: config.clone(), npcs, catalog, view_radius: config.world.view_radius },
+            ctx: crate::world::WorldCtx { db: db.clone(), templates: templates.clone(), config: config.clone(), npcs, catalog, map, view_radius: config.world.view_radius },
             state: tokio::sync::Mutex::new(state),
         });
         crate::world::presence::spawn_autosave(w.clone());

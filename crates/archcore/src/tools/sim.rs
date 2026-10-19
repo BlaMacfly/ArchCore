@@ -331,6 +331,7 @@ pub async fn enter_world_with(cfg: &Config, user: &str, pass: &str, char_name: &
     world.send(cm, Fields::new(cm).with(0, char_mgr_op::ENTER_WORLD)).await?;
     world.expect(&schema::CHARACTER, Some(0)).await?;
     let mut npc_names = Vec::new();
+    let mut monsters = 0;
     loop {
         let p = world
             .expect_where(
@@ -348,10 +349,15 @@ pub async fn enter_world_with(cfg: &Config, user: &str, pass: &str, char_name: &
             continue;
         }
         let view = decode_mini(&mini::OPT_VIEW_CHAR, p.fields().bytes(1).unwrap_or_default())?;
-        npc_names.push(view.text(2).unwrap_or_default());
+        if view.int(0).unwrap_or(0) >= crate::world::monsters::MONSTER_CID_BASE as i64 {
+            monsters += 1;
+        } else {
+            npc_names.push(view.text(2).unwrap_or_default());
+        }
     }
     let shown: Vec<&str> = npc_names.iter().take(6).map(String::as_str).collect();
     println!("  {} PNJ reçu(s) : {}{}", npc_names.len(), shown.join(", "), if npc_names.len() > 6 { ", …" } else { "" });
+    println!("  {monsters} monstre(s) reçu(s)");
     println!("  entrée en jeu confirmée");
     Ok(InWorld { world, cid, start })
 }

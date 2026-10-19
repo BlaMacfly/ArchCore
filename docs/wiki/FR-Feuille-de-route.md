@@ -17,6 +17,9 @@
 
 ## Validé avec le simulateur, à confirmer en jeu
 
+- Créatures : 36 960 monstres placés d'après les tables du serveur d'origine, hors du sol infranchissable,
+  avec leurs caractéristiques (niveau, vitesses, PV). Vus et ciblés en jeu lors d'un premier essai ;
+  l'envoi des PV, ajouté depuis, reste à vérifier.
 - Extensions ArchRust, côté serveur : négociation de capacités et messages d'AddOn (murmure, `SAY`).
   Voir [[Extensions ArchRust|FR-Extensions-ArchRust]] ; la partie client reste à écrire dans ArchRust.
 - Revente d'un objet à un PNJ.
@@ -33,7 +36,7 @@
 1. Valider la création complète d'un personnage en jeu.
 2. Vérifier la visibilité entre joueurs avec deux vrais clients.
 3. Fonctions des PNJ : quêtes, téléportation, banque.
-4. Monstres, combat, expérience.
+4. Combat contre les monstres, expérience, butin, réapparition.
 5. Objets : déplacement dans l'inventaire, équipement, utilisation ; compétences.
 6. Discussion, groupes, guildes.
 7. Reconnexion automatique (type 0x63).
