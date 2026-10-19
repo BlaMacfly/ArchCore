@@ -26,7 +26,8 @@
   Equipment: weapons and armour worn (restrictions, two hands), counted in damage and defense, visible
   to other players; moving items in the inventory. Life and mana potions, out-of-combat HP and MP
   regeneration. Teleport scrolls (town, round trip, destination); monster patrols. Resurrection at the point of
-  the last safe region crossed; item stacks split, merged, destroyed. See
+  the last safe region crossed; item stacks split, merged, destroyed. Skills: learning and upgrading at
+  trainers, skill points, casting damage skills on one target. See
   [[Network protocol|EN-Network-protocol]].
 - ArchRust extensions, server side: capability negotiation and AddOn messages (whisper, `SAY`). See
   [[ArchRust extensions|EN-ArchRust-extensions]]; the client side remains to be written in ArchRust.
@@ -42,8 +43,8 @@
 1. Verify full character creation in game.
 2. Verify player visibility with two real clients.
 3. NPC functions: quests, teleport, bank.
-4. Combat: skills, elemental item damage.
-5. Items: bank, trading between players; skills.
+4. Skills: buffs and debuffs, damage over time, areas, passives; masteries.
+5. Combat: elemental item damage. Items: bank, trading between players.
 6. Chat, parties, guilds.
 7. Automatic reconnection (type 0x63).
 8. Remaining GM commands on the [[Administration|EN-Administration]] page (arena, events, rifts…).

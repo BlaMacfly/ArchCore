@@ -7,6 +7,7 @@
 use crate::db::Databases;
 use mysql_async::Value;
 use serde_json::{json, Map};
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 /// `Number(String(v).trim())` de JavaScript : vide → 0, hexadécimal accepté, sinon `d`.
@@ -86,6 +87,66 @@ pub fn parse_ini(text: &str) -> Vec<Section> {
         cur.order.push((line[..eq].trim().to_string(), line[eq + 1..].trim().to_string()));
     }
     sections
+}
+
+/// Nom → TID des compétences (SKILLTEMPLATE.ini, clé 1 = nom).
+pub fn skill_tids(template_ini: &str) -> HashMap<String, u32> {
+    parse_ini(template_ini)
+        .iter()
+        .filter(|s| is_uint(&s.id))
+        .filter_map(|s| Some((s.first("1")?.trim().to_string(), s.id.parse::<u32>().ok()?)))
+        .collect()
+}
+
+/// Colonnes non vides d'une ligne, en objet JSON (en-tête → texte).
+fn row_object(header: &[String], row: &[String], skip: usize) -> Map<String, serde_json::Value> {
+    let mut o = Map::new();
+    for (i, h) in header.iter().enumerate().skip(skip) {
+        if let Some(c) = row.get(i).map(|c| c.trim()).filter(|c| !c.is_empty()) {
+            o.insert(h.clone(), json!(c));
+        }
+    }
+    o
+}
+
+/// SKILL_SPEC.txt : une ligne par compétence, nommée en colonne 0. Rend (tid, nom, colonnes) et le nombre de
+/// noms sans modèle.
+pub fn parse_skill_specs(text: &str, tids: &HashMap<String, u32>) -> (Vec<(u32, String, serde_json::Value)>, usize) {
+    let (header, rows) = parse_tsv(text);
+    let (mut out, mut missing) = (Vec::new(), 0);
+    for r in &rows {
+        let name = r.first().map(|n| n.trim()).unwrap_or("");
+        if name.is_empty() {
+            continue;
+        }
+        match tids.get(name) {
+            Some(&tid) => out.push((tid, name.to_string(), serde_json::Value::Object(row_object(&header, r, 1)))),
+            None => missing += 1,
+        }
+    }
+    (out, missing)
+}
+
+/// SKILL_CONST.txt : le nom figure sur la première ligne d'une compétence, les niveaux suivants le laissent
+/// vide. Rend (tid, niveau, colonnes) et le nombre de noms sans modèle.
+pub fn parse_skill_levels(text: &str, tids: &HashMap<String, u32>) -> (Vec<(u32, u32, serde_json::Value)>, usize) {
+    let (header, rows) = parse_tsv(text);
+    let level_col = header.iter().position(|h| h == "skill_level").unwrap_or(1);
+    let (mut out, mut missing, mut current) = (Vec::new(), 0, None);
+    for r in &rows {
+        let name = r.first().map(|n| n.trim()).unwrap_or("");
+        if !name.is_empty() {
+            current = tids.get(name).copied();
+            if current.is_none() {
+                missing += 1;
+            }
+        }
+        let (Some(tid), Some(level)) = (current, r.get(level_col).and_then(|l| l.trim().parse::<u32>().ok())) else { continue };
+        let mut o = row_object(&header, r, 1);
+        o.remove("skill_level");
+        out.push((tid, level, serde_json::Value::Object(o)));
+    }
+    (out, missing)
 }
 
 /// .txt tabulé avec en-tête : (en-tête, lignes).
@@ -531,6 +592,19 @@ async fn import_all(db: &Databases, src: &Source) -> anyhow::Result<()> {
             .collect();
         let n = replace(db, "skill_template", "INSERT INTO skill_template (tid,name,raw) VALUES (?,?,?)", out).await?;
         println!("✓ skill_template : {n}");
+    }
+
+    // ---------------------------------------------------------------- SKILL_SPEC.txt, SKILL_CONST.txt
+    if src.exists("SKILLTEMPLATE.ini") && src.exists("SKILL_SPEC.txt") && src.exists("SKILL_CONST.txt") {
+        let tids = skill_tids(&src.read("SKILLTEMPLATE.ini")?);
+        let (specs, missing_spec) = parse_skill_specs(&src.read("SKILL_SPEC.txt")?, &tids);
+        let (levels, missing_const) = parse_skill_levels(&src.read("SKILL_CONST.txt")?, &tids);
+        let out: Vec<Vec<Value>> = specs.into_iter().map(|(tid, name, spec)| vec![v(tid), v(name), v(spec.to_string())]).collect();
+        let n = replace(db, "skill_spec", "INSERT INTO skill_spec (tid,name,spec) VALUES (?,?,?)", out).await?;
+        println!("✓ skill_spec : {n} ({missing_spec} nom(s) sans modèle)");
+        let out: Vec<Vec<Value>> = levels.into_iter().map(|(tid, level, consts)| vec![v(tid), v(level), v(consts.to_string())]).collect();
+        let n = replace(db, "skill_level", "INSERT INTO skill_level (tid,level,consts) VALUES (?,?,?)", out).await?;
+        println!("✓ skill_level : {n} ({missing_const} nom(s) sans modèle)");
     }
 
     // ---------------------------------------------------------------- npc.ini (PNJ placés dans le monde)

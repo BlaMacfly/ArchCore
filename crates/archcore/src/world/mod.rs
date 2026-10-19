@@ -9,6 +9,7 @@
 //!   AGPMCHATTING (0x0F) op 0 : message ; « /… » = commande MJ (gm.rs)
 //!   AGPMOPTIMIZEDCHARMOVE (0x40) : déplacement (presence.rs)
 //!   AGPMEVENTNPCDIALOG (0x37), AGCMEVENTNPCTRADE (0x32) : PNJ (npc_events.rs, npc_trade.rs)
+//!   AGPMSKILL (0x05), AGPMEVENTSKILLMASTER (0x3B) : compétences (skills.rs)
 //! ```
 //! L'état du monde est partagé derrière un verrou : les paquets de tous les joueurs sont traités un à
 //! un, comme dans la boucle unique du serveur Node.
@@ -29,6 +30,7 @@ pub mod npcs;
 pub mod presence;
 pub mod recovery;
 pub mod regions;
+pub mod skills;
 pub mod travel;
 
 use crate::character::{character_packet, factors_mini, make_factors, move_mini, CharView, CharacterRow, Factors, MoveMini, Templates};
@@ -63,6 +65,8 @@ pub struct WorldCtx {
     pub loot: loot::LootTables,
     /// Régions (sûreté) et points de résurrection.
     pub regions: regions::Regions,
+    /// Compétences (SKILL_SPEC, SKILL_CONST).
+    pub skills: skills::SkillCatalog,
     pub view_radius: f64,
 }
 
@@ -124,6 +128,8 @@ pub struct Player {
     pub bound_region: u16,
     /// Limite de débit des messages d'AddOn.
     pub addon_bucket: addon::TokenBucket,
+    /// Compétences connues et lancement en cours.
+    pub skills: skills::PlayerSkills,
 }
 
 impl Player {
@@ -158,6 +164,8 @@ pub struct WorldState {
     pub monsters: monsters::MonsterRegistry,
     /// Objets posés au sol.
     pub ground: loot::Ground,
+    /// Dernier identifiant de compétence attribué.
+    pub next_skill_id: u32,
 }
 
 impl WorldState {
@@ -193,6 +201,8 @@ impl Service for WorldService {
                 | ptype::ITEM
                 | ptype::EVENT_NPC_DIALOG
                 | ptype::EVENT_NPC_TRADE
+                | ptype::SKILL
+                | ptype::EVENT_SKILL_MASTER
                 | ptype::ARCHCORE_EXT
         )
     }
@@ -235,6 +245,8 @@ impl Connection for WorldConn {
             ptype::EVENT_NPC_DIALOG => npc_events::on_dialog(ctx, &st, self.sid, &p),
             ptype::EVENT_NPC_TRADE => npc_trade::on_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::ARCHCORE_EXT => addon::on_packet(ctx, &mut st, self.sid, &p),
+            ptype::SKILL => skills::on_packet(ctx, &mut st, self.sid, &p),
+            ptype::EVENT_SKILL_MASTER => skills::on_master_packet(ctx, &mut st, self.sid, &p).await?,
             _ => {}
         }
         Ok(())
@@ -282,7 +294,9 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
     };
     let gm_level: i64 = col(&acc, "gm_level");
     let inventory = Inventory::load(&ctx.db, ch.id).await?;
-    let factors = equipment::with_equipment(make_factors(tpl, Some(&ch)), &equipment::worn(&inventory, &ctx.catalog));
+    let mut factors = equipment::with_equipment(make_factors(tpl, Some(&ch)), &equipment::worn(&inventory, &ctx.catalog));
+    let skills = skills::load(&ctx.db, &ctx.skills, ch.id, &mut st.next_skill_id).await?;
+    skills::refresh_points(&ctx.skills, &skills, &mut factors);
     // Rattachement : la région où il se trouve si elle est sûre, sinon celle de sa race.
     let bound_region = ctx.map.region(ch.pos_x, ch.pos_z).filter(|r| ctx.regions.is_safe(*r)).unwrap_or_else(|| regions::default_region(factors.ftype[0]));
     info!(
@@ -334,6 +348,7 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
             return_point: None,
             bound_region,
             addon_bucket: addon::TokenBucket::default(),
+            skills,
         },
     );
     st.by_cid.insert(cid, s.id());
@@ -356,10 +371,10 @@ fn enter_world(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle) {
     // Inventaire : paquets AGPMITEM complets mis bout à bout dans le champ 6 (« tous les objets ») de la
     // vue optimisée op 2 ; le client rattache chaque objet au personnage déjà reçu (champ 4).
     let all_items: Vec<u8> = p.inventory.add_packets().concat();
-    info!("[world] #{sid} {} objet(s) d'inventaire envoyé(s)", p.inventory.items.len());
+    info!("[world] #{sid} {} objet(s) d'inventaire et {} compétence(s) envoyé(s)", p.inventory.items.len(), p.skills.list.len());
     let ov = &schema::OPT_VIEW;
     let empty = Vec::<u8>::new();
-    p.send(ov, Fields::new(ov).with(0, 2).with(6, all_items).with(7, empty.clone()).with(8, empty.clone()));
+    p.send(ov, Fields::new(ov).with(0, 2).with(6, all_items).with(7, empty.clone()).with(8, skills::all_packets(p)));
     p.send(ov, Fields::new(ov).with(0, 2).with(6, empty.clone()).with(7, empty));
     let mv = &schema::OPT_CHAR_MOVE;
     p.send(mv, Fields::new(mv).with(0, p.ch.id).with(1, pos).with(2, pos).with(5, MOVE_STOP_SYNC).with(6, 0));

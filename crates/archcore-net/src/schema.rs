@@ -40,6 +40,7 @@ pub mod ptype {
     pub const RETURN_TO_LOGIN: u8 = 0x2f;
     pub const EVENT_NPC_TRADE: u8 = 0x32;
     pub const EVENT_NPC_DIALOG: u8 = 0x37;
+    pub const EVENT_SKILL_MASTER: u8 = 0x3b;
     pub const EVENT_MANAGER: u8 = 0x3c;
     pub const OPT_CHAR_MOVE: u8 = 0x40;
     pub const OPT_CHAR_ACTION: u8 = 0x41;
@@ -231,6 +232,42 @@ pub static EVENT_NPC_TRADE: Schema = Schema {
     ],
 };
 
+/// AgpmSkill (0x05) — drapeaux 2. Compétences d'un personnage, lancement et résultat.
+pub static SKILL: Schema = Schema {
+    name: "AGPMSKILL",
+    id: ptype::SKILL,
+    flag_len: 2,
+    fields: &[
+        f(I8),          // 0 opération
+        f(I32),         // 1 identifiant de la compétence
+        f(Packet),      // 2 propriétaire (mini SKILL_BASE)
+        f(Packet),      // 3 facteurs (AGPMCHAR_FACTORS, sous-paquet « dirt » : niveau, points)
+        f(I32),         // 4 TID
+        f(I8),          // 5 statut (0 prête, 1 en incantation, 2 lancée)
+        f(Packet),      // 6 action (mini SKILL_ACTION)
+        f(U8),          // 7 points de compétence
+        fs(Packet, 96), // 8 effets actifs (mini SKILL_BUFF)
+        f(MemBlock),    // 9
+    ],
+};
+
+/// AgpmEventSkillMaster (0x3B) — drapeaux 1 : maître des compétences.
+pub static EVENT_SKILL_MASTER: Schema = Schema {
+    name: "AGPMEVENTSKILLMASTER",
+    id: ptype::EVENT_SKILL_MASTER,
+    flag_len: 1,
+    fields: &[
+        f(I8),     // 0 opération
+        f(Packet), // 1 événement (EVENT_BASE)
+        f(I32),    // 2 CID du joueur
+        f(I32),    // 3 identifiant de compétence
+        f(I32),    // 4 TID de compétence
+        f(I8),     // 5 résultat
+        f(I8),     // 6 points de compétence
+        f(I8),     // 7 réinitialisation consommée
+    ],
+};
+
 /// AgpmEventNPCDialog (0x37) — drapeaux 1 : op, événement (EVENT_BASE), CID du joueur.
 pub static EVENT_NPC_DIALOG: Schema =
     Schema { name: "AGPMEVENTNPCDIALOG", id: ptype::EVENT_NPC_DIALOG, flag_len: 1, fields: &[f(I8), f(Packet), f(I32)] };
@@ -336,7 +373,7 @@ pub static ARCHCORE_EXT: Schema = Schema {
 /// Tous les schémas principaux, pour l'aiguillage par type.
 pub static MAIN: &[&Schema] = &[
     &CONFIG, &CHARACTER, &CHAR_MANAGER, &LOGIN, &TIMER, &WORLD, &CHATTING, &ADMIN, &ITEM, &EVENT_NPC_TRADE,
-    &EVENT_NPC_DIALOG, &EVENT_MANAGER, &SYSTEM_MESSAGE, &RETURN_TO_LOGIN, &OPT_CHAR_MOVE, &OPT_CHAR_ACTION, &OPT_VIEW,
+    &EVENT_NPC_DIALOG, &EVENT_MANAGER, &SKILL, &EVENT_SKILL_MASTER, &SYSTEM_MESSAGE, &RETURN_TO_LOGIN, &OPT_CHAR_MOVE, &OPT_CHAR_ACTION, &OPT_VIEW,
     &STARTUP_ENCRYPTION, &ARCHCORE_EXT,
 ];
 
@@ -439,6 +476,37 @@ pub mod mini {
 
     /// Position d'un objet au sol (AGPMITEM champ 6), drapeaux 1 : un VEC3F (relevé dans le client x64).
     pub static ITEM_FIELD: Schema = Schema { name: "AGPMITEM_FIELD", id: 140, flag_len: 1, fields: &[f(Vec3)] };
+
+    /// Désignation dans AGPMSKILL (type d'objet, identifiant) — drapeaux 1.
+    pub static SKILL_BASE: Schema = Schema { name: "AGPMSKILL_BASE", id: 150, flag_len: 1, fields: &[f(I8), f(I32)] };
+
+    /// Action d'une compétence — drapeaux 2.
+    pub static SKILL_ACTION: Schema = Schema {
+        name: "AGPMSKILL_ACTION",
+        id: 151,
+        flag_len: 2,
+        fields: &[
+            f(I8),       // 0 type d'action (0 début, 1 lancement, 2 résultat, 5 raté…)
+            f(Packet),   // 1 cible (SKILL_BASE)
+            f(Packet),   // 2 facteurs du résultat (AGPMCHAR_FACTORS)
+            f(Vec3),     // 3 position visée
+            f(I8),       // 4 attaque forcée
+            f(U32),      // 5 durée d'incantation (ms)
+            f(U32),      // 6 durée de l'effet (ms)
+            f(U32),      // 7 délai de relance (ms)
+            f(U8),       // 8 niveau de la compétence
+            f(U8),       // 9 facteurs du résultat à mettre en file
+            f(U32),      // 10 effet supplémentaire
+            f(MemBlock), // 11 CID des cibles
+        ],
+    };
+
+    /// Effet actif d'une compétence — drapeaux 2.
+    pub static SKILL_BUFF: Schema =
+        Schema { name: "AGPMSKILL_BUFF", id: 152, flag_len: 2, fields: &[f(I32), f(U64), f(I32), f(U8), f(U64), f(MemBlock)] };
+
+    /// Données d'un maître des compétences (race, classe enseignées) — drapeaux 1.
+    pub static SKILL_MASTER_DATA: Schema = Schema { name: "AGPMEVENTSKILLMASTER_DATA", id: 153, flag_len: 1, fields: &[f(I8), f(I8)] };
 
     /// Détail d'un objet de boutique (AgcmEventNPCTrade) — drapeaux 2 : TID, prix, quantité, statut,
     /// sac, ligne, colonne, puis trois entiers.

@@ -16,7 +16,7 @@ ArchCore uses three MariaDB databases, created by `archcore db-init` from `sql/`
 |---|---|
 | `characters` | Account, slot, unique name, template (TID), level, experience, HP/MP/SP, position, money, bank, hair, face, soft delete |
 | `character_items` | Owned items (planned) |
-| `character_skills` | Learned skills (planned) |
+| `character_skills` | Learned skills and their level ("Normal Attack" is not stored: every character knows it) |
 
 ## `archcore_world` — game data (`sql/003_world.sql`)
 
@@ -30,7 +30,9 @@ Filled by `archcore import` from the client tables.
 | `growup_factor` | `GrowUpFactor.txt` | Stat growth |
 | `login_char_pos` | `logincharpos.ini` | Character selection screen positions |
 | `item_template` | item templates | Items |
-| `skill_template` | `SKILLTEMPLATE.ini` | Skills |
+| `skill_template` | `SKILLTEMPLATE.ini` | Skills (TID, name) |
+| `skill_spec` | `SKILL_SPEC.txt` | Each skill's nature (non-empty columns, as JSON) |
+| `skill_level` | `SKILL_CONST.txt` | Values of each level of each skill (non-empty columns, as JSON) |
 | `npc_spawn` | `npc.ini` | 567 NPCs: template, name, position, orientation, raw functions |
 | `client_table` | other `.txt` tables | Rows as JSON, for tables not modelled yet |
 | `monster_spawn` | original server tables (`spawndatatable.txt` + `spawninstancetable.txt`) | 12,802 spawn points, 36,960 creatures: template, level, count, respawn, position, radius, public name (`CharacterTemplatePublic.ini`) |

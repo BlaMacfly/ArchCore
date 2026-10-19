@@ -300,6 +300,46 @@ la région de rattachement, comme pour la résurrection. Le retour au village (0
 l'endroit quitté et l'annonce par AGPMITEM **op 9** (champ 4 = CID) ; le client demande à y revenir par
 **op 6**, refusé en combat ; le serveur répond **op 10** (retour désactivé) et y ramène le joueur.
 
+## Compétences (types 0x05 et 0x3B)
+
+**Données.** `SKILL_SPEC.txt` décrit la nature de chaque compétence (champ `attribute` : renforcement,
+affaiblissement, dégâts physiques ou magiques, passive ; `target` ; `melee_attack` : dégâts immédiats) ;
+`SKILL_CONST.txt` ses valeurs par niveau : classes admises (`require_class_*`), niveau et points exigés,
+prix d'apprentissage (`skill_cost`) et d'amélioration (`skill_upgrade_cost`), coûts en PV et PM, durées
+d'incantation, d'effet et de relance (ms), portée (mètres, × 100 en unités du jeu), dégâts physiques et
+élémentaires (fixes et pour cent). Les deux tables désignent la compétence par son nom, relié au TID par
+`SKILLTEMPLATE.ini`.
+
+**Compétences d'un personnage.** AGPMSKILL (drapeaux 2) : op, identifiant, propriétaire (mini « base » :
+type 3 = personnage, CID), facteurs (AGPMCHAR_FACTORS dont le sous-paquet « dirt » porte le niveau à
+l'indice 4), TID, statut, action, points, effets actifs. À l'entrée en jeu, chaque compétence part en
+**op 0** dans le champ 8 de la vue optimisée op 2. Tout personnage connaît « Normal Attack » (TID 222).
+Les points de compétence valent le niveau du personnage (plus un par niveau de 50 à 70) moins les points
+exigés par chaque niveau appris ; ils sont envoyés dans les facteurs « dirt » du personnage (indice 5).
+
+**Maître des compétences.** Les PNJ « Instructeur » portent la fonction 25, avec la race et la classe
+enseignées (`SkillRaceType`, `SkillClassType`), envoyées dans leur vue (mini INT8, INT8).
+AGPMEVENTSKILLMASTER (0x3B, drapeaux 1) : op, événement, CID, identifiant de compétence, TID, résultat,
+points. **Op 4** ouvre la fenêtre (réponse op 5, résultat 0) ; **op 1** apprend le TID du champ 4 :
+AGPMSKILL op 0 puis op 6 avec le résultat (0 réussi, 1 échec dont l'argent, 2 déjà apprise, 3 pas assez
+de points, 4 niveau trop bas, 5 classe) ; **op 2** améliore la compétence du champ 3 : AGPMSKILL **op 2**
+(nouveau niveau) puis op 3.
+
+**Lancement.** Le client envoie AGPMSKILL **op 7** : identifiant et action (mini : type, cible en mini
+« base »). Le serveur vérifie la compétence, son délai de relance, les PM et PV, fait marcher le joueur
+jusqu'à portée, retire le coût et diffuse **op 7** (action 1 : cible, position, durées d'incantation,
+d'effet et de relance, niveau). Au bout de l'incantation, **op 8** (action 2 : cible, facteurs du
+résultat) part aux joueurs qui voient la cible : comme pour le combat, le sous-paquet 0 des facteurs porte
+les PV restants et les dégâts en négatif, à l'indice 9 pour la part physique et 10 à 17 pour les éléments
+(magie, eau, feu, terre, air, poison, foudre, glace). L'attaque automatique reprend ensuite sur la cible.
+
+Dégâts : la part physique reprend le jet d'attaque du personnage, multiplié par (100 + pour cent) / 100 et
+augmenté des dégâts fixes ; chaque élément reprend les dégâts élémentaires du personnage de la même façon,
+doublés. Une cible de niveau supérieur retire 5 % par niveau d'écart (80 % au plus) ; l'armure ne réduit
+que la part physique ; chaque part fait au moins 1. Pour l'instant, seules les compétences à dégâts
+immédiats sur une cible ont un effet : renforcements, affaiblissements, dégâts sur la durée, zones et
+compétences passives se lancent (animation, coût, délai) sans effet.
+
 ## Niveau MJ (type 0x12, AgpmAdmin)
 
 Drapeaux de champs sur 2 octets : op, CID, puis 13 mini-paquets. L'op 0 avec, au champ 2, un
@@ -330,5 +370,6 @@ pas envoyé `HELLO`. Spécification complète : [[Extensions ArchRust|FR-Extensi
 | 0x11 | Horloge (AgpmTimer) | 0x60 | Titres |
 | 0x13 | Quêtes | 0x63 | Reconnexion |
 | 0x32 | Boutiques des PNJ | 0x37 | Dialogue des PNJ |
+| 0x3B | Maître des compétences | | |
 
 Les schémas complets des 86 modules sont dans `data/re/packet-schemas.json`.

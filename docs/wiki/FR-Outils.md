@@ -10,7 +10,7 @@ dossier désigné par `ARCHCORE_CONF_DIR` (voir [[Configuration|FR-Configuration
 | `archcore db-init [--account nom mdp [mj]]` | Crée les bases et applique `sql/` ; avec `--account`, crée ou met à jour un compte |
 | `archcore decrypt [source] [destination]` | Déchiffre `Game/ini` (RC4, MD5(« 1111 »)) vers `data/client-ini` |
 | `archcore import [dossier] [--server dossier]` | Importe `data/client-ini` dans `archcore_world` (CP949 → UTF-8) ; avec les tables du serveur d'origine (`--server`, ou `data/server-ini` s'il existe), importe aussi les apparitions de monstres et la carte serveur |
-| `archcore sim client\|move\|shop\|addon\|combat\|equip\|potion\|scroll\|patrol\|bag …` | Clients simulés (voir plus bas) |
+| `archcore sim client\|move\|shop\|addon\|combat\|equip\|potion\|scroll\|patrol\|bag\|skill …` | Clients simulés (voir plus bas) |
 | `archcore i18n strings [Game]` | Liste les textes encore en anglais dans `data/i18n/pending-en.json` |
 | `archcore i18n coverage [Game]` | Mesure la part déjà traduite de `ini_fr` |
 | `archcore i18n apply [--ascii] [--dry]` | Applique la mémoire de traduction au client (voir [[Traduction|FR-Traduction]]) |
@@ -118,6 +118,18 @@ ARCHCORE_CONF_DIR=config/test archcore sim bag [compte] [mdp] [personnage]
 Un compte MJ (`gmtest` par défaut) se crée une pile neuve de Petites potions de mana, la sépare (op 17),
 la réunit (op 2 sur la case de la pile d'origine) puis la détruit (op 21) ; enfin `/kill` et résurrection :
 il doit revenir au point de résurrection d'Anchorville (-476000, -61000).
+
+## Test des compétences
+
+```bash
+ARCHCORE_CONF_DIR=config/test archcore sim skill [compte] [mdp] [personnage]
+```
+
+Un compte MJ (`gmtest` par défaut, guerrier humain) vérifie qu'il connaît « Normal Attack », passe au
+niveau 10 (`/level`), se rend chez Black, l'instructeur des guerriers d'Anchorville, apprend Dual Slash
+(ou se voit répondre « déjà apprise »), se voit refuser Flame Core (compétence de mage), améliore Dual
+Slash, la lance sur un Ver vert (incantation, dégâts), vérifie le refus pendant le délai de relance, puis
+reprend son niveau d'origine.
 
 ## Test des extensions ArchRust
 

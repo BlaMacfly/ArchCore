@@ -103,6 +103,7 @@ pub async fn use_scroll(ctx: &WorldCtx, st: &mut WorldState, sid: u32, item: &In
     }
     player.send_raw(used_packet(item.tid, cid, scroll.delay));
     player.attack = None;
+    player.skills.cast = None;
     if scroll.kind == ScrollKind::Roundtrip {
         player.return_point = Some(here);
         player.send_raw(return_packet(ENABLE_RETURN_SCROLL, cid));

@@ -38,6 +38,7 @@ crates/archcore/           server and tools
     recovery.rs            life and mana potions, out-of-combat regeneration
     travel.rs              teleport scrolls: town, round trip, destination
     regions.rs             safe regions, binding, resurrection points
+    skills.rs              skills: catalogue, points, skill master, casting, damage
     map.rs                 server map (map_segment): blocked ground, regions
     items.rs               item catalog, inventory, AGPMITEM packets
     chat.rs, gm.rs         chat and GM commands

@@ -241,6 +241,7 @@ pub async fn step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) -> anyhow::
     life_step(ctx, st, now);
     super::loot::expire(st, now);
     super::recovery::regen_step(st, now);
+    super::skills::step(ctx, st, now).await?;
     Ok(())
 }
 
@@ -249,7 +250,7 @@ pub fn viewers(st: &WorldState, cid: u32) -> Vec<u32> {
     st.players.iter().filter(|(_, p)| p.in_game && p.seen_monsters.contains(&cid)).map(|(sid, _)| *sid).collect()
 }
 
-fn broadcast(st: &WorldState, sids: &[u32], plain: &[u8]) {
+pub(super) fn broadcast(st: &WorldState, sids: &[u32], plain: &[u8]) {
     for sid in sids {
         if let Some(p) = st.players.get(sid) {
             p.send_raw(plain.to_vec());
@@ -302,7 +303,8 @@ async fn attack_step(ctx: &WorldCtx, st: &mut WorldState, sid: u32, now: Instant
 }
 
 /// Fait marcher le joueur jusqu'au bord de la cible (OPT_CHAR_MOVE à lui et aux joueurs qui le voient).
-fn approach(st: &mut WorldState, sid: u32, from: Vec3, m: &Monster, hit_range: f64, distance: f64, now: Instant) {
+/// Rend la durée estimée du trajet.
+pub(super) fn approach(st: &mut WorldState, sid: u32, from: Vec3, m: &Monster, hit_range: f64, distance: f64, now: Instant) -> Duration {
     let k = ((distance - hit_range / 2.0) / distance).max(0.0) as f32;
     let dest = Vec3::new(from.x + (m.pos.x - from.x) * k, m.pos.y, from.z + (m.pos.z - from.z) * k);
     let travel = Duration::from_secs_f64(distance / APPROACH_SPEED).min(MAX_APPROACH);
@@ -321,10 +323,11 @@ fn approach(st: &mut WorldState, sid: u32, from: Vec3, m: &Monster, hit_range: f
         o.send(mv, fields.clone());
     }
     debug!("[combat] approche de {} sur {:.0} unités", m.name, distance);
+    travel
 }
 
 /// Mort d'un monstre : statut « mort » chez ceux qui le voient, expérience au tueur, cadavre programmé.
-async fn kill(ctx: &WorldCtx, st: &mut WorldState, killer_sid: u32, cid: u32, now: Instant) -> anyhow::Result<()> {
+pub(super) async fn kill(ctx: &WorldCtx, st: &mut WorldState, killer_sid: u32, cid: u32, now: Instant) -> anyhow::Result<()> {
     let target = st.monsters.get_mut(cid).unwrap();
     target.life = Life::Dead { remove_at: now + CORPSE_TIME };
     target.aggro.clear();
@@ -360,9 +363,10 @@ async fn reward(ctx: &WorldCtx, st: &mut WorldState, sid: u32, gain: u64) -> any
     p.factors.point[3] = (exp % (1u64 << 32)) as u32 as i32;
     p.factors.point[4] = (exp >> 32) as i32;
     if ups > 0 {
-        // Montée de niveau : PV et PM restaurés.
+        // Montée de niveau : PV et PM restaurés, nouveaux points de compétence.
         p.factors.point[POINT_HP] = p.factors.point_max[0];
         p.factors.point[1] = p.factors.point_max[1];
+        super::skills::refresh_points(&ctx.skills, &p.skills, &mut p.factors);
     }
     let (cid, name) = (p.ch.id, p.ch.name.clone());
     let c = &schema::CHARACTER;
@@ -377,6 +381,26 @@ async fn reward(ctx: &WorldCtx, st: &mut WorldState, sid: u32, gain: u64) -> any
     }
     send_system(st, sid, &format!("Vous gagnez {gain} point(s) d'expérience."));
     ctx.db.characters.exec("UPDATE characters SET level = ?, exp = ? WHERE id = ?", (level, exp, cid)).await?;
+    Ok(())
+}
+
+/// Niveau fixé par un MJ : expérience remise à zéro, PV et PM restaurés, points de compétence recalculés.
+pub async fn set_level(ctx: &WorldCtx, st: &mut WorldState, sid: u32, level: i32) -> anyhow::Result<()> {
+    let Some(p) = st.players.get_mut(&sid) else { return Ok(()) };
+    let level = level.clamp(1, MAX_LEVEL);
+    p.ch.level = level;
+    p.ch.exp = 0;
+    p.factors.status[7] = level;
+    p.factors.point[3] = 0;
+    p.factors.point[4] = 0;
+    p.factors.point[POINT_HP] = p.factors.point_max[0];
+    p.factors.point[1] = p.factors.point_max[1];
+    super::skills::refresh_points(&ctx.skills, &p.skills, &mut p.factors);
+    let cid = p.ch.id;
+    let c = &schema::CHARACTER;
+    p.send(c, Fields::new(c).with(0, 1).with(1, cid).with(7, factors_mini(&p.factors)));
+    send_around(st, sid, &build_packet(c, &Fields::new(c).with(0, CHARACTER_LEVEL_UP).with(1, cid)));
+    ctx.db.characters.exec("UPDATE characters SET level = ?, exp = 0 WHERE id = ?", (level, cid)).await?;
     Ok(())
 }
 
@@ -441,7 +465,8 @@ pub fn hit_player(st: &mut WorldState, sid: u32, monster: u32, outcome: i64, dam
 }
 
 /// Envoie au joueur `sid` et aux joueurs qui le voient.
-fn send_around(st: &WorldState, sid: u32, plain: &[u8]) {
+/// À un joueur et à ceux qui le voient.
+pub(super) fn send_around(st: &WorldState, sid: u32, plain: &[u8]) {
     let Some(me) = st.players.get(&sid) else { return };
     let cid = me.ch.id;
     me.send_raw(plain.to_vec());
@@ -461,6 +486,7 @@ pub fn player_death(st: &mut WorldState, sid: u32) {
     let Some(p) = st.players.get_mut(&sid) else { return };
     p.dead = true;
     p.attack = None;
+    p.skills.cast = None;
     if let Some(d) = p.dest.take() {
         p.ch.set_pos(d);
     }

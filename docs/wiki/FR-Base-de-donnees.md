@@ -17,7 +17,7 @@ Toutes sont en `utf8mb4`.
 |---|---|
 | `characters` | Compte, emplacement, nom unique, modèle (TID), niveau, expérience, PV/PM/PE, position, argent, banque, coiffure, visage, suppression logique |
 | `character_items` | Objets possédés (prévu) |
-| `character_skills` | Compétences apprises (prévu) |
+| `character_skills` | Compétences apprises et leur niveau (« Normal Attack » n'y figure pas : tout personnage la connaît) |
 
 ## `archcore_world` — données du jeu (`sql/003_world.sql`)
 
@@ -31,7 +31,9 @@ Remplie par `archcore import` à partir des tables du client.
 | `growup_factor` | `GrowUpFactor.txt` | Progression des statistiques |
 | `login_char_pos` | `logincharpos.ini` | Positions de l'écran de sélection |
 | `item_template` | modèles d'objets | Objets |
-| `skill_template` | `SKILLTEMPLATE.ini` | Compétences |
+| `skill_template` | `SKILLTEMPLATE.ini` | Compétences (TID, nom) |
+| `skill_spec` | `SKILL_SPEC.txt` | Nature de chaque compétence (colonnes non vides, en JSON) |
+| `skill_level` | `SKILL_CONST.txt` | Valeurs de chaque niveau de chaque compétence (colonnes non vides, en JSON) |
 | `npc_spawn` | `npc.ini` | 567 PNJ : modèle, nom, position, orientation, fonctions brutes |
 | `client_table` | autres tables `.txt` | Lignes en JSON, pour les tables pas encore modélisées |
 | `monster_spawn` | tables du serveur d'origine (`spawndatatable.txt` + `spawninstancetable.txt`) | 12 802 points d'apparition, 36 960 créatures : modèle, niveau, nombre, réapparition, position, rayon, nom public (`CharacterTemplatePublic.ini`) |

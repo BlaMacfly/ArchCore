@@ -71,6 +71,7 @@ messages. ArchCore's replies are in French.
 | `/invincible [0\|1]` | 2 | Monsters no longer wound you (1, the default) or do again (0) |
 | `/rename_char "old" "new"` | 2 | Renames in the database (2 to 24 characters, no space). An online player sees the new name on next login |
 | `/create "name" <TID> <count> <0\|1>` | 3 | Adds the item to `character_items`, in the first free inventory slot. An online player gets it at once; the character can also be offline |
+| `/level <level> ["name"]` | 3 | Sets the online character's level (1 to 120): experience reset, HP and MP restored, skill points recomputed; without a name, on yourself. ArchCore-specific command |
 | `/money <amount> ["name"]` | 3 | Sets the online character's gold (0 to 1,000,000,000); without a name, on yourself. ArchCore-specific command |
 | `/announce_restart <minutes> <seconds>` | 3 | Announces to every player, reminds every minute, counts down the last seconds. `0 0` cancels |
 | `/move x,z` | 1 | Teleports the GM to (x, z) and sends the NPCs of the new spot |
@@ -179,6 +180,7 @@ Example: `/SetExp 2.0`, then `/GetExp` to check.
 |---|---|
 | ✅ `/create "name" <TID> <count> <0\|1>` | Gives an item to the character. `TID` = item ID; the last number makes it untradable (1) |
 | ✅ `/money <amount> ["name"]` | Sets an online character's gold (ArchCore addition, not in the panel) |
+| ✅ `/level <level> ["name"]` | Sets an online character's level (ArchCore addition, not in the panel) |
 | `/last_refine` | Reuses the last refine recipe |
 | `/refresh_prestige_db` | Reloads the prestige data |
 | `/refinetest` / `/refinetest stop` | Starts or stops the refine stress test |

@@ -303,10 +303,12 @@ pub fn encode_fields(schema: &Schema, fields: &Fields) -> Result<(u32, Vec<u8>),
                 let Value::Bytes(b) = v else {
                     return Err(Error::Invalid(format!("bloc mémoire attendu (champ {i} de {})", schema.name)));
                 };
-                out.extend_from_slice(&(b.len() as u32).to_le_bytes());
+                // Un bloc vide est omis : ni drapeau ni longueur, sans quoi les champs suivants seraient
+                // lus à partir de sa longueur.
                 if !b.is_empty() {
+                    out.extend_from_slice(&(b.len() as u32).to_le_bytes());
                     out.extend_from_slice(b);
-                    flags |= bit; // un bloc vide n'active pas le drapeau
+                    flags |= bit;
                 }
             }
             Ty::Matrix | Ty::PosBaseMeter | Ty::WChar => {

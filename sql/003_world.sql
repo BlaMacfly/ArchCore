@@ -100,6 +100,20 @@ CREATE TABLE IF NOT EXISTS skill_template (
   PRIMARY KEY (tid)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS skill_spec (
+  tid   INT UNSIGNED NOT NULL,
+  name  VARCHAR(128) NOT NULL,
+  spec  JSON NOT NULL COMMENT 'colonnes non vides de SKILL_SPEC.txt',
+  PRIMARY KEY (tid)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS skill_level (
+  tid     INT UNSIGNED NOT NULL,
+  level   TINYINT UNSIGNED NOT NULL,
+  consts  JSON NOT NULL COMMENT 'colonnes non vides de SKILL_CONST.txt pour ce niveau',
+  PRIMARY KEY (tid, level)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS client_table (
   name      VARCHAR(96) NOT NULL COMMENT 'fichier source dans data/client-ini',
   row_idx   INT UNSIGNED NOT NULL,

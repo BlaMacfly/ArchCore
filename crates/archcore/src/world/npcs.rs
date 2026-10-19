@@ -16,6 +16,7 @@ use std::path::Path;
 pub mod event_function {
     pub const NPC_TRADE: i64 = 9;
     pub const NPC_DIALOG: i64 = 21;
+    pub const SKILL_MASTER: i64 = 25;
     pub const QUEST: i64 = 27;
 }
 
@@ -87,6 +88,15 @@ pub fn event_base(npc_cid: u32, function: i64) -> Vec<u8> {
 pub fn event_block(npc: &Npc) -> Vec<u8> {
     let mut out = Vec::new();
     for ev in &npc.events {
+        if ev.function == event_function::SKILL_MASTER {
+            // Maître des compétences : race et classe enseignées.
+            let int = |k: &str| ev.param(k).and_then(|v| v.trim().parse::<i64>().ok()).unwrap_or(0);
+            let sm = &mini::SKILL_MASTER_DATA;
+            let data = build_mini(sm, &Fields::new(sm).with(0, int("SkillRaceType")).with(1, int("SkillClassType")));
+            let em = &schema::EVENT_MANAGER;
+            out.extend(build_packet(em, &Fields::new(em).with(0, event_base(npc.cid, ev.function)).with(1, data)));
+            continue;
+        }
         let Some(key) = event_int_param(ev.function) else { continue };
         let value: i64 = ev.param(key).and_then(|v| v.trim().parse().ok()).unwrap_or(0);
         let data = build_mini(&mini::EVENT_DATA_INT32, &Fields::new(&mini::EVENT_DATA_INT32).with(0, value));

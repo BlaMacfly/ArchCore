@@ -10,7 +10,7 @@ named by `ARCHCORE_CONF_DIR` (see [[Configuration|EN-Configuration]]).
 | `archcore db-init [--account name pass [gm]]` | Creates the databases and applies `sql/`; with `--account`, creates or updates an account |
 | `archcore decrypt [source] [destination]` | Decrypts `Game/ini` (RC4, MD5("1111")) into `data/client-ini` |
 | `archcore import [folder] [--server folder]` | Imports `data/client-ini` into `archcore_world` (CP949 → UTF-8); with the original server tables (`--server`, or `data/server-ini` if it exists), also imports monster spawns and the server map |
-| `archcore sim client\|move\|shop\|addon\|combat\|equip\|potion\|scroll\|patrol\|bag …` | Simulated clients (see below) |
+| `archcore sim client\|move\|shop\|addon\|combat\|equip\|potion\|scroll\|patrol\|bag\|skill …` | Simulated clients (see below) |
 | `archcore i18n strings [Game]` | Lists the texts still in English in `data/i18n/pending-en.json` |
 | `archcore i18n coverage [Game]` | Measures how much of `ini_fr` is translated |
 | `archcore i18n apply [--ascii] [--dry]` | Applies the translation memory to the client (see [[Translation|EN-Translation]]) |
@@ -116,6 +116,17 @@ ARCHCORE_CONF_DIR=config/test archcore sim bag [user] [pass] [character]
 A GM account (`gmtest` by default) creates a new stack of Small Mana Potions, splits it (op 17), merges it
 back (op 2 onto the original stack's slot) then destroys it (op 21); finally `/kill` and resurrection: it
 must come back at Anchorville's resurrection point (-476000, -61000).
+
+## Skills test
+
+```bash
+ARCHCORE_CONF_DIR=config/test archcore sim skill [user] [pass] [character]
+```
+
+A GM account (`gmtest` by default, human warrior) checks that it knows "Normal Attack", goes to level 10
+(`/level`), walks to Black, Anchorville's warrior trainer, learns Dual Slash (or is told "already learned"),
+is refused Flame Core (a mage skill), upgrades Dual Slash, casts it on a Green Worm (cast, damage), checks
+the refusal during the recast delay, then goes back to its original level.
 
 ## ArchRust extensions test
 

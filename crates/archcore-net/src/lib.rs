@@ -58,4 +58,12 @@ mod tests {
         let d = decode_packet(&STARTUP_ENCRYPTION, &p).unwrap();
         assert_eq!(d.flags, 1);
     }
+
+    #[test]
+    fn bloc_memoire_vide_suivi_d_un_champ() {
+        // Le bloc vide (champ 7) ne doit rien écrire : le champ 8 se relit intact.
+        let p = build_packet(&OPT_VIEW, &Fields::new(&OPT_VIEW).with(0, 2).with(7, Vec::<u8>::new()).with(8, vec![1u8, 2, 3]));
+        let d = decode_packet(&OPT_VIEW, &p).unwrap();
+        assert_eq!((d.bytes(7), d.bytes(8)), (None, Some(&[1u8, 2, 3][..])));
+    }
 }

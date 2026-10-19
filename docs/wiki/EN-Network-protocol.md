@@ -297,6 +297,43 @@ Going back to town (0 and 1) is refused in combat. The round trip remembers the 
 it with AGPMITEM **op 9** (field 4 = CID); the client asks to go back with **op 6**, refused in combat; the
 server answers **op 10** (return disabled) and takes the player back.
 
+## Skills (types 0x05 and 0x3B)
+
+**Data.** `SKILL_SPEC.txt` describes each skill's nature (`attribute` field: buff, debuff, physical or
+magic damage, passive; `target`; `melee_attack`: instant damage); `SKILL_CONST.txt` its values per level:
+allowed classes (`require_class_*`), required level and points, learning (`skill_cost`) and upgrade
+(`skill_upgrade_cost`) prices, HP and MP costs, cast, effect and recast times (ms), range (metres, × 100 in
+game units), physical and elemental damage (flat and percent). Both tables name the skill, linked to its
+TID by `SKILLTEMPLATE.ini`.
+
+**A character's skills.** AGPMSKILL (2 flag bytes): op, ID, owner ("base" mini: type 3 = character, CID),
+factors (AGPMCHAR_FACTORS whose "dirt" sub-packet holds the level at index 4), TID, status, action, points,
+active effects. On entering the world, each skill is sent as **op 0** in field 8 of the optimized view op 2.
+Every character knows "Normal Attack" (TID 222). Skill points are the character's level (plus one per level
+from 50 to 70) minus the points required by each learned level; they are sent in the character's "dirt"
+factors (index 5).
+
+**Skill master.** "Trainer" NPCs carry function 25, with the race and class they teach (`SkillRaceType`,
+`SkillClassType`), sent in their view (INT8, INT8 mini). AGPMEVENTSKILLMASTER (0x3B, 1 flag byte): op,
+event, CID, skill ID, TID, result, points. **Op 4** opens the window (answer op 5, result 0); **op 1** learns
+the TID of field 4: AGPMSKILL op 0 then op 6 with the result (0 success, 1 failure including money, 2 already
+learned, 3 not enough points, 4 level too low, 5 class); **op 2** upgrades the skill of field 3: AGPMSKILL
+**op 2** (new level) then op 3.
+
+**Casting.** The client sends AGPMSKILL **op 7**: ID and action (mini: type, target as a "base" mini). The
+server checks the skill, its recast delay, MP and HP, walks the player into range, takes the cost and
+broadcasts **op 7** (action 1: target, position, cast, effect and recast times, level). When the cast ends,
+**op 8** (action 2: target, result factors) goes to the players who see the target: as in combat,
+sub-packet 0 of the factors holds the remaining HP and the damage as negative values, at index 9 for the
+physical part and 10 to 17 for the elements (magic, water, fire, earth, air, poison, lightning, ice).
+Auto-attack then resumes on the target.
+
+Damage: the physical part takes the character's attack roll, multiplied by (100 + percent) / 100, plus the
+flat damage; each element takes the character's elemental damage the same way, doubled. A higher-level
+target removes 5 % per level of difference (80 % at most); armour only reduces the physical part; each part
+is at least 1. For now, only instant-damage skills on one target have an effect: buffs, debuffs, damage
+over time, areas and passive skills are cast (animation, cost, delay) without effect.
+
 ## GM level (type 0x12, AgpmAdmin)
 
 2-byte field flags: op, CID, then 13 mini-packets. Op 0 with, in field 2, a "GM data" mini-packet of
@@ -326,5 +363,6 @@ Full specification: [[ArchRust extensions|EN-ArchRust-extensions]].
 | 0x11 | Timer | 0x60 | Titles |
 | 0x13 | Quests | 0x63 | Reconnect |
 | 0x32 | NPC shops | 0x37 | NPC dialog |
+| 0x3B | Skill master | | |
 
 Full schemas for the 86 modules are in `data/re/packet-schemas.json`.

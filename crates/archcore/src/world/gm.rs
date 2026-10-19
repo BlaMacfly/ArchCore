@@ -255,6 +255,7 @@ pub static COMMANDS: &[CommandDef] = &[
     CommandDef { name: "invincible", level: 2, args: Some(&["int?"]), usage: "/invincible <0|1>" },
     CommandDef { name: "rename_char", level: 2, args: Some(&["name", "name"]), usage: "/rename_char \"ancien\" \"nouveau\"" },
     CommandDef { name: "create", level: 3, args: Some(&["name", "int", "int?", "int?"]), usage: "/create \"nom\" <TID> <quantité> <0|1>" },
+    CommandDef { name: "level", level: 3, args: Some(&["int", "name?"]), usage: "/level <niveau> \"nom\"" },
     CommandDef { name: "money", level: 3, args: Some(&["int", "name?"]), usage: "/money <montant> \"nom\"" },
     CommandDef { name: "announce_restart", level: 3, args: Some(&["int", "int?"]), usage: "/announce_restart <minutes> <secondes>" },
     CommandDef { name: "move", level: 1, args: None, usage: "/move x,z" },
@@ -396,6 +397,21 @@ async fn run(world: &Arc<World>, st: &mut WorldState, sid: u32, cmd: &CommandDef
             }
             set_money(ctx, st, target, amount).await?;
             Ok(format!("{} a maintenant {amount} pièce(s) d'or.", st.players[&target].ch.name))
+        }
+        "level" => {
+            let level = a[0].int().unwrap_or(0);
+            let target = match a[1].name() {
+                Some(n) => st.by_name(n),
+                None => Some(sid),
+            };
+            let Some(target) = target else { return Ok(err(format!("personnage absent du monde : {}", a[1].name().unwrap_or("")))) };
+            if !(1..=120).contains(&level) {
+                return Ok(err("niveau entre 1 et 120"));
+            }
+            super::combat::set_level(ctx, st, target, level as i32).await?;
+            let p = &st.players[&target];
+            info!("[mj] {} passe {} au niveau {level}", st.players[&sid].ch.name, p.ch.name);
+            Ok(format!("{} est maintenant niveau {level} ({} point(s) de compétence).", p.ch.name, p.factors.dirt[super::skills::DIRT_SKILL_POINT]))
         }
         "announce_restart" => {
             let (minutes, seconds) = (a[0].int().unwrap_or(0), a[1].int().unwrap_or(0));

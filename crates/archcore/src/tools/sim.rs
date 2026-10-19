@@ -13,6 +13,7 @@
 //!   archcore sim scroll [compte] [mdp] [perso]                parchemins : destination fixe, aller-retour, retour au village ; compte MJ
 //!   archcore sim patrol [compte] [mdp] [perso]                immobile chez les Vers verts : des monstres se promènent
 //!   archcore sim bag [compte] [mdp] [perso]                   séparer, réunir et détruire une pile ; ressusciter au point de la région ; compte MJ
+//!   archcore sim skill [compte] [mdp] [perso]                 maître des compétences : apprendre, refus, amélioration ; Dual Slash sur un Ver vert ; compte MJ
 //! ```
 //! À lancer contre un serveur de test (`ARCHCORE_CONF_DIR`) : les personnages sont créés au besoin,
 //! déplacés, et `sim shop` leur donne 1000 pièces d'or.
@@ -47,13 +48,14 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
             ];
             Box::pin(addon(&acc)).await
         }
+        Some("skill") => Box::pin(skill(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("bag") => Box::pin(bag(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("scroll") => Box::pin(scroll(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("patrol") => Box::pin(patrol(&a(1, "sima"), &a(2, "sima"), &a(3, "SimA"))).await,
         Some("potion") => Box::pin(potion(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("equip") => Box::pin(equip(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("combat") => Box::pin(combat(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "Green Worm"))).await,
-        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol|bag [arguments]"),
+        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol|bag|skill [arguments]"),
     }
 }
 
@@ -226,6 +228,38 @@ pub struct InWorld {
     pub start: Vec3,
     /// Monstres reçus à l'entrée en jeu.
     pub monsters: Vec<SeenMonster>,
+    /// PNJ reçus à l'entrée : (CID, nom).
+    pub npcs: Vec<(i64, String)>,
+    /// Niveau du personnage à l'entrée.
+    pub level: i64,
+    /// Compétences reçues à l'entrée (vue op 2, champ 8) : (identifiant, TID, niveau).
+    pub skills: Vec<(i64, i64, i64)>,
+}
+
+/// Paquets complets mis bout à bout (champs « tous les objets », « compétences » de la vue op 2).
+fn split_packets(buf: &[u8]) -> Vec<&[u8]> {
+    let mut out = Vec::new();
+    let mut off = 0;
+    while let Some(h) = parse_header(&buf[off..]) {
+        let end = off + h.size as usize;
+        if h.size == 0 || end > buf.len() {
+            break;
+        }
+        out.push(&buf[off..end]);
+        off = end;
+    }
+    out
+}
+
+/// AGPMSKILL op 0 ou 2 : (identifiant, TID, niveau).
+fn skill_info(p: &Packet) -> (i64, i64, i64) {
+    let level = p
+        .bytes(3)
+        .and_then(|b| decode_mini(&mini::CHAR_FACTORS, b).ok())
+        .and_then(|f| f.bytes(11).and_then(|d| decode_mini(&mini::FACTOR_DIRT, d).ok()))
+        .and_then(|d| d.int(4))
+        .unwrap_or(0);
+    (p.int(1).unwrap_or(0), p.int(4).unwrap_or(0), level)
 }
 
 /// Monstre vu à l'entrée en jeu.
@@ -384,19 +418,36 @@ pub async fn enter_world_with(cfg: &Config, user: &str, pass: &str, char_name: &
     let game_ms = timer.int(1).unwrap_or(0);
     println!("  horloge du serveur : {game_ms} ms, soit {} h en jeu", (game_ms / 3_600_000) % 24);
     world.send(cm, Fields::new(cm).with(0, char_mgr_op::ENTER_WORLD)).await?;
-    world.expect(&schema::CHARACTER, Some(0)).await?;
+    let me = world.expect(&schema::CHARACTER, Some(0)).await?;
+    let level = me
+        .fields()
+        .bytes(7)
+        .and_then(|b| decode_mini(&mini::CHAR_FACTORS, b).ok())
+        .and_then(|f| f.bytes(1).and_then(|s| decode_mini(&mini::FACTOR_STATUS, s).ok()))
+        .and_then(|s| s.int(7))
+        .unwrap_or(0);
     let mut npc_names = Vec::new();
     let mut monsters = Vec::new();
+    let mut skills = Vec::new();
+    let mut npcs = Vec::new();
     loop {
         let p = world
             .expect_where(
-                |q| q.is(&schema::ADMIN, None) || q.is(&schema::OPT_VIEW, Some(1)) || q.is(cm, Some(char_mgr_op::FINISH_ENTER)),
+                |q| q.is(&schema::ADMIN, None) || q.is(&schema::OPT_VIEW, Some(1)) || q.is(&schema::OPT_VIEW, Some(2)) || q.is(cm, Some(char_mgr_op::FINISH_ENTER)),
                 5000,
                 "entrée en jeu",
             )
             .await?;
         if p.ptype == cm.id {
             break;
+        }
+        if p.is(&schema::OPT_VIEW, Some(2)) {
+            for raw in split_packets(p.fields().bytes(8).unwrap_or_default()) {
+                if let Ok(k) = decode_packet(&schema::SKILL, raw) {
+                    skills.push(skill_info(&k));
+                }
+            }
+            continue;
         }
         if p.ptype == schema::ADMIN.id {
             let a = decode_mini(&mini::ADMIN_CHAR, p.fields().bytes(2).unwrap_or_default())?;
@@ -408,13 +459,15 @@ pub async fn enter_world_with(cfg: &Config, user: &str, pass: &str, char_name: &
             monsters.push(SeenMonster::from_view(&view));
         } else {
             npc_names.push(view.text(2).unwrap_or_default());
+            npcs.push((view.int(0).unwrap_or(0), view.text(2).unwrap_or_default()));
         }
     }
     let shown: Vec<&str> = npc_names.iter().take(6).map(String::as_str).collect();
     println!("  {} PNJ reçu(s) : {}{}", npc_names.len(), shown.join(", "), if npc_names.len() > 6 { ", …" } else { "" });
     println!("  {} monstre(s) reçu(s)", monsters.len());
+    println!("  niveau {level}, {} compétence(s) : {skills:?}", skills.len());
     println!("  entrée en jeu confirmée");
-    Ok(InWorld { world, cid, start, monsters })
+    Ok(InWorld { world, cid, start, monsters, npcs, level, skills })
 }
 
 async fn client(user: &str, pass: &str, char_name: &str, commands: &[String]) -> anyhow::Result<()> {
@@ -1053,6 +1106,132 @@ async fn bag(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
     anyhow::ensure!((d.x + 476_000.0).abs() < 1.0 && (d.z + 61_000.0).abs() < 1.0, "ressuscité en {d:?}");
     println!("  ✓ ressuscité au point de résurrection d'Anchorville : {:.0}, {:.0}", d.x, d.z);
     println!("\ninventaire et résurrection : OK");
+    Ok(())
+}
+
+/// Maître des compétences des guerriers humains (Black, au sud d'Anchorville), puis Dual Slash sur un Ver vert.
+async fn skill(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
+    const TRAINER: Vec3 = Vec3 { x: -480_700.0, y: 5_070.0, z: -62_100.0 };
+    const HUNT: Vec3 = Vec3 { x: -466_468.0, y: 4_700.0, z: -50_010.0 };
+    const NORMAL_ATTACK: i64 = 222;
+    const DUAL_SLASH: i64 = 1;
+    const FLAME_CORE: i64 = 11; // mage
+    const STOP: i64 = 0x04;
+    let cfg = crate::config::load()?;
+    let (k, sm, ch, mv, ov, c) = (&schema::SKILL, &schema::EVENT_SKILL_MASTER, &schema::CHATTING, &schema::OPT_CHAR_MOVE, &schema::OPT_VIEW, &schema::CHARACTER);
+    step(&format!("{char_name} entre en jeu"));
+    let mut w = enter_world(&cfg, user, pass, char_name, "").await?;
+    let me = w.cid as i64;
+    let say = |cid: u32, text: &str| Fields::new(ch).with(0, 0).with(1, cid).with(2, chat_type::NORMAL).with(6, crate::tools::to_cp1252(text));
+    let system = |q: &Recv| q.ptype == ch.id && q.int(2) == Some(chat_type::SYSTEM);
+    anyhow::ensure!(w.skills.iter().any(|s| s.1 == NORMAL_ATTACK), "Normal Attack absente : {:?}", w.skills);
+    println!("  ✓ Normal Attack connue");
+
+    step("niveau 10, argent");
+    let level = w.level.max(1);
+    w.world.send(ch, say(w.cid, "/level 10")).await?;
+    let r = w.world.expect_where(system, 3000, "réponse à /level").await?;
+    println!("  {}", r.fields().text(6).unwrap_or_default());
+    w.world.send(ch, say(w.cid, "/money 100000")).await?;
+    w.world.expect_where(|q| q.is(c, Some(1)) && q.int(8) == Some(100_000), 3000, "argent").await?;
+
+    step("maître des compétences");
+    w.world.send(mv, Fields::new(mv).with(0, w.cid).with(1, TRAINER).with(2, TRAINER).with(5, STOP).with(6, 0)).await?;
+    let mut trainer = w.npcs.iter().find(|n| n.1.ends_with(" Black")).map(|n| n.0);
+    while let Ok(p) = w.world.expect_where(|q| q.is(ov, Some(1)), 1500, "PNJ").await {
+        if let Ok(view) = decode_mini(&mini::OPT_VIEW_CHAR, p.fields().bytes(1).unwrap_or_default()) {
+            if view.text(2).is_some_and(|n| n.ends_with(" Black")) {
+                trainer = view.int(0);
+            }
+        }
+    }
+    let trainer = trainer.ok_or_else(|| anyhow::anyhow!("maître Black introuvable"))?;
+    let eb = &mini::EVENT_BASE;
+    let event = build_mini(eb, &Fields::new(eb).with(0, 3).with(1, trainer).with(3, 25));
+    let master = |op: i64| Fields::new(sm).with(0, op).with(1, event.clone()).with(2, w.cid);
+    w.world.send(sm, master(4)).await?;
+    w.world.expect_where(|q| q.is(sm, Some(5)) && q.int(5) == Some(0), 3000, "fenêtre du maître").await?;
+    println!("  ✓ fenêtre ouverte ({trainer:#x})");
+
+    step("apprendre Dual Slash");
+    w.world.send(sm, master(1).with(4, DUAL_SLASH)).await?;
+    let id = match w.skills.iter().find(|s| s.1 == DUAL_SLASH) {
+        Some(s) => {
+            w.world.expect_where(|q| q.is(sm, Some(6)) && q.int(5) == Some(2), 3000, "déjà apprise").await?;
+            println!("  ✓ déjà apprise (niveau {}) : refus « déjà apprise »", s.2);
+            s.0
+        }
+        None => {
+            let add = w.world.expect_where(|q| q.is(k, Some(0)) && q.int(4) == Some(DUAL_SLASH), 3000, "compétence ajoutée").await?;
+            w.world.expect_where(|q| q.is(sm, Some(6)) && q.int(5) == Some(0), 3000, "apprise").await?;
+            let info = skill_info(add.packet.as_ref().unwrap());
+            println!("  ✓ apprise : identifiant {}, niveau {}", info.0, info.2);
+            info.0
+        }
+    };
+
+    step("refus : compétence de mage");
+    w.world.send(sm, master(1).with(4, FLAME_CORE)).await?;
+    w.world.expect_where(|q| q.is(sm, Some(6)) && q.int(5) == Some(5), 3000, "refus de classe").await?;
+    println!("  ✓ Flame Core refusée (classe)");
+
+    step("améliorer Dual Slash");
+    w.world.send(sm, master(2).with(3, id)).await?;
+    let r = w.world.expect_where(|q| q.is(k, Some(2)) && q.int(1) == Some(id) || system(q), 3000, "amélioration").await?;
+    if r.ptype == k.id {
+        w.world.expect_where(|q| q.is(sm, Some(3)) && q.int(3) == Some(id), 3000, "réponse d'amélioration").await?;
+        println!("  ✓ niveau {}", skill_info(r.packet.as_ref().unwrap()).2);
+    } else {
+        let text = r.fields().text(6).unwrap_or_default();
+        anyhow::ensure!(text.starts_with("Impossible d'améliorer") || text.contains("niveau maximal"), "réponse inattendue : {text}");
+        println!("  ✓ {text}");
+    }
+
+    step("Dual Slash sur un Ver vert");
+    w.world.send(ch, say(w.cid, "/invincible 1")).await?;
+    w.world.send(mv, Fields::new(mv).with(0, w.cid).with(1, HUNT).with(2, HUNT).with(5, STOP).with(6, 0)).await?;
+    let mut worm = None;
+    while let Ok(p) = w.world.expect_where(|q| q.is(ov, Some(1)), 1500, "monstres").await {
+        if let Ok(view) = decode_mini(&mini::OPT_VIEW_CHAR, p.fields().bytes(1).unwrap_or_default()) {
+            if view.text(2).as_deref() == Some("Green Worm") && view.bytes(5).and_then(factors_hp).unwrap_or(0) > 0 {
+                worm.get_or_insert(view.int(0).unwrap_or(0));
+            }
+        }
+    }
+    let worm = worm.ok_or_else(|| anyhow::anyhow!("aucun Ver vert en vue"))?;
+    let sb = &mini::SKILL_BASE;
+    let sa = &mini::SKILL_ACTION;
+    let cast = |target: i64| {
+        let act = build_mini(sa, &Fields::new(sa).with(0, 0).with(1, build_mini(sb, &Fields::new(sb).with(0, 3).with(1, target))));
+        Fields::new(k).with(0, 7).with(1, id).with(6, act)
+    };
+    w.world.send(k, cast(worm)).await?;
+    let started = w.world.expect_where(|q| q.is(k, Some(7)) && q.int(1) == Some(id), 10_000, "lancement").await?;
+    let act = decode_mini(sa, started.fields().bytes(6).unwrap_or_default())?;
+    println!("  ✓ lancement : incantation {} ms, relance {} ms, niveau {}", o(act.int(5)), o(act.int(7)), o(act.int(8)));
+    let hit = w.world.expect_where(|q| q.is(k, Some(8)) && q.int(1) == Some(id), 5000, "résultat").await?;
+    let act = decode_mini(sa, hit.fields().bytes(6).unwrap_or_default())?;
+    let target = decode_mini(sb, act.bytes(1).unwrap_or_default())?.int(1);
+    anyhow::ensure!(target == Some(worm), "cible {target:?} au lieu de {worm}");
+    let result = decode_mini(&mini::CHAR_FACTORS, act.bytes(2).unwrap_or_default())?;
+    let shown = decode_mini(&mini::CHAR_FACTORS, result.bytes(0).unwrap_or_default())?;
+    let points = decode_mini(&mini::FACTOR_POINT, shown.bytes(3).unwrap_or_default())?;
+    let damage = -points.int(9).unwrap_or(0);
+    anyhow::ensure!(damage > 0, "pas de dégâts");
+    println!("  ✓ {damage} dégât(s), {} PV restants au ver", o(points.int(0)));
+
+    step("relance refusée pendant le délai");
+    w.world.send(k, cast(worm)).await?;
+    anyhow::ensure!(w.world.expect_where(|q| q.is(k, Some(7)) && q.int(1) == Some(id), 1500, "relance").await.is_err(), "relance acceptée trop tôt");
+    println!("  ✓ refusée");
+
+    // Un déplacement arrête l'attaque automatique reprise après la compétence.
+    w.world.send(mv, Fields::new(mv).with(0, w.cid).with(1, HUNT).with(2, HUNT).with(5, STOP).with(6, 0)).await?;
+    w.world.send(ch, say(w.cid, "/invincible 0")).await?;
+    w.world.send(ch, say(w.cid, &format!("/level {level}"))).await?;
+    w.world.expect_where(|q| system(q) && q.fields().text(6).is_some_and(|t| t.contains(&format!("niveau {level}"))), 3000, "niveau rétabli").await?;
+    println!("  ✓ niveau {level} rétabli ({me:#x})");
+    println!("\ncompétences : OK");
     Ok(())
 }
 
