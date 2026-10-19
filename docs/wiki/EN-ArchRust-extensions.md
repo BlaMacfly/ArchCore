@@ -1,6 +1,6 @@
 # ArchRust ↔ ArchCore extensions
 
-> **Specification, version 1.0 — draft.** Nothing is implemented yet. This document is the reference for
+> **Specification, version 1.0 — approved on 2026-10-19** (decisions in section 10). Nothing is implemented yet. This document is the reference for
 > both projects: the [ArchRust](https://github.com/BlaMacfly/ArchRust) client and the ArchCore server.
 
 ArchRust, the client rewritten in Rust, supports **Lua AddOns** modelled on World of Warcraft. Some AddOns
@@ -138,7 +138,7 @@ answers `capabilities = "addon-msg/1"` with its limits.
 | Value | Scope | Recipients | Version 1 |
 |---|---|---|---|
 | 1 | `WHISPER` | the character named in `target` | ✅ |
-| 2 | `SAY` | players within the sender's view range, sender included | ✅ |
+| 2 | `SAY` | players within the sender's chat range, sender included: the same radius as normal chat (`world.viewRadius`, 8000 units by default) | ✅ |
 | 3 | `PARTY` | the sender's party, sender included | answers `NOT_AVAILABLE` until parties exist |
 | 4 | `GUILD` | the sender's guild, sender included | same, until guilds exist |
 | 5 | `RAID` | reserved | `NOT_AVAILABLE` |
@@ -153,10 +153,11 @@ a whisper addressed to them returns `TARGET_NO_EXTENSION`.
 On an `ADDON_SEND`, the server checks, in order:
 
 1. that the connection was granted `addon-msg` and the player is in the world (otherwise the packet is ignored);
-2. the prefix;
-3. the payload size;
-4. the rate limit;
-5. the scope and recipient.
+2. that the player is not chat-muted (otherwise `NOT_ALLOWED`);
+3. the prefix;
+4. the payload size;
+5. the rate limit;
+6. the scope and recipient.
 
 It then sends an `ADDON_RECV` to each recipient, filling in `sender_cid` and `sender_name` itself. For a
 whisper, the `target` field of `ADDON_RECV` holds the recipient's name.
@@ -183,7 +184,7 @@ the refused message's `request_id` (0 if the client gave none).
 | 4 | `TARGET_OFFLINE` | whisper recipient not found or offline |
 | 5 | `NOT_AVAILABLE` | scope not supported by this server |
 | 6 | `NOT_IN_GROUP` | `PARTY`/`GUILD` scope without a party or guild |
-| 7 | `NOT_ALLOWED` | reserved prefix, or the player may not send |
+| 7 | `NOT_ALLOWED` | reserved prefix, or the player is chat-muted (`/chatban`) |
 | 8 | `TARGET_NO_EXTENSION` | the recipient lacks the `addon-msg` capability |
 
 ## 7. ArchRust side: proposed Lua API
@@ -212,10 +213,9 @@ limit before sending, and returns `AddonMessageThrottle` if it has to refuse.
 ## 8. Security and privacy
 
 - The server trusts no identity field sent by the client: the sender is always the connection's character.
-- `AC.` prefixes let the server talk to official AddOns without spoofing risk.
+- `AC.` prefixes are reserved for the server's own messages, so no player can impersonate it.
 - Payloads are neither read, stored nor logged by the server.
-- A chat mute (`/chatban`) does not block AddOn messages in version 1: they are not visible as text. This
-  choice is open (section 10).
+- A chat mute (`/chatban`) also blocks AddOn messages; otherwise a chat AddOn could bypass it.
 - Repeated rate-limit abuse is logged so GMs can step in.
 
 ## 9. Planned implementation
@@ -234,14 +234,18 @@ limit before sending, and returns `AddonMessageThrottle` if it has to refuse.
 - Send smoothing according to the announced limits.
 
 **Shared code.** Both projects currently describe the protocol separately (`archcore-net`,
-`archrust-protocol`). For the extension, a single source is better: ArchRust could depend on the
-`archcore-net` crate (git dependency), which would carry the `0xAC` schema. This requires compatible
-licences (ArchRust is GPL-3.0).
+`archrust-protocol`). For the extension, a single source is better: ArchRust can depend on the
+`archcore-net` crate (git dependency), which will carry the `0xAC` schema. The licences allow it: both
+projects are GPL-3.0-or-later.
 
-## 10. Open questions
+## 10. Decisions (2026-10-19)
 
-1. **ArchCore's licence**, a prerequisite for sharing `archcore-net` with ArchRust.
-2. **`/chatban` and AddOns**: should a muted player's AddOn messages be blocked too?
-3. **`SAY` scope**: full view range (8000 units) or a shorter speech distance?
-4. **Messages to the server (`SERVER`)**: first intended use — detailed stats, quests, world state?
-5. **Official AddOns**: should the server be able to announce or offer AddOns (list, versions)?
+1. **License**: ArchCore moves to **GPL-3.0-or-later**, like ArchRust, so `archcore-net` can be shared
+   between the two projects.
+2. **`/chatban` and AddOns**: a muted player cannot send AddOn messages either (`NOT_ALLOWED`).
+3. **`SAY` scope**: same radius as normal chat (`world.viewRadius`). A `SAY` AddOn message reaches exactly
+   the players who would see a chat message; one setting for both.
+4. **Messages to the server**: the first uses of the `addon-data` capability will be detailed character
+   stats, quests and world state. The `SERVER` scope stays closed in version 1.
+5. **Official AddOns**: there are none. The protocol neither announces nor distributes AddOns; `AC.`
+   prefixes stay reserved for the server's own messages.

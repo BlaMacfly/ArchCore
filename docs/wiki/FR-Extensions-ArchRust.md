@@ -1,6 +1,6 @@
 # Extensions ArchRust ↔ ArchCore
 
-> **Spécification, version 1.0 — brouillon.** Rien n'est encore codé. Ce document fait foi pour les deux
+> **Spécification, version 1.0 — validée le 2026-10-19** (décisions en section 10). Rien n'est encore codé. Ce document fait foi pour les deux
 > projets : le client [ArchRust](https://github.com/BlaMacfly/ArchRust) et le serveur ArchCore.
 
 ArchRust, le client réécrit en Rust, prend en charge des **AddOns Lua** sur le modèle de World of Warcraft.
@@ -140,7 +140,7 @@ il répond `capabilities = "addon-msg/1"` avec ses limites.
 | Valeur | Portée | Destinataires | Version 1 |
 |---|---|---|---|
 | 1 | `WHISPER` | le personnage nommé dans `target` | ✅ |
-| 2 | `SAY` | les joueurs à portée de vue de l'émetteur, émetteur compris | ✅ |
+| 2 | `SAY` | les joueurs à portée de discussion de l'émetteur, émetteur compris : le même rayon que la discussion normale (`world.viewRadius`, 8000 unités par défaut) | ✅ |
 | 3 | `PARTY` | le groupe de l'émetteur, émetteur compris | répond `NOT_AVAILABLE` tant que les groupes n'existent pas |
 | 4 | `GUILD` | la guilde de l'émetteur, émetteur compris | idem, en attendant les guildes |
 | 5 | `RAID` | réservé | `NOT_AVAILABLE` |
@@ -155,10 +155,11 @@ d'origine n'en reçoit jamais : un murmure qui lui est adressé renvoie `TARGET_
 À la réception d'un `ADDON_SEND`, le serveur vérifie, dans l'ordre :
 
 1. que la connexion a obtenu `addon-msg` et que le joueur est en jeu (sinon le paquet est ignoré) ;
-2. le préfixe ;
-3. la taille de la charge ;
-4. la limite de débit ;
-5. la portée et le destinataire.
+2. que le joueur n'est pas sous le coup d'une interdiction de discussion (sinon `NOT_ALLOWED`) ;
+3. le préfixe ;
+4. la taille de la charge ;
+5. la limite de débit ;
+6. la portée et le destinataire.
 
 Il envoie ensuite un `ADDON_RECV` à chaque destinataire, avec `sender_cid` et `sender_name` qu'il remplit
 lui-même. Pour un murmure, le champ `target` de `ADDON_RECV` reprend le nom du destinataire.
@@ -185,7 +186,7 @@ d'erreur, avec le `request_id` du message refusé (0 si le client n'en a pas don
 | 4 | `TARGET_OFFLINE` | destinataire du murmure introuvable ou hors ligne |
 | 5 | `NOT_AVAILABLE` | portée non gérée par ce serveur |
 | 6 | `NOT_IN_GROUP` | portée `PARTY`/`GUILD` sans groupe ou sans guilde |
-| 7 | `NOT_ALLOWED` | préfixe réservé ou envoi interdit au joueur |
+| 7 | `NOT_ALLOWED` | préfixe réservé, ou joueur sous le coup d'une interdiction de discussion (`/chatban`) |
 | 8 | `TARGET_NO_EXTENSION` | le destinataire n'a pas la capacité `addon-msg` |
 
 ## 7. Côté ArchRust : API Lua proposée
@@ -215,10 +216,10 @@ annoncée avant d'envoyer, et rend `AddonMessageThrottle` s'il doit refuser.
 
 - Le serveur ne fait confiance à aucun champ d'identité envoyé par le client : l'émetteur est toujours le
   personnage de la connexion.
-- Les préfixes `AC.` permettent au serveur de parler à des AddOns officiels sans risque d'usurpation.
+- Les préfixes `AC.` sont réservés aux messages du serveur lui-même, pour qu'aucun joueur ne puisse se faire passer pour lui.
 - Les charges ne sont ni lues, ni stockées, ni journalisées par le serveur.
-- Une interdiction de discussion (`/chatban`) ne bloque pas les messages d'AddOn en version 1 : ils ne sont
-  pas visibles en clair. Ce choix est à confirmer (section 10).
+- Une interdiction de discussion (`/chatban`) bloque aussi les messages d'AddOn : sinon un AddOn de discussion
+  permettrait de la contourner.
 - Un abus répété de la limite de débit est journalisé, pour que les MJ puissent intervenir.
 
 ## 9. Mise en œuvre prévue
@@ -237,14 +238,19 @@ annoncée avant d'envoyer, et rend `AddonMessageThrottle` s'il doit refuser.
 - Lissage des envois selon les limites annoncées.
 
 **Code commun.** Les deux projets décrivent aujourd'hui le protocole chacun de leur côté (`archcore-net`,
-`archrust-protocol`). Pour l'extension, une seule source est préférable : ArchRust pourrait dépendre de la
-crate `archcore-net` (dépendance git), qui porterait le schéma `0xAC`. Cela suppose des licences
-compatibles (ArchRust est en GPL-3.0).
+`archrust-protocol`). Pour l'extension, une seule source est préférable : ArchRust peut dépendre de la
+crate `archcore-net` (dépendance git), qui portera le schéma `0xAC`. Les licences le permettent : les deux
+projets sont sous GPL-3.0-or-later.
 
-## 10. Questions ouvertes
+## 10. Décisions (2026-10-19)
 
-1. **Licence d'ArchCore**, préalable au partage de `archcore-net` avec ArchRust.
-2. **`/chatban` et AddOns** : faut-il aussi bloquer les messages d'AddOn d'un joueur réduit au silence ?
-3. **Portée `SAY`** : rayon de vue complet (8000 unités) ou distance de parole plus courte ?
-4. **Messages au serveur (`SERVER`)** : premier usage visé — statistiques détaillées, quêtes, état du monde ?
-5. **AddOns officiels** : le serveur doit-il pouvoir annoncer ou proposer des AddOns (liste, versions) ?
+1. **Licence** : ArchCore passe sous **GPL-3.0-or-later**, comme ArchRust. Le partage de `archcore-net`
+   entre les deux projets est donc possible.
+2. **`/chatban` et AddOns** : un joueur réduit au silence ne peut pas non plus envoyer de messages d'AddOn
+   (`NOT_ALLOWED`).
+3. **Portée `SAY`** : même rayon que la discussion normale (`world.viewRadius`). Un message d'AddOn en `SAY`
+   atteint exactement les joueurs qui verraient un message de discussion ; un seul réglage pour les deux.
+4. **Messages au serveur** : les premiers usages de la capacité `addon-data` seront les statistiques
+   détaillées du personnage, les quêtes et l'état du monde. La portée `SERVER` reste fermée en version 1.
+5. **AddOns officiels** : il n'en existe pas. Le protocole ne prévoit ni annonce ni distribution d'AddOns ;
+   les préfixes `AC.` restent réservés aux messages du serveur.

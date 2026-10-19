@@ -80,6 +80,11 @@ Les mêmes pages sont dans [`docs/wiki`](docs/wiki).
 Rejoignez le Discord officiel pour suivre le projet, poser vos questions et proposer votre aide :
 https://discord.gg/T3jfR6ftak
 
+### Licence
+
+ArchCore est un logiciel libre sous licence [GNU GPL v3 ou ultérieure](LICENSE) (`GPL-3.0-or-later`),
+comme le client ArchRust.
+
 
 ---
 
@@ -140,4 +145,9 @@ are in [`docs/wiki`](docs/wiki).
 
 Join the official Discord to follow the project, ask questions and offer help:
 https://discord.gg/T3jfR6ftak
+
+### License
+
+ArchCore is free software under the [GNU GPL v3 or later](LICENSE) (`GPL-3.0-or-later`), like the
+ArchRust client.
 
