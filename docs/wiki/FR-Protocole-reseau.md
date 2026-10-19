@@ -411,6 +411,42 @@ serveur vérifie l'argent et la place dans les inventaires, transfère les objet
 propriétaire, op 0 statut 2 chez le nouveau) et l'argent (AGPMCHARACTER champ 8). Une déconnexion annule
 l'échange.
 
+## Quêtes (types 0x13 et 0x3E)
+
+**Données.** `questtemplate.ini` (tabulé) décrit chaque quête : niveaux, race et classe admises, quête
+précédente, quête « personnelle » (`Self_Quest`, prise depuis le journal), objectifs (monstres A et B à tuer,
+objet à rapporter), objets laissés par les monstres de la quête (`DropItem*` : TID, pour cent, nombre),
+récompenses (objets, objets au choix, argent, expérience). `questgroup.ini` donne, pour chaque groupe de PNJ
+(`QuestGroupID` de npc.ini), les quêtes qu'il propose et celles qu'on lui rend. Le client français n'en
+connaît qu'une soixantaine (quêtes d'événement et de haut niveau).
+
+**Protocole**, relevé dans le client x64. AGPMQUEST (drapeaux 2) : op, CID, événement du PNJ (EVENT_BASE),
+quête (mini : TID, monstres A et B tués, objectifs remplis, valeur, texte de 49 octets), TID, deux entiers,
+résultat, récompense choisie, trois blocs de drapeaux.
+
+| Op | Sens | Rôle |
+|---|---|---|
+| 0 | client | Prendre la quête du champ 4 (événement du PNJ au champ 2, absent pour une quête personnelle) |
+| 1 | serveur | Réponse : champ 4 = TID, champ 6 = 1 (réussi) ou 0 ; le client l'inscrit au journal |
+| 2, 15 | client | Terminer (champ 7 = récompense choisie) |
+| 3 | serveur | Réponse (champs 4 et 6) |
+| 4 | serveur | Quête du journal (mini), à l'entrée en jeu |
+| 5 | serveur | Drapeaux des quêtes terminées, à l'entrée en jeu : champs 8, 9, 10 de 0x800 octets ; la quête TID est le bit TID % 16 384 du bloc TID / 16 384 (octet bit / 8, bit de poids faible d'abord) |
+| 6 | client | Abandonner (champ 4) |
+| 7 | serveur | Réponse (champs 4 et 6) |
+| 10 | serveur | Progression (mini) : le client affiche « monstre n/total » |
+
+AGPMEVENTQUEST (0x3E, drapeaux 1 : op, événement, CID, entier) : le client demande la fenêtre des quêtes d'un
+PNJ (fonction 27) par l'op 0 ; le serveur la lui ouvre en renvoyant l'op 0.
+
+**Règles.** Une quête se prend auprès d'un PNJ dont le groupe la propose, ou depuis le journal si elle est
+personnelle ; elle se refuse si elle est déjà en cours ou terminée, si le journal est plein (60), hors des
+niveaux, de la race ou de la classe, ou sans la quête précédente. Chaque monstre tué fait avancer les quêtes
+qui le comptent et peut laisser l'objet de la quête (selon son pour cent, jusqu'au nombre demandé). La quête
+se termine (auprès d'un PNJ qui la reçoit, ou depuis le journal) quand les monstres sont tués et les objets
+réunis : les objets demandés sont repris, les récompenses données (objets, argent, expérience). En base,
+`character_quests` garde les quêtes en cours (compteurs) et terminées.
+
 ## Niveau MJ (type 0x12, AgpmAdmin)
 
 Drapeaux de champs sur 2 octets : op, CID, puis 13 mini-paquets. L'op 0 avec, au champ 2, un
@@ -442,6 +478,6 @@ pas envoyé `HELLO`. Spécification complète : [[Extensions ArchRust|FR-Extensi
 | 0x13 | Quêtes | 0x63 | Reconnexion |
 | 0x32 | Boutiques des PNJ | 0x37 | Dialogue des PNJ |
 | 0x3B | Maître des compétences | 0x36 | Banque |
-| 0x07 | Échange entre joueurs | | |
+| 0x07 | Échange entre joueurs | 0x3E | Quêtes des PNJ |
 
 Les schémas complets des 86 modules sont dans `data/re/packet-schemas.json`.

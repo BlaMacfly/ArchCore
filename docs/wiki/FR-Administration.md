@@ -72,6 +72,7 @@ la discussion comme messages système.
 | `/invincible [0\|1]` | 2 | Les monstres ne vous blessent plus (1, par défaut) ou de nouveau (0) |
 | `/rename_char "ancien" "nouveau"` | 2 | Renomme en base (2 à 24 caractères, sans espace). Un joueur connecté voit son nouveau nom à sa prochaine connexion |
 | `/create "nom" <TID> <quantité> <0\|1>` | 3 | Ajoute l'objet dans `character_items`, dans la première case libre de l'inventaire. Un joueur connecté le reçoit tout de suite ; le personnage peut aussi être hors ligne |
+| `/questreset <TID>` | 3 | Efface la quête TID (en cours ou terminée) du journal du MJ ; visible à la prochaine connexion. Commande propre à ArchCore |
 | `/level <niveau> ["nom"]` | 3 | Fixe le niveau du personnage connecté (1 à 120) : expérience remise à zéro, PV et PM rendus, points de compétence recalculés ; sans nom, sur soi. Commande propre à ArchCore |
 | `/money <montant> ["nom"]` | 3 | Fixe l'or du personnage connecté (de 0 à 1 000 000 000) ; sans nom, sur soi. Commande propre à ArchCore |
 | `/announce_restart <minutes> <secondes>` | 3 | Annonce à tous les joueurs, rappel chaque minute, compte à rebours sur les dernières secondes. `0 0` annule |
@@ -183,6 +184,7 @@ Exemple : `/SetExp 2.0` puis `/GetExp` pour vérifier.
 | ✅ `/create "nom" <TID> <quantité> <0\|1>` | Donne un objet au personnage. `TID` = identifiant de l'objet ; le dernier nombre rend l'objet non échangeable (1) |
 | ✅ `/money <montant> ["nom"]` | Fixe l'or d'un personnage connecté (ajout d'ArchCore, absent du panneau) |
 | ✅ `/level <niveau> ["nom"]` | Fixe le niveau d'un personnage connecté (ajout d'ArchCore, absent du panneau) |
+| ✅ `/questreset <TID>` | Efface une quête du journal du MJ (ajout d'ArchCore, absent du panneau) |
 | `/last_refine` | Réutilise la dernière recette de raffinage |
 | `/refresh_prestige_db` | Recharge les données de prestige |
 | `/refinetest` / `/refinetest stop` | Lance ou arrête le test de charge du raffinage |

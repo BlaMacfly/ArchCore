@@ -10,7 +10,7 @@ named by `ARCHCORE_CONF_DIR` (see [[Configuration|EN-Configuration]]).
 | `archcore db-init [--account name pass [gm]]` | Creates the databases and applies `sql/`; with `--account`, creates or updates an account |
 | `archcore decrypt [source] [destination]` | Decrypts `Game/ini` (RC4, MD5("1111")) into `data/client-ini` |
 | `archcore import [folder] [--server folder]` | Imports `data/client-ini` into `archcore_world` (CP949 → UTF-8); with the original server tables (`--server`, or `data/server-ini` if it exists), also imports monster spawns and the server map |
-| `archcore sim client\|move\|shop\|addon\|combat\|equip\|potion\|scroll\|patrol\|bag\|skill\|effects\|bank\|trade …` | Simulated clients (see below) |
+| `archcore sim client\|move\|shop\|addon\|combat\|equip\|potion\|scroll\|patrol\|bag\|skill\|effects\|bank\|trade\|quest …` | Simulated clients (see below) |
 | `archcore i18n strings [Game]` | Lists the texts still in English in `data/i18n/pending-en.json` |
 | `archcore i18n coverage [Game]` | Measures how much of `ini_fr` is translated |
 | `archcore i18n apply [--ascii] [--dry]` | Applies the translation memory to the client (see [[Translation|EN-Translation]]) |
@@ -129,6 +129,18 @@ Holly (south of Anchorville), deposits a potion stack and 1000 coins, reconnects
 withdraws them and destroys the stack. `sim trade` puts GmTest (GM) and SimA at the same spot: GmTest offers
 a potion stack and 500 coins, SimA 100 coins; the offered item cannot be destroyed; locks, exchange (SimA
 receives the stack, money is adjusted on both sides), then a second request refused.
+
+## Quests test
+
+```bash
+ARCHCORE_CONF_DIR=config/test archcore sim quest [user] [pass] [character]
+```
+
+The GM account (`gmtest`), raised to level 120 (`/questreset` first resets the test quests), takes Shattered
+Roots from the journal, is refused completing it without the 50 Corrupted Root Cores, receives them
+(`/create`), completes it (items taken, Tempering Gem received), is refused taking it again and taking Winged
+Menace (level 25 to 40), takes then abandons Gladiator's Demise; after reconnecting, Shattered Roots is among
+the completed quests and the abandoned quest is no longer in the journal.
 
 ## Skills test
 

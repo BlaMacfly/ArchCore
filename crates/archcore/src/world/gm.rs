@@ -255,6 +255,7 @@ pub static COMMANDS: &[CommandDef] = &[
     CommandDef { name: "invincible", level: 2, args: Some(&["int?"]), usage: "/invincible <0|1>" },
     CommandDef { name: "rename_char", level: 2, args: Some(&["name", "name"]), usage: "/rename_char \"ancien\" \"nouveau\"" },
     CommandDef { name: "create", level: 3, args: Some(&["name", "int", "int?", "int?"]), usage: "/create \"nom\" <TID> <quantité> <0|1>" },
+    CommandDef { name: "questreset", level: 3, args: Some(&["int"]), usage: "/questreset <TID>" },
     CommandDef { name: "level", level: 3, args: Some(&["int", "name?"]), usage: "/level <niveau> \"nom\"" },
     CommandDef { name: "money", level: 3, args: Some(&["int", "name?"]), usage: "/money <montant> \"nom\"" },
     CommandDef { name: "announce_restart", level: 3, args: Some(&["int", "int?"]), usage: "/announce_restart <minutes> <secondes>" },
@@ -397,6 +398,15 @@ async fn run(world: &Arc<World>, st: &mut WorldState, sid: u32, cmd: &CommandDef
             }
             set_money(ctx, st, target, amount).await?;
             Ok(format!("{} a maintenant {amount} pièce(s) d'or.", st.players[&target].ch.name))
+        }
+        "questreset" => {
+            let tid = a[0].int().unwrap_or(0) as u32;
+            let p = st.players.get_mut(&sid).unwrap();
+            let had = p.quests.done.remove(&tid) | p.quests.active.iter().any(|q| q.tid == tid);
+            p.quests.active.retain(|q| q.tid != tid);
+            ctx.db.characters.exec("DELETE FROM character_quests WHERE character_id = ? AND quest_tid = ?", (p.ch.id, tid)).await?;
+            info!("[mj] {} : quête {tid} remise à zéro", p.ch.name);
+            Ok(if had { format!("Quête {tid} remise à zéro (visible à la prochaine connexion).") } else { format!("Quête {tid} : rien à remettre à zéro.") })
         }
         "level" => {
             let level = a[0].int().unwrap_or(0);

@@ -402,6 +402,42 @@ and the inventory until the exchange, and can be neither moved, used nor destroy
 checks the money and the inventory space, transfers the items (AGPMITEM op 1 for the old owner, op 0
 status 2 for the new one) and the money (AGPMCHARACTER field 8). A disconnection cancels the trade.
 
+## Quests (types 0x13 and 0x3E)
+
+**Data.** `questtemplate.ini` (tab-separated) describes each quest: levels, allowed race and class, previous
+quest, "self" quest (`Self_Quest`, taken from the journal), objectives (monsters A and B to kill, item to bring),
+items dropped by the quest's monsters (`DropItem*`: TID, percent, count), rewards (items, items to choose,
+money, experience). `questgroup.ini` gives, for each NPC group (`QuestGroupID` of npc.ini), the quests it
+offers and those handed in to it. The French client only knows about sixty of them (event and high-level
+quests).
+
+**Protocol**, read from the x64 client. AGPMQUEST (2 flag bytes): op, CID, NPC event (EVENT_BASE), quest (mini:
+TID, monsters A and B killed, objectives done, value, 49-byte text), TID, two integers, result, chosen reward,
+three flag blocks.
+
+| Op | Direction | Role |
+|---|---|---|
+| 0 | client | Take the quest of field 4 (NPC event in field 2, absent for a self quest) |
+| 1 | server | Answer: field 4 = TID, field 6 = 1 (success) or 0; the client adds it to its journal |
+| 2, 15 | client | Complete (field 7 = chosen reward) |
+| 3 | server | Answer (fields 4 and 6) |
+| 4 | server | Journal quest (mini), on entering the world |
+| 5 | server | Flags of completed quests, on entering the world: fields 8, 9, 10 of 0x800 bytes; quest TID is bit TID % 16,384 of block TID / 16,384 (byte bit / 8, lowest bit first) |
+| 6 | client | Abandon (field 4) |
+| 7 | server | Answer (fields 4 and 6) |
+| 10 | server | Progress (mini): the client shows "monster n/total" |
+
+AGPMEVENTQUEST (0x3E, 1 flag byte: op, event, CID, integer): the client asks for an NPC's quest window
+(function 27) with op 0; the server opens it by sending op 0 back.
+
+**Rules.** A quest is taken from an NPC whose group offers it, or from the journal if it is a self quest; it is
+refused if already in progress or completed, if the journal is full (60), outside the levels, race or class,
+or without the previous quest. Each monster killed advances the quests that count it and may drop the quest
+item (by its percent, up to the required count). The quest is completed (at an NPC that receives it, or from
+the journal) once the monsters are killed and the items gathered: the required items are taken, the rewards
+given (items, money, experience). In the database, `character_quests` keeps quests in progress (counters)
+and completed.
+
 ## GM level (type 0x12, AgpmAdmin)
 
 2-byte field flags: op, CID, then 13 mini-packets. Op 0 with, in field 2, a "GM data" mini-packet of
@@ -432,6 +468,6 @@ Full specification: [[ArchRust extensions|EN-ArchRust-extensions]].
 | 0x13 | Quests | 0x63 | Reconnect |
 | 0x32 | NPC shops | 0x37 | NPC dialog |
 | 0x3B | Skill master | 0x36 | Bank |
-| 0x07 | Trading between players | | |
+| 0x07 | Trading between players | 0x3E | NPC quests |
 
 Full schemas for the 86 modules are in `data/re/packet-schemas.json`.

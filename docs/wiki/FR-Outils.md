@@ -10,7 +10,7 @@ dossier désigné par `ARCHCORE_CONF_DIR` (voir [[Configuration|FR-Configuration
 | `archcore db-init [--account nom mdp [mj]]` | Crée les bases et applique `sql/` ; avec `--account`, crée ou met à jour un compte |
 | `archcore decrypt [source] [destination]` | Déchiffre `Game/ini` (RC4, MD5(« 1111 »)) vers `data/client-ini` |
 | `archcore import [dossier] [--server dossier]` | Importe `data/client-ini` dans `archcore_world` (CP949 → UTF-8) ; avec les tables du serveur d'origine (`--server`, ou `data/server-ini` s'il existe), importe aussi les apparitions de monstres et la carte serveur |
-| `archcore sim client\|move\|shop\|addon\|combat\|equip\|potion\|scroll\|patrol\|bag\|skill\|effects\|bank\|trade …` | Clients simulés (voir plus bas) |
+| `archcore sim client\|move\|shop\|addon\|combat\|equip\|potion\|scroll\|patrol\|bag\|skill\|effects\|bank\|trade\|quest …` | Clients simulés (voir plus bas) |
 | `archcore i18n strings [Game]` | Liste les textes encore en anglais dans `data/i18n/pending-en.json` |
 | `archcore i18n coverage [Game]` | Mesure la part déjà traduite de `ini_fr` |
 | `archcore i18n apply [--ascii] [--dry]` | Applique la mémoire de traduction au client (voir [[Traduction|FR-Traduction]]) |
@@ -131,6 +131,18 @@ sud d'Anchorville), y dépose une pile de potions et 1000 pièces, se reconnecte
 retire et détruit la pile. `sim trade` place GmTest (MJ) et SimA au même endroit : GmTest propose une pile
 de potions et 500 pièces, SimA 100 pièces ; l'objet proposé ne peut pas être détruit ; verrous, échange
 (SimA reçoit la pile, l'argent est ajusté des deux côtés), puis une seconde demande refusée.
+
+## Test des quêtes
+
+```bash
+ARCHCORE_CONF_DIR=config/test archcore sim quest [compte] [mdp] [personnage]
+```
+
+Le compte MJ (`gmtest`), passé au niveau 120 (`/questreset` remet d'abord les quêtes du test à zéro), prend
+Shattered Roots depuis le journal, se voit refuser de la terminer sans les 50 Corrupted Root Cores, les
+reçoit (`/create`), la termine (objets repris, Tempering Gem reçue), se voit refuser de la reprendre et de
+prendre Winged Menace (niveau 25 à 40), prend puis abandonne Gladiator's Demise ; à la reconnexion,
+Shattered Roots figure parmi les quêtes terminées et la quête abandonnée n'est plus au journal.
 
 ## Test des compétences
 

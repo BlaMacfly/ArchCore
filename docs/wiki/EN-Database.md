@@ -16,6 +16,7 @@ ArchCore uses three MariaDB databases, created by `archcore db-init` from `sql/`
 |---|---|
 | `characters` | Account, slot, unique name, template (TID), level, experience, HP/MP/SP, position, money, bank, hair, face, soft delete |
 | `character_items` | Items: status 0 inventory, 1 equipped, 2 bank (attached to the character who deposited it) |
+| `character_quests` | Quests in progress (monster A and B counters) and completed |
 | `account_bank` | Account bank: money, pages beyond the first (created on first entry, with the money the characters had in the bank) |
 | `character_skills` | Learned skills and their level ("Normal Attack" is not stored: every character knows it) |
 
@@ -33,6 +34,8 @@ Filled by `archcore import` from the client tables.
 | `item_template` | item templates | Items |
 | `skill_template` | `SKILLTEMPLATE.ini` | Skills (TID, name) |
 | `skill_spec` | `SKILL_SPEC.txt` | Each skill's nature (non-empty columns, as JSON) |
+| `quest_template` | `questtemplate.ini` | Quests (non-empty columns, as JSON) |
+| `quest_group` | `questgroup.ini` | NPC groups: quests offered and handed in |
 | `skill_level` | `SKILL_CONST.txt` | Values of each level of each skill (non-empty columns, as JSON; `point.`, `percent.`, `magnify.` groups) |
 | `npc_spawn` | `npc.ini` | 567 NPCs: template, name, position, orientation, raw functions |
 | `client_table` | other `.txt` tables | Rows as JSON, for tables not modelled yet |

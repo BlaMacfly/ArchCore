@@ -54,6 +54,17 @@ CREATE TABLE IF NOT EXISTS account_bank (
   PRIMARY KEY (account_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Quêtes d'un personnage : en cours (status 0) ou terminées (status 1), compteurs des monstres A et B.
+CREATE TABLE IF NOT EXISTS character_quests (
+  character_id  INT UNSIGNED NOT NULL,
+  quest_tid     INT UNSIGNED NOT NULL,
+  status        TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  count_a       INT NOT NULL DEFAULT 0,
+  count_b       INT NOT NULL DEFAULT 0,
+  PRIMARY KEY (character_id, quest_tid),
+  CONSTRAINT fk_quest_character FOREIGN KEY (character_id) REFERENCES characters (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS character_skills (
   character_id  INT UNSIGNED NOT NULL,
   skill_tid     INT UNSIGNED NOT NULL,

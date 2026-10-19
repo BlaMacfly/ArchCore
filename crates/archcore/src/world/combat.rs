@@ -348,11 +348,12 @@ pub(super) async fn kill(ctx: &WorldCtx, st: &mut WorldState, killer_sid: u32, c
     info!("[combat] {} tue {name} ({cid:#x}) : +{gain} d'expérience", p.ch.name);
     reward(ctx, st, killer_sid, gain).await?;
     super::loot::on_kill(ctx, st, killer_sid, cid, now);
+    super::quests::on_kill(ctx, st, killer_sid, tid).await?;
     Ok(())
 }
 
 /// Expérience gagnée : facteurs mis à jour, montée de niveau éventuelle, sauvegarde.
-async fn reward(ctx: &WorldCtx, st: &mut WorldState, sid: u32, gain: u64) -> anyhow::Result<()> {
+pub(super) async fn reward(ctx: &WorldCtx, st: &mut WorldState, sid: u32, gain: u64) -> anyhow::Result<()> {
     if gain == 0 {
         return Ok(());
     }

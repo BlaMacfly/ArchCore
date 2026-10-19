@@ -114,6 +114,21 @@ CREATE TABLE IF NOT EXISTS skill_level (
   PRIMARY KEY (tid, level)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS quest_template (
+  tid   INT UNSIGNED NOT NULL,
+  name  VARCHAR(128) NOT NULL,
+  data  JSON NOT NULL COMMENT 'colonnes non vides de questtemplate.ini',
+  PRIMARY KEY (tid)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS quest_group (
+  id       INT UNSIGNED NOT NULL,
+  name     VARCHAR(128) NOT NULL,
+  give     JSON NOT NULL COMMENT 'quêtes proposées par les PNJ de ce groupe',
+  confirm  JSON NOT NULL COMMENT 'quêtes terminées auprès de ces PNJ',
+  PRIMARY KEY (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS client_table (
   name      VARCHAR(96) NOT NULL COMMENT 'fichier source dans data/client-ini',
   row_idx   INT UNSIGNED NOT NULL,

@@ -17,6 +17,7 @@ Toutes sont en `utf8mb4`.
 |---|---|
 | `characters` | Compte, emplacement, nom unique, modèle (TID), niveau, expérience, PV/PM/PE, position, argent, banque, coiffure, visage, suppression logique |
 | `character_items` | Objets : statut 0 inventaire, 1 équipé, 2 banque (rattaché au personnage qui l'a déposé) |
+| `character_quests` | Quêtes en cours (compteurs des monstres A et B) et terminées |
 | `account_bank` | Banque du compte : argent, pages en plus de la première (créée à la première entrée, avec l'argent que les personnages avaient en banque) |
 | `character_skills` | Compétences apprises et leur niveau (« Normal Attack » n'y figure pas : tout personnage la connaît) |
 
@@ -34,6 +35,8 @@ Remplie par `archcore import` à partir des tables du client.
 | `item_template` | modèles d'objets | Objets |
 | `skill_template` | `SKILLTEMPLATE.ini` | Compétences (TID, nom) |
 | `skill_spec` | `SKILL_SPEC.txt` | Nature de chaque compétence (colonnes non vides, en JSON) |
+| `quest_template` | `questtemplate.ini` | Quêtes (colonnes non vides, en JSON) |
+| `quest_group` | `questgroup.ini` | Groupes de PNJ : quêtes proposées et rendues |
 | `skill_level` | `SKILL_CONST.txt` | Valeurs de chaque niveau de chaque compétence (colonnes non vides, en JSON ; groupes `point.`, `percent.`, `magnify.`) |
 | `npc_spawn` | `npc.ini` | 567 PNJ : modèle, nom, position, orientation, fonctions brutes |
 | `client_table` | autres tables `.txt` | Lignes en JSON, pour les tables pas encore modélisées |

@@ -35,6 +35,7 @@ pub mod ptype {
     pub const TIMER: u8 = 0x11;
     pub const ADMIN: u8 = 0x12;
     pub const QUEST: u8 = 0x13;
+    pub const EVENT_QUEST: u8 = 0x3e;
     pub const UI_STATUS: u8 = 0x14;
     pub const GUILD: u8 = 0x15;
     pub const WORLD: u8 = 0x18;
@@ -253,6 +254,29 @@ pub static SKILL: Schema = Schema {
     ],
 };
 
+/// AgpmQuest (0x13) — drapeaux 2 (relevé dans le client x64).
+pub static QUEST: Schema = Schema {
+    name: "AGPMQUEST",
+    id: ptype::QUEST,
+    flag_len: 2,
+    fields: &[
+        f(I8),       // 0 opération
+        f(I32),      // 1 CID
+        f(Packet),   // 2 événement (EVENT_BASE) du PNJ
+        f(Packet),   // 3 quête (mini QUEST_INFO)
+        f(I32),      // 4 TID de la quête
+        f(I32),      // 5
+        f(I32),      // 6 résultat (0 refus, 1 réussi)
+        f(I32),      // 7 récompense choisie
+        f(MemBlock), // 8 drapeaux des quêtes (0x800 octets, TID 1 à 16 383)
+        f(MemBlock), // 9 drapeaux (TID 16 384 à 32 767)
+        f(MemBlock), // 10 drapeaux (TID 32 768 à 49 151)
+    ],
+};
+
+/// AgpmEventQuest (0x3E) — drapeaux 1 : op, événement (EVENT_BASE), CID, entier.
+pub static EVENT_QUEST: Schema = Schema { name: "AGPMEVENTQUEST", id: ptype::EVENT_QUEST, flag_len: 1, fields: &[f(I8), f(Packet), f(I32), f(I32)] };
+
 /// AgpmEventBank (0x36) — drapeaux 1 : op (0 demande, 1 accord), événement (EVENT_BASE), CID du joueur.
 pub static EVENT_BANK: Schema = Schema { name: "AGPMEVENTBANK", id: ptype::EVENT_BANK, flag_len: 1, fields: &[f(I8), f(Packet), f(I32)] };
 
@@ -396,7 +420,7 @@ pub static ARCHCORE_EXT: Schema = Schema {
 /// Tous les schémas principaux, pour l'aiguillage par type.
 pub static MAIN: &[&Schema] = &[
     &CONFIG, &CHARACTER, &CHAR_MANAGER, &LOGIN, &TIMER, &WORLD, &CHATTING, &ADMIN, &ITEM, &EVENT_NPC_TRADE,
-    &EVENT_NPC_DIALOG, &EVENT_MANAGER, &SKILL, &EVENT_SKILL_MASTER, &EVENT_BANK, &PRIVATE_TRADE, &SYSTEM_MESSAGE, &RETURN_TO_LOGIN, &OPT_CHAR_MOVE, &OPT_CHAR_ACTION, &OPT_VIEW,
+    &EVENT_NPC_DIALOG, &EVENT_MANAGER, &SKILL, &EVENT_SKILL_MASTER, &EVENT_BANK, &PRIVATE_TRADE, &QUEST, &EVENT_QUEST, &SYSTEM_MESSAGE, &RETURN_TO_LOGIN, &OPT_CHAR_MOVE, &OPT_CHAR_ACTION, &OPT_VIEW,
     &STARTUP_ENCRYPTION, &ARCHCORE_EXT,
 ];
 
@@ -527,6 +551,11 @@ pub mod mini {
     /// Effet actif d'une compétence — drapeaux 2.
     pub static SKILL_BUFF: Schema =
         Schema { name: "AGPMSKILL_BUFF", id: 152, flag_len: 2, fields: &[f(I32), f(U64), f(I32), f(U8), f(U64), f(MemBlock)] };
+
+    /// Quête du journal (AGPMQUEST champ 3) — drapeaux 1 : TID, monstres A et B tués, objectifs remplis,
+    /// valeur libre, texte.
+    pub static QUEST_INFO: Schema =
+        Schema { name: "AGPMQUEST_INFO", id: 154, flag_len: 1, fields: &[f(I32), f(I32), f(I32), f(I32), f(I32), fs(Char, 49)] };
 
     /// Données d'un maître des compétences (race, classe enseignées) — drapeaux 1.
     pub static SKILL_MASTER_DATA: Schema = Schema { name: "AGPMEVENTSKILLMASTER_DATA", id: 153, flag_len: 1, fields: &[f(I8), f(I8)] };

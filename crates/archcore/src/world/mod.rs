@@ -11,6 +11,7 @@
 //!   AGPMEVENTNPCDIALOG (0x37), AGCMEVENTNPCTRADE (0x32) : PNJ (npc_events.rs, npc_trade.rs)
 //!   AGPMSKILL (0x05), AGPMEVENTSKILLMASTER (0x3B) : compétences (skills.rs)
 //!   AGPMEVENTBANK (0x36), AGPMCHARACTER op 7 : banque (bank.rs) ; AGPMPRIVATETRADE (0x07) : échange (trade.rs)
+//!   AGPMQUEST (0x13), AGPMEVENTQUEST (0x3E) : quêtes (quests.rs)
 //! ```
 //! L'état du monde est partagé derrière un verrou : les paquets de tous les joueurs sont traités un à
 //! un, comme dans la boucle unique du serveur Node.
@@ -31,6 +32,7 @@ pub mod npc_events;
 pub mod npc_trade;
 pub mod npcs;
 pub mod presence;
+pub mod quests;
 pub mod recovery;
 pub mod regions;
 pub mod skills;
@@ -71,6 +73,8 @@ pub struct WorldCtx {
     pub regions: regions::Regions,
     /// Compétences (SKILL_SPEC, SKILL_CONST).
     pub skills: skills::SkillCatalog,
+    /// Quêtes (questtemplate.ini, questgroup.ini).
+    pub quests: quests::QuestCatalog,
     pub view_radius: f64,
 }
 
@@ -138,6 +142,8 @@ pub struct Player {
     pub bank: bank::Bank,
     /// Échange en cours avec un autre joueur.
     pub trade: Option<trade::Trade>,
+    /// Journal des quêtes.
+    pub quests: quests::PlayerQuests,
 }
 
 impl Player {
@@ -213,6 +219,8 @@ impl Service for WorldService {
                 | ptype::EVENT_SKILL_MASTER
                 | ptype::EVENT_BANK
                 | ptype::PRIVATE_TRADE
+                | ptype::QUEST
+                | ptype::EVENT_QUEST
                 | ptype::ARCHCORE_EXT
         )
     }
@@ -260,6 +268,8 @@ impl Connection for WorldConn {
             ptype::EVENT_SKILL_MASTER => skills::on_master_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::EVENT_BANK => bank::on_packet(ctx, &mut st, self.sid, &p),
             ptype::PRIVATE_TRADE => trade::on_packet(ctx, &mut st, self.sid, &p).await?,
+            ptype::QUEST => quests::on_packet(ctx, &mut st, self.sid, &p).await?,
+            ptype::EVENT_QUEST => quests::on_event(ctx, &mut st, self.sid, &p),
             _ => {}
         }
         Ok(())
@@ -310,6 +320,7 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
     let gm_level: i64 = col(&acc, "gm_level");
     let inventory = Inventory::load(&ctx.db, ch.id).await?;
     let bank = bank::Bank::load(&ctx.db, account.id).await?;
+    let quests = quests::PlayerQuests::load(&ctx.db, ch.id).await?;
     // Banque du compte : son argent et ses pages remplacent ceux de la ligne du personnage.
     ch.bank_money = bank.money;
     ch.bank_size = bank.extra_slots as i32;
@@ -318,6 +329,9 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
     skills::refresh_points(&ctx.skills, &skills, &mut factors);
     skills::sync_passives(&ctx.skills, &mut skills, ch.template_id);
     effects::apply(&mut factors, &effects::total(&skills.effects));
+    // PV et PM enregistrés au-delà du maximum (maximum changé depuis) : ramenés au maximum.
+    factors.point[crate::character::POINT_HP] = factors.point[crate::character::POINT_HP].min(factors.point_max[0]);
+    factors.point[1] = factors.point[1].min(factors.point_max[1]);
     // Rattachement : la région où il se trouve si elle est sûre, sinon celle de sa race.
     let bound_region = ctx.map.region(ch.pos_x, ch.pos_z).filter(|r| ctx.regions.is_safe(*r)).unwrap_or_else(|| regions::default_region(factors.ftype[0]));
     info!(
@@ -372,6 +386,7 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
             skills,
             bank,
             trade: None,
+            quests,
         },
     );
     st.by_cid.insert(cid, s.id());
@@ -390,6 +405,10 @@ fn enter_world(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle) {
     // Niveau MJ : le client l'accroche à un personnage déjà connu (CID), d'où l'envoi après le paquet personnage.
     if p.gm_level > 0 {
         p.send_raw(chat::admin_level_packet(p.ch.id, &p.ch.name, p.gm_level, &p.account.username));
+    }
+    // Quêtes : drapeaux des quêtes terminées, puis le journal.
+    for pkt in quests::login_packets(p.ch.id, &p.quests) {
+        p.send_raw(pkt);
     }
     // Inventaire : paquets AGPMITEM complets mis bout à bout dans le champ 6 (« tous les objets ») de la
     // vue optimisée op 2 ; le client rattache chaque objet au personnage déjà reçu (champ 4).
@@ -512,8 +531,14 @@ pub async fn find_character(ctx: &WorldCtx, st: &WorldState, name: &str) -> anyh
 /// Ajoute un objet à l'inventaire (joueur en jeu : il apparaît tout de suite).
 pub async fn create_item(ctx: &WorldCtx, st: &mut WorldState, name: &str, tid: u32, count: i64, bound: bool) -> anyhow::Result<Result<(String, String), &'static str>> {
     let Some((cid, ch_name)) = find_character(ctx, st, name).await? else { return Ok(Err("character")) };
-    let Some(item) = ctx.db.world.first("SELECT tid, name FROM item_template WHERE tid = ?", (tid,)).await? else { return Ok(Err("item")) };
-    let item_name: String = col(&item, "name");
+    // Catalogue des objets (ItemDataTable), sinon modèles du client (itemtemplateentry.ini).
+    let item_name: String = match ctx.catalog.get(tid) {
+        Some(d) => d.name.clone(),
+        None => match ctx.db.world.first("SELECT tid, name FROM item_template WHERE tid = ?", (tid,)).await? {
+            Some(item) => col(&item, "name"),
+            None => return Ok(Err("item")),
+        },
+    };
     let note = if bound { " (non échangeable : non enregistré)" } else { "" };
     if let Some(&sid) = st.by_cid.get(&cid) {
         let stack = ctx.catalog.get(tid).map(|d| d.stack).unwrap_or(1);

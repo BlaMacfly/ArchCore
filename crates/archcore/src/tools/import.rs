@@ -166,6 +166,32 @@ pub fn parse_skill_levels(text: &str, tids: &HashMap<String, u32>) -> (Vec<(u32,
     (out, missing)
 }
 
+/// questtemplate.ini (tabulé, une quête par ligne) : (tid, nom, colonnes). Une quête répétée garde sa
+/// dernière ligne.
+pub fn parse_quests(text: &str) -> Vec<(u32, String, serde_json::Value)> {
+    let (header, rows) = parse_tsv(text);
+    let mut by_tid: std::collections::BTreeMap<u32, (String, serde_json::Value)> = Default::default();
+    for r in &rows {
+        let Some(tid) = r.first().and_then(|t| t.trim().parse::<u32>().ok()) else { continue };
+        let o = row_object(&header, r, 1);
+        let name = o.get("QuestName").and_then(|n| n.as_str()).unwrap_or("").to_string();
+        by_tid.insert(tid, (name, serde_json::Value::Object(o)));
+    }
+    by_tid.into_iter().map(|(tid, (name, data))| (tid, name, data)).collect()
+}
+
+/// questgroup.ini (tabulé, sans en-tête) : groupe, nom, quêtes proposées et terminées (« 4611:4612: »).
+pub fn parse_quest_groups(text: &str) -> Vec<(u32, String, Vec<u32>, Vec<u32>)> {
+    let list = |s: Option<&str>| s.unwrap_or("").split(':').filter_map(|t| t.trim().parse::<u32>().ok()).collect::<Vec<u32>>();
+    super::lines(text)
+        .filter_map(|l| {
+            let c: Vec<&str> = l.split('\t').collect();
+            let id = c.first()?.trim().parse::<u32>().ok()?;
+            Some((id, c.get(1).unwrap_or(&"").trim().to_string(), list(c.get(2).copied()), list(c.get(3).copied())))
+        })
+        .collect()
+}
+
 /// .txt tabulé avec en-tête : (en-tête, lignes).
 pub fn parse_tsv(text: &str) -> (Vec<String>, Vec<Vec<String>>) {
     let mut it = super::lines(text).filter(|l| !l.trim().is_empty());
@@ -622,6 +648,22 @@ async fn import_all(db: &Databases, src: &Source) -> anyhow::Result<()> {
         let out: Vec<Vec<Value>> = levels.into_iter().map(|(tid, level, consts)| vec![v(tid), v(level), v(consts.to_string())]).collect();
         let n = replace(db, "skill_level", "INSERT INTO skill_level (tid,level,consts) VALUES (?,?,?)", out).await?;
         println!("✓ skill_level : {n} ({missing_const} nom(s) sans modèle)");
+    }
+
+    // ---------------------------------------------------------------- questtemplate.ini (tabulé)
+    if src.exists("questtemplate.ini") {
+        let quests = parse_quests(&src.read("questtemplate.ini")?);
+        let out: Vec<Vec<Value>> = quests.into_iter().map(|(tid, name, data)| vec![v(tid), v(name), v(data.to_string())]).collect();
+        let n = replace(db, "quest_template", "INSERT INTO quest_template (tid,name,data) VALUES (?,?,?)", out).await?;
+        println!("✓ quest_template : {n}");
+    }
+    if src.exists("questgroup.ini") {
+        let out: Vec<Vec<Value>> = parse_quest_groups(&src.read("questgroup.ini")?)
+            .into_iter()
+            .map(|(id, name, give, confirm)| vec![v(id), v(name), v(json!(give).to_string()), v(json!(confirm).to_string())])
+            .collect();
+        let n = replace(db, "quest_group", "INSERT INTO quest_group (id,name,give,confirm) VALUES (?,?,?,?)", out).await?;
+        println!("✓ quest_group : {n}");
     }
 
     // ---------------------------------------------------------------- npc.ini (PNJ placés dans le monde)

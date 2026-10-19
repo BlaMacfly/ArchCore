@@ -28,7 +28,8 @@
   regeneration. Teleport scrolls (town, round trip, destination); monster patrols. Resurrection at the point of
   the last safe region crossed; item stacks split, merged, destroyed. Skills: learning and upgrading at
   trainers, skill points, casting; damage, areas, buffs and debuffs, damage over time, heals, passives.
-  Account bank (items, money) and trading between players. See
+  Account bank (items, money) and trading between players. Quests: taking, progress (monsters, quest
+  items), completion and rewards, abandoning. See
   [[Network protocol|EN-Network-protocol]].
 - ArchRust extensions, server side: capability negotiation and AddOn messages (whisper, `SAY`). See
   [[ArchRust extensions|EN-ArchRust-extensions]]; the client side remains to be written in ArchRust.
@@ -43,7 +44,7 @@
 
 1. Verify full character creation in game.
 2. Verify player visibility with two real clients.
-3. NPC functions: quests, teleport; bank expansion.
+3. NPC functions: teleport; bank expansion; quests with interaction objects.
 4. Skills: special states (stun…), damage reflection, criticals, parties; masteries.
    HP and MP growth with level (GrowUpFactor).
 5. Combat: elemental item damage. Items: refining, conversion.
