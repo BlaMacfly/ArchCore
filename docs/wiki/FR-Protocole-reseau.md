@@ -336,9 +336,35 @@ les PV restants et les dégâts en négatif, à l'indice 9 pour la part physique
 Dégâts : la part physique reprend le jet d'attaque du personnage, multiplié par (100 + pour cent) / 100 et
 augmenté des dégâts fixes ; chaque élément reprend les dégâts élémentaires du personnage de la même façon,
 doublés. Une cible de niveau supérieur retire 5 % par niveau d'écart (80 % au plus) ; l'armure ne réduit
-que la part physique ; chaque part fait au moins 1. Pour l'instant, seules les compétences à dégâts
-immédiats sur une cible ont un effet : renforcements, affaiblissements, dégâts sur la durée, zones et
-compétences passives se lancent (animation, coût, délai) sans effet.
+que la part physique ; chaque part fait au moins 1.
+
+**Cibles et zones.** Une compétence vise des ennemis si le chiffre des unités de son champ `target` vaut
+1 ; sinon elle s'applique à son lanceur (pas encore de groupes). Le champ `range` donne la zone : au-delà
+de 1000, elle est centrée sur la cible, sinon sur le lanceur ; centaines 3 : sphère de rayon `area_r`
+(mètres), 4 : boîte du lanceur vers la cible (`area_f1` de long, `area_f2` de large ; 600 × 300 par
+défaut). Les monstres de la zone sont touchés comme la cible, les plus proches d'abord
+(`max_target_num`, sinon 12 au plus). Une zone autour du lanceur se lance sans cible.
+
+**Effets durables.** L'import range les colonnes de `SKILL_CONST.txt` qui suivent les marqueurs
+`FACTOR_POINT`, `FACTOR_PERCENT` et `FACTOR_MAGNIFY` sous les préfixes `point.`, `percent.` et
+`magnify.` (elles répètent les mêmes noms). Une compétence à durée (`duration`) laisse sur ses cibles
+un effet : caractéristiques, PV et PM max, dégâts et défense physiques, précision, esquive, vitesses de
+déplacement et d'attaque (`point.*` s'ajoute, `percent.*` multiplie), et dégâts sur la durée
+(`dot_dmg_*` : dégâts fixes par élément toutes les `dot_damage_time` ms, moins 5 % par niveau d'écart).
+`point.hp` et `percent.hp` (et mp) soignent à l'application. Un nouvel effet de la même compétence
+remplace l'ancien. AGPMSKILL **op 4** annonce l'effet (identifiant de la compétence, porteur au champ 2,
+champ 8 = liste de mini « effet » : TID, durée en ms, TID du lanceur) aux joueurs qui voient le porteur ;
+**op 5** le retire (champ 8 : TID). Sur un joueur, les effets s'ajoutent aux facteurs (modèle et
+équipement) renvoyés par AGPMCHARACTER op 1 ; ils tombent à la mort. Sur un monstre, ils modifient sa
+défense, ses dégâts et ses vitesses d'attaque et de déplacement ; chaque coup de dégâts sur la durée part
+en AGPMCHARACTER op 1 (facteurs du résultat). Un effet qui tuerait un monstre dont le lanceur est parti le
+laisse à 1 PV.
+
+**Passives.** Une compétence passive (unités du champ `attribute` à 9) pose un effet sans fin tant
+qu'elle est connue ; il est recalculé à l'entrée en jeu, à l'apprentissage et à l'amélioration.
+
+Restent à faire : états spéciaux (étourdissement, ralentissement par état…), renvois et absorptions de
+dégâts, effets de combat (critiques, blocage des compétences), purges et compétences de groupe.
 
 ## Niveau MJ (type 0x12, AgpmAdmin)
 

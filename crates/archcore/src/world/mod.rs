@@ -18,6 +18,7 @@ pub mod addon;
 pub mod ai;
 pub mod chat;
 pub mod combat;
+pub mod effects;
 pub mod equipment;
 pub mod gm;
 pub mod items;
@@ -295,8 +296,10 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
     let gm_level: i64 = col(&acc, "gm_level");
     let inventory = Inventory::load(&ctx.db, ch.id).await?;
     let mut factors = equipment::with_equipment(make_factors(tpl, Some(&ch)), &equipment::worn(&inventory, &ctx.catalog));
-    let skills = skills::load(&ctx.db, &ctx.skills, ch.id, &mut st.next_skill_id).await?;
+    let mut skills = skills::load(&ctx.db, &ctx.skills, ch.id, &mut st.next_skill_id).await?;
     skills::refresh_points(&ctx.skills, &skills, &mut factors);
+    skills::sync_passives(&ctx.skills, &mut skills, ch.template_id);
+    effects::apply(&mut factors, &effects::total(&skills.effects));
     // Rattachement : la région où il se trouve si elle est sûre, sinon celle de sa race.
     let bound_region = ctx.map.region(ch.pos_x, ch.pos_z).filter(|r| ctx.regions.is_safe(*r)).unwrap_or_else(|| regions::default_region(factors.ftype[0]));
     info!(

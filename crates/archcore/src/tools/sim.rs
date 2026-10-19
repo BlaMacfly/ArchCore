@@ -14,6 +14,7 @@
 //!   archcore sim patrol [compte] [mdp] [perso]                immobile chez les Vers verts : des monstres se promènent
 //!   archcore sim bag [compte] [mdp] [perso]                   séparer, réunir et détruire une pile ; ressusciter au point de la région ; compte MJ
 //!   archcore sim skill [compte] [mdp] [perso]                 maître des compétences : apprendre, refus, amélioration ; Dual Slash sur un Ver vert ; compte MJ
+//!   archcore sim effects [compte] [mdp] [perso]               passive (défense), renforcement (vitesse d'attaque), zone, affaiblissement d'un Ver vert ; compte MJ, personnage GmEffets
 //! ```
 //! À lancer contre un serveur de test (`ARCHCORE_CONF_DIR`) : les personnages sont créés au besoin,
 //! déplacés, et `sim shop` leur donne 1000 pièces d'or.
@@ -48,6 +49,7 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
             ];
             Box::pin(addon(&acc)).await
         }
+        Some("effects") => Box::pin(skill_effects(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmEffets"))).await,
         Some("skill") => Box::pin(skill(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("bag") => Box::pin(bag(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("scroll") => Box::pin(scroll(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
@@ -55,7 +57,7 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         Some("potion") => Box::pin(potion(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("equip") => Box::pin(equip(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("combat") => Box::pin(combat(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "Green Worm"))).await,
-        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol|bag|skill [arguments]"),
+        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol|bag|skill|effects [arguments]"),
     }
 }
 
@@ -1106,6 +1108,155 @@ async fn bag(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
     anyhow::ensure!((d.x + 476_000.0).abs() < 1.0 && (d.z + 61_000.0).abs() < 1.0, "ressuscité en {d:?}");
     println!("  ✓ ressuscité au point de résurrection d'Anchorville : {:.0}, {:.0}", d.x, d.z);
     println!("\ninventaire et résurrection : OK");
+    Ok(())
+}
+
+/// Vitesse d'attaque (facteurs « attaque », valeur 2) d'un mini-paquet de facteurs complet.
+fn factors_attack_speed(bytes: &[u8]) -> Option<i64> {
+    let f = decode_mini(&mini::CHAR_FACTORS, bytes).ok()?;
+    decode_mini(&mini::FACTOR_ATTACK, f.bytes(9)?).ok()?.int(2)
+}
+
+/// Effets des compétences d'un guerrier humain : passive, renforcement, zone, affaiblissement.
+async fn skill_effects(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
+    const TRAINER: Vec3 = Vec3 { x: -480_700.0, y: 5_070.0, z: -62_100.0 };
+    const HUNT: Vec3 = Vec3 { x: -466_468.0, y: 4_700.0, z: -50_010.0 };
+    const SPEED_ATTACK: i64 = 4; // renforcement : vitesse d'attaque +18 %
+    const DEFENSE_HOLD: i64 = 58; // passive : défense +20
+    const LINEAR_BLOW: i64 = 57; // zone de 1000 autour de la cible
+    const BLADE_STING: i64 = 223; // affaiblissement de 6 s (esquive -6)
+    const STOP: i64 = 0x04;
+    let cfg = crate::config::load()?;
+    let (k, sm, ch, mv, ov, c) = (&schema::SKILL, &schema::EVENT_SKILL_MASTER, &schema::CHATTING, &schema::OPT_CHAR_MOVE, &schema::OPT_VIEW, &schema::CHARACTER);
+    step(&format!("{char_name} entre en jeu"));
+    let mut w = enter_world(&cfg, user, pass, char_name, "").await?;
+    let me = w.cid as i64;
+    let say = |cid: u32, text: &str| Fields::new(ch).with(0, 0).with(1, cid).with(2, chat_type::NORMAL).with(6, crate::tools::to_cp1252(text));
+    let system = |q: &Recv| q.ptype == ch.id && q.int(2) == Some(chat_type::SYSTEM);
+    let mine = |q: &Recv| q.is(c, Some(1)) && q.int(1) == Some(me) && q.fields().bytes(7).is_some();
+
+    step("niveau 25, argent");
+    let level = w.level.max(1);
+    w.world.send(ch, say(w.cid, "/level 25")).await?;
+    let f = w.world.expect_where(mine, 3000, "facteurs au niveau 25").await?;
+    let bytes = f.fields().bytes(7).unwrap_or_default().to_vec();
+    let defense0 = factors_combat(&bytes).map(|x| x.1).unwrap_or(0);
+    let speed0 = factors_attack_speed(&bytes).unwrap_or(0);
+    println!("  défense {defense0}, vitesse d'attaque {speed0}");
+    w.world.send(ch, say(w.cid, "/money 100000")).await?;
+    w.world.expect_where(|q| q.is(c, Some(1)) && q.int(8) == Some(100_000), 3000, "argent").await?;
+
+    step("apprendre chez Black");
+    w.world.send(mv, Fields::new(mv).with(0, w.cid).with(1, TRAINER).with(2, TRAINER).with(5, STOP).with(6, 0)).await?;
+    let mut trainer = w.npcs.iter().find(|n| n.1.ends_with(" Black")).map(|n| n.0);
+    while let Ok(p) = w.world.expect_where(|q| q.is(ov, Some(1)), 1500, "PNJ").await {
+        if let Ok(view) = decode_mini(&mini::OPT_VIEW_CHAR, p.fields().bytes(1).unwrap_or_default()) {
+            if view.text(2).is_some_and(|n| n.ends_with(" Black")) {
+                trainer = view.int(0);
+            }
+        }
+    }
+    let trainer = trainer.ok_or_else(|| anyhow::anyhow!("maître Black introuvable"))?;
+    let eb = &mini::EVENT_BASE;
+    let event = build_mini(eb, &Fields::new(eb).with(0, 3).with(1, trainer).with(3, 25));
+    let mut ids = std::collections::HashMap::new();
+    for tid in [SPEED_ATTACK, DEFENSE_HOLD, LINEAR_BLOW, BLADE_STING] {
+        if let Some(s) = w.skills.iter().find(|s| s.1 == tid) {
+            ids.insert(tid, s.0);
+            println!("  TID {tid} déjà connue");
+            continue;
+        }
+        w.world.send(sm, Fields::new(sm).with(0, 1).with(1, event.clone()).with(2, w.cid).with(4, tid)).await?;
+        let add = w.world.expect_where(|q| q.is(k, Some(0)) && q.int(4) == Some(tid), 3000, "compétence apprise").await?;
+        ids.insert(tid, add.int(1).unwrap_or(0));
+        if tid == DEFENSE_HOLD {
+            let f = w.world.expect_where(mine, 3000, "facteurs après la passive").await?;
+            let defense = f.fields().bytes(7).and_then(factors_combat).map(|x| x.1).unwrap_or(0);
+            anyhow::ensure!(defense == defense0 + 20, "défense {defense0} → {defense} (attendu +20)");
+            println!("  ✓ Defense Hold : défense {defense0} → {defense}");
+        } else {
+            println!("  ✓ TID {tid} apprise");
+        }
+    }
+    if w.skills.iter().any(|s| s.1 == DEFENSE_HOLD) {
+        // Passive déjà connue : comptée dès l'entrée en jeu.
+        println!("  ✓ Defense Hold déjà comptée (défense {defense0})");
+    }
+    let sb = &mini::SKILL_BASE;
+    let sa = &mini::SKILL_ACTION;
+    let cast = |id: i64, target: i64| {
+        let act = build_mini(sa, &Fields::new(sa).with(0, 0).with(1, build_mini(sb, &Fields::new(sb).with(0, 3).with(1, target))));
+        Fields::new(k).with(0, 7).with(1, id).with(6, act)
+    };
+
+    step("renforcement : Speed Attack");
+    w.world.send(k, cast(ids[&SPEED_ATTACK], me)).await?;
+    let buff = w.world.expect_where(|q| q.is(k, Some(4)) && q.int(1) == Some(ids[&SPEED_ATTACK]), 5000, "effet sur soi").await?;
+    let owner = decode_mini(sb, buff.fields().bytes(2).unwrap_or_default())?.int(1);
+    anyhow::ensure!(owner == Some(me), "effet posé sur {owner:?}");
+    let f = w.world.expect_where(mine, 3000, "facteurs renforcés").await?;
+    let speed = f.fields().bytes(7).and_then(factors_attack_speed).unwrap_or(0);
+    anyhow::ensure!(speed > speed0, "vitesse d'attaque {speed0} → {speed}");
+    println!("  ✓ effet affiché ; vitesse d'attaque {speed0} → {speed}");
+
+    step("zone : Linear Blow sur les Vers verts");
+    w.world.send(ch, say(w.cid, "/invincible 1")).await?;
+    w.world.send(mv, Fields::new(mv).with(0, w.cid).with(1, HUNT).with(2, HUNT).with(5, STOP).with(6, 0)).await?;
+    let mut worms: Vec<(i64, Vec3)> = Vec::new();
+    while let Ok(p) = w.world.expect_where(|q| q.is(ov, Some(1)), 1500, "monstres").await {
+        if let Ok(view) = decode_mini(&mini::OPT_VIEW_CHAR, p.fields().bytes(1).unwrap_or_default()) {
+            if view.text(2).as_deref() == Some("Green Worm") && view.bytes(5).and_then(factors_hp).unwrap_or(0) > 0 {
+                worms.push((view.int(0).unwrap_or(0), view.vec3(8).unwrap_or_default()));
+            }
+        }
+    }
+    anyhow::ensure!(worms.len() >= 2, "{} Ver(s) vert(s) en vue", worms.len());
+    // Le ver qui a le plus de voisins à moins de 1000 unités.
+    let neighbours = |p: Vec3| worms.iter().filter(|(_, q)| (((q.x - p.x) as f64).powi(2) + ((q.z - p.z) as f64).powi(2)).sqrt() <= 1000.0).count();
+    let (center, _) = *worms.iter().max_by_key(|(_, p)| neighbours(*p)).unwrap();
+    // Les PM ne croissent pas encore avec le niveau (46 pour un guerrier) : /level les rend.
+    w.world.send(ch, say(w.cid, "/level 25")).await?;
+    w.world.expect_where(system, 3000, "PM rendus").await?;
+    w.world.send(k, cast(ids[&LINEAR_BLOW], center)).await?;
+    w.world.expect_where(|q| q.is(k, Some(7)) && q.int(1) == Some(ids[&LINEAR_BLOW]), 10_000, "lancement").await?;
+    let mut hit = std::collections::BTreeSet::new();
+    while let Ok(r) = w.world.expect_where(|q| q.is(k, Some(8)) && q.int(1) == Some(ids[&LINEAR_BLOW]), if hit.is_empty() { 5000 } else { 500 }, "résultats").await {
+        let act = decode_mini(sa, r.fields().bytes(6).unwrap_or_default())?;
+        if let Some(t) = decode_mini(sb, act.bytes(1).unwrap_or_default())?.int(1) {
+            hit.insert(t);
+        }
+    }
+    anyhow::ensure!(hit.contains(&center), "la cible désignée n'est pas touchée : {hit:?}");
+    println!("  ✓ {} ver(s) touché(s) (cible et {} voisin(s) à moins de 1000)", hit.len(), neighbours(worms.iter().find(|w| w.0 == center).unwrap().1) - 1);
+
+    step("affaiblissement : Blade Sting");
+    // Un déplacement arrête l'attaque automatique ; un ver encore intact.
+    w.world.send(mv, Fields::new(mv).with(0, w.cid).with(1, HUNT).with(2, HUNT).with(5, STOP).with(6, 0)).await?;
+    let (victim, _) = *worms.iter().find(|(c, _)| !hit.contains(c)).unwrap_or(&worms[0]);
+    w.world.send(ch, say(w.cid, "/level 25")).await?;
+    w.world.expect_where(system, 3000, "PM rendus").await?;
+    w.world.send(k, cast(ids[&BLADE_STING], victim)).await?;
+    w.world.expect_where(|q| q.is(k, Some(8)) && q.int(1) == Some(ids[&BLADE_STING]), 10_000, "coup").await?;
+    let on = w.world.expect_where(|q| q.is(k, Some(4)) && q.int(1) == Some(ids[&BLADE_STING]), 2000, "affaiblissement posé").await?;
+    let owner = decode_mini(sb, on.fields().bytes(2).unwrap_or_default())?.int(1);
+    anyhow::ensure!(owner == Some(victim), "affaiblissement posé sur {owner:?}, pas sur {victim}");
+    w.world.send(mv, Fields::new(mv).with(0, w.cid).with(1, HUNT).with(2, HUNT).with(5, STOP).with(6, 0)).await?;
+    let t0 = std::time::Instant::now();
+    let off = w
+        .world
+        .expect_where(|q| (q.is(k, Some(5)) && q.int(1) == Some(ids[&BLADE_STING])) || (q.is(c, Some(1)) && q.int(1) == Some(victim) && q.int(11) == Some(2)), 10_000, "fin de l'affaiblissement")
+        .await?;
+    if off.ptype == k.id {
+        println!("  ✓ posé sur le ver, retiré au bout de {:.1} s", t0.elapsed().as_secs_f64());
+    } else {
+        println!("  ✓ posé sur le ver, mort avant la fin");
+    }
+
+    w.world.send(ch, say(w.cid, "/invincible 0")).await?;
+    w.world.send(ch, say(w.cid, &format!("/level {level}"))).await?;
+    w.world.expect_where(|q| system(q) && q.fields().text(6).is_some_and(|t| t.contains(&format!("niveau {level}"))), 3000, "niveau rétabli").await?;
+    println!("  ✓ niveau {level} rétabli");
+    println!("\neffets des compétences : OK");
     Ok(())
 }
 

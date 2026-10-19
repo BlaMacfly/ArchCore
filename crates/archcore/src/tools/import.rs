@@ -109,6 +109,22 @@ fn row_object(header: &[String], row: &[String], skip: usize) -> Map<String, ser
     o
 }
 
+/// Les colonnes qui suivent les marqueurs FACTOR_POINT, FACTOR_PERCENT et FACTOR_MAGNIFY de SKILL_CONST.txt
+/// répètent les mêmes noms (str, movement…) : on les préfixe de « point. », « percent. » et « magnify. ».
+pub fn group_columns(header: &[String]) -> Vec<String> {
+    let mut prefix = String::new();
+    header
+        .iter()
+        .map(|h| match h.strip_prefix("FACTOR_") {
+            Some(group) => {
+                prefix = format!("{}.", group.to_lowercase());
+                h.clone()
+            }
+            None => format!("{prefix}{h}"),
+        })
+        .collect()
+}
+
 /// SKILL_SPEC.txt : une ligne par compétence, nommée en colonne 0. Rend (tid, nom, colonnes) et le nombre de
 /// noms sans modèle.
 pub fn parse_skill_specs(text: &str, tids: &HashMap<String, u32>) -> (Vec<(u32, String, serde_json::Value)>, usize) {
@@ -131,6 +147,7 @@ pub fn parse_skill_specs(text: &str, tids: &HashMap<String, u32>) -> (Vec<(u32, 
 /// vide. Rend (tid, niveau, colonnes) et le nombre de noms sans modèle.
 pub fn parse_skill_levels(text: &str, tids: &HashMap<String, u32>) -> (Vec<(u32, u32, serde_json::Value)>, usize) {
     let (header, rows) = parse_tsv(text);
+    let header = group_columns(&header);
     let level_col = header.iter().position(|h| h == "skill_level").unwrap_or(1);
     let (mut out, mut missing, mut current) = (Vec::new(), 0, None);
     for r in &rows {

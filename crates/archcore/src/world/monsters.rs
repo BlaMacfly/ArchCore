@@ -211,6 +211,8 @@ pub struct MonsterRegistry {
     pub pending: BTreeSet<u32>,
     /// Monstres qui ont des agresseurs (IA active).
     pub engaged: BTreeSet<u32>,
+    /// Effets des compétences portés par des monstres.
+    pub effects: HashMap<u32, Vec<super::effects::Effect>>,
     by_cid: HashMap<u32, usize>,
     grid: HashMap<(i64, i64), Vec<usize>>,
 }
@@ -354,6 +356,11 @@ impl MonsterRegistry {
             self.grid.entry(to).or_default().push(i);
         }
         self.monsters[i].pos = pos;
+    }
+
+    /// Somme des modificateurs des effets portés par un monstre.
+    pub fn mods(&self, cid: u32) -> super::effects::Mods {
+        self.effects.get(&cid).map(|l| super::effects::total(l)).unwrap_or_default()
     }
 
     pub fn stats_of(&self, tid: u32) -> MonsterStats {

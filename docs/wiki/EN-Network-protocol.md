@@ -331,8 +331,33 @@ Auto-attack then resumes on the target.
 Damage: the physical part takes the character's attack roll, multiplied by (100 + percent) / 100, plus the
 flat damage; each element takes the character's elemental damage the same way, doubled. A higher-level
 target removes 5 % per level of difference (80 % at most); armour only reduces the physical part; each part
-is at least 1. For now, only instant-damage skills on one target have an effect: buffs, debuffs, damage
-over time, areas and passive skills are cast (animation, cost, delay) without effect.
+is at least 1.
+
+**Targets and areas.** A skill targets enemies if the units digit of its `target` field is 1; otherwise it
+applies to its caster (no parties yet). The `range` field gives the area: above 1000 it is centred on the
+target, otherwise on the caster; hundreds 3: sphere of radius `area_r` (metres), 4: box from the caster
+towards the target (`area_f1` long, `area_f2` wide; 600 × 300 by default). Monsters in the area are hit
+like the target, nearest first (`max_target_num`, otherwise 12 at most). An area around the caster is cast
+without a target.
+
+**Lasting effects.** The import files the `SKILL_CONST.txt` columns following the `FACTOR_POINT`,
+`FACTOR_PERCENT` and `FACTOR_MAGNIFY` markers under the `point.`, `percent.` and `magnify.` prefixes
+(they repeat the same names). A skill with a `duration` leaves an effect on its targets: stats, max HP and
+MP, physical damage and defense, accuracy, evasion, movement and attack speeds (`point.*` adds,
+`percent.*` multiplies), and damage over time (`dot_dmg_*`: flat damage per element every
+`dot_damage_time` ms, minus 5 % per level of difference). `point.hp` and `percent.hp` (and mp) heal when
+applied. A new effect of the same skill replaces the old one. AGPMSKILL **op 4** announces the effect (skill
+ID, bearer in field 2, field 8 = list of "buff" minis: TID, duration in ms, caster TID) to the players who see
+the bearer; **op 5** removes it (field 8: TID). On a player, effects are added to the factors (template and
+equipment) sent back with AGPMCHARACTER op 1; they drop at death. On a monster, they change its defense,
+damage and attack and movement speeds; each damage-over-time tick goes out as AGPMCHARACTER op 1 (result
+factors). An effect that would kill a monster whose caster left leaves it at 1 HP.
+
+**Passives.** A passive skill (units digit of `attribute` at 9) sets an endless effect while it is known;
+it is recomputed on entering the world, on learning and on upgrading.
+
+Still to do: special states (stun, state-based slows…), damage reflection and absorption, combat effects
+(criticals, skill block), dispels and party skills.
 
 ## GM level (type 0x12, AgpmAdmin)
 

@@ -199,7 +199,8 @@ fn monster_step(st: &mut WorldState, cid: u32, now: Instant) {
         // Poursuite : jusqu'au bord de la portée.
         let k = ((distance - reach * 0.8) / distance).max(0.0) as f32;
         let dest = Vec3::new(m.pos.x + (ppos.x - m.pos.x) * k, ppos.y, m.pos.z + (ppos.z - m.pos.z) * k);
-        let t = walk(st, cid, dest, stats.run);
+        let run = super::effects::speed(stats.run, st.monsters.mods(cid).movement_pct);
+        let t = walk(st, cid, dest, run);
         st.monsters.get_mut(cid).unwrap().ready_at = now + t;
         return;
     }
@@ -207,16 +208,12 @@ fn monster_step(st: &mut WorldState, cid: u32, now: Instant) {
         st.monsters.get_mut(cid).unwrap().ready_at = now + SCAN_INTERVAL;
         return;
     }
-    let attacker = Attacker {
-        level: m.level as i32,
-        ar: stats.ar,
-        min_damage: stats.min_damage as f64,
-        max_damage: stats.max_damage as f64,
-        ..Default::default()
-    };
+    let mods = st.monsters.mods(cid);
+    let (min_damage, max_damage) = super::effects::monster_damage(stats.min_damage, stats.max_damage, &mods);
+    let attacker = Attacker { level: m.level as i32, ar: stats.ar, min_damage, max_damage, ..Default::default() };
     let defender = Defender { level: p.factors.status[7], dr: p.factors.point_max[9], defense: p.factors.defense_point[0] as f64 };
     let (outcome, damage) = combat::strike_at(&mut rand::thread_rng(), combat::monster_hit_chance(&attacker, &defender), &attacker, &defender);
-    let speed = stats.attack_speed.max(1) as u64;
+    let speed = super::effects::speed(stats.attack_speed, mods.atk_speed_pct).max(1) as u64;
     st.monsters.get_mut(cid).unwrap().ready_at = now + Duration::from_millis(60_000 / speed);
     combat::hit_player(st, sid, cid, outcome, damage);
 }

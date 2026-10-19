@@ -103,7 +103,7 @@ pub fn with_equipment(mut f: Factors, worn: &[EquipData]) -> Factors {
     f
 }
 
-/// Recalcule les facteurs d'un joueur (modèle + équipement) en gardant ses PV, PM, PE et son expérience,
+/// Recalcule les facteurs d'un joueur (modèle + équipement + effets des compétences) en gardant ses PV, PM, PE et son expérience,
 /// et les lui envoie.
 pub fn refresh_factors(ctx: &WorldCtx, st: &mut WorldState, sid: u32) {
     let Some(p) = st.players.get_mut(&sid) else { return };
@@ -112,7 +112,10 @@ pub fn refresh_factors(ctx: &WorldCtx, st: &mut WorldState, sid: u32) {
     let mut f = with_equipment(make_factors(tpl, Some(&p.ch)), &worn(&p.inventory, &ctx.catalog));
     f.point[..5].copy_from_slice(&old.point[..5]);
     f.status[7] = old.status[7];
+    f.dirt = old.dirt;
+    super::effects::apply(&mut f, &super::effects::total(&p.skills.effects));
     f.point[POINT_HP] = f.point[POINT_HP].min(f.point_max[0]);
+    f.point[1] = f.point[1].min(f.point_max[1]);
     p.factors = f;
     let c = &schema::CHARACTER;
     p.send(c, Fields::new(c).with(0, 1).with(1, p.ch.id).with(7, factors_mini(&p.factors)));

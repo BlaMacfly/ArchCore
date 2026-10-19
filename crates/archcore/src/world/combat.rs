@@ -278,7 +278,7 @@ async fn attack_step(ctx: &WorldCtx, st: &mut WorldState, sid: u32, now: Instant
     }
 
     let attacker = Attacker::of_player(p);
-    let defender = Defender { level: m.level as i32, dr: 0, defense: stats.ac as f64 };
+    let defender = Defender { level: m.level as i32, dr: 0, defense: super::effects::monster_defense(stats.ac, &st.monsters.mods(m.cid)) };
     let (outcome, damage) = strike(&mut rand::thread_rng(), &attacker, &defender);
     let speed = p.factors.attack[2].max(1) as u64;
     let (cid, name) = (p.ch.id, p.ch.name.clone());
@@ -333,6 +333,7 @@ pub(super) async fn kill(ctx: &WorldCtx, st: &mut WorldState, killer_sid: u32, c
     target.aggro.clear();
     target.target = None;
     st.monsters.engaged.remove(&cid);
+    st.monsters.effects.remove(&cid);
     let target = st.monsters.get_mut(cid).unwrap();
     let (tid, name) = (target.tid, target.name.clone());
     st.monsters.pending.insert(cid);
@@ -494,14 +495,17 @@ pub fn player_death(st: &mut WorldState, sid: u32) {
     let plain = status_packet(p, ACTION_STATUS_DEAD);
     info!("[combat] {} meurt", p.ch.name);
     send_around(st, sid, &plain);
+    // Les effets des compétences tombent à la mort (pas les passives) ; facteurs recalculés à la résurrection.
+    super::skills::clear_player_effects(st, sid);
 }
 
 /// AGPMCHARACTER op 9 : résurrection au village de départ de la race, tous PV et PM, invincible 10 s.
 pub async fn resurrect(ctx: &WorldCtx, st: &mut WorldState, sid: u32) -> anyhow::Result<()> {
-    let Some(p) = st.players.get_mut(&sid) else { return Ok(()) };
-    if !p.dead {
+    if !st.players.get(&sid).is_some_and(|p| p.dead) {
         return Ok(());
     }
+    super::equipment::refresh_factors(ctx, st, sid);
+    let p = st.players.get_mut(&sid).unwrap();
     p.dead = false;
     p.invincible_until = Some(Instant::now() + RESURRECTION_GRACE);
     p.factors.point[POINT_HP] = p.factors.point_max[0];

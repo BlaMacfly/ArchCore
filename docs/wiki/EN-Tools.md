@@ -10,7 +10,7 @@ named by `ARCHCORE_CONF_DIR` (see [[Configuration|EN-Configuration]]).
 | `archcore db-init [--account name pass [gm]]` | Creates the databases and applies `sql/`; with `--account`, creates or updates an account |
 | `archcore decrypt [source] [destination]` | Decrypts `Game/ini` (RC4, MD5("1111")) into `data/client-ini` |
 | `archcore import [folder] [--server folder]` | Imports `data/client-ini` into `archcore_world` (CP949 → UTF-8); with the original server tables (`--server`, or `data/server-ini` if it exists), also imports monster spawns and the server map |
-| `archcore sim client\|move\|shop\|addon\|combat\|equip\|potion\|scroll\|patrol\|bag\|skill …` | Simulated clients (see below) |
+| `archcore sim client\|move\|shop\|addon\|combat\|equip\|potion\|scroll\|patrol\|bag\|skill\|effects …` | Simulated clients (see below) |
 | `archcore i18n strings [Game]` | Lists the texts still in English in `data/i18n/pending-en.json` |
 | `archcore i18n coverage [Game]` | Measures how much of `ini_fr` is translated |
 | `archcore i18n apply [--ascii] [--dry]` | Applies the translation memory to the client (see [[Translation|EN-Translation]]) |
@@ -127,6 +127,16 @@ A GM account (`gmtest` by default, human warrior) checks that it knows "Normal A
 (`/level`), walks to Black, Anchorville's warrior trainer, learns Dual Slash (or is told "already learned"),
 is refused Flame Core (a mage skill), upgrades Dual Slash, casts it on a Green Worm (cast, damage), checks
 the refusal during the recast delay, then goes back to its original level.
+
+```bash
+ARCHCORE_CONF_DIR=config/test archcore sim effects [user] [pass] [character]
+```
+
+The GM account, with a separate character (`GmEffets`, created if needed, so as not to strengthen the one
+used by the other tests), is raised to level 25 and learns Speed Attack, Defense Hold, Linear Blow and Blade Sting from
+Black (if needed). It checks the passive (defense +20), the buff (effect announced on itself, attack speed
++18 %), Linear Blow's area (target and neighbours hit) and Blade Sting's debuff (set on the Green Worm,
+removed after 6 s). As a warrior's MP do not grow with level yet, `/level` refills them between casts.
 
 ## ArchRust extensions test
 

@@ -18,11 +18,15 @@
 //!             durées d'incantation, d'effet et de relance) ; au bout de l'incantation, op 8 (action 2 :
 //!             facteurs du résultat, dégâts en négatif) aux joueurs qui voient la cible.
 //! ```
-//! Première étape : les compétences de dégâts immédiats sur une cible. Les effets durables (renforcements,
-//! affaiblissements, dégâts sur la durée), les zones et les compétences passives viendront ensuite : ces
-//! compétences se lancent (animation, coût, délai) sans effet.
+//! Effets : dégâts immédiats sur la cible et, pour les compétences de zone (champ `range` de SKILL_SPEC :
+//! sphère autour de la cible ou du lanceur, rayon `area_r` ; boîte vers la cible, `area_f1` × `area_f2`),
+//! sur les monstres voisins ; effets durables, dégâts sur la durée et soins (`effects.rs`) ; passives,
+//! appliquées tant que la compétence est connue. Les compétences amies ne visent que leur lanceur (pas de
+//! groupes) ; les états spéciaux (étourdissement…), renvois de dégâts et effets de combat (critiques)
+//! restent à faire.
 
 use super::combat::{self, Attacker, Defender};
+use super::effects::{self, DotSpec, Effect, Heal, Mods};
 use super::monsters::Monster;
 use super::npc_events::{npc_distance, resolve, MAX_NPC_DISTANCE};
 use super::npcs::event_function;
@@ -145,6 +149,15 @@ pub struct SkillLevel {
     pub damage_pct: f64,
     /// Dégâts élémentaires (fixes, pour cent), dans l'ordre de `SPIRIT`.
     pub spirit: [(f64, f64); 8],
+    /// Zone : rayon d'une sphère, longueur et largeur d'une boîte (unités du jeu), cibles au plus.
+    pub area_r: f64,
+    pub area_f1: f64,
+    pub area_f2: f64,
+    pub max_targets: usize,
+    /// Effet durable : modificateurs, soin à l'application, dégâts sur la durée.
+    pub mods: Mods,
+    pub heal: Heal,
+    pub dot: DotSpec,
 }
 
 impl SkillLevel {
@@ -175,11 +188,64 @@ impl SkillLevel {
             damage: num("damage_a"),
             damage_pct: num("damage_a_PERCENT"),
             spirit,
+            area_r: num("area_r") * 100.0,
+            area_f1: num("area_f1") * 100.0,
+            area_f2: num("area_f2") * 100.0,
+            max_targets: num("max_target_num").max(0.0) as usize,
+            mods: Mods::from_consts(c),
+            heal: Heal::from_consts(c),
+            dot: DotSpec::from_consts(c),
         }
     }
 
     pub fn allows(&self, class_col: Option<usize>) -> bool {
         class_col.is_some_and(|c| self.classes & (1 << c) != 0)
+    }
+
+    /// Laisse un effet durable sur ses cibles.
+    pub fn lasting(&self) -> bool {
+        self.duration_ms > 0 && (!self.mods.is_empty() || !self.dot.is_empty())
+    }
+}
+
+/// Forme de la zone d'une compétence (champ `range` de SKILL_SPEC : au-delà de 1000, centrée sur la cible ;
+/// centaines 3 sphère, 4 boîte).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Area {
+    Single,
+    Sphere { around_target: bool },
+    Line,
+}
+
+pub fn area(range_code: i64) -> Area {
+    let around_target = range_code > 1000;
+    let c = range_code % 1000;
+    match if c >= 100 { c / 100 } else { c } {
+        3 => Area::Sphere { around_target },
+        4 => Area::Line,
+        _ => Area::Single,
+    }
+}
+
+/// Monstres touchés par une zone : sphère de rayon `r` autour de `center`, ou boîte de `from` vers
+/// `toward` (longueur, largeur).
+pub fn in_area(shape: Area, m: Vec3, center: Vec3, from: Vec3, toward: Vec3, lv: &SkillLevel) -> bool {
+    match shape {
+        Area::Single => false,
+        Area::Sphere { .. } => lv.area_r > 0.0 && combat::dist2d(m, center) <= lv.area_r,
+        Area::Line => {
+            let (length, width) = (if lv.area_f1 > 0.0 { lv.area_f1 } else { 600.0 }, if lv.area_f2 > 0.0 { lv.area_f2 } else { 300.0 });
+            let (dx, dz) = ((toward.x - from.x) as f64, (toward.z - from.z) as f64);
+            let n = (dx * dx + dz * dz).sqrt();
+            if n == 0.0 {
+                return false;
+            }
+            let (ux, uz) = (dx / n, dz / n);
+            let (vx, vz) = ((m.x - from.x) as f64, (m.z - from.z) as f64);
+            let along = vx * ux + vz * uz;
+            let across = (vx * uz - vz * ux).abs();
+            (0.0..=length).contains(&along) && across <= width / 2.0
+        }
     }
 }
 
@@ -192,6 +258,8 @@ pub struct SkillTemplate {
     pub attribute: i64,
     pub upgradable: i64,
     pub target: i64,
+    /// Champ `range` de SKILL_SPEC (forme de la zone).
+    pub range_code: i64,
     pub melee_attack: i64,
     pub auto_attack: bool,
     /// Niveau n à l'indice n - 1.
@@ -226,13 +294,16 @@ impl SkillTemplate {
     pub fn instant_damage(&self) -> bool {
         matches!(self.melee_attack, 101 | 102 | 103 | 108 | 109 | 110)
     }
-    /// Ne vise que son lanceur (centaines du champ target).
-    pub fn self_only(&self) -> bool {
-        self.target >= 100
-    }
-    /// Vise un ennemi.
+    /// Vise des ennemis (unités du champ target) ; sinon, son lanceur.
     pub fn offensive(&self) -> bool {
-        !self.self_only() && (self.instant_damage() || self.nature().debuff || self.nature().damage)
+        self.target % 10 == 1
+    }
+    pub fn area(&self) -> Area {
+        area(self.range_code)
+    }
+    /// Se lance sans cible désignée : zone autour du lanceur, ou compétence non offensive.
+    pub fn needs_target(&self) -> bool {
+        self.offensive() && self.area() != Area::Sphere { around_target: false }
     }
     pub fn can_upgrade(&self) -> bool {
         matches!(self.upgradable, 1 | 3)
@@ -263,6 +334,7 @@ impl SkillCatalog {
                     attribute: int("attribute"),
                     upgradable: int("upgradable"),
                     target: int("target"),
+                    range_code: int("range"),
                     melee_attack: int("melee_attack"),
                     auto_attack: int("auto_attack") != 0,
                     levels: Vec::new(),
@@ -324,6 +396,8 @@ pub enum Stage {
 pub struct PlayerSkills {
     pub list: Vec<Owned>,
     pub cast: Option<Cast>,
+    /// Effets portés (renforcements, affaiblissements, passives).
+    pub effects: Vec<Effect>,
 }
 
 impl PlayerSkills {
@@ -361,6 +435,19 @@ pub async fn load(db: &Databases, catalog: &SkillCatalog, character_id: u32, nex
         }
     }
     Ok(skills)
+}
+
+/// Recrée les effets des compétences passives connues (niveau courant). Rend vrai si la liste a changé.
+pub fn sync_passives(catalog: &SkillCatalog, skills: &mut PlayerSkills, caster_tid: u32) -> bool {
+    let before: Vec<(u32, u32)> = skills.effects.iter().filter(|e| e.ends_at.is_none()).map(|e| (e.tid, e.level)).collect();
+    skills.effects.retain(|e| e.ends_at.is_some());
+    for s in &skills.list {
+        let Some(t) = catalog.get(s.tid).filter(|t| t.nature().passive) else { continue };
+        let Some(lv) = t.level(s.level).filter(|lv| !lv.mods.is_empty()) else { continue };
+        effects::push(&mut skills.effects, Effect { skill_id: s.id, tid: s.tid, level: s.level, caster_tid, duration_ms: 0, ends_at: None, mods: lv.mods, dot: None });
+    }
+    let after: Vec<(u32, u32)> = skills.effects.iter().filter(|e| e.ends_at.is_none()).map(|e| (e.tid, e.level)).collect();
+    before != after
 }
 
 /// Points de compétence restants, recopiés dans les facteurs du personnage.
@@ -523,13 +610,12 @@ fn request_cast(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) {
         debug!("[compétence] {name} : {} pas encore prête", t.name);
         return;
     }
-    let target = if t.offensive() {
-        let alive = st.monsters.get(target).is_some_and(|m| m.is_alive() && st.monsters.stats_of(m.tid).is_attackable());
-        if !alive {
-            debug!("[compétence] {name} : {} vise {target:#x}, qui n'est pas un monstre vivant", t.name);
-            return;
-        }
+    let alive = st.monsters.get(target).is_some_and(|m| m.is_alive() && st.monsters.stats_of(m.tid).is_attackable());
+    let target = if t.offensive() && alive {
         target
+    } else if t.needs_target() {
+        debug!("[compétence] {name} : {} vise {target:#x}, qui n'est pas un monstre vivant", t.name);
+        return;
     } else {
         player.ch.id
     };
@@ -548,7 +634,7 @@ pub async fn step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) -> anyhow::
             _ => {}
         }
     }
-    Ok(())
+    effects_step(ctx, st, now).await
 }
 
 fn stop(st: &mut WorldState, sid: u32) {
@@ -619,36 +705,186 @@ async fn complete(ctx: &WorldCtx, st: &mut WorldState, sid: u32, cast: Cast, now
     let p = &st.players[&sid];
     let Some(owned) = p.skills.by_id(cast.skill_id).copied() else { return Ok(()) };
     let Some((t, lv)) = ctx.skills.get(owned.tid).and_then(|t| Some((t, t.level(owned.level)?))) else { return Ok(()) };
-    if p.dead || cast.target == p.ch.id || !t.instant_damage() {
-        // Effets durables : pas encore appliqués.
+    if p.dead {
         return Ok(());
     }
-    let Some(m) = st.monsters.get(cast.target).filter(|m| m.is_alive()).cloned() else { return Ok(()) };
+    let (caster_tid, me) = (p.ch.template_id, p.dest.unwrap_or_else(|| p.ch.pos()));
+    if !t.offensive() {
+        // Compétence amie : son lanceur (soin, renforcement).
+        if !lv.heal.is_empty() {
+            effects::heal(&mut st.players.get_mut(&sid).unwrap().factors, &lv.heal);
+            super::equipment::refresh_factors(ctx, st, sid);
+        }
+        if lv.lasting() {
+            let e = Effect { skill_id: owned.id, tid: owned.tid, level: owned.level, caster_tid, duration_ms: lv.duration_ms, ends_at: Some(now + Duration::from_millis(lv.duration_ms)), mods: lv.mods, dot: None };
+            add_player_effect(ctx, st, sid, e);
+        }
+        return Ok(());
+    }
+    // Cibles : la cible désignée, puis les monstres de la zone.
+    let primary = st.monsters.get(cast.target).filter(|m| m.is_alive()).map(|m| (m.cid, m.pos));
+    let center = match (t.area(), primary) {
+        (Area::Sphere { around_target: true }, Some((_, pos))) | (Area::Line, Some((_, pos))) => pos,
+        _ => me,
+    };
+    let toward = primary.map(|(_, pos)| pos).unwrap_or(me);
+    let mut targets: Vec<u32> = primary.map(|(c, _)| vec![c]).unwrap_or_default();
+    let limit = if lv.max_targets > 0 { lv.max_targets } else { 12 };
+    if t.area() != Area::Single {
+        let radius = lv.area_r.max(lv.area_f1).max(600.0);
+        let mut near: Vec<(f64, u32)> = st
+            .monsters
+            .near(center, radius)
+            .filter(|m| m.is_alive() && !targets.contains(&m.cid) && st.monsters.stats_of(m.tid).is_attackable())
+            .filter(|m| in_area(t.area(), m.pos, center, me, toward, lv))
+            .map(|m| (combat::dist2d(m.pos, center), m.cid))
+            .collect();
+        near.sort_by(|a, b| a.0.total_cmp(&b.0));
+        debug!("[compétence] {} : zone {:?} autour de {:.0}, {:.0} (rayon {:.0}) : {} autre(s) monstre(s)", t.name, t.area(), center.x, center.z, lv.area_r, near.len());
+        targets.extend(near.into_iter().map(|(_, c)| c));
+    }
+    targets.truncate(limit);
+    let skill_name = t.name.clone();
+    for target in targets {
+        hit_monster(ctx, st, sid, &owned, t, lv, target, caster_tid, now).await?;
+    }
+    if let (Some((target, _)), Some(p)) = (primary, st.players.get_mut(&sid)) {
+        super::recovery::in_combat(&mut p.timers, now);
+        if p.attack.is_none() && st.monsters.get(target).is_some_and(|m| m.is_alive()) {
+            p.attack = Some(combat::Attack { target, ready_at: now });
+        }
+    }
+    debug!("[compétence] {} : {skill_name} terminée", st.players.get(&sid).map(|p| p.ch.name.as_str()).unwrap_or("?"));
+    Ok(())
+}
+
+/// Effet d'une compétence offensive sur un monstre : dégâts immédiats, effet durable.
+#[allow(clippy::too_many_arguments)]
+async fn hit_monster(ctx: &WorldCtx, st: &mut WorldState, sid: u32, owned: &Owned, t: &SkillTemplate, lv: &SkillLevel, cid: u32, caster_tid: u32, now: Instant) -> anyhow::Result<()> {
+    let Some(m) = st.monsters.get(cid).filter(|m| m.is_alive()).cloned() else { return Ok(()) };
+    let Some(p) = st.players.get(&sid) else { return Ok(()) };
+    let caster = p.ch.id;
     let stats = st.monsters.stats_of(m.tid);
-    let attacker = Attacker::of_player(p);
-    let defender = Defender { level: m.level as i32, dr: 0, defense: stats.ac as f64 };
-    let damages = skill_damage(&mut rand::thread_rng(), &attacker, &spirit_ranges(&p.factors), &defender, lv);
+    let mods = st.monsters.mods(cid);
+    let (attacker, spirit) = (Attacker::of_player(p), spirit_ranges(&p.factors));
+    let defender = Defender { level: m.level as i32, dr: 0, defense: effects::monster_defense(stats.ac, &mods) };
+    let damages = if t.instant_damage() { skill_damage(&mut rand::thread_rng(), &attacker, &spirit, &defender, lv) } else { Vec::new() };
     let total: i32 = damages.iter().map(|(_, d)| *d).sum();
-    let (cid, name, skill_name) = (p.ch.id, p.ch.name.clone(), t.name.clone());
-    let target = st.monsters.get_mut(m.cid).unwrap();
+    let target = st.monsters.get_mut(cid).unwrap();
     target.hp = (target.hp - total).max(0);
     let hp = target.hp;
-    let pkt = result_packet(cid, &owned, m.cid, result_factors(hp, stats.max_mp, &damages));
-    let mut watchers = combat::viewers(st, m.cid);
+    let mut watchers = combat::viewers(st, cid);
     if !watchers.contains(&sid) {
         watchers.push(sid);
     }
-    combat::broadcast(st, &watchers, &pkt);
-    super::ai::add_aggro(st, m.cid, cid, total as u64, now);
-    if let Some(p) = st.players.get_mut(&sid) {
-        super::recovery::in_combat(&mut p.timers, now);
-        if p.attack.is_none() {
-            p.attack = Some(combat::Attack { target: m.cid, ready_at: now });
+    combat::broadcast(st, &watchers, &result_packet(caster, owned, cid, result_factors(hp, stats.max_mp, &damages)));
+    super::ai::add_aggro(st, cid, caster, total.max(1) as u64, now);
+    debug!("[compétence] {} → {} : {total} dégât(s), {hp}/{} PV", t.name, m.name, m.max_hp);
+    if hp == 0 {
+        return combat::kill(ctx, st, sid, cid, now).await;
+    }
+    if lv.lasting() {
+        let penalty = (5 * (m.level as i32 - attacker.level).max(0)).min(80) as f64;
+        let dot = (!lv.dot.is_empty()).then(|| effects::Dot {
+            damages: lv.dot.damages.iter().map(|(i, d)| (*i, ((d * (100.0 - penalty) / 100.0).round() as i32).max(1))).collect(),
+            interval: Duration::from_millis(lv.dot.interval_ms),
+            next_at: now + Duration::from_millis(lv.dot.interval_ms),
+            caster_sid: sid,
+        });
+        let e = Effect { skill_id: owned.id, tid: owned.tid, level: owned.level, caster_tid, duration_ms: lv.duration_ms, ends_at: Some(now + Duration::from_millis(lv.duration_ms)), mods: lv.mods, dot };
+        let list = st.monsters.effects.entry(cid).or_default();
+        if let Some(old) = effects::push(list, e.clone()) {
+            combat::broadcast(st, &watchers, &effects::remove_packet(cid, &old));
+        }
+        combat::broadcast(st, &watchers, &effects::add_packet(cid, &e));
+    }
+    Ok(())
+}
+
+/// Ajoute un effet à un joueur : annoncé autour de lui, facteurs recalculés.
+pub fn add_player_effect(ctx: &WorldCtx, st: &mut WorldState, sid: u32, e: Effect) {
+    let Some(p) = st.players.get_mut(&sid) else { return };
+    let cid = p.ch.id;
+    if let Some(old) = effects::push(&mut p.skills.effects, e.clone()) {
+        combat::send_around(st, sid, &effects::remove_packet(cid, &old));
+    }
+    combat::send_around(st, sid, &effects::add_packet(cid, &e));
+    super::equipment::refresh_factors(ctx, st, sid);
+}
+
+/// Retire les effets non passifs d'un joueur (mort) ; rend vrai s'il en avait.
+pub fn clear_player_effects(st: &mut WorldState, sid: u32) -> bool {
+    let Some(p) = st.players.get_mut(&sid) else { return false };
+    let cid = p.ch.id;
+    let gone: Vec<Effect> = p.skills.effects.iter().filter(|e| e.ends_at.is_some()).cloned().collect();
+    p.skills.effects.retain(|e| e.ends_at.is_none());
+    for e in &gone {
+        combat::send_around(st, sid, &effects::remove_packet(cid, e));
+    }
+    !gone.is_empty()
+}
+
+/// Effets échus des joueurs et des monstres ; coups des dégâts sur la durée.
+async fn effects_step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) -> anyhow::Result<()> {
+    for sid in st.sids() {
+        let Some(p) = st.players.get_mut(&sid) else { continue };
+        if p.skills.effects.is_empty() {
+            continue;
+        }
+        let cid = p.ch.id;
+        let gone = effects::expire(&mut p.skills.effects, now);
+        if !gone.is_empty() {
+            for e in &gone {
+                combat::send_around(st, sid, &effects::remove_packet(cid, e));
+            }
+            super::equipment::refresh_factors(ctx, st, sid);
         }
     }
-    debug!("[compétence] {name} : {skill_name} → {} : {total} dégât(s), {hp}/{} PV", m.name, m.max_hp);
-    if hp == 0 {
-        combat::kill(ctx, st, sid, m.cid, now).await?;
+    let affected: Vec<u32> = st.monsters.effects.keys().copied().collect();
+    for cid in affected {
+        if !st.monsters.get(cid).is_some_and(|m| m.is_alive()) {
+            st.monsters.effects.remove(&cid);
+            continue;
+        }
+        let watchers = combat::viewers(st, cid);
+        let list = st.monsters.effects.get_mut(&cid).unwrap();
+        // Coups dus avant l'expiration.
+        let mut ticks: Vec<(u32, Vec<(usize, i32)>)> = Vec::new();
+        for e in list.iter_mut() {
+            let end = e.ends_at.unwrap_or(now);
+            if let Some(d) = e.dot.as_mut() {
+                while d.next_at <= now && d.next_at <= end {
+                    ticks.push((d.caster_sid, d.damages.clone()));
+                    d.next_at += d.interval;
+                }
+            }
+        }
+        let gone = effects::expire(list, now);
+        if list.is_empty() {
+            st.monsters.effects.remove(&cid);
+        }
+        for e in &gone {
+            combat::broadcast(st, &watchers, &effects::remove_packet(cid, e));
+        }
+        for (caster_sid, damages) in ticks {
+            let total: i32 = damages.iter().map(|(_, d)| *d).sum();
+            let caster_online = st.players.get(&caster_sid).is_some_and(|p| p.in_game);
+            let Some(m) = st.monsters.get_mut(cid).filter(|m| m.is_alive()) else { break };
+            // Sans lanceur pour en profiter, l'effet ne tue pas.
+            m.hp = (m.hp - total).max(if caster_online { 0 } else { 1 });
+            let (hp, tid) = (m.hp, m.tid);
+            let max_mp = st.monsters.stats_of(tid).max_mp;
+            let c = &schema::CHARACTER;
+            let pkt = build_packet(c, &Fields::new(c).with(0, 1).with(1, cid).with(7, result_factors(hp, max_mp, &damages)));
+            combat::broadcast(st, &watchers, &pkt);
+            if hp == 0 {
+                combat::kill(ctx, st, caster_sid, cid, now).await?;
+                break;
+            }
+            if let Some(caster) = st.players.get(&caster_sid).map(|p| p.ch.id) {
+                super::ai::add_aggro(st, cid, caster, total as u64, now);
+            }
+        }
     }
     Ok(())
 }
@@ -743,8 +979,14 @@ pub async fn learn(ctx: &WorldCtx, st: &mut WorldState, sid: u32, tid: u32) -> a
     let p = st.players.get_mut(&sid).unwrap();
     p.skills.list.push(owned);
     refresh_points(&ctx.skills, &p.skills, &mut p.factors);
-    send_points(p);
     p.send_raw(add_packet(p.ch.id, &owned));
+    let caster_tid = p.ch.template_id;
+    if sync_passives(&ctx.skills, &mut p.skills, caster_tid) {
+        super::equipment::refresh_factors(ctx, st, sid);
+    } else {
+        send_points(p);
+    }
+    let p = &st.players[&sid];
     info!("[maître] {} apprend {} ({} or)", p.ch.name, t.name, lv.learn_cost);
     super::set_money(ctx, st, sid, money).await?;
     Ok(learn_result::SUCCESS)
@@ -772,8 +1014,14 @@ pub async fn upgrade(ctx: &WorldCtx, st: &mut WorldState, sid: u32, skill_id: u3
     s.level = level;
     let updated = *s;
     refresh_points(&ctx.skills, &p.skills, &mut p.factors);
-    send_points(p);
     p.send_raw(update_packet(p.ch.id, &updated));
+    let caster_tid = p.ch.template_id;
+    if sync_passives(&ctx.skills, &mut p.skills, caster_tid) {
+        super::equipment::refresh_factors(ctx, st, sid);
+    } else {
+        send_points(p);
+    }
+    let p = &st.players[&sid];
     info!("[maître] {} passe {} au niveau {level} ({} or)", p.ch.name, t.name, lv.upgrade_cost);
     super::set_money(ctx, st, sid, money).await?;
     Ok(true)
@@ -802,6 +1050,7 @@ mod tests {
             upgradable: 1,
             target: 1,
             melee_attack: 101,
+            range_code: 202,
             auto_attack: false,
             levels: vec![SkillLevel::from_consts(&consts), SkillLevel { require_level: 7, require_point: 1, upgrade_cost: 480, ..SkillLevel::from_consts(&consts) }],
         }
@@ -826,7 +1075,14 @@ mod tests {
         assert_eq!(nature(21), Nature { debuff: true, damage: true, ..Default::default() });
         assert_eq!(nature(9), Nature { passive: true, ..Default::default() });
         assert_eq!(nature(20010), Nature { buff: true, ..Default::default() });
-        assert!(SkillTemplate { target: 100, attribute: 10, ..Default::default() }.self_only());
+        let berserker = SkillTemplate { target: 100, attribute: 10, range_code: 1, ..Default::default() };
+        assert!(!berserker.offensive() && !berserker.needs_target());
+        let earthquake = SkillTemplate { target: 101, range_code: 1304, ..Default::default() };
+        assert!(earthquake.offensive() && earthquake.needs_target());
+        assert_eq!(earthquake.area(), Area::Sphere { around_target: true });
+        let whirl = SkillTemplate { target: 1, range_code: 304, ..Default::default() };
+        assert!(!whirl.needs_target(), "zone autour du lanceur");
+        assert_eq!((area(202), area(1404), area(1)), (Area::Single, Area::Line, Area::Single));
     }
 
     #[test]
@@ -837,12 +1093,36 @@ mod tests {
         assert_eq!(points_for_level(99), 120);
         let mut catalog = SkillCatalog::default();
         catalog.insert(dual_slash());
-        let skills = PlayerSkills { list: vec![Owned { id: 1, tid: 1, level: 2, ready_at: None }], cast: None };
+        let skills = PlayerSkills { list: vec![Owned { id: 1, tid: 1, level: 2, ready_at: None }], ..Default::default() };
         assert_eq!(skills.spent(&catalog), 2);
         let mut f = Factors::default();
         f.status[7] = 10;
         refresh_points(&catalog, &skills, &mut f);
         assert_eq!(f.dirt[DIRT_SKILL_POINT], 8);
+    }
+
+    #[test]
+    fn zones() {
+        let lv = SkillLevel { area_r: 500.0, area_f1: 1000.0, area_f2: 200.0, ..Default::default() };
+        let o = Vec3::new(0.0, 0.0, 0.0);
+        let east = Vec3::new(1000.0, 0.0, 0.0);
+        let sphere = Area::Sphere { around_target: true };
+        assert!(in_area(sphere, Vec3::new(1300.0, 0.0, 300.0), east, o, east, &lv));
+        assert!(!in_area(sphere, Vec3::new(1600.0, 0.0, 0.0), east, o, east, &lv));
+        assert!(in_area(Area::Line, Vec3::new(700.0, 0.0, 90.0), o, o, east, &lv));
+        assert!(!in_area(Area::Line, Vec3::new(700.0, 0.0, 150.0), o, o, east, &lv), "trop à côté");
+        assert!(!in_area(Area::Line, Vec3::new(-100.0, 0.0, 0.0), o, o, east, &lv), "derrière");
+    }
+
+    #[test]
+    fn passives() {
+        let mut catalog = SkillCatalog::default();
+        let hold = serde_json::json!({ "require_class_knight": "1", "point.def_point_physical": "20" });
+        catalog.insert(SkillTemplate { tid: 40, name: "Defense Hold".into(), attribute: 9, target: 111, levels: vec![SkillLevel::from_consts(&hold)], ..Default::default() });
+        let mut skills = PlayerSkills { list: vec![Owned { id: 3, tid: 40, level: 1, ready_at: None }], ..Default::default() };
+        assert!(sync_passives(&catalog, &mut skills, 96));
+        assert!(!sync_passives(&catalog, &mut skills, 96), "inchangée");
+        assert_eq!((skills.effects.len(), effects::total(&skills.effects).defense), (1, 20.0));
     }
 
     #[test]

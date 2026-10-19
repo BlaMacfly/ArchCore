@@ -32,7 +32,7 @@ Filled by `archcore import` from the client tables.
 | `item_template` | item templates | Items |
 | `skill_template` | `SKILLTEMPLATE.ini` | Skills (TID, name) |
 | `skill_spec` | `SKILL_SPEC.txt` | Each skill's nature (non-empty columns, as JSON) |
-| `skill_level` | `SKILL_CONST.txt` | Values of each level of each skill (non-empty columns, as JSON) |
+| `skill_level` | `SKILL_CONST.txt` | Values of each level of each skill (non-empty columns, as JSON; `point.`, `percent.`, `magnify.` groups) |
 | `npc_spawn` | `npc.ini` | 567 NPCs: template, name, position, orientation, raw functions |
 | `client_table` | other `.txt` tables | Rows as JSON, for tables not modelled yet |
 | `monster_spawn` | original server tables (`spawndatatable.txt` + `spawninstancetable.txt`) | 12,802 spawn points, 36,960 creatures: template, level, count, respawn, position, radius, public name (`CharacterTemplatePublic.ini`) |
