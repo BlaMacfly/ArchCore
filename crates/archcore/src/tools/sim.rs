@@ -8,6 +8,7 @@
 //!   archcore sim addon [A… B… C…]                             extensions ArchRust : messages d'AddOn (A, B : ArchRust ; C : client d'origine, MJ)
 //!   archcore sim combat [compte] [mdp] [perso] [monstre]      Vers verts au nord d'Anchorville : riposte, poursuite, mort et résurrection,
 //!                                                             puis (invincible) victoire, expérience, butin ramassé, réapparition ; compte MJ requis
+//!   archcore sim equip [compte] [mdp] [perso]                 équiper épée et armure (dégâts, défense), refus de classe, retrait ; SimA voit l'arme
 //! ```
 //! À lancer contre un serveur de test (`ARCHCORE_CONFIG`) : les personnages sont créés au besoin,
 //! déplacés, et `sim shop` leur donne 1000 pièces d'or.
@@ -42,8 +43,9 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
             ];
             Box::pin(addon(&acc)).await
         }
+        Some("equip") => Box::pin(equip(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("combat") => Box::pin(combat(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "Green Worm"))).await,
-        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat [arguments]"),
+        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip [arguments]"),
     }
 }
 
@@ -239,6 +241,15 @@ impl SeenMonster {
             hp: view.bytes(5).and_then(factors_hp).unwrap_or(0),
         }
     }
+}
+
+/// Dégâts physiques (min, max) et défense physique d'un mini-paquet de facteurs complet.
+fn factors_combat(bytes: &[u8]) -> Option<((i64, i64), i64)> {
+    let f = decode_mini(&mini::CHAR_FACTORS, bytes).ok()?;
+    let first = |b: &[u8]| decode_mini(&mini::FACTOR_ATTRIBUTE, b).ok().and_then(|a| a.int(0)).unwrap_or(0);
+    let dmg = decode_mini(&mini::FACTOR_DMG, f.bytes(7)?).ok()?;
+    let def = decode_mini(&mini::FACTOR_DEFENSE, f.bytes(8)?).ok()?;
+    Some(((first(dmg.bytes(0)?), first(dmg.bytes(1)?)), first(def.bytes(0)?)))
 }
 
 /// PV d'un mini-paquet de facteurs complet (sous-paquet 3, valeur 0).
@@ -745,6 +756,72 @@ async fn combat(user: &str, pass: &str, char_name: &str, prey: &str) -> anyhow::
     w.world.send(mv, Fields::new(mv).with(0, w.cid).with(1, village).with(2, village).with(5, STOP).with(6, 0)).await?;
     tokio::time::sleep(Duration::from_millis(300)).await;
     println!("\ncombat : OK");
+    Ok(())
+}
+
+async fn equip(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
+    const SWORD: i64 = 11; // Short Sword : guerrier, 11 à 13
+    const ARMOR: i64 = 324; // Halfsteel Armor : guerrier humain, niveau 2, défense 4
+    const WAND: i64 = 9; // Glass Wand : mage
+    let cfg = crate::config::load()?;
+    let (c, it, ch) = (&schema::CHARACTER, &schema::ITEM, &schema::CHATTING);
+    step("SimA, témoin, entre en jeu");
+    let mut witness = enter_world(&cfg, "sima", "sima", "SimA", "B-").await?;
+    step(&format!("{char_name} entre en jeu"));
+    let mut w = enter_world(&cfg, user, pass, char_name, "").await?;
+    let me = w.cid as i64;
+    let say = |cid: u32, text: &str| Fields::new(ch).with(0, 0).with(1, cid).with(2, chat_type::NORMAL).with(6, crate::tools::to_cp1252(text));
+
+    step("objets créés par commande MJ");
+    let mut iids = std::collections::HashMap::new();
+    for tid in [SWORD, ARMOR, WAND] {
+        w.world.send(ch, say(w.cid, &format!("/create \"{char_name}\" {tid} 1"))).await?;
+        let p = w.world.expect_where(|q| q.is(it, Some(0)) && q.int(3) == Some(tid) && q.int(1) == Some(2), 3000, "objet créé").await?;
+        iids.insert(tid, p.int(2).unwrap_or(0));
+    }
+    println!("  ✓ épée, armure et baguette dans l'inventaire");
+
+    // Équipe et rend les facteurs reçus ensuite.
+    async fn wear(w: &mut InWorld, iid: i64) -> anyhow::Result<((i64, i64), i64)> {
+        let (c, it, me) = (&schema::CHARACTER, &schema::ITEM, w.cid as i64);
+        w.world.send(it, Fields::new(it).with(0, 2).with(1, 3).with(2, iid)).await?;
+        w.world.expect_where(|q| q.is(it, Some(2)) && q.int(2) == Some(iid) && q.int(1) == Some(3), 3000, "objet équipé").await?;
+        let f = w.world.expect_where(|q| q.is(c, Some(1)) && q.int(1) == Some(me) && q.fields().bytes(7).is_some(), 3000, "facteurs").await?;
+        factors_combat(f.fields().bytes(7).unwrap_or_default()).ok_or_else(|| anyhow::anyhow!("facteurs illisibles"))
+    }
+
+    step("épée");
+    let (dmg, _) = wear(&mut w, iids[&SWORD]).await?;
+    anyhow::ensure!(dmg.0 >= 11 && dmg.1 >= 13, "dégâts {dmg:?} sans l'épée");
+    println!("  ✓ épée portée : dégâts physiques {} à {}", dmg.0, dmg.1);
+    let sword_iid = iids[&SWORD];
+    let seen = witness.world.expect_where(|q| q.is(it, Some(0)) && q.int(2) == Some(sword_iid) && q.int(1) == Some(3), 3000, "épée vue par SimA").await?;
+    println!("  ✓ SimA voit l'épée sur {char_name} (propriétaire {})", o(seen.int(4)));
+
+    step("armure");
+    let (_, def) = wear(&mut w, iids[&ARMOR]).await?;
+    anyhow::ensure!(def >= 4, "défense {def} sans l'armure");
+    println!("  ✓ armure portée : défense physique {def}");
+
+    step("baguette de mage");
+    w.world.send(it, Fields::new(it).with(0, 2).with(1, 3).with(2, iids[&WAND])).await?;
+    let no = w.world.expect_where(|q| q.ptype == ch.id && q.fields().text(6).is_some_and(|t| t.contains("porter")), 3000, "refus").await?;
+    println!("  ✓ refusée : {}", no.fields().text(6).unwrap_or_default());
+
+    step("retrait de l'épée et de l'armure");
+    for tid in [SWORD, ARMOR] {
+        let iid = iids[&tid];
+        let any = &mini::ITEM_GRID;
+        let grid = build_mini(any, &Fields::new(any).with(0, -1).with(1, -1).with(2, -1));
+        w.world.send(it, Fields::new(it).with(0, 2).with(1, 2).with(2, iid).with(7, grid)).await?;
+        w.world.expect_where(|q| q.is(it, Some(2)) && q.int(2) == Some(iid) && q.int(1) == Some(2), 3000, "objet rangé").await?;
+        let f = w.world.expect_where(|q| q.is(c, Some(1)) && q.int(1) == Some(me) && q.fields().bytes(7).is_some(), 3000, "facteurs").await?;
+        let (dmg, def) = factors_combat(f.fields().bytes(7).unwrap_or_default()).unwrap_or_default();
+        println!("  ✓ objet {tid} rangé : dégâts {} à {}, défense {def}", dmg.0, dmg.1);
+    }
+    witness.world.expect_where(|q| q.is(it, Some(1)) && q.int(2) == Some(sword_iid), 3000, "épée retirée chez SimA").await?;
+    println!("  ✓ SimA ne voit plus l'épée");
+    println!("\néquipement : OK");
     Ok(())
 }
 

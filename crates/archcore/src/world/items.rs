@@ -4,6 +4,7 @@
 //! (TID), sa quantité et sa case. Il le crée à partir de son propre modèle (`ItemTemplateAll.ini`) : un
 //! TID qu'il ne connaît pas est ignoré. Les objets d'inventaire gardent comme IID leur identifiant en
 //! base ; les objets montrés par une boutique reçoivent des IID d'une plage à part, jamais enregistrés.
+//! Un objet équipé (statut 3) est enregistré avec le statut 1 et sa partie du corps dans `layer`.
 
 use crate::db::{col, Databases};
 use crate::info;
@@ -21,12 +22,14 @@ pub mod item_op {
 /// Statut d'un objet (champ 1 d'AGPMITEM).
 pub mod item_status {
     pub const INVENTORY: i64 = 2;
+    pub const EQUIP: i64 = 3;
     pub const NPC_TRADE: i64 = 10;
 }
 
 /// Statut enregistré en base (colonne `character_items.status`), indépendant du protocole.
 pub mod stored_status {
     pub const INVENTORY: i64 = 0;
+    pub const EQUIP: i64 = 1;
 }
 
 /// Inventaire : 4 sacs de 4 × 4 cases utilisés (la grille du client en a 5 × 5 × 5).
@@ -63,6 +66,13 @@ pub fn item_remove(iid: u32, owner: Option<u32>) -> Vec<u8> {
     build_packet(s, &Fields::new(s).with(0, item_op::REMOVE).with(2, iid).with_opt(4, owner))
 }
 
+/// AGPMITEM op 2 (mise à jour) du statut et de la place : case d'inventaire, ou aucune pour un objet équipé.
+pub fn item_update(item: &InventoryItem, owner: u32, status: i64) -> Vec<u8> {
+    let s = &schema::ITEM;
+    let f = Fields::new(s).with(0, item_op::UPDATE).with(1, status).with(2, item.iid).with(3, item.tid).with(4, owner).with(5, item.count);
+    build_packet(s, &f.with_opt(7, (status == item_status::INVENTORY).then(|| grid_mini(item.grid))))
+}
+
 /// AGPMITEM op 2 (mise à jour) de la quantité.
 pub fn item_count(item: &InventoryItem, owner: u32) -> Vec<u8> {
     let s = &schema::ITEM;
@@ -85,6 +95,62 @@ pub struct ItemData {
     pub npc_price: i64,
     pub pc_price: i64,
     pub stack: i64,
+    /// Caractéristiques d'équipement, pour un objet qui se porte.
+    pub equip: Option<EquipData>,
+}
+
+/// Caractéristiques d'un équipement (colonnes d'itemdatatable.txt).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct EquipData {
+    /// Partie du corps (2 corps, 3 tête, 5 mains, 6 jambes, 7 pieds, 9 main gauche, 10 main droite…).
+    pub part: i64,
+    /// 1 armure, 2 arme, 4 bouclier…
+    pub kind: i64,
+    /// 2 = à deux mains.
+    pub hand: i64,
+    pub level: i64,
+    /// Races et classes admises (vide : toutes), sexe exigé (0 : les deux).
+    pub races: Vec<i64>,
+    pub classes: Vec<i64>,
+    pub gender: i64,
+    pub min_damage: i32,
+    pub max_damage: i32,
+    pub defense: i32,
+    /// Précision (« Physical_ATKRate »), PV en plus.
+    pub ar: i32,
+    pub hp: i32,
+    /// Vitesse et portée d'attaque d'une arme.
+    pub atk_speed: i32,
+    pub atk_range: i32,
+}
+
+impl EquipData {
+    /// Lit les colonnes d'une ligne d'itemdatatable.txt ; `None` si l'objet ne se porte pas.
+    pub fn from_raw(raw: &serde_json::Value) -> Option<Self> {
+        let text = |k: &str| raw.get(k).and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+        let num = |k: &str| text(k).parse::<f64>().map(|v| v as i64).unwrap_or(0);
+        let list = |k: &str| text(k).split(';').filter_map(|x| x.trim().parse::<i64>().ok()).filter(|&x| x > 0).collect::<Vec<_>>();
+        let (part, kind) = (num("Part"), num("Kind"));
+        if part < 2 || kind <= 0 {
+            return None;
+        }
+        Some(EquipData {
+            part,
+            kind,
+            hand: num("Hand"),
+            level: num("Level"),
+            races: list("Race"),
+            classes: list("Class"),
+            gender: num("Gender"),
+            min_damage: num("Physical_Min_Damage") as i32,
+            max_damage: num("Physical_Max_Damage") as i32,
+            defense: num("Physical_Defense_Point") as i32,
+            ar: num("Physical_ATKRate") as i32,
+            hp: num("HP") as i32,
+            atk_speed: num("ATK Speed") as i32,
+            atk_range: num("ATK Range") as i32,
+        })
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -102,12 +168,13 @@ pub struct ItemCatalog {
 
 impl ItemCatalog {
     pub async fn load(db: &Databases) -> anyhow::Result<Self> {
-        let rows = db.world.rows("SELECT tid, name, npc_price, pc_price, stack FROM item_data", ()).await?;
+        let rows = db.world.rows("SELECT tid, name, npc_price, pc_price, stack, raw FROM item_data", ()).await?;
         let items: HashMap<u32, ItemData> = rows
             .iter()
             .map(|r| {
                 let tid: u32 = col(r, "tid");
-                (tid, ItemData { tid, name: col(r, "name"), npc_price: col(r, "npc_price"), pc_price: col(r, "pc_price"), stack: col::<i64>(r, "stack").max(1) })
+                let equip = serde_json::from_str::<serde_json::Value>(&col::<String>(r, "raw")).ok().and_then(|v| EquipData::from_raw(&v));
+                (tid, ItemData { tid, name: col(r, "name"), npc_price: col(r, "npc_price"), pc_price: col(r, "pc_price"), stack: col::<i64>(r, "stack").max(1), equip })
             })
             .collect();
         let lists = db.world.rows("SELECT template_id, tid, count FROM npc_trade_list ORDER BY template_id, idx", ()).await?;
@@ -141,6 +208,8 @@ pub struct InventoryItem {
 pub struct Inventory {
     pub character_id: u32,
     pub items: BTreeMap<u32, InventoryItem>,
+    /// Objets équipés, par partie du corps (`grid` = [partie, 0, 0]).
+    pub equipment: BTreeMap<i64, InventoryItem>,
 }
 
 impl Inventory {
@@ -148,18 +217,21 @@ impl Inventory {
         let rows = db
             .characters
             .rows(
-                "SELECT id, template_id, layer, row_idx, col_idx, count FROM character_items WHERE character_id = ? AND status = ?",
-                (character_id, stored_status::INVENTORY),
+                "SELECT id, template_id, status, layer, row_idx, col_idx, count FROM character_items WHERE character_id = ? AND status IN (?, ?)",
+                (character_id, stored_status::INVENTORY, stored_status::EQUIP),
             )
             .await?;
-        let items = rows
-            .iter()
-            .map(|r| {
-                let iid: u32 = col(r, "id");
-                (iid, InventoryItem { iid, tid: col(r, "template_id"), count: col(r, "count"), grid: [col(r, "layer"), col(r, "row_idx"), col(r, "col_idx")] })
-            })
-            .collect();
-        Ok(Inventory { character_id, items })
+        let mut inv = Inventory { character_id, ..Default::default() };
+        for r in &rows {
+            let iid: u32 = col(r, "id");
+            let item = InventoryItem { iid, tid: col(r, "template_id"), count: col(r, "count"), grid: [col(r, "layer"), col(r, "row_idx"), col(r, "col_idx")] };
+            if col::<i64>(r, "status") == stored_status::EQUIP {
+                inv.equipment.insert(item.grid[0], item);
+            } else {
+                inv.items.insert(iid, item);
+            }
+        }
+        Ok(inv)
     }
 
     pub fn get(&self, iid: u32) -> Option<&InventoryItem> {
@@ -215,12 +287,69 @@ impl Inventory {
         Ok(())
     }
 
-    /// Paquets AGPMITEM d'ajout de tout l'inventaire (entrée en jeu).
+    /// Paquets AGPMITEM d'ajout de tout l'inventaire et de l'équipement (entrée en jeu).
     pub fn add_packets(&self) -> Vec<Vec<u8>> {
-        self.items
-            .values()
-            .map(|i| item_add(i.iid, i.tid, Some(self.character_id), i.count, item_status::INVENTORY, Some(i.grid)))
-            .collect()
+        let bag = self.items.values().map(|i| item_add(i.iid, i.tid, Some(self.character_id), i.count, item_status::INVENTORY, Some(i.grid)));
+        bag.chain(self.equip_packets()).collect()
+    }
+
+    /// Paquets AGPMITEM d'ajout de l'équipement porté (pour le porteur ou ceux qui le voient).
+    pub fn equip_packets(&self) -> Vec<Vec<u8>> {
+        self.equipment.values().map(|i| item_add(i.iid, i.tid, Some(self.character_id), i.count, item_status::EQUIP, None)).collect()
+    }
+
+    pub fn free_count(&self) -> usize {
+        let (l, r, c) = INVENTORY;
+        (l * r * c) as usize - self.items.len()
+    }
+
+    /// Place un objet de l'inventaire sur la partie `part`, après avoir rangé dans l'inventaire les objets
+    /// portés sur `displaced`. Rend (objet équipé, objets rangés) ; `None` si l'objet n'est pas dans
+    /// l'inventaire ou s'il n'y a pas assez de place pour ranger.
+    pub async fn equip(&mut self, db: &Databases, iid: u32, part: i64, displaced: &[i64]) -> anyhow::Result<Option<(InventoryItem, Vec<InventoryItem>)>> {
+        if !self.items.contains_key(&iid) || self.free_count() + 1 < displaced.len() {
+            return Ok(None);
+        }
+        let mut item = self.items.remove(&iid).unwrap();
+        let mut stored = Vec::new();
+        for p in displaced {
+            if let Some(moved) = self.unequip(db, *p, None).await? {
+                stored.push(moved);
+            }
+        }
+        item.grid = [part, 0, 0];
+        db.characters
+            .exec("UPDATE character_items SET status = ?, layer = ?, row_idx = 0, col_idx = 0 WHERE id = ?", (stored_status::EQUIP, part, iid))
+            .await?;
+        self.equipment.insert(part, item.clone());
+        Ok(Some((item, stored)))
+    }
+
+    /// Range dans l'inventaire l'objet porté sur `part` : dans la case voulue si elle est libre, sinon la
+    /// première libre. `None` si rien n'est porté là ou si l'inventaire est plein.
+    pub async fn unequip(&mut self, db: &Databases, part: i64, wanted: Option<Grid>) -> anyhow::Result<Option<InventoryItem>> {
+        let Some(grid) = wanted.filter(|g| self.is_free(*g)).or_else(|| self.free_slot()) else { return Ok(None) };
+        let Some(mut item) = self.equipment.remove(&part) else { return Ok(None) };
+        item.grid = grid;
+        db.characters
+            .exec(
+                "UPDATE character_items SET status = ?, layer = ?, row_idx = ?, col_idx = ? WHERE id = ?",
+                (stored_status::INVENTORY, grid[0], grid[1], grid[2], item.iid),
+            )
+            .await?;
+        self.items.insert(item.iid, item.clone());
+        Ok(Some(item))
+    }
+
+    /// Déplace un objet de l'inventaire vers une case libre.
+    pub async fn move_to(&mut self, db: &Databases, iid: u32, grid: Grid) -> anyhow::Result<Option<InventoryItem>> {
+        if !self.items.contains_key(&iid) || !self.is_free(grid) {
+            return Ok(None);
+        }
+        let item = self.items.get_mut(&iid).unwrap();
+        item.grid = grid;
+        db.characters.exec("UPDATE character_items SET layer = ?, row_idx = ?, col_idx = ? WHERE id = ?", (grid[0], grid[1], grid[2], iid)).await?;
+        Ok(Some(item.clone()))
     }
 }
 
@@ -237,6 +366,18 @@ mod tests {
         assert_eq!(inv.stack_for(190, 10, 9999), Some(3));
         assert_eq!(inv.stack_for(190, 10, 1), None);
         assert!(!inv.is_free([4, 0, 0]));
+    }
+
+    #[test]
+    fn caracteristiques_d_equipement() {
+        let sword = serde_json::json!({"Part":"10","Kind":"2","Hand":"1","Level":"1","Race":"1;2;3","Class":"1","Gender":"",
+            "Physical_Min_Damage":"11","Physical_Max_Damage":"13","ATK Speed":"71","ATK Range":"180"});
+        let e = EquipData::from_raw(&sword).unwrap();
+        assert_eq!((e.part, e.kind, e.level, e.races.clone(), e.classes.clone(), e.gender), (10, 2, 1, vec![1, 2, 3], vec![1], 0));
+        assert_eq!((e.min_damage, e.max_damage, e.atk_speed, e.atk_range), (11, 13, 71, 180));
+        let armor = serde_json::json!({"Part":"2","Kind":"1","Level":"2","Race":"1","Class":"1","Physical_Defense_Point":"4"});
+        assert_eq!(EquipData::from_raw(&armor).unwrap().defense, 4);
+        assert!(EquipData::from_raw(&serde_json::json!({"Part":"0","Kind":"0"})).is_none(), "potion");
     }
 
     #[test]

@@ -9,7 +9,7 @@ Ils se lancent depuis la racine du dépôt et lisent `config/archcore.json`, ou 
 | `archcore db-init [--account nom mdp [mj]]` | Crée les bases et applique `sql/` ; avec `--account`, crée ou met à jour un compte |
 | `archcore decrypt [source] [destination]` | Déchiffre `Game/ini` (RC4, MD5(« 1111 »)) vers `data/client-ini` |
 | `archcore import [dossier] [--server dossier]` | Importe `data/client-ini` dans `archcore_world` (CP949 → UTF-8) ; avec les tables du serveur d'origine (`--server`, ou `data/server-ini` s'il existe), importe aussi les apparitions de monstres et la carte serveur |
-| `archcore sim client\|move\|shop\|addon\|combat …` | Clients simulés (voir plus bas) |
+| `archcore sim client\|move\|shop\|addon\|combat\|equip …` | Clients simulés (voir plus bas) |
 | `archcore i18n strings [Game]` | Liste les textes encore en anglais dans `data/i18n/pending-en.json` |
 | `archcore i18n coverage [Game]` | Mesure la part déjà traduite de `ini_fr` |
 | `archcore i18n apply [--ascii] [--dry]` | Applique la mémoire de traduction au client (voir [[Traduction|FR-Traduction]]) |
@@ -31,7 +31,7 @@ Sous Git Bash, préfixer par `MSYS_NO_PATHCONV=1` : sinon `/GetExp` est transfor
 ## Test à deux joueurs
 
 ```bash
-archcore sim | `archcore sim client|move|shop|addon …` | [compteA] [mdpA] [persoA] [compteB] [mdpB] [persoB]
+archcore sim move [compteA] [mdpA] [persoA] [compteB] [mdpB] [persoB]
 ```
 
 Deux clients simulés entrent en jeu (comptes `sima` et `simb` par défaut, personnages créés au
@@ -41,7 +41,7 @@ personnages et sauvegarde leur position : à lancer contre un serveur de test, p
 
 ```bash
 ARCHCORE_CONFIG=config/test.json archcore all      # autres ports, autres bases
-ARCHCORE_CONFIG=config/test.json archcore sim | `archcore sim client|move|shop|addon …` |
+ARCHCORE_CONFIG=config/test.json archcore sim move
 ```
 
 ## Test de boutique
@@ -73,6 +73,17 @@ Le personnage, un compte MJ (`gmtest` / `GmTest` par défaut), part chasser au n
 Il remet ensuite `/invincible 0` et ramène le personnage au village. Compter environ 2 min : un
 guerrier de niveau 1 sans arme frappe un Ver vert (136 PV) 2 à 3 PV par coup, et le ver le tue en
 une quinzaine de secondes.
+
+## Test d'équipement
+
+```bash
+ARCHCORE_CONFIG=config/test.json archcore sim equip [compte] [mdp] [personnage]
+```
+
+Un compte MJ (`gmtest` / `GmTest` par défaut) se crée une épée courte, une armure de guerrier humain
+(niveau 2) et une baguette de mage avec `/create`, porte l'épée (dégâts 11 à 13) puis l'armure (défense
+4), voit la baguette refusée (classe), puis range les deux. SimA, à côté, doit voir l'épée apparaître sur
+lui puis disparaître. Les objets créés restent dans l'inventaire.
 
 ## Test des extensions ArchRust
 

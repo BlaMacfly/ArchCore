@@ -17,6 +17,7 @@ pub mod addon;
 pub mod ai;
 pub mod chat;
 pub mod combat;
+pub mod equipment;
 pub mod gm;
 pub mod items;
 pub mod loot;
@@ -269,8 +270,8 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
         return Ok(());
     };
     let gm_level: i64 = col(&acc, "gm_level");
-    let factors = make_factors(tpl, Some(&ch));
     let inventory = Inventory::load(&ctx.db, ch.id).await?;
+    let factors = equipment::with_equipment(make_factors(tpl, Some(&ch)), &equipment::worn(&inventory, &ctx.catalog));
     info!(
         "[world] #{} {} entre avec {} (cid {}{})",
         s.id(),

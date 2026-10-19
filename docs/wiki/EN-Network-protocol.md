@@ -227,6 +227,22 @@ for groups affected by it, + a bonus by killer level), then an item rank from th
 itemdatatable.txt) suited to the monster's level; finally the monster's own items (`itemdroptable.txt`),
 always given at 100,000.
 
+## Equipment (type 0x04, AgpmItem)
+
+The client asks to move an item with AGPMITEM **op 2**: status 3 to wear an inventory item, status 2 with
+the wanted slot in field 7 (mini-packet of three INT16; -1 = server's choice) to put away a worn item or
+move an item within the inventory. The server checks the required level, race, class and gender
+(`Level`, `Race`, `Class`, `Gender` from itemdatatable.txt), puts the item already worn on the same body
+part back in the inventory (`Part`: 2 body, 3 head, 5 hands, 6 legs, 7 feet, 9 left hand, 10 right hand,
+11 and 12 rings, 13 necklace) and frees the other hand for a two-handed weapon (`Hand` = 2). It answers
+the wearer with op 2 packets (status 3 without a slot for the worn item, status 2 with its slot for a
+stored item), sends players who see them an op 0 (status 3, owner = wearer) or an op 1, then sends the
+wearer's factors again (AGPMCHARACTER op 1, field 7). Equipment adds to the template's factors: physical
+min and max damage, physical defense, accuracy (`Physical_ATKRate`), HP, and for a weapon its attack speed
+and range. A refusal gives a system message and puts the item back. In the database a worn item has
+status 1 and its body part in `layer`. A player's equipment is sent (op 0, status 3) to those who start
+seeing them.
+
 ## GM level (type 0x12, AgpmAdmin)
 
 2-byte field flags: op, CID, then 13 mini-packets. Op 0 with, in field 2, a "GM data" mini-packet of

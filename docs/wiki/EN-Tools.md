@@ -8,7 +8,7 @@ them from the repository root; they read `config/archcore.json`, or the file nam
 | `archcore db-init [--account name pass [gm]]` | Creates the databases and applies `sql/`; with `--account`, creates or updates an account |
 | `archcore decrypt [source] [destination]` | Decrypts `Game/ini` (RC4, MD5("1111")) into `data/client-ini` |
 | `archcore import [folder] [--server folder]` | Imports `data/client-ini` into `archcore_world` (CP949 → UTF-8); with the original server tables (`--server`, or `data/server-ini` if it exists), also imports monster spawns and the server map |
-| `archcore sim client\|move\|shop\|addon\|combat …` | Simulated clients (see below) |
+| `archcore sim client\|move\|shop\|addon\|combat\|equip …` | Simulated clients (see below) |
 | `archcore i18n strings [Game]` | Lists the texts still in English in `data/i18n/pending-en.json` |
 | `archcore i18n coverage [Game]` | Measures how much of `ini_fr` is translated |
 | `archcore i18n apply [--ascii] [--dry]` | Applies the translation memory to the client (see [[Translation|EN-Translation]]) |
@@ -29,17 +29,17 @@ In Git Bash, prefix with `MSYS_NO_PATHCONV=1`, otherwise `/GetExp` is turned int
 ## Two-player test
 
 ```bash
-archcore sim | `archcore sim client|move|shop|addon …` | [userA] [passA] [charA] [userB] [passB] [charB]
+archcore sim move [userA] [passA] [charA] [userB] [passB] [charB]
 ```
 
 Two simulated clients enter the world (accounts `sima` and `simb` by default, characters created as
-needed). The test checks that they see each other, that one's | `archcore sim client|move|shop|addon …` |ment is relayed to the other, that
-they lose sight of each other out of range, and that disconnecting re| `archcore sim client|move|shop|addon …` |s the character. It moves
+needed). The test checks that they see each other, that one's movement is relayed to the other, that
+they lose sight of each other out of range, and that disconnecting removes the character. It moves
 the characters and saves their position: run it against a test server, for example:
 
 ```bash
 ARCHCORE_CONFIG=config/test.json archcore all      # other ports, other databases
-ARCHCORE_CONFIG=config/test.json archcore sim | `archcore sim client|move|shop|addon …` |
+ARCHCORE_CONFIG=config/test.json archcore sim move
 ```
 
 ## Shop test
@@ -70,6 +70,17 @@ The character, a GM account (`gmtest` / `GmTest` by default), goes hunting the r
 It then sets `/invincible 0` and brings the character back to the village. Allow about 2 min: a
 level 1 warrior without a weapon hits a Green Worm (136 HP) for 2 to 3 HP per hit, and the worm kills
 it in about fifteen seconds.
+
+## Equipment test
+
+```bash
+ARCHCORE_CONFIG=config/test.json archcore sim equip [user] [pass] [character]
+```
+
+A GM account (`gmtest` / `GmTest` by default) creates a short sword, a human warrior armour (level 2) and
+a mage wand with `/create`, wears the sword (damage 11 to 13) then the armour (defense 4), sees the wand
+refused (class), then puts both away. SimA, standing nearby, must see the sword appear on them and then
+disappear. The created items stay in the inventory.
 
 ## ArchRust extensions test
 

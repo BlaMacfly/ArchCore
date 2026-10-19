@@ -229,6 +229,22 @@ selon le rang de butin du monstre (`droprankrate.txt`) et un objet de ce groupe 
 (`GroupID`, `DropRank`, `DropRate` d'itemdatatable.txt) adapté au niveau du monstre ; enfin les objets
 propres au monstre (`itemdroptable.txt`), toujours tirés à 100 000.
 
+## Équipement (type 0x04, AgpmItem)
+
+Le client demande un changement de place par AGPMITEM **op 2** : statut 3 pour porter un objet de
+l'inventaire, statut 2 avec la case voulue au champ 7 (mini-paquet de trois INT16 ; -1 = au choix du
+serveur) pour ranger un objet porté ou déplacer un objet dans l'inventaire. Le serveur vérifie le niveau,
+la race, la classe et le sexe exigés (`Level`, `Race`, `Class`, `Gender` d'itemdatatable.txt), range
+dans l'inventaire l'objet déjà porté sur la même partie du corps (`Part` : 2 corps, 3 tête, 5 mains,
+6 jambes, 7 pieds, 9 main gauche, 10 main droite, 11 et 12 anneaux, 13 collier) et libère l'autre main
+pour une arme à deux mains (`Hand` = 2). Il répond au porteur par des op 2 (statut 3 sans case pour
+l'objet porté, statut 2 avec sa case pour un objet rangé), envoie aux joueurs qui le voient un op 0
+(statut 3, propriétaire = porteur) ou un op 1, puis renvoie les facteurs du porteur (AGPMCHARACTER op 1,
+champ 7). L'équipement s'ajoute aux facteurs du modèle : dégâts physiques min et max, défense physique,
+précision (`Physical_ATKRate`), PV, et pour une arme sa vitesse et sa portée d'attaque. Un refus donne
+un message système et remet l'objet à sa place. En base, un objet porté a le statut 1 et sa partie dans
+`layer`. L'équipement d'un joueur est envoyé (op 0, statut 3) à ceux qui commencent à le voir.
+
 ## Niveau MJ (type 0x12, AgpmAdmin)
 
 Drapeaux de champs sur 2 octets : op, CID, puis 13 mini-paquets. L'op 0 avec, au champ 2, un
