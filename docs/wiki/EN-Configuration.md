@@ -44,6 +44,7 @@ unknown key (typo) is reported.
 | `Client.DataDir` | `../client/ArchLord/Game` | The client's `Game` folder, used by the import and translation tools |
 | `World.Language` | `fr` | NPC title language (`data/i18n/npc-titles-<lang>.json`); `en` keeps them in English |
 | `World.ViewRadius` | `8000` | Range of normal chat and `SAY` AddOn messages. NPCs, monsters, players and ground items are seen by sector (see [[Network protocol|EN-Network-protocol]]) |
+| `World.MonsterDensity` | `1` | Multiplies the number of monsters at each spawn point (rounded, at least 1). The server tables are sparse in places: 2 or 3 come closer to the original game's density |
 | `World.TimeZone` | `local` | Time zone of the clock sent to the client (AGPMTIMER packet): `local` = the machine's time (day/night cycle, music and ambience follow the server's local time), `utc` = raw Unix epoch. See [[Network protocol|EN-Network-protocol]] |
 | `World.ExitOnRestart` | `0` | `1`: stops the server at the end of the `/announce_restart` countdown |
 | `StartPosition.<race>.Village` / `.X` / `.Y` / `.Z` | see the template | Spawn position per race: 1 Human, 2 Orc, 3 Moon Elf, 4 Scion |
@@ -77,6 +78,7 @@ upper case.
 |---|---|
 | `LoginServer.Port` | `ARCHCORE_LOGIN_SERVER_PORT` |
 | `World.ViewRadius` | `ARCHCORE_WORLD_VIEW_RADIUS` |
+| `World.MonsterDensity` | `ARCHCORE_WORLD_MONSTER_DENSITY` |
 | `Database.Password` | `ARCHCORE_DATABASE_PASSWORD` |
 | `Rate.Exp` | `ARCHCORE_RATE_EXP` |
 

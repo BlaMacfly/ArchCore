@@ -46,6 +46,8 @@ pub struct WorldConfig {
     #[serde(deserialize_with = "start_positions")]
     pub start_positions: HashMap<String, StartPosition>,
     pub view_radius: f64,
+    /// Multiplicateur du nombre de monstres par point d'apparition (1 : tables du serveur).
+    pub monster_density: f64,
     pub language: String,
     pub rates: HashMap<String, f64>,
     pub gm_command_levels: HashMap<String, i64>,
@@ -136,6 +138,7 @@ impl Default for WorldConfig {
             public_address: "127.0.0.1".into(),
             start_positions: HashMap::new(),
             view_radius: 8000.0,
+            monster_density: 1.0,
             language: "fr".into(),
             rates: HashMap::new(),
             gm_command_levels: HashMap::new(),
@@ -361,6 +364,7 @@ fn read_world(s: &Settings, cfg: &mut Config) {
         public_address: s.string("WorldServer.PublicAddress", &d.public_address),
         start_positions,
         view_radius: s.parse("World.ViewRadius", d.view_radius),
+        monster_density: s.parse("World.MonsterDensity", d.monster_density),
         language: s.string("World.Language", &d.language),
         rates,
         gm_command_levels,
@@ -482,6 +486,7 @@ pub fn to_values(cfg: &Config, which: Which) -> Vec<(String, String)> {
             put("WorldServer.PublicAddress", w.public_address.clone());
             put("World.Language", w.language.clone());
             put("World.ViewRadius", fmt_num(w.view_radius));
+            put("World.MonsterDensity", fmt_num(w.monster_density));
             put("World.TimeZone", w.time_zone.name().into());
             put("World.ExitOnRestart", (w.exit_on_restart as i64).to_string());
             put("Client.DataDir", cfg.client.data_dir.clone());

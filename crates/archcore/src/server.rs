@@ -47,7 +47,7 @@ pub async fn run(mode: &str) -> anyhow::Result<()> {
             }
             level_exp[level] = crate::db::col(&r, "exp");
         }
-        let monsters = crate::world::monsters::MonsterRegistry::load(&db, &translator, &map).await?;
+        let monsters = crate::world::monsters::MonsterRegistry::load(&db, &translator, &map, config.world.monster_density).await?;
         let state = crate::world::WorldState {
             view_radius: config.world.view_radius,
             monsters,

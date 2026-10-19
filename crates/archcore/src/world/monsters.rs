@@ -223,6 +223,14 @@ fn cell_of(x: f64, z: f64) -> (i64, i64) {
     ((x / CELL).floor() as i64, (z / CELL).floor() as i64)
 }
 
+/// Nombre de monstres d'un point sous un multiplicateur de densité : arrondi, au moins 1 s'il en avait.
+pub fn scaled_count(count: i64, density: f64) -> i64 {
+    if count <= 0 {
+        return 0;
+    }
+    ((count as f64 * density.max(0.0)).round() as i64).max(1)
+}
+
 /// Monstres d'un point, dispersés uniformément dans le carré [x ± rayon] × [z ± rayon] en évitant les
 /// positions où `blocked(x, z)`, chacun tourné au hasard (orientation Y entre -180 et 180°).
 pub fn spawn_point(p: &SpawnPoint, first_cid: u32, blocked: &dyn Fn(f64, f64) -> bool) -> Vec<Monster> {
@@ -271,7 +279,8 @@ pub fn spawn_point(p: &SpawnPoint, first_cid: u32, blocked: &dyn Fn(f64, f64) ->
 }
 
 impl MonsterRegistry {
-    pub async fn load(db: &Databases, translator: &Translator, map: &super::map::WorldMap) -> anyhow::Result<Self> {
+    /// `density` multiplie le nombre de monstres de chaque point (arrondi, au moins 1).
+    pub async fn load(db: &Databases, translator: &Translator, map: &super::map::WorldMap, density: f64) -> anyhow::Result<Self> {
         // Toutes les créatures, y compris celles des guerres de siège ; la table peut manquer si l'import n'a
         // pas eu les tables du serveur.
         let rows = match db
@@ -305,7 +314,7 @@ impl MonsterRegistry {
                 tid: col(r, "tid"),
                 name: translator.translate(&col::<String>(r, "display_name")),
                 level: col(r, "level"),
-                count: col(r, "count"),
+                count: scaled_count(col(r, "count"), density),
                 pos: Vec3::new(col::<f64>(r, "pos_x") as f32, col::<f64>(r, "pos_y") as f32, col::<f64>(r, "pos_z") as f32),
                 degree_x: col(r, "degree_x"),
                 radius: col(r, "radius"),
@@ -316,7 +325,7 @@ impl MonsterRegistry {
         let without = points.iter().filter(|p| !stats.contains_key(&p.tid)).count();
         let mut reg = Self::from_points(&points, &|x, z| map.is_blocked(x, z));
         reg.stats = stats;
-        info!("{} monstre(s) chargé(s) sur {} point(s) d'apparition ({without} point(s) sans caractéristiques)", reg.monsters.len(), points.len());
+        info!("{} monstre(s) chargé(s) sur {} point(s) d'apparition ({without} point(s) sans caractéristiques, densité × {density})", reg.monsters.len(), points.len());
         Ok(reg)
     }
 
@@ -434,6 +443,11 @@ mod tests {
 
     fn point(id: u32, x: f32, z: f32, count: i64, radius: f64) -> SpawnPoint {
         SpawnPoint { id, tid: 450, name: "Ver vert".into(), level: 1, count, pos: Vec3::new(x, 0.0, z), degree_x: 0.0, radius, max_hp: 136, respawn_sec: 8 }
+    }
+
+    #[test]
+    fn densite() {
+        assert_eq!((scaled_count(3, 1.0), scaled_count(3, 2.5), scaled_count(1, 0.2), scaled_count(0, 3.0)), (3, 8, 1, 0));
     }
 
     #[test]

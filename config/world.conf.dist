@@ -116,6 +116,14 @@ World.Language = "fr"
 
 World.ViewRadius = 8000
 
+#    World.MonsterDensity
+#        Multiplie le nombre de monstres de chaque point d'apparition (arrondi,
+#        au moins 1). 1 : les tables du serveur, peu peuplées par endroits ;
+#        2 ou 3 rapprochent de la densité du jeu d'origine.
+#        Défaut : 1
+
+World.MonsterDensity = 1
+
 #    World.TimeZone
 #        Fuseau de l'horloge envoyée au client, qui en tire l'heure du ciel.
 #            local : heure de la machine du serveur
