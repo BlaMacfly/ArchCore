@@ -54,8 +54,7 @@ pub const CORPSE_TIME: Duration = Duration::from_secs(20);
 const MIN_RESPAWN_SEC: i64 = 5;
 /// Marge ajoutée à la portée, pour les positions arrondies du client.
 const REACH_TOLERANCE: f64 = 50.0;
-/// Vitesse de course supposée pendant l'approche (unités par seconde) et durée maximale d'une approche.
-const APPROACH_SPEED: f64 = 500.0;
+/// Durée au bout de laquelle une approche est revue (la cible a pu bouger).
 const MAX_APPROACH: Duration = Duration::from_secs(4);
 /// Drapeau de déplacement « course ».
 pub const MOVE_FAST: i64 = 0x10;
@@ -276,11 +275,12 @@ async fn attack_step(ctx: &WorldCtx, st: &mut WorldState, sid: u32, now: Instant
         return Ok(());
     };
     let stats = st.monsters.stats_of(m.tid);
-    let me = p.dest.unwrap_or_else(|| p.ch.pos());
+    // Distance depuis la position que le serveur suit (marche en cours comprise) : on ne frappe qu'à portée.
     let reach = p.factors.attack[0].max(50) as f64 + stats.hit_range as f64;
-    let distance = dist2d(me, m.pos);
-    if distance > reach + REACH_TOLERANCE {
-        approach(st, sid, me, &m, stats.hit_range as f64, distance, now);
+    if dist2d(p.ch.pos(), m.pos) > reach + REACH_TOLERANCE {
+        if p.dest.is_none() || now >= attack.ready_at {
+            approach(st, sid, &m, stats.hit_range as f64, now);
+        }
         return Ok(());
     }
 
@@ -316,15 +316,20 @@ async fn attack_step(ctx: &WorldCtx, st: &mut WorldState, sid: u32, now: Instant
     Ok(())
 }
 
-/// Fait marcher le joueur jusqu'au bord de la cible (OPT_CHAR_MOVE à lui et aux joueurs qui le voient).
-/// Rend la durée estimée du trajet.
-pub(super) fn approach(st: &mut WorldState, sid: u32, from: Vec3, m: &Monster, hit_range: f64, distance: f64, now: Instant) -> Duration {
+/// Fait courir le joueur, depuis sa position actuelle, jusqu'au bord de la cible (OPT_CHAR_MOVE à lui et aux
+/// joueurs qui le voient) ; le serveur suit cette marche. Rend la durée du trajet (revue au plus tard après
+/// `MAX_APPROACH`).
+pub(super) fn approach(st: &mut WorldState, sid: u32, m: &Monster, hit_range: f64, now: Instant) -> Duration {
+    let p = st.players.get_mut(&sid).unwrap();
+    let from = p.ch.pos();
+    let distance = dist2d(from, m.pos).max(1.0);
     let k = ((distance - hit_range / 2.0) / distance).max(0.0) as f32;
     let dest = Vec3::new(from.x + (m.pos.x - from.x) * k, m.pos.y, from.z + (m.pos.z - from.z) * k);
-    let travel = Duration::from_secs_f64(distance / APPROACH_SPEED).min(MAX_APPROACH);
-    let p = st.players.get_mut(&sid).unwrap();
-    p.ch.set_pos(from);
+    let speed = p.factors.status[9].max(1) as f64 / 10.0;
+    let travel = Duration::from_secs_f64(distance / speed).min(MAX_APPROACH);
     p.dest = Some(dest);
+    p.move_flags = MOVE_FAST;
+    p.moved_at = now;
     p.dirty = true;
     if let Some(a) = p.attack.as_mut() {
         a.ready_at = now + travel;

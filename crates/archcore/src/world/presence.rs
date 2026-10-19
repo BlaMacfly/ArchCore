@@ -6,8 +6,9 @@
 //! Visibilité : AGPMCHARACTER op 0 ajoute un personnage chez le client, op 2 le retire. PNJ, monstres et
 //! objets au sol se voient dans les 3 × 3 secteurs autour du joueur (`sector.rs`).
 //! Marche : le client n'envoie que sa destination ; le serveur avance lui-même le joueur à chaque tour (vitesse
-//! de marche ou de course en dixièmes d'unité par seconde), l'arrête à destination ou devant un sol
-//! infranchissable, et recalcule sa vue quand il change de secteur.
+//! de marche ou de course en dixièmes d'unité par seconde), l'arrête à destination et recalcule sa vue quand il
+//! change de secteur. Le sol infranchissable n'arrête pas la marche : le client gère lui-même les obstacles,
+//! et les tables de blocage arrêteraient le serveur là où le client passe.
 
 use super::{character_add_packet, character_remove_packet, sector, send_nearby_npcs, WorldCtx, WorldState};
 use crate::{debug, info, warn};
@@ -81,7 +82,7 @@ pub fn on_move(ctx: &WorldCtx, st: &mut WorldState, sid: u32, packet: &Packet) {
     let dest = packet.vec3(2).filter(Vec3::is_finite);
     // Position : celle que le serveur tient, la marche en cours avancée jusqu'à maintenant. Le vrai client ne
     // l'envoie pas ; si elle est fournie (simulateur, outils), elle la remplace.
-    advance(&ctx.map, p, Instant::now());
+    advance(p, Instant::now());
     let given = packet.vec3(1).filter(Vec3::is_finite);
     let pos = given.unwrap_or_else(|| p.ch.pos());
     p.ch.set_pos(pos);
@@ -138,8 +139,8 @@ pub fn step_toward(pos: Vec3, dest: Vec3, speed: f64, dt: f64) -> (Vec3, bool) {
     (Vec3::new(pos.x + (done * dx / total) as f32, pos.y, pos.z + (done * dz / total) as f32), false)
 }
 
-/// Avance la marche d'un joueur jusqu'à `now` : arrêt à destination ou devant un sol infranchissable.
-fn advance(map: &super::map::WorldMap, p: &mut super::Player, now: Instant) {
+/// Avance la marche d'un joueur jusqu'à `now` ; arrêt à destination.
+fn advance(p: &mut super::Player, now: Instant) {
     let dt = now.saturating_duration_since(p.moved_at).as_secs_f64();
     p.moved_at = now;
     let Some(dest) = p.dest else { return };
@@ -148,10 +149,6 @@ fn advance(map: &super::map::WorldMap, p: &mut super::Player, now: Instant) {
     }
     let speed = if p.move_flags & MOVE_FAST != 0 { p.factors.status[9] } else { p.factors.status[8] } as f64;
     let (next, arrived) = step_toward(p.ch.pos(), dest, speed, dt);
-    if !arrived && map.is_blocked(next.x as f64, next.z as f64) {
-        p.dest = None;
-        return;
-    }
     p.ch.set_pos(next);
     if arrived {
         p.dest = None;
@@ -170,7 +167,7 @@ pub fn move_step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) {
             p.moved_at = now;
             continue;
         }
-        advance(&ctx.map, p, now);
+        advance(p, now);
         let at = p.ch.pos();
         let changed = sector::of(at) != sector::of(p.view_pos);
         p.view_pos = at;

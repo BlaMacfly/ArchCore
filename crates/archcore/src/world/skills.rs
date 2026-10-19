@@ -722,7 +722,7 @@ fn begin(ctx: &WorldCtx, st: &mut WorldState, sid: u32, cast: Cast, now: Instant
     if p.dead {
         return stop(st, sid);
     }
-    let me = p.dest.unwrap_or_else(|| p.ch.pos());
+    let me = p.ch.pos();
     let target: Option<Monster> = if cast.target == p.ch.id { None } else { st.monsters.get(cast.target).filter(|m| m.is_alive()).cloned() };
     if cast.target != p.ch.id && target.is_none() {
         return stop(st, sid);
@@ -732,7 +732,7 @@ fn begin(ctx: &WorldCtx, st: &mut WorldState, sid: u32, cast: Cast, now: Instant
         let range = if lv.range > 0.0 { lv.range } else { p.factors.attack[0].max(50) as f64 };
         let distance = combat::dist2d(me, m.pos);
         if distance > range + hit_range + REACH_TOLERANCE {
-            let travel = combat::approach(st, sid, me, m, hit_range, distance, now);
+            let travel = combat::approach(st, sid, m, hit_range, now);
             if let Some(c) = st.players.get_mut(&sid).and_then(|p| p.skills.cast.as_mut()) {
                 c.stage = Stage::Approach { check_at: now + travel };
             }

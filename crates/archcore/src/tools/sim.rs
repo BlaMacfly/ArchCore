@@ -774,7 +774,7 @@ async fn combat(user: &str, pass: &str, char_name: &str, prey: &str) -> anyhow::
     let target = hunt(&mut w, prey).await?;
     let tcid = target.cid as i64;
     w.world.send(act, Fields::new(act).with(0, w.cid).with(1, target.cid).with(6, 1)).await?;
-    let first = w.world.expect_where(|q| q.is(act, None) && q.int(0) == Some(tcid) && q.int(1) == Some(me), 15_000, "riposte du monstre").await?;
+    let first = w.world.expect_where(|q| q.is(act, None) && q.int(0) == Some(tcid) && q.int(1) == Some(me), 40_000, "riposte du monstre").await?;
     let my_hp = first.fields().bytes(3).and_then(factors_hp);
     println!("  ✓ le {prey} riposte (résultat {}, PV de {char_name} : {})", o(first.int(2)), o(my_hp));
 
@@ -817,7 +817,7 @@ async fn combat(user: &str, pass: &str, char_name: &str, prey: &str) -> anyhow::
             .world
             .expect_where(
                 |q| (q.is(act, None) && (q.int(1) == Some(tcid) || q.int(1) == Some(me))) || (q.is(c, Some(1)) && q.int(1) == Some(tcid) && q.int(11) == Some(2)),
-                10_000,
+                40_000,
                 "coups portés",
             )
             .await?;
@@ -1549,7 +1549,7 @@ async fn skill_effects(user: &str, pass: &str, char_name: &str) -> anyhow::Resul
     w.world.send(ch, say(w.cid, "/level 25")).await?;
     w.world.expect_where(system, 3000, "PM rendus").await?;
     w.world.send(k, cast(ids[&LINEAR_BLOW], center)).await?;
-    w.world.expect_where(|q| q.is(k, Some(7)) && q.int(1) == Some(ids[&LINEAR_BLOW]), 10_000, "lancement").await?;
+    w.world.expect_where(|q| q.is(k, Some(7)) && q.int(1) == Some(ids[&LINEAR_BLOW]), 30_000, "lancement").await?;
     let mut hit = std::collections::BTreeSet::new();
     while let Ok(r) = w.world.expect_where(|q| q.is(k, Some(8)) && q.int(1) == Some(ids[&LINEAR_BLOW]), if hit.is_empty() { 5000 } else { 500 }, "résultats").await {
         let act = decode_mini(sa, r.fields().bytes(6).unwrap_or_default())?;
@@ -1567,7 +1567,7 @@ async fn skill_effects(user: &str, pass: &str, char_name: &str) -> anyhow::Resul
     w.world.send(ch, say(w.cid, "/level 25")).await?;
     w.world.expect_where(system, 3000, "PM rendus").await?;
     w.world.send(k, cast(ids[&BLADE_STING], victim)).await?;
-    w.world.expect_where(|q| q.is(k, Some(8)) && q.int(1) == Some(ids[&BLADE_STING]), 10_000, "coup").await?;
+    w.world.expect_where(|q| q.is(k, Some(8)) && q.int(1) == Some(ids[&BLADE_STING]), 30_000, "coup").await?;
     let on = w.world.expect_where(|q| q.is(k, Some(4)) && q.int(1) == Some(ids[&BLADE_STING]), 2000, "affaiblissement posé").await?;
     let owner = decode_mini(sb, on.fields().bytes(2).unwrap_or_default())?.int(1);
     anyhow::ensure!(owner == Some(victim), "affaiblissement posé sur {owner:?}, pas sur {victim}");
@@ -1674,7 +1674,7 @@ async fn skill_status(user: &str, pass: &str, char_name: &str) -> anyhow::Result
         w.world.send(ch, say(w.cid, "/level 25")).await?;
         w.world.expect_where(system, 3000, "PM rendus").await?;
         w.world.send(k, cast(worm)).await?;
-        w.world.expect_where(|q| q.is(k, Some(8)) && q.int(1) == Some(id), 10_000, "coup").await?;
+        w.world.expect_where(|q| q.is(k, Some(8)) && q.int(1) == Some(id), 30_000, "coup").await?;
         // Un déplacement arrête l'attaque automatique qui suit la compétence.
         w.world.send(mv, Fields::new(mv).with(0, w.cid).with(1, HUNT).with(2, HUNT).with(5, STOP).with(6, 0)).await?;
         let state = |q: &Recv| q.is(c, Some(1)) && q.int(1) == Some(worm) && (q.int(17).is_some() || q.int(11) == Some(2));
@@ -1807,7 +1807,7 @@ async fn skill(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
         Fields::new(k).with(0, 7).with(1, id).with(6, act)
     };
     w.world.send(k, cast(worm)).await?;
-    let started = w.world.expect_where(|q| q.is(k, Some(7)) && q.int(1) == Some(id), 10_000, "lancement").await?;
+    let started = w.world.expect_where(|q| q.is(k, Some(7)) && q.int(1) == Some(id), 30_000, "lancement").await?;
     let act = decode_mini(sa, started.fields().bytes(6).unwrap_or_default())?;
     println!("  ✓ lancement : incantation {} ms, relance {} ms, niveau {}", o(act.int(5)), o(act.int(7)), o(act.int(8)));
     let hit = w.world.expect_where(|q| q.is(k, Some(8)) && q.int(1) == Some(id), 5000, "résultat").await?;
