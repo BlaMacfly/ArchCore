@@ -163,6 +163,14 @@ Defense Hold, Linear Blow and Blade Sting from Black (if needed). It checks the 
 +18 %), Linear Blow's area (target and neighbours hit) and Blade Sting's debuff (set on the Green Worm,
 removed after 6 s). `/level` refills MP between casts.
 
+```bash
+ARCHCORE_CONF_DIR=config/test archcore sim status [user] [pass] [character]
+```
+
+The same character (`GmEffets`, level 25) learns Shield Bash from Black if needed, then casts it on Green
+Worms, with `/recast` and `/level` between tries, until a stun lands (30 % chance, 25 tries at most): the
+worm switches to state 0x1 (AGPMCHARACTER op 1, field 17), then back to 0 after 3 s.
+
 ## ArchRust extensions test
 
 ```bash

@@ -39,7 +39,7 @@ crates/archcore/           server and tools
     travel.rs              teleport scrolls: town, round trip, destination
     regions.rs             safe regions, binding, resurrection points
     skills.rs              skills: catalogue, points, skill master, casting, areas, damage
-    effects.rs             lasting effects: modifiers, damage over time, heals, passives
+    effects.rs             lasting effects: modifiers, damage over time, heals, passives, special states, criticals, block
     bank.rs                account bank: keepers, items, money
     trade.rs               trading between players
     quests.rs              quests: catalogue, journal, accepting, progress, rewards

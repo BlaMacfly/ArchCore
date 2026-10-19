@@ -21,9 +21,9 @@
 //! Effets : dégâts immédiats sur la cible et, pour les compétences de zone (champ `range` de SKILL_SPEC :
 //! sphère autour de la cible ou du lanceur, rayon `area_r` ; boîte vers la cible, `area_f1` × `area_f2`),
 //! sur les monstres voisins ; effets durables, dégâts sur la durée et soins (`effects.rs`) ; passives,
-//! appliquées tant que la compétence est connue. Les compétences amies ne visent que leur lanceur (pas de
-//! groupes) ; les états spéciaux (étourdissement…), renvois de dégâts et effets de combat (critiques)
-//! restent à faire.
+//! appliquées tant que la compétence est connue ; états spéciaux (étourdissement, sommeil…), posés sur la
+//! cible selon leur chance, et effets de combat (critiques, blocage, dégâts changés en PV ou PM). Les
+//! compétences amies ne visent que leur lanceur (pas de groupes).
 
 use super::combat::{self, Attacker, Defender};
 use super::effects::{self, DotSpec, Effect, Heal, Mods};
@@ -158,10 +158,29 @@ pub struct SkillLevel {
     pub mods: Mods,
     pub heal: Heal,
     pub dot: DotSpec,
+    /// États spéciaux posés (bits de `effects::status`), chance sur une cible (0 : toujours) et durée.
+    pub status: u64,
+    pub status_rate: f64,
+    pub status_ms: u64,
+}
+
+/// Champs de SKILL_SPEC qui règlent les valeurs d'un niveau.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Spec {
+    pub melee_attack: i64,
+    pub reflect_melee_attack: i64,
+    pub convert_type: i64,
+    pub status: u64,
+    pub offensive: bool,
 }
 
 impl SkillLevel {
+    #[cfg(test)]
     pub fn from_consts(c: &serde_json::Value) -> Self {
+        Self::with_spec(c, &Spec::default())
+    }
+
+    pub fn with_spec(c: &serde_json::Value, sp: &Spec) -> Self {
         let num = |k: &str| c.get(k).and_then(|v| v.as_str()).and_then(|s| s.trim().parse::<f64>().ok()).unwrap_or(0.0);
         let mut classes = 0u16;
         for (i, name) in CLASS_COLUMNS.iter().enumerate() {
@@ -192,9 +211,12 @@ impl SkillLevel {
             area_f1: num("area_f1") * 100.0,
             area_f2: num("area_f2") * 100.0,
             max_targets: num("max_target_num").max(0.0) as usize,
-            mods: Mods::from_consts(c),
+            mods: combat_mods(c, sp),
             heal: Heal::from_consts(c),
             dot: DotSpec::from_consts(c),
+            status: sp.status,
+            status_rate: if sp.offensive { num("skill_rate") } else { 0.0 },
+            status_ms: if sp.status & effects::status::STUN != 0 && num("stun_time") > 0.0 { num("stun_time") } else { num("duration").max(0.0) } as u64,
         }
     }
 
@@ -206,6 +228,35 @@ impl SkillLevel {
     pub fn lasting(&self) -> bool {
         self.duration_ms > 0 && (!self.mods.is_empty() || !self.dot.is_empty())
     }
+
+    /// Laisse un effet, compte tenu des états effectivement posés.
+    pub fn leaves_effect(&self, status: u64) -> bool {
+        self.lasting() || status != 0 && self.status_ms > 0
+    }
+}
+
+/// Modificateurs d'un niveau, avec les effets de combat que règle SKILL_SPEC.
+fn combat_mods(c: &serde_json::Value, sp: &Spec) -> Mods {
+    let num = |k: &str| c.get(k).and_then(|v| v.as_str()).and_then(|s| s.trim().parse::<f64>().ok()).unwrap_or(0.0);
+    let rate = num("skill_rate");
+    let mut m = Mods::from_consts(c);
+    if matches!(sp.melee_attack, 106 | 109 | 110) {
+        m.crit_rate += rate;
+        m.crit_dmg += num("critical");
+    }
+    if sp.reflect_melee_attack == 2 {
+        m.block += rate;
+    }
+    let convert_rate = if rate > 0.0 { rate } else { num("special_status_rate") };
+    match sp.convert_type {
+        1 => (m.to_hp_rate, m.to_hp) = (convert_rate, num("damage_convert_hp")),
+        2 => (m.to_mp_rate, m.to_mp) = (convert_rate, num("damage_convert_mp")),
+        _ => {}
+    }
+    if sp.status & effects::status::STUN_PROTECT != 0 {
+        m.stun_protect += rate;
+    }
+    m
 }
 
 /// Forme de la zone d'une compétence (champ `range` de SKILL_SPEC : au-delà de 1000, centrée sur la cible ;
@@ -262,6 +313,8 @@ pub struct SkillTemplate {
     pub range_code: i64,
     pub melee_attack: i64,
     pub auto_attack: bool,
+    /// États spéciaux (colonne special_status).
+    pub status: u64,
     /// Niveau n à l'indice n - 1.
     pub levels: Vec<SkillLevel>,
 }
@@ -322,10 +375,22 @@ impl SkillCatalog {
             return Ok(SkillCatalog::default());
         };
         let mut skills: HashMap<u32, SkillTemplate> = HashMap::new();
+        let mut spec_of: HashMap<u32, Spec> = HashMap::new();
         for r in &specs {
             let spec = serde_json::from_str::<serde_json::Value>(&col::<String>(r, "spec")).unwrap_or_default();
             let int = |k: &str| spec.get(k).and_then(|v| v.as_str()).and_then(|s| s.trim().parse::<i64>().ok()).unwrap_or(0);
             let tid: u32 = col(r, "tid");
+            let raw_status = spec.get("special_status").and_then(|v| v.as_str()).unwrap_or("");
+            spec_of.insert(
+                tid,
+                Spec {
+                    melee_attack: int("melee_attack"),
+                    reflect_melee_attack: int("reflect_melee_attack"),
+                    convert_type: int("convert_type"),
+                    status: effects::parse_status(raw_status),
+                    offensive: int("target") % 10 == 1,
+                },
+            );
             skills.insert(
                 tid,
                 SkillTemplate {
@@ -337,6 +402,7 @@ impl SkillCatalog {
                     range_code: int("range"),
                     melee_attack: int("melee_attack"),
                     auto_attack: int("auto_attack") != 0,
+                    status: effects::parse_status(raw_status),
                     levels: Vec::new(),
                 },
             );
@@ -346,7 +412,7 @@ impl SkillCatalog {
             let level: u32 = col(&r, "level");
             let consts = serde_json::from_str::<serde_json::Value>(&col::<String>(&r, "consts")).unwrap_or_default();
             if level as usize == t.levels.len() + 1 {
-                t.levels.push(SkillLevel::from_consts(&consts));
+                t.levels.push(SkillLevel::with_spec(&consts, &spec_of.get(&t.tid).copied().unwrap_or_default()));
             }
         }
         let damage = skills.values().filter(|s| s.instant_damage()).count();
@@ -398,6 +464,8 @@ pub struct PlayerSkills {
     pub cast: Option<Cast>,
     /// Effets portés (renforcements, affaiblissements, passives).
     pub effects: Vec<Effect>,
+    /// États spéciaux annoncés aux clients.
+    pub status_sent: u64,
 }
 
 impl PlayerSkills {
@@ -444,7 +512,7 @@ pub fn sync_passives(catalog: &SkillCatalog, skills: &mut PlayerSkills, caster_t
     for s in &skills.list {
         let Some(t) = catalog.get(s.tid).filter(|t| t.nature().passive) else { continue };
         let Some(lv) = t.level(s.level).filter(|lv| !lv.mods.is_empty()) else { continue };
-        effects::push(&mut skills.effects, Effect { skill_id: s.id, tid: s.tid, level: s.level, caster_tid, duration_ms: 0, ends_at: None, mods: lv.mods, dot: None });
+        effects::push(&mut skills.effects, Effect { skill_id: s.id, tid: s.tid, level: s.level, caster_tid, duration_ms: 0, ends_at: None, mods: lv.mods, dot: None, status: 0, status_until: None });
     }
     let after: Vec<(u32, u32)> = skills.effects.iter().filter(|e| e.ends_at.is_none()).map(|e| (e.tid, e.level)).collect();
     before != after
@@ -606,6 +674,10 @@ fn request_cast(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) {
         debug!("[compétence] {name} : incantation déjà en cours");
         return;
     }
+    if effects::active_status(&player.skills.effects, now) & effects::status::NO_SKILL != 0 {
+        debug!("[compétence] {name} : compétences interdites (état spécial)");
+        return;
+    }
     if owned.ready_at.is_some_and(|r| now < r) {
         debug!("[compétence] {name} : {} pas encore prête", t.name);
         return;
@@ -715,9 +787,8 @@ async fn complete(ctx: &WorldCtx, st: &mut WorldState, sid: u32, cast: Cast, now
             effects::heal(&mut st.players.get_mut(&sid).unwrap().factors, &lv.heal);
             super::equipment::refresh_factors(ctx, st, sid);
         }
-        if lv.lasting() {
-            let e = Effect { skill_id: owned.id, tid: owned.tid, level: owned.level, caster_tid, duration_ms: lv.duration_ms, ends_at: Some(now + Duration::from_millis(lv.duration_ms)), mods: lv.mods, dot: None };
-            add_player_effect(ctx, st, sid, e);
+        if lv.leaves_effect(lv.status) {
+            add_player_effect(ctx, st, sid, new_effect(&owned, lv, caster_tid, lv.status, None, now));
         }
         return Ok(());
     }
@@ -773,6 +844,9 @@ async fn hit_monster(ctx: &WorldCtx, st: &mut WorldState, sid: u32, owned: &Owne
     let target = st.monsters.get_mut(cid).unwrap();
     target.hp = (target.hp - total).max(0);
     let hp = target.hp;
+    if total > 0 {
+        st.monsters.wake(cid);
+    }
     let mut watchers = combat::viewers(st, cid);
     if !watchers.contains(&sid) {
         watchers.push(sid);
@@ -783,7 +857,8 @@ async fn hit_monster(ctx: &WorldCtx, st: &mut WorldState, sid: u32, owned: &Owne
     if hp == 0 {
         return combat::kill(ctx, st, sid, cid, now).await;
     }
-    if lv.lasting() {
+    let status = roll_status(&mut rand::thread_rng(), lv, &mods);
+    if lv.leaves_effect(status) {
         let penalty = (5 * (m.level as i32 - attacker.level).max(0)).min(80) as f64;
         let dot = (!lv.dot.is_empty()).then(|| effects::Dot {
             damages: lv.dot.damages.iter().map(|(i, d)| (*i, ((d * (100.0 - penalty) / 100.0).round() as i32).max(1))).collect(),
@@ -791,14 +866,76 @@ async fn hit_monster(ctx: &WorldCtx, st: &mut WorldState, sid: u32, owned: &Owne
             next_at: now + Duration::from_millis(lv.dot.interval_ms),
             caster_sid: sid,
         });
-        let e = Effect { skill_id: owned.id, tid: owned.tid, level: owned.level, caster_tid, duration_ms: lv.duration_ms, ends_at: Some(now + Duration::from_millis(lv.duration_ms)), mods: lv.mods, dot };
+        let e = new_effect(owned, lv, caster_tid, status, dot, now);
         let list = st.monsters.effects.entry(cid).or_default();
         if let Some(old) = effects::push(list, e.clone()) {
             combat::broadcast(st, &watchers, &effects::remove_packet(cid, &old));
         }
         combat::broadcast(st, &watchers, &effects::add_packet(cid, &e));
+        if status != 0 {
+            debug!("[compétence] {} → {} : état {status:#x} pour {} ms", t.name, m.name, lv.status_ms);
+        }
+        sync_monster_status(st, cid, now);
     }
     Ok(())
+}
+
+/// États qu'une compétence pose sur une cible : selon sa chance, et l'étourdissement selon la protection.
+pub fn roll_status(rng: &mut impl Rng, lv: &SkillLevel, target: &Mods) -> u64 {
+    let mut status = lv.status;
+    if status != 0 && lv.status_rate > 0.0 && rng.gen_range(0.0..100.0) >= lv.status_rate {
+        status = 0;
+    }
+    if status & effects::status::STUN != 0 && target.stun_protect > 0.0 && rng.gen_range(0.0..100.0) < target.stun_protect {
+        status &= !effects::status::STUN;
+    }
+    status
+}
+
+/// Effet d'un niveau de compétence : il dure le plus long de sa durée et de celle de ses états.
+pub fn new_effect(owned: &Owned, lv: &SkillLevel, caster_tid: u32, status: u64, dot: Option<effects::Dot>, now: Instant) -> Effect {
+    let status_ms = if status != 0 { lv.status_ms } else { 0 };
+    let life = lv.duration_ms.max(status_ms);
+    Effect {
+        skill_id: owned.id,
+        tid: owned.tid,
+        level: owned.level,
+        caster_tid,
+        duration_ms: life,
+        ends_at: Some(now + Duration::from_millis(life)),
+        mods: lv.mods,
+        dot,
+        status,
+        status_until: (status != 0).then(|| now + Duration::from_millis(status_ms)),
+    }
+}
+
+/// Annonce les états spéciaux d'un joueur s'ils ont changé.
+pub fn sync_player_status(st: &mut WorldState, sid: u32, now: Instant) {
+    let Some(p) = st.players.get_mut(&sid) else { return };
+    let status = effects::active_status(&p.skills.effects, now);
+    if status == p.skills.status_sent {
+        return;
+    }
+    p.skills.status_sent = status;
+    let cid = p.ch.id;
+    combat::send_around(st, sid, &effects::status_packet(cid, status));
+}
+
+/// Annonce les états spéciaux d'un monstre s'ils ont changé.
+pub fn sync_monster_status(st: &mut WorldState, cid: u32, now: Instant) {
+    let status = st.monsters.status(cid, now);
+    let sent = st.monsters.status_sent.get(&cid).copied().unwrap_or(0);
+    if status == sent {
+        return;
+    }
+    if status == 0 {
+        st.monsters.status_sent.remove(&cid);
+    } else {
+        st.monsters.status_sent.insert(cid, status);
+    }
+    let watchers = combat::viewers(st, cid);
+    combat::broadcast(st, &watchers, &effects::status_packet(cid, status));
 }
 
 /// Ajoute un effet à un joueur : annoncé autour de lui, facteurs recalculés.
@@ -828,7 +965,7 @@ pub fn clear_player_effects(st: &mut WorldState, sid: u32) -> bool {
 async fn effects_step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) -> anyhow::Result<()> {
     for sid in st.sids() {
         let Some(p) = st.players.get_mut(&sid) else { continue };
-        if p.skills.effects.is_empty() {
+        if p.skills.effects.is_empty() && p.skills.status_sent == 0 {
             continue;
         }
         let cid = p.ch.id;
@@ -839,15 +976,22 @@ async fn effects_step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) -> anyh
             }
             super::equipment::refresh_factors(ctx, st, sid);
         }
+        sync_player_status(st, sid, now);
     }
-    let affected: Vec<u32> = st.monsters.effects.keys().copied().collect();
+    let mut affected: Vec<u32> = st.monsters.effects.keys().chain(st.monsters.status_sent.keys()).copied().collect();
+    affected.sort_unstable();
+    affected.dedup();
     for cid in affected {
         if !st.monsters.get(cid).is_some_and(|m| m.is_alive()) {
             st.monsters.effects.remove(&cid);
+            st.monsters.status_sent.remove(&cid);
             continue;
         }
         let watchers = combat::viewers(st, cid);
-        let list = st.monsters.effects.get_mut(&cid).unwrap();
+        let Some(list) = st.monsters.effects.get_mut(&cid) else {
+            sync_monster_status(st, cid, now);
+            continue;
+        };
         // Coups dus avant l'expiration.
         let mut ticks: Vec<(u32, Vec<(usize, i32)>)> = Vec::new();
         for e in list.iter_mut() {
@@ -866,6 +1010,7 @@ async fn effects_step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) -> anyh
         for e in &gone {
             combat::broadcast(st, &watchers, &effects::remove_packet(cid, e));
         }
+        sync_monster_status(st, cid, now);
         for (caster_sid, damages) in ticks {
             let total: i32 = damages.iter().map(|(_, d)| *d).sum();
             let caster_online = st.players.get(&caster_sid).is_some_and(|p| p.in_game);
@@ -1052,6 +1197,7 @@ mod tests {
             melee_attack: 101,
             range_code: 202,
             auto_attack: false,
+            status: 0,
             levels: vec![SkillLevel::from_consts(&consts), SkillLevel { require_level: 7, require_point: 1, upgrade_cost: 480, ..SkillLevel::from_consts(&consts) }],
         }
     }
@@ -1112,6 +1258,48 @@ mod tests {
         assert!(in_area(Area::Line, Vec3::new(700.0, 0.0, 90.0), o, o, east, &lv));
         assert!(!in_area(Area::Line, Vec3::new(700.0, 0.0, 150.0), o, o, east, &lv), "trop à côté");
         assert!(!in_area(Area::Line, Vec3::new(-100.0, 0.0, 0.0), o, o, east, &lv), "derrière");
+    }
+
+    #[test]
+    fn effets_de_combat_lus() {
+        let bash = SkillLevel::with_spec(
+            &serde_json::json!({ "damage_a_PERCENT": "110", "stun_time": "3000", "skill_rate": "30" }),
+            &Spec { melee_attack: 101, status: effects::status::STUN, offensive: true, ..Default::default() },
+        );
+        assert_eq!((bash.status, bash.status_rate, bash.status_ms), (effects::status::STUN, 30.0, 3000));
+        assert!(bash.leaves_effect(effects::status::STUN) && !bash.leaves_effect(0) && !bash.lasting());
+        let snare = SkillLevel::with_spec(
+            &serde_json::json!({ "percent.movement": "-20", "duration": "8000" }),
+            &Spec { status: effects::status::SLOW, offensive: true, ..Default::default() },
+        );
+        assert_eq!((snare.status_rate, snare.status_ms, snare.mods.movement_pct), (0.0, 8000, -20.0), "ralentissement sans chance : toujours");
+        let crit = SkillLevel::with_spec(&serde_json::json!({ "critical": "120", "skill_rate": "3" }), &Spec { melee_attack: 106, ..Default::default() });
+        assert_eq!((crit.mods.crit_rate, crit.mods.crit_dmg), (3.0, 120.0));
+        let hold = SkillLevel::with_spec(&serde_json::json!({ "point.def_point_physical": "20", "skill_rate": "10" }), &Spec { reflect_melee_attack: 2, ..Default::default() });
+        assert_eq!((hold.mods.block, hold.mods.defense), (10.0, 20.0));
+        let reflection = SkillLevel::with_spec(&serde_json::json!({ "special_status_rate": "14", "damage_convert_mp": "25" }), &Spec { convert_type: 2, ..Default::default() });
+        assert_eq!((reflection.mods.to_mp_rate, reflection.mods.to_mp), (14.0, 25.0));
+        let protect = SkillLevel::with_spec(&serde_json::json!({ "skill_rate": "100", "duration": "180000" }), &Spec { status: effects::status::STUN_PROTECT, ..Default::default() });
+        assert_eq!((protect.mods.stun_protect, protect.status_rate), (100.0, 0.0), "sur soi, l'état prend toujours");
+    }
+
+    #[test]
+    fn pose_des_etats() {
+        use rand::SeedableRng;
+        let mut rng = rand::rngs::StdRng::seed_from_u64(3);
+        let mut lv = SkillLevel { status: effects::status::STUN, status_rate: 30.0, status_ms: 3000, ..Default::default() };
+        let n = (0..10_000).filter(|_| roll_status(&mut rng, &lv, &Mods::default()) != 0).count();
+        assert!((2700..3300).contains(&n), "{n} étourdissements sur 10 000 à 30 %");
+        assert_eq!(roll_status(&mut rng, &lv, &Mods { stun_protect: 100.0, ..Default::default() }), 0, "protégé");
+        lv.status_rate = 0.0;
+        assert_eq!(roll_status(&mut rng, &lv, &Mods::default()), effects::status::STUN, "sans chance : toujours");
+        let now = Instant::now();
+        let owned = Owned { id: 9, tid: 1444, level: 1, ready_at: None };
+        lv.duration_ms = 1000;
+        let e = new_effect(&owned, &lv, 96, effects::status::STUN, None, now);
+        assert_eq!((e.duration_ms, e.ends_at, e.status_until), (3000, Some(now + Duration::from_millis(3000)), Some(now + Duration::from_millis(3000))));
+        let e = new_effect(&owned, &lv, 96, 0, None, now);
+        assert_eq!((e.duration_ms, e.status_until), (1000, None));
     }
 
     #[test]

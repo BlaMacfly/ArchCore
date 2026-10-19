@@ -47,7 +47,8 @@ from the client's data tables.
 | Character inventory | 🟡 shown in game |
 | Monsters, combat, drops, equipment, potions, scrolls, skills | 🟡 verified with the simulator, to confirm in game |
 | Chat, GM level, first GM commands | 🟡 verified with the simulator, to confirm in game |
-| Quests, parties, bank, trading, reconnection | ⏳ to do |
+| Bank, trading, quests | 🟡 verified with the simulator, to confirm in game |
+| Parties, guilds, reconnection | ⏳ to do |
 
 ### Quick start
 
@@ -153,7 +154,8 @@ et à partir des tables de données du client.
 | Inventaire du personnage | 🟡 affiché en jeu |
 | Monstres, combat, butin, équipement, potions, parchemins, compétences | 🟡 validés au simulateur, à confirmer en jeu |
 | Discussion, niveau MJ, premières commandes MJ | 🟡 validés au simulateur, à confirmer en jeu |
-| Quêtes, groupes, banque, échange, reconnexion | ⏳ à faire |
+| Banque, échange, quêtes | 🟡 validés au simulateur, à confirmer en jeu |
+| Groupes, guildes, reconnexion | ⏳ à faire |
 
 ### Démarrage rapide
 

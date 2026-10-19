@@ -367,8 +367,30 @@ factors). An effect that would kill a monster whose caster left leaves it at 1 H
 **Passives.** A passive skill (units digit of `attribute` at 9) sets an endless effect while it is known;
 it is recomputed on entering the world, on learning and on upgrading.
 
-Still to do: special states (stun, state-based slows…), damage reflection and absorption, combat effects
-(criticals, skill block), dispels and party skills.
+**Special states.** The `special_status` column of `SKILL_SPEC.txt` holds codes separated by ";" (those
+from 1000 up set something else): 1 stun, 2 freeze, 3 slow, 4 invincible, 8 stun protection, 9 halt (no
+skill and no attack), 10 invisible, 12 and 13 invincible to normal attacks or to skills, 14 and 15 skills or
+attacks forbidden, 16 sleep, 20 hold, 22 fear… They are carried by the skill's effect. On a target they take
+hold with the `skill_rate` chance (always without it; stun protection removes a stun with its own chance)
+and last `stun_time` ms for a stun, otherwise `duration`; the effect lasts the longer of the two. On the
+caster they always take hold. A character's state is the union of its effects' states; on every change,
+AGPMCHARACTER **op 1** (ID in field 1, bits in field 17, u64: 0x1 stunned, 0x2 frozen, 0x4 slowed,
+0x8 invincible, 0x200 invisible, 0x80000000 skills forbidden, 0x100000000 attacks forbidden,
+0x200000000 asleep, 0x10000000000 held…) goes to the players who see it. A stunned, frozen or sleeping
+monster neither moves nor strikes; a held one does not chase; under "attacks forbidden" or fear it does not
+strike; a hit wakes it up. A player under these states cannot attack or cast; monsters leave an invincible
+or invisible player alone.
+
+**Combat effects.** Skills whose `melee_attack` is 106, 109 or 110 add `skill_rate` to the critical hit
+chance and `critical` to critical damage (percent of normal damage, at least 100): a critical normal hit goes
+out with result 6. `reflect_melee_attack` 2 (shield, like Defense Hold) adds `skill_rate` to the chance of
+blocking a monster's hit, as does `point.physical_block` (80 % at most): result 9, no damage. Invincible to
+normal attacks, the player evades (result 7). `convert_type` 1 or 2 turns a hit taken into HP or MP given
+back (chance `skill_rate`, otherwise `special_status_rate`; share `damage_convert_hp` or
+`damage_convert_mp` of the damage): result 1, then the player's factors (op 1, field 7).
+
+Still to do: reflecting damage back to the attacker, ignored defense (bits 4 and 8 of
+`reflect_melee_attack`), skill criticals, dispels and party skills; monsters do not cast skills yet.
 
 ## Bank (types 0x36, 0x04 and 0x02)
 

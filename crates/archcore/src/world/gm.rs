@@ -256,6 +256,7 @@ pub static COMMANDS: &[CommandDef] = &[
     CommandDef { name: "rename_char", level: 2, args: Some(&["name", "name"]), usage: "/rename_char \"ancien\" \"nouveau\"" },
     CommandDef { name: "create", level: 3, args: Some(&["name", "int", "int?", "int?"]), usage: "/create \"nom\" <TID> <quantité> <0|1>" },
     CommandDef { name: "questreset", level: 3, args: Some(&["int"]), usage: "/questreset <TID>" },
+    CommandDef { name: "recast", level: 3, args: Some(&[]), usage: "/recast" },
     CommandDef { name: "level", level: 3, args: Some(&["int", "name?"]), usage: "/level <niveau> \"nom\"" },
     CommandDef { name: "money", level: 3, args: Some(&["int", "name?"]), usage: "/money <montant> \"nom\"" },
     CommandDef { name: "announce_restart", level: 3, args: Some(&["int", "int?"]), usage: "/announce_restart <minutes> <secondes>" },
@@ -407,6 +408,14 @@ async fn run(world: &Arc<World>, st: &mut WorldState, sid: u32, cmd: &CommandDef
             ctx.db.characters.exec("DELETE FROM character_quests WHERE character_id = ? AND quest_tid = ?", (p.ch.id, tid)).await?;
             info!("[mj] {} : quête {tid} remise à zéro", p.ch.name);
             Ok(if had { format!("Quête {tid} remise à zéro (visible à la prochaine connexion).") } else { format!("Quête {tid} : rien à remettre à zéro.") })
+        }
+        "recast" => {
+            let p = st.players.get_mut(&sid).unwrap();
+            let n = p.skills.list.iter().filter(|s| s.ready_at.is_some()).count();
+            for s in p.skills.list.iter_mut() {
+                s.ready_at = None;
+            }
+            Ok(format!("Délais de relance remis à zéro ({n} compétence(s))."))
         }
         "level" => {
             let level = a[0].int().unwrap_or(0);

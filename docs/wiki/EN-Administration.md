@@ -72,6 +72,7 @@ messages. ArchCore's replies are in French.
 | `/rename_char "old" "new"` | 2 | Renames in the database (2 to 24 characters, no space). An online player sees the new name on next login |
 | `/create "name" <TID> <count> <0\|1>` | 3 | Adds the item to `character_items`, in the first free inventory slot. An online player gets it at once; the character can also be offline |
 | `/questreset <TID>` | 3 | Clears quest TID (in progress or completed) from the GM's journal; visible on next login. ArchCore-specific command |
+| `/recast` | 3 | Resets the GM's skill recast delays on the server side (the client may still show its own). ArchCore-specific command |
 | `/level <level> ["name"]` | 3 | Sets the online character's level (1 to 120): experience reset, HP and MP restored, skill points recomputed; without a name, on yourself. ArchCore-specific command |
 | `/money <amount> ["name"]` | 3 | Sets the online character's gold (0 to 1,000,000,000); without a name, on yourself. ArchCore-specific command |
 | `/announce_restart <minutes> <seconds>` | 3 | Announces to every player, reminds every minute, counts down the last seconds. `0 0` cancels |
@@ -183,6 +184,7 @@ Example: `/SetExp 2.0`, then `/GetExp` to check.
 | ✅ `/money <amount> ["name"]` | Sets an online character's gold (ArchCore addition, not in the panel) |
 | ✅ `/level <level> ["name"]` | Sets an online character's level (ArchCore addition, not in the panel) |
 | ✅ `/questreset <TID>` | Clears a quest from the GM's journal (ArchCore addition, not in the panel) |
+| ✅ `/recast` | Resets the GM's skill recast delays (ArchCore addition, not in the panel) |
 | `/last_refine` | Reuses the last refine recipe |
 | `/refresh_prestige_db` | Reloads the prestige data |
 | `/refinetest` / `/refinetest stop` | Starts or stops the refine stress test |

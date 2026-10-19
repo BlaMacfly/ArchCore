@@ -166,6 +166,15 @@ Black Speed Attack, Defense Hold, Linear Blow et Blade Sting (si besoin). Il vé
 d'attaque +18 %), la zone de Linear Blow (cible et voisins touchés) et l'affaiblissement de Blade Sting
 (posé sur le Ver vert, retiré au bout de 6 s). `/level` rend les PM entre deux lancements.
 
+```bash
+ARCHCORE_CONF_DIR=config/test archcore sim status [compte] [mdp] [personnage]
+```
+
+Le même personnage (`GmEffets`, niveau 25) apprend Shield Bash chez Black si besoin, puis la lance sur
+des Vers verts, avec `/recast` et `/level` entre deux essais, jusqu'à un étourdissement (30 % de
+chances, 25 essais au plus) : le ver passe à l'état 0x1 (AGPMCHARACTER op 1, champ 17), puis revient à 0
+au bout de 3 s.
+
 ## Test des extensions ArchRust
 
 ```bash

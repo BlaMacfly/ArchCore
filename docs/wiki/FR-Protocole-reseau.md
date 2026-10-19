@@ -375,8 +375,33 @@ laisse à 1 PV.
 **Passives.** Une compétence passive (unités du champ `attribute` à 9) pose un effet sans fin tant
 qu'elle est connue ; il est recalculé à l'entrée en jeu, à l'apprentissage et à l'amélioration.
 
-Restent à faire : états spéciaux (étourdissement, ralentissement par état…), renvois et absorptions de
-dégâts, effets de combat (critiques, blocage des compétences), purges et compétences de groupe.
+**États spéciaux.** La colonne `special_status` de `SKILL_SPEC.txt` donne des codes séparés par « ; »
+(ceux à partir de 1000 règlent autre chose) : 1 étourdissement, 2 gel, 3 ralentissement, 4 invincibilité,
+8 protection contre l'étourdissement, 9 halte (ni compétence ni attaque), 10 invisibilité, 12 et 13
+invincibilité aux attaques normales ou aux compétences, 14 et 15 compétences ou attaques interdites,
+16 sommeil, 20 immobilisation, 22 peur… Ils sont portés par l'effet de la compétence. Sur une cible, ils
+prennent avec la chance `skill_rate` (toujours sans elle ; la protection contre l'étourdissement retire
+encore sa propre chance) et durent `stun_time` ms pour un étourdissement, sinon `duration` ; l'effet dure
+le plus long des deux. Sur soi, ils prennent toujours. L'état d'un personnage est l'union de ceux de ses
+effets ; à chaque changement, AGPMCHARACTER **op 1** (identifiant au champ 1, bits au champ 17, u64 :
+0x1 étourdi, 0x2 gelé, 0x4 ralenti, 0x8 invincible, 0x200 invisible, 0x80000000 compétences interdites,
+0x100000000 attaques interdites, 0x200000000 endormi, 0x10000000000 immobilisé…) part aux joueurs qui le
+voient. Étourdi, gelé ou endormi, un monstre ne bouge ni ne frappe ; immobilisé, il ne poursuit pas ; sous
+« attaques interdites » ou la peur, il ne frappe pas ; un coup le réveille. Un joueur sous ces états ne
+peut pas attaquer ou lancer de compétence ; les monstres délaissent un joueur invincible ou invisible.
+
+**Effets de combat.** Les compétences dont `melee_attack` vaut 106, 109 ou 110 ajoutent `skill_rate` à
+la chance de coup critique et `critical` aux dégâts critiques (pour cent des dégâts normaux, 100 au
+moins) : un coup normal critique part avec le résultat 6. `reflect_melee_attack` 2 (bouclier, comme
+Defense Hold) ajoute `skill_rate` à la chance de bloquer un coup de monstre, de même que
+`point.physical_block` (80 % au plus) : résultat 9, sans dégâts. Invincible aux attaques normales, le
+joueur esquive (résultat 7). `convert_type` 1 ou 2 change un coup reçu en PV ou en PM rendus (chance
+`skill_rate`, sinon `special_status_rate` ; part `damage_convert_hp` ou `damage_convert_mp` des
+dégâts) : résultat 1, puis les facteurs du joueur (op 1, champ 7).
+
+Restent à faire : renvoi de dégâts à l'attaquant, défense ignorée (bits 4 et 8 de
+`reflect_melee_attack`), critiques des compétences, purges et compétences de groupe ; les monstres ne
+lancent pas encore de compétences.
 
 ## Banque (types 0x36, 0x04 et 0x02)
 

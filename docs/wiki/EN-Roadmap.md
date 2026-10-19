@@ -27,7 +27,8 @@
   to other players; moving items in the inventory. Life and mana potions, out-of-combat HP and MP
   regeneration. Teleport scrolls (town, round trip, destination); monster patrols. Resurrection at the point of
   the last safe region crossed; item stacks split, merged, destroyed. Skills: learning and upgrading at
-  trainers, skill points, casting; damage, areas, buffs and debuffs, damage over time, heals, passives.
+  trainers, skill points, casting; damage, areas, buffs and debuffs, damage over time, heals, passives;
+  special states (stun, sleep, slow…), critical hits, block, damage turned into HP or MP.
   Account bank (items, money) and trading between players. Quests: taking, progress (monsters, quest
   items), completion and rewards, abandoning. See
   [[Network protocol|EN-Network-protocol]].
@@ -45,7 +46,7 @@
 1. Verify full character creation in game.
 2. Verify player visibility with two real clients.
 3. NPC functions: teleport; bank expansion; quests with interaction objects.
-4. Skills: special states (stun…), damage reflection, criticals, parties; masteries.
+4. Skills: reflecting damage to the attacker, monster skills, parties; masteries.
 5. Combat: elemental item damage. Items: refining, conversion.
 6. Chat, parties, guilds.
 7. Automatic reconnection (type 0x63).

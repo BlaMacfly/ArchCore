@@ -29,6 +29,9 @@ use std::time::{Duration, Instant};
 pub mod result {
     pub const MISS: i64 = 1;
     pub const SUCCESS: i64 = 5;
+    pub const CRITICAL: i64 = 6;
+    pub const EVADE: i64 = 7;
+    pub const BLOCK: i64 = 9;
 }
 
 /// Classes (champ « type » des facteurs, 3e valeur) ; les autres, dont le guerrier (1), frappent à la force.
@@ -264,6 +267,9 @@ async fn attack_step(ctx: &WorldCtx, st: &mut WorldState, sid: u32, now: Instant
     if !p.in_game || p.dead || now < attack.ready_at {
         return Ok(());
     }
+    if super::effects::active_status(&p.skills.effects, now) & super::effects::status::NO_ATTACK != 0 {
+        return Ok(());
+    }
     let Some(m) = st.monsters.get(attack.target).filter(|m| m.is_alive()).cloned() else {
         st.players.get_mut(&sid).unwrap().attack = None;
         return Ok(());
@@ -279,7 +285,11 @@ async fn attack_step(ctx: &WorldCtx, st: &mut WorldState, sid: u32, now: Instant
 
     let attacker = Attacker::of_player(p);
     let defender = Defender { level: m.level as i32, dr: 0, defense: super::effects::monster_defense(stats.ac, &st.monsters.mods(m.cid)) };
-    let (outcome, damage) = strike(&mut rand::thread_rng(), &attacker, &defender);
+    let (outcome, damage) = {
+        let mut rng = rand::thread_rng();
+        let (outcome, damage) = strike(&mut rng, &attacker, &defender);
+        super::effects::critical(&mut rng, &super::effects::total(&p.skills.effects), outcome, damage)
+    };
     let speed = p.factors.attack[2].max(1) as u64;
     let (cid, name) = (p.ch.id, p.ch.name.clone());
     let me = st.players.get_mut(&sid).unwrap();
@@ -289,7 +299,10 @@ async fn attack_step(ctx: &WorldCtx, st: &mut WorldState, sid: u32, now: Instant
     let target = st.monsters.get_mut(m.cid).unwrap();
     target.hp = (target.hp - damage).max(0);
     let hp = target.hp;
-    let factors = (outcome == result::SUCCESS).then(|| damage_factors(hp, stats.max_mp, damage));
+    if damage > 0 {
+        st.monsters.wake(m.cid);
+    }
+    let factors = (damage > 0).then(|| damage_factors(hp, stats.max_mp, damage));
     let watchers = viewers(st, m.cid);
     broadcast(st, &watchers, &action_packet(cid, m.cid, outcome, factors));
     if damage > 0 {

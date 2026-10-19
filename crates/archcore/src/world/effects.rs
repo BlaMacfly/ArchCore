@@ -7,12 +7,22 @@
 //!   Dégâts sur la durée : « dot_dmg_* » (dégâts fixes par élément) toutes les « dot_damage_time » ms.
 //!   Un effet dure « duration » ms ; une passive dure tant que la compétence est connue. Un nouvel effet de la
 //!   même compétence remplace l'ancien.
+//!   États spéciaux : colonne special_status de SKILL_SPEC (étourdissement, gel, ralentissement, sommeil,
+//!             attaques ou compétences interdites, invincibilités…), portés par l'effet. Sur une cible, ils
+//!             prennent avec la chance « skill_rate » (toujours sans elle) et durent « stun_time » ms, sinon
+//!             « duration ». L'état d'un personnage, union de ceux de ses effets, part dans le champ 17
+//!             d'AGPMCHARACTER (op 1).
+//!   Combat : melee_attack 106, 109, 110 ajoutent « skill_rate » à la chance de coup critique et « critical »
+//!             aux dégâts critiques (en pour cent) ; reflect_melee_attack 2 (bouclier) ajoute « skill_rate » à
+//!             la chance de bloquer, comme « point.physical_block » ; convert_type 1 et 2 changent un coup reçu
+//!             en PV ou en PM (chance « skill_rate », sinon « special_status_rate » ; part « damage_convert_* »).
 //!   Paquets : AGPMSKILL op 4 (effet ajouté : identifiant de la compétence, porteur, champ 8 = mini SKILL_BUFF
 //!             TID, durée, TID du lanceur) et op 5 (effet retiré : TID), aux joueurs qui voient le porteur.
 //! ```
 //! Sur un joueur, les effets s'ajoutent aux facteurs (modèle + équipement) ; sur un monstre, ils modifient
 //! sa défense, ses dégâts et ses vitesses d'attaque et de déplacement.
 
+use super::combat::result;
 use crate::character::{Factors, POINT_HP};
 use archcore_net::schema::{self, mini};
 use archcore_net::{build_mini, build_packet, Fields, Value};
@@ -26,6 +36,80 @@ const BASE_CHARACTER: i64 = 3;
 pub mod op {
     pub const ADD_BUFF: i64 = 4;
     pub const REMOVE_BUFF: i64 = 5;
+}
+
+/// États spéciaux d'un personnage (bits du champ 17 d'AGPMCHARACTER).
+pub mod status {
+    pub const STUN: u64 = 0x1;
+    pub const FREEZE: u64 = 0x2;
+    pub const SLOW: u64 = 0x4;
+    pub const INVINCIBLE: u64 = 0x8;
+    pub const ATTRIBUTE_INVINCIBLE: u64 = 0x10;
+    pub const NOT_ADD_AGGRO: u64 = 0x20;
+    pub const HIDE_AGGRO: u64 = 0x40;
+    pub const STUN_PROTECT: u64 = 0x80;
+    pub const TRANSPARENT: u64 = 0x200;
+    pub const HALF_TRANSPARENT: u64 = 0x20_0000;
+    pub const NORMAL_ATK_INVINCIBLE: u64 = 0x2000_0000;
+    pub const SKILL_ATK_INVINCIBLE: u64 = 0x4000_0000;
+    pub const DISABLE_SKILL: u64 = 0x8000_0000;
+    pub const DISABLE_NORMAL_ATK: u64 = 0x1_0000_0000;
+    pub const SLEEP: u64 = 0x2_0000_0000;
+    pub const SLOW_INVINCIBLE: u64 = 0x4_0000_0000;
+    pub const DISARMAMENT: u64 = 0x20_0000_0000;
+    pub const DISABLE_CHATTING: u64 = 0x80_0000_0000;
+    pub const HOLD: u64 = 0x100_0000_0000;
+    pub const CONFUSION: u64 = 0x200_0000_0000;
+    pub const FEAR: u64 = 0x400_0000_0000;
+    pub const BERSERK: u64 = 0x800_0000_0000;
+    pub const SHRINK: u64 = 0x1000_0000_0000;
+    pub const DISEASE: u64 = 0x2000_0000_0000;
+    /// Ni déplacement ni action.
+    pub const HELPLESS: u64 = STUN | FREEZE | SLEEP;
+    pub const NO_MOVE: u64 = HELPLESS | HOLD;
+    pub const NO_ATTACK: u64 = HELPLESS | DISABLE_NORMAL_ATK | FEAR;
+    pub const NO_SKILL: u64 = HELPLESS | DISABLE_SKILL | FEAR;
+    /// Hors d'atteinte des monstres.
+    pub const UNTOUCHABLE: u64 = INVINCIBLE | TRANSPARENT;
+}
+
+/// États d'un code de la colonne special_status (1 étourdissement… 25 rétrécissement) ; 9 (« halte »)
+/// interdit compétences et attaques.
+pub fn status_of_code(code: i64) -> u64 {
+    use status::*;
+    match code {
+        1 => STUN,
+        2 => FREEZE,
+        3 => SLOW,
+        4 => INVINCIBLE,
+        5 => ATTRIBUTE_INVINCIBLE,
+        6 => NOT_ADD_AGGRO,
+        7 => HIDE_AGGRO,
+        8 => STUN_PROTECT,
+        9 => DISABLE_SKILL | DISABLE_NORMAL_ATK,
+        10 => TRANSPARENT,
+        11 => HALF_TRANSPARENT,
+        12 => NORMAL_ATK_INVINCIBLE,
+        13 => SKILL_ATK_INVINCIBLE,
+        14 => DISABLE_SKILL,
+        15 => DISABLE_NORMAL_ATK,
+        16 => SLEEP,
+        17 => STUN_PROTECT | SLOW_INVINCIBLE,
+        18 => DISARMAMENT,
+        19 => DISABLE_CHATTING,
+        20 => HOLD,
+        21 => CONFUSION,
+        22 => FEAR,
+        23 => DISEASE,
+        24 => BERSERK,
+        25 => SHRINK,
+        _ => 0,
+    }
+}
+
+/// Champ special_status de SKILL_SPEC : codes séparés par « ; » (ceux à partir de 1000 règlent autre chose).
+pub fn parse_status(s: &str) -> u64 {
+    s.split(';').filter_map(|v| v.trim().parse::<i64>().ok()).filter(|v| *v < 1000).fold(0, |acc, v| acc | status_of_code(v))
 }
 
 /// Modificateurs de caractéristiques d'un effet (ou leur somme).
@@ -46,6 +130,18 @@ pub struct Mods {
     pub evade: f64,
     pub movement_pct: f64,
     pub atk_speed_pct: f64,
+    /// Coup critique : chance (pour cent) et dégâts (pour cent des dégâts normaux).
+    pub crit_rate: f64,
+    pub crit_dmg: f64,
+    /// Chance de bloquer un coup (pour cent, 80 au plus).
+    pub block: f64,
+    /// Coup reçu changé en PV ou en PM : chance, part des dégâts (pour cent).
+    pub to_hp_rate: f64,
+    pub to_hp: f64,
+    pub to_mp_rate: f64,
+    pub to_mp: f64,
+    /// Chance d'échapper à l'étourdissement (pour cent).
+    pub stun_protect: f64,
 }
 
 /// Soin à l'application : PV et PM fixes et pour cent du maximum.
@@ -91,6 +187,8 @@ impl Mods {
             evade: p("evade_rate") + p("dodge_rate"),
             movement_pct: pc("movement"),
             atk_speed_pct: pc("atk_speed"),
+            block: p("physical_block"),
+            ..Default::default()
         }
     }
 
@@ -115,6 +213,14 @@ impl Mods {
         self.evade += o.evade;
         self.movement_pct += o.movement_pct;
         self.atk_speed_pct += o.atk_speed_pct;
+        self.crit_rate += o.crit_rate;
+        self.crit_dmg += o.crit_dmg;
+        self.block += o.block;
+        self.to_hp_rate += o.to_hp_rate;
+        self.to_hp += o.to_hp;
+        self.to_mp_rate += o.to_mp_rate;
+        self.to_mp += o.to_mp;
+        self.stun_protect += o.stun_protect;
     }
 }
 
@@ -165,6 +271,9 @@ pub struct Effect {
     pub ends_at: Option<Instant>,
     pub mods: Mods,
     pub dot: Option<Dot>,
+    /// États spéciaux posés, jusqu'à `status_until` (`None` : tant que dure l'effet).
+    pub status: u64,
+    pub status_until: Option<Instant>,
 }
 
 /// Somme des modificateurs d'une liste d'effets.
@@ -174,6 +283,66 @@ pub fn total(effects: &[Effect]) -> Mods {
         m.add(&e.mods);
     }
     m
+}
+
+/// États spéciaux en cours d'une liste d'effets.
+pub fn active_status(effects: &[Effect], now: Instant) -> u64 {
+    effects.iter().filter(|e| e.status_until.is_none_or(|t| now < t)).fold(0, |acc, e| acc | e.status)
+}
+
+/// Retire des états (sommeil rompu par un coup, par exemple) ; rend vrai si l'un d'eux était posé.
+pub fn lift_status(effects: &mut [Effect], bits: u64) -> bool {
+    let mut lifted = false;
+    for e in effects.iter_mut().filter(|e| e.status & bits != 0) {
+        e.status &= !bits;
+        lifted = true;
+    }
+    lifted
+}
+
+/// Coup critique sur un coup réussi : (résultat, dégâts).
+pub fn critical(rng: &mut impl rand::Rng, m: &Mods, outcome: i64, damage: i32) -> (i64, i32) {
+    if outcome != result::SUCCESS || m.crit_rate <= 0.0 || rng.gen_range(0.0..100.0) >= m.crit_rate {
+        return (outcome, damage);
+    }
+    (result::CRITICAL, (damage as f64 * m.crit_dmg.max(100.0) / 100.0).round() as i32)
+}
+
+/// Sort d'un coup de monstre réussi sur un joueur, d'après ses effets.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Guard {
+    /// Coup porté.
+    Hit,
+    /// Esquivé (invincible aux attaques normales).
+    Evade,
+    /// Bloqué.
+    Block,
+    /// Changé en PV ou en PM rendus.
+    ToHp(i32),
+    ToMp(i32),
+}
+
+pub fn guard(rng: &mut impl rand::Rng, m: &Mods, status: u64, damage: i32) -> Guard {
+    if status & status::NORMAL_ATK_INVINCIBLE != 0 {
+        return Guard::Evade;
+    }
+    let mut roll = |rate: f64| rate > 0.0 && rng.gen_range(0.0..100.0) < rate.min(80.0);
+    if roll(m.block) {
+        return Guard::Block;
+    }
+    if roll(m.to_hp_rate) {
+        return Guard::ToHp((damage as f64 * m.to_hp / 100.0) as i32);
+    }
+    if roll(m.to_mp_rate) {
+        return Guard::ToMp((damage as f64 * m.to_mp / 100.0) as i32);
+    }
+    Guard::Hit
+}
+
+/// AGPMCHARACTER op 1 : états spéciaux de `cid`.
+pub fn status_packet(cid: u32, status: u64) -> Vec<u8> {
+    let c = &schema::CHARACTER;
+    build_packet(c, &Fields::new(c).with(0, 1).with(1, cid).with(17, status as i64))
 }
 
 /// Ajoute un effet : remplace celui de la même compétence ; refusé si la liste est pleine.
@@ -268,9 +437,10 @@ pub fn remove_packet(owner: u32, e: &Effect) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rand::SeedableRng;
 
     fn effect(tid: u32, mods: Mods, ends_at: Option<Instant>) -> Effect {
-        Effect { skill_id: 1, tid, level: 1, caster_tid: 96, duration_ms: 1000, ends_at, mods, dot: None }
+        Effect { skill_id: 1, tid, level: 1, caster_tid: 96, duration_ms: 1000, ends_at, mods, dot: None, status: 0, status_until: None }
     }
 
     #[test]
@@ -318,6 +488,59 @@ mod tests {
         assert_eq!(monster_defense(10, &Mods { defense: -4.0, defense_pct: -50.0, ..Default::default() }), 3.0);
         assert_eq!(speed(100, -20.0), 80);
         assert_eq!(speed(100, -200.0), 10);
+    }
+
+    #[test]
+    fn etats_speciaux() {
+        assert_eq!(parse_status("1"), status::STUN);
+        assert_eq!(parse_status("1001;3"), status::SLOW, "les codes de 1000 et plus ne sont pas des états");
+        assert_eq!(parse_status("9"), status::DISABLE_SKILL | status::DISABLE_NORMAL_ATK);
+        assert_eq!(parse_status("17"), status::STUN_PROTECT | status::SLOW_INVINCIBLE);
+        assert_eq!(parse_status("0"), 0);
+        let now = Instant::now();
+        let mut list = vec![
+            Effect { status: status::STUN, status_until: Some(now + Duration::from_secs(3)), ..effect(1, Mods::default(), Some(now + Duration::from_secs(8))) },
+            Effect { status: status::SLEEP, ..effect(2, Mods::default(), Some(now + Duration::from_secs(8))) },
+        ];
+        assert_eq!(active_status(&list, now), status::STUN | status::SLEEP);
+        assert_eq!(active_status(&list, now + Duration::from_secs(4)), status::SLEEP, "l'étourdissement est fini, l'effet dure encore");
+        assert!(lift_status(&mut list, status::SLEEP));
+        assert!(!lift_status(&mut list, status::SLEEP));
+        assert_eq!(active_status(&list, now), status::STUN);
+    }
+
+    #[test]
+    fn critiques() {
+        let mut rng = rand::rngs::StdRng::seed_from_u64(7);
+        let sure = Mods { crit_rate: 100.0, crit_dmg: 180.0, ..Default::default() };
+        assert_eq!(critical(&mut rng, &sure, result::SUCCESS, 10), (result::CRITICAL, 18));
+        assert_eq!(critical(&mut rng, &sure, result::MISS, 0), (result::MISS, 0));
+        assert_eq!(critical(&mut rng, &Mods::default(), result::SUCCESS, 10), (result::SUCCESS, 10));
+        // Dégâts critiques sous 100 % : jamais moins qu'un coup normal.
+        let weak = Mods { crit_rate: 100.0, crit_dmg: 10.0, ..Default::default() };
+        assert_eq!(critical(&mut rng, &weak, result::SUCCESS, 10), (result::CRITICAL, 10));
+        let rare = Mods { crit_rate: 3.0, crit_dmg: 120.0, ..Default::default() };
+        let n = (0..10_000).filter(|_| critical(&mut rng, &rare, result::SUCCESS, 10).0 == result::CRITICAL).count();
+        assert!((200..400).contains(&n), "{n} critiques sur 10 000 à 3 %");
+    }
+
+    #[test]
+    fn garde_d_un_joueur() {
+        let mut rng = rand::rngs::StdRng::seed_from_u64(11);
+        assert_eq!(guard(&mut rng, &Mods::default(), status::NORMAL_ATK_INVINCIBLE, 30), Guard::Evade);
+        assert_eq!(guard(&mut rng, &Mods::default(), 0, 30), Guard::Hit);
+        let wall = Mods { block: 100.0, ..Default::default() };
+        let n = (0..10_000).filter(|_| guard(&mut rng, &wall, 0, 30) == Guard::Block).count();
+        assert!((7600..8400).contains(&n), "blocage plafonné à 80 % : {n} sur 10 000");
+        let mana = Mods { to_mp_rate: 100.0, to_mp: 25.0, ..Default::default() };
+        let got: Vec<Guard> = (0..50).map(|_| guard(&mut rng, &mana, 0, 40)).collect();
+        assert!(got.contains(&Guard::ToMp(10)) && got.contains(&Guard::Hit));
+    }
+
+    #[test]
+    fn paquet_d_etat() {
+        let p = archcore_net::decode_packet(&schema::CHARACTER, &status_packet(0x5000_0001, status::STUN | status::SLEEP)).unwrap();
+        assert_eq!((p.int(0), p.int(1), p.int(17)), (Some(1), Some(0x5000_0001), Some(0x2_0000_0001)));
     }
 
     #[test]

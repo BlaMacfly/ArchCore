@@ -39,7 +39,7 @@ crates/archcore/           serveur et outils
     travel.rs              parchemins de téléportation : village, aller-retour, destination
     regions.rs             régions sûres, rattachement, points de résurrection
     skills.rs              compétences : catalogue, points, maître des compétences, lancement, zones, dégâts
-    effects.rs             effets durables : modificateurs, dégâts sur la durée, soins, passives
+    effects.rs             effets durables : modificateurs, dégâts sur la durée, soins, passives, états spéciaux, critiques, blocage
     bank.rs                banque du compte : gardiens, objets, argent
     trade.rs               échange entre joueurs
     quests.rs              quêtes : catalogue, journal, acceptation, progression, récompenses

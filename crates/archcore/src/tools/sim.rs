@@ -17,6 +17,7 @@
 //!   archcore sim bank [compte] [mdp] [perso]                  banque chez Holly : dépôt d'objet et d'argent, reconnexion, retrait ; compte MJ
 //!   archcore sim trade [A… B…]                                échange GmTest ↔ SimA : objet et argent, verrou, échange ; refus ; A compte MJ
 //!   archcore sim quest [compte] [mdp] [perso]                 quêtes : prendre, refus, terminer (objets rapportés, récompense), abandonner ; compte MJ
+//!   archcore sim status [compte] [mdp] [perso]                état spécial : Shield Bash étourdit un Ver vert (champ 17), puis l'état retombe ; compte MJ, personnage GmEffets
 //!   archcore sim effects [compte] [mdp] [perso]               passive (défense), renforcement (vitesse d'attaque), zone, affaiblissement d'un Ver vert ; compte MJ, personnage GmEffets
 //! ```
 //! À lancer contre un serveur de test (`ARCHCORE_CONF_DIR`) : les personnages sont créés au besoin,
@@ -55,6 +56,7 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         Some("bank") => Box::pin(bank(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("trade") => Box::pin(private_trade(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("quest") => Box::pin(quest(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
+        Some("status") => Box::pin(skill_status(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmEffets"))).await,
         Some("effects") => Box::pin(skill_effects(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmEffets"))).await,
         Some("skill") => Box::pin(skill(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("bag") => Box::pin(bag(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
@@ -63,7 +65,7 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         Some("potion") => Box::pin(potion(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("equip") => Box::pin(equip(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("combat") => Box::pin(combat(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "Green Worm"))).await,
-        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol|bag|skill|effects|bank|trade|quest [arguments]"),
+        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol|bag|skill|effects|status|bank|trade|quest [arguments]"),
     }
 }
 
@@ -1557,6 +1559,125 @@ async fn skill_effects(user: &str, pass: &str, char_name: &str) -> anyhow::Resul
     w.world.expect_where(|q| system(q) && q.fields().text(6).is_some_and(|t| t.contains(&format!("niveau {level}"))), 3000, "niveau rétabli").await?;
     println!("  ✓ niveau {level} rétabli");
     println!("\neffets des compétences : OK");
+    Ok(())
+}
+
+/// Shield Bash (30 % de chances d'étourdir 3 s) relancé sur des Vers verts jusqu'à un étourdissement : le ver passe
+/// à l'état 0x1 (AGPMCHARACTER op 1, champ 17), puis y revient à 0 au bout de 3 s.
+async fn skill_status(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
+    const TRAINER: Vec3 = Vec3 { x: -480_700.0, y: 5_070.0, z: -62_100.0 };
+    const HUNT: Vec3 = Vec3 { x: -466_468.0, y: 4_700.0, z: -50_010.0 };
+    const SHIELD_BASH: i64 = 7;
+    const STUN: i64 = 0x1;
+    const STOP: i64 = 0x04;
+    const TRIES: usize = 25;
+    let cfg = crate::config::load()?;
+    let (k, sm, ch, mv, ov, c) = (&schema::SKILL, &schema::EVENT_SKILL_MASTER, &schema::CHATTING, &schema::OPT_CHAR_MOVE, &schema::OPT_VIEW, &schema::CHARACTER);
+    step(&format!("{char_name} entre en jeu"));
+    let mut w = enter_world(&cfg, user, pass, char_name, "").await?;
+    let say = |cid: u32, text: &str| Fields::new(ch).with(0, 0).with(1, cid).with(2, chat_type::NORMAL).with(6, crate::tools::to_cp1252(text));
+    let system = |q: &Recv| q.ptype == ch.id && q.int(2) == Some(chat_type::SYSTEM);
+    let level = w.level.max(1);
+    w.world.send(ch, say(w.cid, "/level 25")).await?;
+    w.world.expect_where(system, 3000, "niveau 25").await?;
+    w.world.send(ch, say(w.cid, "/money 100000")).await?;
+    w.world.expect_where(|q| q.is(c, Some(1)) && q.int(8) == Some(100_000), 3000, "argent").await?;
+
+    step("Shield Bash chez Black");
+    let id = match w.skills.iter().find(|s| s.1 == SHIELD_BASH) {
+        Some(s) => s.0,
+        None => {
+            w.world.send(mv, Fields::new(mv).with(0, w.cid).with(1, TRAINER).with(2, TRAINER).with(5, STOP).with(6, 0)).await?;
+            let mut trainer = w.npcs.iter().find(|n| n.1.ends_with(" Black")).map(|n| n.0);
+            while let Ok(p) = w.world.expect_where(|q| q.is(ov, Some(1)), 1500, "PNJ").await {
+                if let Ok(view) = decode_mini(&mini::OPT_VIEW_CHAR, p.fields().bytes(1).unwrap_or_default()) {
+                    if view.text(2).is_some_and(|n| n.ends_with(" Black")) {
+                        trainer = view.int(0);
+                    }
+                }
+            }
+            let trainer = trainer.ok_or_else(|| anyhow::anyhow!("maître Black introuvable"))?;
+            let eb = &mini::EVENT_BASE;
+            let event = build_mini(eb, &Fields::new(eb).with(0, 3).with(1, trainer).with(3, 25));
+            w.world.send(sm, Fields::new(sm).with(0, 1).with(1, event).with(2, w.cid).with(4, SHIELD_BASH)).await?;
+            let add = w.world.expect_where(|q| q.is(k, Some(0)) && q.int(4) == Some(SHIELD_BASH), 3000, "compétence apprise").await?;
+            println!("  ✓ apprise");
+            add.int(1).unwrap_or(0)
+        }
+    };
+
+    step("étourdir un Ver vert");
+    w.world.send(ch, say(w.cid, "/invincible 1")).await?;
+    w.world.send(mv, Fields::new(mv).with(0, w.cid).with(1, HUNT).with(2, HUNT).with(5, STOP).with(6, 0)).await?;
+    // Vers vus à l'entrée (déjà sur place) ou en arrivant ; sinon, ceux qui réapparaissent.
+    let near_hunt = |p: Vec3| (((p.x - HUNT.x) as f64).powi(2) + ((p.z - HUNT.z) as f64).powi(2)).sqrt() <= 3000.0;
+    let mut worms: Vec<i64> = w.monsters.iter().filter(|m| m.name == "Green Worm" && m.hp > 0 && near_hunt(m.pos)).map(|m| m.cid as i64).collect();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    loop {
+        let wait = if worms.is_empty() && std::time::Instant::now() < deadline { 5000 } else { 1500 };
+        let Ok(p) = w.world.expect_where(|q| q.is(ov, Some(1)), wait, "monstres").await else {
+            if worms.is_empty() && std::time::Instant::now() < deadline {
+                continue;
+            }
+            break;
+        };
+        if let Ok(view) = decode_mini(&mini::OPT_VIEW_CHAR, p.fields().bytes(1).unwrap_or_default()) {
+            let cid = view.int(0).unwrap_or(0);
+            if view.text(2).as_deref() == Some("Green Worm") && view.bytes(5).and_then(factors_hp).unwrap_or(0) > 0 && !worms.contains(&cid) {
+                worms.push(cid);
+            }
+        }
+    }
+    anyhow::ensure!(!worms.is_empty(), "aucun Ver vert en vue");
+    let sb = &mini::SKILL_BASE;
+    let sa = &mini::SKILL_ACTION;
+    let cast = |target: i64| {
+        let act = build_mini(sa, &Fields::new(sa).with(0, 0).with(1, build_mini(sb, &Fields::new(sb).with(0, 3).with(1, target))));
+        Fields::new(k).with(0, 7).with(1, id).with(6, act)
+    };
+    let dead = |q: &Recv, t: i64| q.is(c, Some(1)) && q.int(1) == Some(t) && q.int(11) == Some(2);
+    let mut stunned = None;
+    let mut killed = std::collections::BTreeSet::new();
+    for attempt in 1..=TRIES {
+        let Some(&worm) = worms.iter().find(|t| !killed.contains(*t)) else { break };
+        w.world.send(ch, say(w.cid, "/recast")).await?;
+        w.world.expect_where(system, 3000, "relance").await?;
+        w.world.send(ch, say(w.cid, "/level 25")).await?;
+        w.world.expect_where(system, 3000, "PM rendus").await?;
+        w.world.send(k, cast(worm)).await?;
+        w.world.expect_where(|q| q.is(k, Some(8)) && q.int(1) == Some(id), 10_000, "coup").await?;
+        // Un déplacement arrête l'attaque automatique qui suit la compétence.
+        w.world.send(mv, Fields::new(mv).with(0, w.cid).with(1, HUNT).with(2, HUNT).with(5, STOP).with(6, 0)).await?;
+        let state = |q: &Recv| q.is(c, Some(1)) && q.int(1) == Some(worm) && (q.int(17).is_some() || q.int(11) == Some(2));
+        match w.world.expect_where(state, 600, "état").await {
+            Ok(q) if dead(&q, worm) => {
+                killed.insert(worm);
+            }
+            Ok(q) if q.int(17).unwrap_or(0) & STUN != 0 => {
+                println!("  ✓ essai {attempt} : ver {worm:#x} étourdi (état {:#x})", q.int(17).unwrap_or(0));
+                stunned = Some(worm);
+                break;
+            }
+            _ => {}
+        }
+    }
+    let worm = stunned.ok_or_else(|| anyhow::anyhow!("aucun étourdissement en {TRIES} essais (chance 30 %)"))?;
+    let t0 = std::time::Instant::now();
+    let back = w.world.expect_where(|q| q.is(c, Some(1)) && q.int(1) == Some(worm) && (q.int(17) == Some(0) || q.int(11) == Some(2)), 6000, "fin de l'étourdissement").await?;
+    if dead(&back, worm) {
+        println!("  ✓ ver mort avant la fin de l'étourdissement");
+    } else {
+        let s = t0.elapsed().as_secs_f64();
+        anyhow::ensure!((2.0..=4.0).contains(&s), "étourdissement levé au bout de {s:.1} s (attendu 3)");
+        println!("  ✓ état revenu à 0 au bout de {s:.1} s");
+    }
+
+    w.world.send(ch, say(w.cid, "/invincible 0")).await?;
+    w.world.send(ch, say(w.cid, &format!("/level {level}"))).await?;
+    w.world.expect_where(|q| system(q) && q.fields().text(6).is_some_and(|t| t.contains(&format!("niveau {level}"))), 3000, "niveau rétabli").await?;
+    println!("  ✓ niveau {level} rétabli");
+    println!("
+états spéciaux : OK");
     Ok(())
 }
 

@@ -6,11 +6,17 @@
 //! sa vitesse d'attaque. Sans agresseur, il rentre à son point d'apparition ; s'il s'en est éloigné de plus
 //! de 10 000 unités, il y est ramené d'un coup avec tous ses PV.
 //!
+//! États spéciaux : étourdi, gelé ou endormi, un monstre ne bouge ni ne frappe ; immobilisé, il ne poursuit
+//! pas ; sous « attaque interdite » ou la peur, il ne frappe pas. Il ignore les joueurs invincibles ou
+//! invisibles. Le coup d'un monstre peut être esquivé, bloqué ou changé en PV ou PM selon les effets du
+//! joueur (`effects::guard`), et réveille un joueur endormi.
+//!
 //! Patrouille : un monstre (type « monstre ») au repos, vu par au moins un joueur et dont le point a un rayon,
 //! marche toutes les 15 à 45 s vers un endroit tiré au hasard dans ce rayon, hors sol infranchissable ; au plus
 //! 16 départs par tour.
 
 use super::combat::{self, Attacker, Defender};
+use super::effects::{self, status, Guard};
 use super::monsters::{Aggro, Monster};
 use super::{WorldCtx, WorldState};
 use crate::debug;
@@ -64,7 +70,10 @@ pub fn choose_target(st: &WorldState, m: &Monster) -> Option<u32> {
         .iter()
         .filter(|a| {
             st.by_cid.get(&a.cid).and_then(|sid| st.players.get(sid)).is_some_and(|p| {
-                p.in_game && !p.dead && combat::dist2d(p.dest.unwrap_or_else(|| p.ch.pos()), m.pos) <= CHASE_LIMIT
+                p.in_game
+                    && !p.dead
+                    && p.skills.status_sent & status::UNTOUCHABLE == 0
+                    && combat::dist2d(p.dest.unwrap_or_else(|| p.ch.pos()), m.pos) <= CHASE_LIMIT
             })
         })
         .max_by_key(|a| a.damage)
@@ -108,6 +117,9 @@ pub fn patrol_step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) {
         }
         let Some(m) = st.monsters.get(cid) else { continue };
         if !m.is_alive() || m.target.is_some() || !m.aggro.is_empty() || m.roam <= 0.0 || now < m.patrol_at || now < m.ready_at {
+            continue;
+        }
+        if st.monsters.status(cid, now) & status::NO_MOVE != 0 {
             continue;
         }
         let stats = st.monsters.stats_of(m.tid);
@@ -164,6 +176,10 @@ fn monster_step(st: &mut WorldState, cid: u32, now: Instant) {
     if now < m.ready_at {
         return;
     }
+    let state = st.monsters.status(cid, now);
+    if state & status::HELPLESS != 0 {
+        return;
+    }
     let aggro: Vec<Aggro> = m.aggro.iter().copied().filter(|a| a.until > now).collect();
     if aggro.is_empty() {
         // Plus personne à poursuivre : il rentre.
@@ -196,6 +212,9 @@ fn monster_step(st: &mut WorldState, cid: u32, now: Instant) {
     let reach = stats.range.max(50) as f64 + PLAYER_HIT_RANGE;
     let distance = combat::dist2d(m.pos, ppos);
     if distance > reach + REACH_TOLERANCE {
+        if state & status::NO_MOVE != 0 {
+            return;
+        }
         // Poursuite : jusqu'au bord de la portée.
         let k = ((distance - reach * 0.8) / distance).max(0.0) as f32;
         let dest = Vec3::new(m.pos.x + (ppos.x - m.pos.x) * k, ppos.y, m.pos.z + (ppos.z - m.pos.z) * k);
@@ -204,7 +223,7 @@ fn monster_step(st: &mut WorldState, cid: u32, now: Instant) {
         st.monsters.get_mut(cid).unwrap().ready_at = now + t;
         return;
     }
-    if p.invincible_until.is_some_and(|t| now < t) {
+    if p.invincible_until.is_some_and(|t| now < t) || state & status::NO_ATTACK != 0 {
         st.monsters.get_mut(cid).unwrap().ready_at = now + SCAN_INTERVAL;
         return;
     }
@@ -212,9 +231,33 @@ fn monster_step(st: &mut WorldState, cid: u32, now: Instant) {
     let (min_damage, max_damage) = super::effects::monster_damage(stats.min_damage, stats.max_damage, &mods);
     let attacker = Attacker { level: m.level as i32, ar: stats.ar, min_damage, max_damage, ..Default::default() };
     let defender = Defender { level: p.factors.status[7], dr: p.factors.point_max[9], defense: p.factors.defense_point[0] as f64 };
-    let (outcome, damage) = combat::strike_at(&mut rand::thread_rng(), combat::monster_hit_chance(&attacker, &defender), &attacker, &defender);
+    let mut rng = rand::thread_rng();
+    let (mut outcome, mut damage) = combat::strike_at(&mut rng, combat::monster_hit_chance(&attacker, &defender), &attacker, &defender);
     let speed = super::effects::speed(stats.attack_speed, mods.atk_speed_pct).max(1) as u64;
     st.monsters.get_mut(cid).unwrap().ready_at = now + Duration::from_millis(60_000 / speed);
+    if outcome == combat::result::SUCCESS {
+        let p = st.players.get_mut(&sid).unwrap();
+        let guard = effects::guard(&mut rng, &effects::total(&p.skills.effects), p.skills.status_sent, damage);
+        match guard {
+            Guard::Hit => {
+                effects::lift_status(&mut p.skills.effects, status::SLEEP);
+            }
+            Guard::Evade => outcome = combat::result::EVADE,
+            Guard::Block => outcome = combat::result::BLOCK,
+            Guard::ToHp(n) | Guard::ToMp(n) => {
+                let (i, max) = if matches!(guard, Guard::ToHp(_)) { (crate::character::POINT_HP, 0) } else { (1, 1) };
+                p.factors.point[i] = (p.factors.point[i] + n.max(0)).min(p.factors.point_max[max]);
+                outcome = combat::result::MISS;
+                let c = &archcore_net::schema::CHARACTER;
+                let (pcid, f) = (p.ch.id, crate::character::factors_mini(&p.factors));
+                p.send(c, Fields::new(c).with(0, 1).with(1, pcid).with(7, f));
+            }
+        }
+        if guard != Guard::Hit {
+            damage = 0;
+            debug!("[ia] {} ({cid:#x}) : coup {guard:?}", m.name);
+        }
+    }
     combat::hit_player(st, sid, cid, outcome, damage);
 }
 

@@ -213,6 +213,8 @@ pub struct MonsterRegistry {
     pub engaged: BTreeSet<u32>,
     /// Effets des compétences portés par des monstres.
     pub effects: HashMap<u32, Vec<super::effects::Effect>>,
+    /// États spéciaux annoncés aux clients (monstres qui en ont).
+    pub status_sent: HashMap<u32, u64>,
     by_cid: HashMap<u32, usize>,
     grid: HashMap<(i64, i64), Vec<usize>>,
 }
@@ -361,6 +363,18 @@ impl MonsterRegistry {
     /// Somme des modificateurs des effets portés par un monstre.
     pub fn mods(&self, cid: u32) -> super::effects::Mods {
         self.effects.get(&cid).map(|l| super::effects::total(l)).unwrap_or_default()
+    }
+
+    /// États spéciaux en cours d'un monstre.
+    pub fn status(&self, cid: u32, now: Instant) -> u64 {
+        self.effects.get(&cid).map(|l| super::effects::active_status(l, now)).unwrap_or(0)
+    }
+
+    /// Un coup réveille le monstre endormi.
+    pub fn wake(&mut self, cid: u32) {
+        if let Some(l) = self.effects.get_mut(&cid) {
+            super::effects::lift_status(l, super::effects::status::SLEEP);
+        }
     }
 
     pub fn stats_of(&self, tid: u32) -> MonsterStats {
