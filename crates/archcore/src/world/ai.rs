@@ -101,6 +101,20 @@ fn go(st: &mut WorldState, cid: u32, dest: Vec3, speed: i32, fast: bool) -> Dura
         st.players[&sid].send(mv, fields.clone());
     }
     st.monsters.relocate(cid, dest);
+    // Secteurs : le monstre apparaît chez ceux qui voient sa destination, disparaît chez les autres.
+    if super::sector::of(from) != super::sector::of(dest) {
+        let Some(m) = st.monsters.get(cid) else { return Duration::ZERO };
+        let view = super::monsters::MonsterRegistry::view_packet(&st.monsters, m);
+        for p in st.players.values_mut().filter(|p| p.in_game) {
+            let sees = super::sector::sees(p.view_pos, dest);
+            if sees && p.seen_monsters.insert(cid) {
+                p.send_raw(view.clone());
+                p.send(mv, fields.clone());
+            } else if !sees && p.seen_monsters.remove(&cid) {
+                p.send_raw(super::character_remove_packet(cid));
+            }
+        }
+    }
     travel(combat::dist2d(from, dest), speed)
 }
 

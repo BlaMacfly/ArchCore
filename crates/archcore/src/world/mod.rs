@@ -36,6 +36,7 @@ pub mod presence;
 pub mod quests;
 pub mod recovery;
 pub mod regions;
+pub mod sector;
 pub mod skills;
 pub mod trade;
 pub mod travel;
@@ -447,7 +448,7 @@ fn enter_world(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle) {
     let mv = &schema::OPT_CHAR_MOVE;
     p.send(mv, Fields::new(mv).with(0, p.ch.id).with(1, pos).with(2, pos).with(5, MOVE_STOP_SYNC).with(6, 0));
     let sent = send_nearby_npcs(ctx, st, sid, pos);
-    info!("[world] #{sid} {sent} PNJ et {} monstre(s) envoyés dans un rayon de {}", st.players[&sid].seen_monsters.len(), ctx.view_radius);
+    info!("[world] #{sid} {sent} PNJ et {} monstre(s) envoyés (secteur {:?} et voisins)", st.players[&sid].seen_monsters.len(), sector::of(pos));
     let p = &st.players[&sid];
     let cm = &schema::CHAR_MANAGER;
     p.send(cm, Fields::new(cm).with(0, char_mgr_op::FINISH_ENTER).with(4, p.ch.id));
@@ -460,12 +461,19 @@ fn enter_world(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle) {
     info!("[world] #{sid} {} est en jeu (région {region})", p.ch.name);
 }
 
-/// PNJ autour de `pos` pas encore envoyés à ce joueur (vue optimisée op 1, un paquet par PNJ) ; met aussi
-/// à jour les monstres visibles (voir `sync_monsters`). Rend le nombre de PNJ envoyés.
+/// Vue d'un joueur placé en `pos` (secteurs voisins, voir `sector.rs`) : PNJ entrés (vue optimisée op 1,
+/// un paquet par PNJ) ou sortis (op 2), puis monstres (`sync_monsters`) et objets au sol. Rend le nombre
+/// de PNJ envoyés.
 pub fn send_nearby_npcs(ctx: &WorldCtx, st: &mut WorldState, sid: u32, pos: Vec3) -> usize {
     let Some(p) = st.players.get_mut(&sid) else { return 0 };
+    p.view_pos = pos;
     let mut sent = 0;
-    for npc in ctx.npcs.near(pos, ctx.view_radius) {
+    let gone: Vec<u32> = p.seen_npcs.iter().copied().filter(|cid| ctx.npcs.get(*cid).is_none_or(|n| !sector::sees(pos, n.pos))).collect();
+    for cid in gone {
+        p.seen_npcs.remove(&cid);
+        p.sess.send_raw(character_remove_packet(cid));
+    }
+    for npc in ctx.npcs.near(pos, sector::REACH).filter(|n| sector::sees(pos, n.pos)) {
         if p.seen_npcs.insert(npc.cid) {
             // Nom dans la langue du joueur (texte localisé, sinon titre traduit, sinon nom du serveur).
             let name = ctx.locale.resolve(crate::locale::kind::NPC_NAME, npc.cid.wrapping_sub(npcs::NPC_CID_BASE), &p.language, &npc.name);
@@ -478,30 +486,19 @@ pub fn send_nearby_npcs(ctx: &WorldCtx, st: &mut WorldState, sid: u32, pos: Vec3
     sent
 }
 
-/// Montre les monstres entrés dans le rayon de vue et retire ceux qui en sont sortis. Le retrait se fait
-/// un peu au-delà du rayon, pour ne pas faire clignoter un monstre en bordure. Rend (ajoutés, retirés).
+/// Montre les monstres entrés dans les secteurs vus depuis `pos` et retire ceux qui en sont sortis. Rend
+/// (ajoutés, retirés).
 pub fn sync_monsters(ctx: &WorldCtx, st: &mut WorldState, sid: u32, pos: Vec3) -> (usize, usize) {
     let Some(p) = st.players.get_mut(&sid) else { return (0, 0) };
     let mut added = 0;
-    for m in st.monsters.near(pos, ctx.view_radius).filter(|m| m.is_visible()) {
+    for m in st.monsters.near(pos, sector::REACH).filter(|m| m.is_visible() && sector::sees(pos, m.pos)) {
         if p.seen_monsters.insert(m.cid) {
             let name = ctx.locale.resolve(crate::locale::kind::MONSTER_NAME, m.tid, &p.language, &m.name);
             p.sess.send_raw(st.monsters.view_packet_named(m, &name));
             added += 1;
         }
     }
-    let keep = (ctx.view_radius * 1.2).powi(2);
-    let gone: Vec<u32> = p
-        .seen_monsters
-        .iter()
-        .copied()
-        .filter(|cid| {
-            st.monsters.get(*cid).is_none_or(|m| !m.is_visible() || {
-                let (dx, dz) = ((m.pos.x - pos.x) as f64, (m.pos.z - pos.z) as f64);
-                dx * dx + dz * dz > keep
-            })
-        })
-        .collect();
+    let gone: Vec<u32> = p.seen_monsters.iter().copied().filter(|cid| st.monsters.get(*cid).is_none_or(|m| !m.is_visible() || !sector::sees(pos, m.pos))).collect();
     for cid in &gone {
         p.seen_monsters.remove(cid);
         p.sess.send_raw(character_remove_packet(*cid));

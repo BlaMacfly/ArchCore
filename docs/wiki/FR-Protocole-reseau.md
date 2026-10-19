@@ -90,8 +90,14 @@ position, destination, orientation, etc. ArchCore donne aux PNJ des CID à parti
 Les monstres passent par le même paquet, avec des CID à partir de `0x50000000`. Il leur faut en plus le
 champ 5 (facteurs : niveau et vitesses, type, PV/PM/PE actuels et maximum, attaque), sans quoi le client
 les croit à 0 PV ; le champ 6 vaut `0x04` (arrêté) et le champ 9 (destination) est absent. La hauteur
-envoyée est celle des tables (souvent 0) : le client pose la créature sur le terrain. Un monstre sorti
-du rayon de vue (× 1,2) est retiré par AGPMCHARACTER op 2.
+envoyée est celle des tables (souvent 0) : le client pose la créature sur le terrain.
+
+**Visibilité par secteurs.** Le monde est découpé en 800 × 800 secteurs de 6400 unités, à partir de
+(-2 560 000, -2 560 000) en X et Z. Un joueur voit tout ce qui se trouve dans les 3 × 3 secteurs centrés
+sur le sien : PNJ, monstres, autres joueurs et objets au sol y apparaissent (vue optimisée op 1, paquet
+personnage op 0, objet op 0) ou en disparaissent (AGPMCHARACTER op 2, objet op 1) quand lui ou eux
+changent de secteur. Le serveur suit la marche du joueur entre deux paquets de déplacement, d'après sa
+vitesse (dixièmes d'unité par seconde : 2000 en marche, 5000 en course pour un humain).
 
 ## Fonctions des PNJ (types 0x3C et 0x37)
 
@@ -173,8 +179,9 @@ d'en-tête sur 1 octet :
 | 6 | direction |
 
 ArchCore met à jour la position du personnage, relaie le même paquet aux joueurs qui le voient, puis
-recalcule la visibilité : un paquet personnage **op 0** ajoute un joueur entré dans le rayon de vue,
-l'**op 2** (CID au champ 1) retire un joueur sorti du rayon ou déconnecté. La position est
+recalcule la visibilité par secteurs (voir plus haut) : un paquet personnage **op 0** ajoute un joueur
+entré dans les secteurs voisins, l'**op 2** (CID au champ 1) retire un joueur qui en est sorti ou s'est
+déconnecté. La position est
 sauvegardée à la déconnexion et toutes les minutes.
 
 ## Discussion (type 0x0F, AgpmChatting)

@@ -537,12 +537,12 @@ pub async fn resurrect(ctx: &WorldCtx, st: &mut WorldState, sid: u32) -> anyhow:
     Ok(())
 }
 
-/// Montre un monstre réapparu aux joueurs dans le rayon de vue.
-fn respawn_view(ctx: &WorldCtx, st: &mut WorldState, cid: u32) {
+/// Montre un monstre réapparu aux joueurs qui voient son secteur.
+fn respawn_view(_ctx: &WorldCtx, st: &mut WorldState, cid: u32) {
     let Some(m) = st.monsters.get(cid) else { return };
     let (pos, view) = (m.pos, MonsterRegistry::view_packet(&st.monsters, m));
     for p in st.players.values_mut().filter(|p| p.in_game) {
-        if dist2d(p.dest.unwrap_or_else(|| p.ch.pos()), pos) <= ctx.view_radius && p.seen_monsters.insert(cid) {
+        if super::sector::sees(p.view_pos, pos) && p.seen_monsters.insert(cid) {
             p.send_raw(view.clone());
         }
     }

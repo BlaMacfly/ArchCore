@@ -109,8 +109,9 @@ Client.DataDir = "../client/ArchLord/Game"
 World.Language = "fr"
 
 #    World.ViewRadius
-#        Distance (unités du jeu) en deçà de laquelle joueurs, monstres et
-#        objets au sol se voient.
+#        Portée (unités du jeu) de la discussion normale et des messages
+#        d'AddOn SAY. Le reste (PNJ, monstres, joueurs, objets au sol) se
+#        voit par secteurs de 6400 unités (les 3 x 3 autour du joueur).
 #        Défaut : 8000
 
 World.ViewRadius = 8000

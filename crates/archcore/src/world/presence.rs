@@ -4,20 +4,17 @@
 //! 0 CID, 1 position actuelle, 2 destination, 3 cible suivie, 4 distance de suivi (u16),
 //! 5 drapeaux de déplacement, 6 direction. Drapeaux (champ 5) : 0x04 arrêt, 0x01 direction, 0x08 synchro.
 //! Visibilité : AGPMCHARACTER op 0 ajoute un personnage chez le client, op 2 le retire. PNJ, monstres et
-//! objets au sol se calculent autour de la position du joueur, suivie pendant sa marche (vitesse de
-//! marche ou de course, en dixièmes d'unité par seconde) et réévaluée toutes les 500 ms dès qu'il a
-//! parcouru 200 unités.
+//! objets au sol se voient dans les 3 × 3 secteurs autour du joueur (`sector.rs`) ; sa position est suivie
+//! pendant la marche (vitesse de marche ou de course, en dixièmes d'unité par seconde) et la vue est
+//! recalculée quand il change de secteur.
 
-use super::{character_add_packet, character_remove_packet, send_nearby_npcs, WorldCtx, WorldState};
+use super::{character_add_packet, character_remove_packet, sector, send_nearby_npcs, WorldCtx, WorldState};
 use crate::{debug, info, warn};
 use archcore_net::schema;
 use archcore_net::{Fields, Packet, Vec3};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-/// Fréquence du recalcul de la vue pendant la marche, et distance parcourue qui le déclenche.
-const VIEW_INTERVAL: Duration = Duration::from_millis(500);
-const VIEW_STEP: f64 = 200.0;
 /// Drapeau « course » du déplacement.
 const MOVE_FAST: i64 = 0x10;
 
@@ -86,6 +83,7 @@ pub fn on_move(ctx: &WorldCtx, st: &mut WorldState, sid: u32, packet: &Packet) {
     let given = packet.vec3(1).filter(Vec3::is_finite);
     let pos = given.or(p.dest).unwrap_or_else(|| p.ch.pos());
     p.ch.set_pos(pos);
+    p.view_pos = pos;
     p.dest = if flags & move_flag::STOP != 0 { None } else { dest };
     p.moved_at = Instant::now();
     p.move_flags = flags;
@@ -123,9 +121,7 @@ pub fn on_move(ctx: &WorldCtx, st: &mut WorldState, sid: u32, packet: &Packet) {
         st.players.get_mut(&sid).unwrap().bound_region = region;
     }
     refresh(st, sid);
-    // Vue autour de la position actuelle : la destination d'un clic lointain ferait disparaître les monstres
-    // encore à l'écran derrière le joueur.
-    st.players.get_mut(&sid).unwrap().view_pos = pos;
+    // Vue autour de la position actuelle, pas de la destination : la marche est suivie par `view_step`.
     send_nearby_npcs(ctx, st, sid, pos);
 }
 
@@ -142,33 +138,33 @@ pub fn walking_pos(pos: Vec3, dest: Option<Vec3>, speed: f64, elapsed: Duration)
     Vec3::new(pos.x + (d.x - pos.x) * k, pos.y + (d.y - pos.y) * k, pos.z + (d.z - pos.z) * k)
 }
 
-/// Vue des joueurs en marche, recalculée autour de leur position estimée.
+/// Suit les joueurs en marche ; à chaque changement de secteur, leur vue est recalculée (PNJ, monstres,
+/// objets au sol, joueurs).
 pub fn view_step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) {
     for sid in st.sids() {
-        let Some(p) = st.players.get(&sid) else { continue };
-        if !p.in_game || p.dest.is_none() || now.duration_since(p.moved_at) < VIEW_INTERVAL {
+        let Some(p) = st.players.get_mut(&sid) else { continue };
+        if !p.in_game || p.dest.is_none() {
             continue;
         }
         let speed = if p.move_flags & MOVE_FAST != 0 { p.factors.status[9] } else { p.factors.status[8] } as f64 / 10.0;
         let at = walking_pos(p.ch.pos(), p.dest, speed, now.duration_since(p.moved_at));
-        let (dx, dz) = ((at.x - p.view_pos.x) as f64, (at.z - p.view_pos.z) as f64);
-        if dx * dx + dz * dz < VIEW_STEP * VIEW_STEP {
-            continue;
+        let changed = sector::of(at) != sector::of(p.view_pos);
+        p.view_pos = at;
+        if changed {
+            send_nearby_npcs(ctx, st, sid, at);
+            refresh(st, sid);
         }
-        st.players.get_mut(&sid).unwrap().view_pos = at;
-        send_nearby_npcs(ctx, st, sid, at);
     }
 }
 
-/// Recalcule ce que voit `sid` et qui le voit : ajoute les joueurs entrés dans le rayon, retire ceux
-/// qui en sont sortis. Symétrique.
+/// Recalcule ce que voit `sid` et qui le voit : ajoute les joueurs entrés dans les secteurs voisins, retire
+/// ceux qui en sont sortis. Symétrique.
 pub fn refresh(st: &mut WorldState, sid: u32) {
-    let radius = st.view_radius();
     let Some(p) = st.players.get(&sid) else { return };
     if !p.in_game {
         return;
     }
-    let me = p.ch.pos();
+    let me = p.view_pos;
     for other in st.sids() {
         if other == sid {
             continue;
@@ -177,16 +173,10 @@ pub fn refresh(st: &mut WorldState, sid: u32) {
         if !o.in_game {
             continue;
         }
-        let near = near(me, o.ch.pos(), radius);
+        let near = sector::sees(me, o.view_pos);
         set_visible(st, sid, other, near);
         set_visible(st, other, sid, near);
     }
-}
-
-fn near(a: Vec3, b: Vec3, radius: f64) -> bool {
-    let dx = (a.x - b.x) as f64;
-    let dz = (a.z - b.z) as f64;
-    dx * dx + dz * dz <= radius * radius
 }
 
 /// Rend `target` visible (ou non) pour `viewer`.
@@ -255,13 +245,6 @@ pub fn spawn_autosave(world: Arc<super::World>) {
             }
         }
     });
-}
-
-impl WorldState {
-    /// Rayon de vue, recopié dans l'état pour les calculs de visibilité (voir `World::new`).
-    pub fn view_radius(&self) -> f64 {
-        self.view_radius
-    }
 }
 
 #[cfg(test)]

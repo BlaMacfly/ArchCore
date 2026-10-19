@@ -266,6 +266,8 @@ pub fn pickup_result_packet(outcome: i64, iid: u32, tid: u32, count: i64) -> Vec
     build_packet(s, &Fields::new(s).with(0, PICKUP_ITEM_RESULT).with(1, outcome).with(2, iid).with(3, tid).with(5, count))
 }
 
+
+/// Position qui compte pour ramasser : la destination de la marche (le client marche jusqu'à l'objet).
 fn reach_pos(p: &super::Player) -> Vec3 {
     p.dest.unwrap_or_else(|| p.ch.pos())
 }
@@ -275,7 +277,7 @@ fn dist2d(a: Vec3, b: Vec3) -> f64 {
 }
 
 /// Pose le butin du monstre tué autour de `center`, au nom du joueur `killer`.
-pub fn drop_loot(ctx: &WorldCtx, st: &mut WorldState, killer: u32, center: Vec3, loot: &[(u32, i64)], catalog: &ItemCatalog, now: Instant) {
+pub fn drop_loot(_ctx: &WorldCtx, st: &mut WorldState, killer: u32, center: Vec3, loot: &[(u32, i64)], catalog: &ItemCatalog, now: Instant) {
     let Some(owner) = st.players.get(&killer).map(|p| p.ch.id) else { return };
     let mut rng = rand::thread_rng();
     let mut placed = Vec::new();
@@ -296,7 +298,7 @@ pub fn drop_loot(ctx: &WorldCtx, st: &mut WorldState, killer: u32, center: Vec3,
     for item in &placed {
         let plain = ground_packet(item);
         for p in st.players.values_mut().filter(|p| p.in_game) {
-            if dist2d(reach_pos(p), item.pos) <= ctx.view_radius && p.seen_items.insert(item.iid) {
+            if super::sector::sees(p.view_pos, item.pos) && p.seen_items.insert(item.iid) {
                 p.send_raw(plain.clone());
             }
         }
@@ -307,12 +309,15 @@ pub fn drop_loot(ctx: &WorldCtx, st: &mut WorldState, killer: u32, center: Vec3,
     }
 }
 
-/// Objets au sol dans le rayon de vue de `pos`, pas encore montrés à ce joueur.
-pub fn sync_ground(ctx: &WorldCtx, st: &mut WorldState, sid: u32, pos: Vec3) {
+/// Objets au sol des secteurs vus depuis `pos` : montrés s'ils sont nouveaux, retirés s'ils en sont sortis.
+pub fn sync_ground(_ctx: &WorldCtx, st: &mut WorldState, sid: u32, pos: Vec3) {
     let Some(p) = st.players.get_mut(&sid) else { return };
     for item in st.ground.items.values() {
-        if dist2d(pos, item.pos) <= ctx.view_radius && p.seen_items.insert(item.iid) {
+        let seen = super::sector::sees(pos, item.pos);
+        if seen && p.seen_items.insert(item.iid) {
             p.send_raw(ground_packet(item));
+        } else if !seen && p.seen_items.remove(&item.iid) {
+            p.send_raw(item_remove(item.iid, Some(item.owner)));
         }
     }
 }

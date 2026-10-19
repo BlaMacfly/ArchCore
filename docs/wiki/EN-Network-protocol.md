@@ -89,8 +89,14 @@ destination, orientation, and so on. ArchCore gives NPCs CIDs starting at `0x400
 Monsters use the same packet, with CIDs starting at `0x50000000`. They also need field 5 (factors: level
 and speeds, type, current and maximum HP/MP/SP, attack), otherwise the client believes they have 0 HP;
 field 6 is `0x04` (stopped) and field 9 (destination) is absent. The height sent is the one from the
-tables (often 0): the client puts the creature on the ground. A monster leaving the view radius (× 1.2) is
-removed with AGPMCHARACTER op 2.
+tables (often 0): the client puts the creature on the ground.
+
+**Sector visibility.** The world is cut into 800 × 800 sectors of 6400 units, starting at
+(-2,560,000, -2,560,000) in X and Z. A player sees everything in the 3 × 3 sectors centred on their own:
+NPCs, monsters, other players and ground items appear (optimized view op 1, character packet op 0, item
+op 0) or disappear (AGPMCHARACTER op 2, item op 1) when the player or they change sector. The server
+follows the player's walk between two movement packets, from their speed (tenths of a unit per second:
+2000 walking, 5000 running for a human).
 
 ## NPC functions (types 0x3C and 0x37)
 
@@ -171,8 +177,8 @@ The client sends a 0x40 packet on every movement click (`FUN_140264010`), with 1
 | 6 | direction |
 
 ArchCore updates the character's position, relays the same packet to the players who see it, then
-recomputes visibility: a character packet **op 0** adds a player who entered the view radius, **op 2**
-(CID in field 1) removes a player who left it or disconnected. The position is saved on disconnect
+recomputes visibility by sector (see above): a character packet **op 0** adds a player who entered the
+neighbouring sectors, **op 2** (CID in field 1) removes a player who left them or disconnected. The position is saved on disconnect
 and every minute.
 
 ## Chat (type 0x0F, AgpmChatting)
