@@ -17,7 +17,8 @@ use crate::info;
 use archcore_net::schema::{self, mini};
 use archcore_net::{build_mini, build_packet, Fields, Vec3};
 use rand::{Rng, SeedableRng};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
+use std::time::Instant;
 
 /// Les monstres reçoivent des CID dans une plage séparée de celles des joueurs et des PNJ.
 pub const MONSTER_CID_BASE: u32 = 0x5000_0000;
@@ -27,6 +28,17 @@ const CELL: f64 = 4096.0;
 const MOVE_STOP: i64 = 0x04;
 /// Tirages au plus pour trouver une position libre ; à défaut, le monstre est placé au centre du point.
 const PLACEMENT_TRIES: usize = 16;
+/// Statut d'action (champ 3 de la vue) d'un personnage mort.
+const ACTION_STATUS_DEAD: i64 = 2;
+/// Portée de touche d'un modèle sans « HitRange » connu.
+pub const DEFAULT_HIT_RANGE: i32 = 100;
+
+/// Bits du type de personnage (« Type » de CharacterDataTable.txt) : 0x4 monstre, 0x8 créature d'ambiance
+/// (coqs, poules…), 0x10 garde, puis ceux-ci.
+pub mod char_type {
+    pub const ATTACKABLE: i64 = 0x1_0000;
+    pub const TARGETABLE: i64 = 0x2_0000;
+}
 
 /// Caractéristiques d'un modèle de monstre (CharacterDataTable.txt).
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -44,6 +56,12 @@ pub struct MonsterStats {
     pub attack_speed: i32,
     pub range: i32,
     pub exp: i32,
+    /// Défense physique (« AC »).
+    pub ac: i32,
+    /// Rayon du corps, ajouté à la portée de l'attaquant (« HitRange » de charactertemplate.ini).
+    pub hit_range: i32,
+    /// Type de personnage (bits `char_type`).
+    pub char_type: i64,
 }
 
 impl MonsterStats {
@@ -70,7 +88,16 @@ impl MonsterStats {
             attack_speed: n("ATK Speed"),
             range: n("Range"),
             exp: n("Exp"),
+            ac: n("AC"),
+            hit_range: DEFAULT_HIT_RANGE,
+            char_type: n("Type") as i64,
         }
+    }
+
+    /// Un joueur peut le prendre pour cible et l'attaquer.
+    pub fn is_attackable(&self) -> bool {
+        let needed = char_type::ATTACKABLE | char_type::TARGETABLE;
+        self.char_type & needed == needed
     }
 }
 
@@ -91,6 +118,14 @@ pub fn monster_factors(level: i64, s: &MonsterStats, hp: i32) -> Factors {
     f
 }
 
+/// Cycle de vie d'un monstre : vivant, cadavre visible, puis retiré jusqu'à sa réapparition.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Life {
+    Alive,
+    Dead { remove_at: Instant },
+    Gone { respawn_at: Instant },
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Monster {
     pub cid: u32,
@@ -102,6 +137,20 @@ pub struct Monster {
     pub degree_x: f64,
     pub degree_y: f64,
     pub hp: i32,
+    pub max_hp: i32,
+    /// Délai de réapparition après le retrait du cadavre, en secondes.
+    pub respawn_sec: i64,
+    pub life: Life,
+}
+
+impl Monster {
+    pub fn is_alive(&self) -> bool {
+        self.life == Life::Alive
+    }
+    /// Visible des joueurs : vivant ou cadavre.
+    pub fn is_visible(&self) -> bool {
+        !matches!(self.life, Life::Gone { .. })
+    }
 }
 
 /// Point d'apparition tel que lu dans `monster_spawn`.
@@ -116,6 +165,7 @@ pub struct SpawnPoint {
     pub degree_x: f64,
     pub radius: f64,
     pub max_hp: i32,
+    pub respawn_sec: i64,
 }
 
 /// Monstres du monde, avec une grille X/Z pour retrouver vite ceux qui sont à portée.
@@ -124,6 +174,8 @@ pub struct MonsterRegistry {
     pub monsters: Vec<Monster>,
     /// Caractéristiques par modèle.
     pub stats: HashMap<u32, MonsterStats>,
+    /// Monstres morts ou retirés, à faire avancer dans leur cycle de vie.
+    pub pending: BTreeSet<u32>,
     by_cid: HashMap<u32, usize>,
     grid: HashMap<(i64, i64), Vec<usize>>,
 }
@@ -162,6 +214,9 @@ pub fn spawn_point(p: &SpawnPoint, first_cid: u32, blocked: &dyn Fn(f64, f64) ->
                 degree_x: p.degree_x,
                 degree_y,
                 hp: p.max_hp,
+                max_hp: p.max_hp,
+                respawn_sec: p.respawn_sec,
+                life: Life::Alive,
             }
         })
         .collect()
@@ -173,7 +228,7 @@ impl MonsterRegistry {
         // pas eu les tables du serveur.
         let rows = match db
             .world
-            .rows("SELECT id, tid, display_name, level, count, pos_x, pos_y, pos_z, degree_x, radius FROM monster_spawn WHERE count > 0 ORDER BY id", ())
+            .rows("SELECT id, tid, display_name, level, count, respawn_sec, pos_x, pos_y, pos_z, degree_x, radius FROM monster_spawn WHERE count > 0 ORDER BY id", ())
             .await
         {
             Ok(rows) => rows,
@@ -188,6 +243,13 @@ impl MonsterRegistry {
                 stats.insert(col::<u32>(&r, "tid"), MonsterStats::from_data(&v));
             }
         }
+        // Rayon du corps : dans charactertemplate.ini, quand le modèle y figure.
+        for r in db.world.rows("SELECT tid, JSON_VALUE(raw, '$.HitRange') AS hit_range FROM character_template", ()).await? {
+            let hit: i32 = col::<Option<String>>(&r, "hit_range").and_then(|v| v.trim().parse().ok()).unwrap_or(0);
+            if let Some(s) = stats.get_mut(&col::<u32>(&r, "tid")).filter(|_| hit > 0) {
+                s.hit_range = hit;
+            }
+        }
         let points: Vec<SpawnPoint> = rows
             .iter()
             .map(|r| SpawnPoint {
@@ -199,7 +261,8 @@ impl MonsterRegistry {
                 pos: Vec3::new(col::<f64>(r, "pos_x") as f32, col::<f64>(r, "pos_y") as f32, col::<f64>(r, "pos_z") as f32),
                 degree_x: col(r, "degree_x"),
                 radius: col(r, "radius"),
-                max_hp: stats.get(&col::<u32>(r, "tid")).map(|s| s.max_hp).unwrap_or(0),
+                max_hp: stats.get(&col::<u32>(r, "tid")).map(|s| s.max_hp.max(1)).unwrap_or(1),
+                respawn_sec: col(r, "respawn_sec"),
             })
             .collect();
         let without = points.iter().filter(|p| !stats.contains_key(&p.tid)).count();
@@ -231,7 +294,15 @@ impl MonsterRegistry {
         self.by_cid.get(&cid).map(|&i| &self.monsters[i])
     }
 
-    /// Monstres dont la distance horizontale (X/Z) à `pos` est au plus `radius`.
+    pub fn get_mut(&mut self, cid: u32) -> Option<&mut Monster> {
+        self.by_cid.get(&cid).map(|&i| &mut self.monsters[i])
+    }
+
+    pub fn stats_of(&self, tid: u32) -> MonsterStats {
+        self.stats.get(&tid).cloned().unwrap_or_default()
+    }
+
+    /// Monstres (même retirés) dont la distance horizontale (X/Z) à `pos` est au plus `radius`.
     pub fn near(&self, pos: Vec3, radius: f64) -> impl Iterator<Item = &Monster> {
         let (x, z) = (pos.x as f64, pos.z as f64);
         let (lo, hi) = (cell_of(x - radius, z - radius), cell_of(x + radius, z + radius));
@@ -259,7 +330,7 @@ impl MonsterRegistry {
                 .with(0, m.cid)
                 .with(1, m.tid)
                 .with(2, archcore_net::text::encode(&m.name))
-                .with(3, 0)
+                .with(3, if m.is_alive() { 0 } else { ACTION_STATUS_DEAD })
                 .with(5, factors_mini(&monster_factors(m.level, &stats, m.hp)))
                 .with(6, MOVE_STOP)
                 .with(7, 0)
@@ -278,7 +349,7 @@ mod tests {
     use archcore_net::{decode_mini, decode_packet};
 
     fn point(id: u32, x: f32, z: f32, count: i64, radius: f64) -> SpawnPoint {
-        SpawnPoint { id, tid: 450, name: "Ver vert".into(), level: 1, count, pos: Vec3::new(x, 0.0, z), degree_x: 0.0, radius, max_hp: 136 }
+        SpawnPoint { id, tid: 450, name: "Ver vert".into(), level: 1, count, pos: Vec3::new(x, 0.0, z), degree_x: 0.0, radius, max_hp: 136, respawn_sec: 8 }
     }
 
     #[test]
@@ -322,6 +393,10 @@ mod tests {
             "Movement Walk":"450","Movement Run":"3850","AR":"21","Min_Damage":"15","Max_Damage":"15","ATK Speed":"32","Range":"170","Exp":"14"});
         let s = MonsterStats::from_data(&v);
         assert_eq!((s.race, s.class, s.max_hp, s.walk, s.run, s.range, s.exp), (11, 5, 136, 450, 3850, 170, 14));
+        assert!(!s.is_attackable(), "sans type : non attaquable");
+        assert!(MonsterStats { char_type: 196_612, ..s.clone() }.is_attackable());
+        assert!(!MonsterStats { char_type: 8, ..s.clone() }.is_attackable(), "coq, poule");
+        assert!(!MonsterStats { char_type: 65_540, ..s }.is_attackable(), "attaquable mais pas ciblable");
         let f = monster_factors(1, &s, 100);
         assert_eq!((f.status[7], f.status[8], f.status[9], f.point[0], f.point_max[0]), (1, 450, 3850, 100, 136));
     }

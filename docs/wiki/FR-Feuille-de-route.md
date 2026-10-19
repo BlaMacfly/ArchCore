@@ -20,6 +20,9 @@
 - Créatures : 36 960 monstres placés d'après les tables du serveur d'origine, hors du sol infranchissable,
   avec leurs caractéristiques (niveau, vitesses, PV). Vus et ciblés en jeu lors d'un premier essai ;
   l'envoi des PV, ajouté depuis, reste à vérifier.
+- Combat au corps à corps contre les monstres : approche, coups (chance de toucher, dégâts selon la
+  classe), mort, expérience et montée de niveau, cadavre puis réapparition. Voir
+  [[Protocole réseau|FR-Protocole-reseau]].
 - Extensions ArchRust, côté serveur : négociation de capacités et messages d'AddOn (murmure, `SAY`).
   Voir [[Extensions ArchRust|FR-Extensions-ArchRust]] ; la partie client reste à écrire dans ArchRust.
 - Revente d'un objet à un PNJ.
@@ -36,7 +39,7 @@
 1. Valider la création complète d'un personnage en jeu.
 2. Vérifier la visibilité entre joueurs avec deux vrais clients.
 3. Fonctions des PNJ : quêtes, téléportation, banque.
-4. Combat contre les monstres, expérience, butin, réapparition.
+4. Combat : riposte et poursuite des monstres (IA), butin, armes dans les dégâts, compétences.
 5. Objets : déplacement dans l'inventaire, équipement, utilisation ; compétences.
 6. Discussion, groupes, guildes.
 7. Reconnexion automatique (type 0x63).

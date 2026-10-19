@@ -175,6 +175,29 @@ message (memory block).
 - On receipt, the client rejects a message over 512 bytes. Type 7 (system message) is shown without
   a sender; ArchCore uses it to answer the GM, and type 10 for announcements.
 
+## Combat (type 0x41, AgpmOptimizedCharAction)
+
+2-byte flags: 0 attacker (I32), 1 target (I32), 2 result (I8), 3 factors (packet), 4 target HP (I32),
+5 combo (I8), 6 forced attack (I8), 7 additional effect (U32), 8 hit index (U8).
+
+- **Client → server**: 0, 1 and 6. The client picks its target; it does not send one packet per hit.
+- **Server → clients**: one packet per hit, to every player who sees the target. Result 1 = miss, 5 = hit
+  (6 critical, 7 evade, 9 block…). Field 3 is only present on a hit; the client reads it with the **full
+  AGPMCHAR_FACTORS schema** (checked in the x64 client): sub-packet 0 "result" holds a point block (HP,
+  MP, normal damage as a negative number, field 9) used to display the hit, sub-packet 3 the target's
+  remaining HP and MP.
+
+Out of reach (player attack range + target `HitRange` radius), the server walks the player to the target
+with an AGPMOPTIMIZEDCHARMOVE; a movement requested by the client cancels the attack. Hits follow the
+attack speed (60,000 / speed ms).
+
+When a monster dies, AGPMCHARACTER op 1 with field 11 (action status) set to 2; the corpse is removed
+20 s later (op 2), then the monster respawns in place with full HP. The killer gets the template's
+experience (`Exp` from CharacterDataTable.txt × the `exp` rate) in its factors (op 1, field 7) and a
+system message; experience is counted per level (`LevelUpExp.txt`), and a level up is announced with
+AGPMCHARACTER **op 5**. Only templates whose type has the "attackable" (0x10000) and "targetable"
+(0x20000) bits can be targeted: ambient creatures (type 8: roosters, hens…) cannot.
+
 ## GM level (type 0x12, AgpmAdmin)
 
 2-byte field flags: op, CID, then 13 mini-packets. Op 0 with, in field 2, a "GM data" mini-packet of

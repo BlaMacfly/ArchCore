@@ -15,6 +15,7 @@
 
 pub mod addon;
 pub mod chat;
+pub mod combat;
 pub mod gm;
 pub mod items;
 pub mod map;
@@ -52,6 +53,8 @@ pub struct WorldCtx {
     pub catalog: ItemCatalog,
     /// Carte serveur : sol infranchissable, régions.
     pub map: map::WorldMap,
+    /// Expérience nécessaire pour passer chaque niveau (indice = niveau, LevelUpExp.txt).
+    pub level_exp: Vec<u64>,
     pub view_radius: f64,
 }
 
@@ -97,6 +100,8 @@ pub struct Player {
     pub move_count: u32,
     pub inventory: Inventory,
     pub shop: Option<OpenShop>,
+    /// Attaque en cours (monstre visé).
+    pub attack: Option<combat::Attack>,
     /// Limite de débit des messages d'AddOn.
     pub addon_bucket: addon::TokenBucket,
 }
@@ -162,6 +167,7 @@ impl Service for WorldService {
                 | ptype::CHARACTER
                 | ptype::CHATTING
                 | ptype::OPT_CHAR_MOVE
+                | ptype::OPT_CHAR_ACTION
                 | ptype::EVENT_NPC_DIALOG
                 | ptype::EVENT_NPC_TRADE
                 | ptype::ARCHCORE_EXT
@@ -200,6 +206,7 @@ impl Connection for WorldConn {
             ptype::CHARACTER => debug!("[world] #{} AGPMCHARACTER op {:?} (ignoré)", s.id(), p.int(0)),
             ptype::CHATTING => chat::on_chatting(&world, &mut st, self.sid, &p).await?,
             ptype::OPT_CHAR_MOVE => presence::on_move(ctx, &mut st, self.sid, &p),
+            ptype::OPT_CHAR_ACTION => combat::on_action(&mut st, self.sid, &p),
             ptype::EVENT_NPC_DIALOG => npc_events::on_dialog(ctx, &st, self.sid, &p),
             ptype::EVENT_NPC_TRADE => npc_trade::on_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::ARCHCORE_EXT => addon::on_packet(ctx, &mut st, self.sid, &p),
@@ -290,6 +297,7 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
             move_count: 0,
             inventory,
             shop: None,
+            attack: None,
             addon_bucket: addon::TokenBucket::default(),
         },
     );
@@ -354,7 +362,7 @@ pub fn send_nearby_npcs(ctx: &WorldCtx, st: &mut WorldState, sid: u32, pos: Vec3
 pub fn sync_monsters(ctx: &WorldCtx, st: &mut WorldState, sid: u32, pos: Vec3) -> (usize, usize) {
     let Some(p) = st.players.get_mut(&sid) else { return (0, 0) };
     let mut added = 0;
-    for m in st.monsters.near(pos, ctx.view_radius) {
+    for m in st.monsters.near(pos, ctx.view_radius).filter(|m| m.is_visible()) {
         if p.seen_monsters.insert(m.cid) {
             p.sess.send_raw(st.monsters.view_packet(m));
             added += 1;
@@ -366,7 +374,7 @@ pub fn sync_monsters(ctx: &WorldCtx, st: &mut WorldState, sid: u32, pos: Vec3) -
         .iter()
         .copied()
         .filter(|cid| {
-            st.monsters.get(*cid).is_none_or(|m| {
+            st.monsters.get(*cid).is_none_or(|m| !m.is_visible() || {
                 let (dx, dz) = ((m.pos.x - pos.x) as f64, (m.pos.z - pos.z) as f64);
                 dx * dx + dz * dz > keep
             })

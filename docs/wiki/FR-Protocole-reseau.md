@@ -177,6 +177,30 @@ nom cible (49), message (bloc mémoire).
 - À la réception, le client refuse un message de plus de 512 octets. Le type 7 (message système)
   s'affiche sans émetteur ; ArchCore l'utilise pour répondre au MJ, et le type 10 pour les annonces.
 
+## Combat (type 0x41, AgpmOptimizedCharAction)
+
+Drapeaux sur 2 octets : 0 attaquant (I32), 1 cible (I32), 2 résultat (I8), 3 facteurs (paquet), 4 PV de
+la cible (I32), 5 combo (I8), 6 attaque forcée (I8), 7 effet additionnel (U32), 8 index de coup (U8).
+
+- **Client → serveur** : 0, 1 et 6. Le client désigne sa cible ; il n'envoie pas un paquet par coup.
+- **Serveur → clients** : un paquet par coup, à tous les joueurs qui voient la cible. Résultat 1 =
+  manqué, 5 = touché (6 critique, 7 esquive, 9 blocage…). Le champ 3 n'est présent que si le coup
+  touche ; le client le lit avec le **schéma complet AGPMCHAR_FACTORS** (vérifié dans le client x64) :
+  le sous-paquet 0 « résultat » contient un bloc de points (PV, PM, dégâts normaux en négatif, champ 9)
+  qui sert à l'affichage du coup, le sous-paquet 3 les PV et PM restants de la cible.
+
+Hors de portée (portée d'attaque du joueur + rayon `HitRange` de la cible), le serveur fait marcher le
+joueur jusqu'à la cible avec un AGPMOPTIMIZEDCHARMOVE ; un déplacement demandé par le client interrompt
+l'attaque. Les coups suivent la vitesse d'attaque (60 000 / vitesse ms).
+
+À la mort d'un monstre, AGPMCHARACTER op 1 avec le champ 11 (statut d'action) à 2 ; le cadavre est
+retiré 20 s plus tard (op 2), puis le monstre réapparaît à sa place avec tous ses PV. Le tueur reçoit
+l'expérience du modèle (`Exp` de CharacterDataTable.txt × taux `exp`) dans ses facteurs (op 1, champ 7)
+et un message système ; l'expérience se compte par niveau (`LevelUpExp.txt`), et une montée de niveau
+est signalée par AGPMCHARACTER **op 5**. Seuls les modèles dont le type porte les bits « attaquable »
+(0x10000) et « ciblable » (0x20000) peuvent être visés : les créatures d'ambiance (type 8 : coqs,
+poules…) ne le sont pas.
+
 ## Niveau MJ (type 0x12, AgpmAdmin)
 
 Drapeaux de champs sur 2 octets : op, CID, puis 13 mini-paquets. L'op 0 avec, au champ 2, un

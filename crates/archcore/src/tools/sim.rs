@@ -6,6 +6,7 @@
 //!   archcore sim move [compteA mdpA persoA compteB mdpB persoB] deux joueurs : visibilité et déplacement
 //!   archcore sim shop [compte] [mdp] [perso]                  boutique de Darryl : liste, achat, revente
 //!   archcore sim addon [A… B… C…]                             extensions ArchRust : messages d'AddOn (A, B : ArchRust ; C : client d'origine, MJ)
+//!   archcore sim combat [compte] [mdp] [perso] [monstre]      chasse au Ver vert au nord d'Anchorville : coups, mort, expérience, réapparition
 //! ```
 //! À lancer contre un serveur de test (`ARCHCORE_CONFIG`) : les personnages sont créés au besoin,
 //! déplacés, et `sim shop` leur donne 1000 pièces d'or.
@@ -40,7 +41,8 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
             ];
             Box::pin(addon(&acc)).await
         }
-        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon [arguments]"),
+        Some("combat") => Box::pin(combat(&a(1, "sima"), &a(2, "sima"), &a(3, "SimA"), &a(4, "Green Worm"))).await,
+        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat [arguments]"),
     }
 }
 
@@ -211,6 +213,37 @@ pub struct InWorld {
     pub world: TestClient,
     pub cid: u32,
     pub start: Vec3,
+    /// Monstres reçus à l'entrée en jeu.
+    pub monsters: Vec<SeenMonster>,
+}
+
+/// Monstre vu à l'entrée en jeu.
+#[derive(Clone, Debug)]
+pub struct SeenMonster {
+    pub cid: u32,
+    pub tid: i64,
+    pub name: String,
+    pub pos: Vec3,
+    pub hp: i64,
+}
+
+impl SeenMonster {
+    /// Lit la vue (mini OPT_VIEW_CHAR) d'un monstre.
+    fn from_view(view: &Fields) -> Self {
+        SeenMonster {
+            cid: view.int(0).unwrap_or(0) as u32,
+            tid: view.int(1).unwrap_or(0),
+            name: view.text(2).unwrap_or_default(),
+            pos: view.vec3(8).unwrap_or_default(),
+            hp: view.bytes(5).and_then(factors_hp).unwrap_or(0),
+        }
+    }
+}
+
+/// PV d'un mini-paquet de facteurs complet (sous-paquet 3, valeur 0).
+fn factors_hp(bytes: &[u8]) -> Option<i64> {
+    let f = decode_mini(&mini::CHAR_FACTORS, bytes).ok()?;
+    decode_mini(&mini::FACTOR_POINT, f.bytes(3)?).ok()?.int(0)
 }
 
 /// Se connecte au login, entre dans le monde avec `char_name` (créé s'il n'existe pas).
@@ -331,7 +364,7 @@ pub async fn enter_world_with(cfg: &Config, user: &str, pass: &str, char_name: &
     world.send(cm, Fields::new(cm).with(0, char_mgr_op::ENTER_WORLD)).await?;
     world.expect(&schema::CHARACTER, Some(0)).await?;
     let mut npc_names = Vec::new();
-    let mut monsters = 0;
+    let mut monsters = Vec::new();
     loop {
         let p = world
             .expect_where(
@@ -350,16 +383,16 @@ pub async fn enter_world_with(cfg: &Config, user: &str, pass: &str, char_name: &
         }
         let view = decode_mini(&mini::OPT_VIEW_CHAR, p.fields().bytes(1).unwrap_or_default())?;
         if view.int(0).unwrap_or(0) >= crate::world::monsters::MONSTER_CID_BASE as i64 {
-            monsters += 1;
+            monsters.push(SeenMonster::from_view(&view));
         } else {
             npc_names.push(view.text(2).unwrap_or_default());
         }
     }
     let shown: Vec<&str> = npc_names.iter().take(6).map(String::as_str).collect();
     println!("  {} PNJ reçu(s) : {}{}", npc_names.len(), shown.join(", "), if npc_names.len() > 6 { ", …" } else { "" });
-    println!("  {monsters} monstre(s) reçu(s)");
+    println!("  {} monstre(s) reçu(s)", monsters.len());
     println!("  entrée en jeu confirmée");
-    Ok(InWorld { world, cid, start })
+    Ok(InWorld { world, cid, start, monsters })
 }
 
 async fn client(user: &str, pass: &str, char_name: &str, commands: &[String]) -> anyhow::Result<()> {
@@ -549,6 +582,105 @@ async fn addon(acc: &[(String, String, String); 3]) -> anyhow::Result<()> {
     anyhow::ensure!(c.world.ext_seen == 0, "{} paquet(s) 0xAC envoyés au client d'origine", c.world.ext_seen);
     println!("  ✓ aucun paquet 0xAC chez {cc}");
     println!("\nextensions et messages d'AddOn : OK");
+    Ok(())
+}
+
+async fn combat(user: &str, pass: &str, char_name: &str, prey: &str) -> anyhow::Result<()> {
+    /// Point de chasse : Vers verts au nord d'Anchorville (Limelight Nord).
+    const HUNT: Vec3 = Vec3 { x: -466_468.0, y: 4_700.0, z: -50_010.0 };
+    let cfg = crate::config::load()?;
+    let (c, act, mv, ch, ov) = (&schema::CHARACTER, &schema::OPT_CHAR_ACTION, &schema::OPT_CHAR_MOVE, &schema::CHATTING, &schema::OPT_VIEW);
+    step(&format!("{char_name} entre en jeu"));
+    let mut w = enter_world(&cfg, user, pass, char_name, "").await?;
+
+    step(&format!("déplacement vers les {prey}s"));
+    w.world.send(mv, Fields::new(mv).with(0, w.cid).with(1, HUNT).with(2, HUNT).with(5, 0x04).with(6, 0)).await?;
+    let mut seen = w.monsters.clone();
+    while let Ok(p) = w.world.expect_where(|q| q.is(ov, Some(1)), 1500, "monstres du lieu de chasse").await {
+        if let Ok(view) = decode_mini(&mini::OPT_VIEW_CHAR, p.fields().bytes(1).unwrap_or_default()) {
+            if view.int(0).unwrap_or(0) >= crate::world::monsters::MONSTER_CID_BASE as i64 {
+                seen.push(SeenMonster::from_view(&view));
+            }
+        }
+    }
+    println!("  {} monstre(s) en vue", seen.len());
+    let dist = |p: Vec3| (((p.x - HUNT.x) as f64).powi(2) + ((p.z - HUNT.z) as f64).powi(2)).sqrt();
+    let target = seen
+        .iter()
+        .filter(|m| m.hp > 0 && m.name == prey)
+        .min_by_key(|m| dist(m.pos) as i64)
+        .cloned()
+        .ok_or_else(|| anyhow::anyhow!("aucun « {prey} » vivant en vue"))?;
+    println!("  cible : {} (TID {}, CID {:#x}), {} PV, à {:.0} unités", target.name, target.tid, target.cid, target.hp, dist(target.pos));
+
+    step("attaque");
+    let tcid = target.cid as i64;
+    w.world.send(act, Fields::new(act).with(0, w.cid).with(1, target.cid).with(6, 1)).await?;
+    let me = w.cid as i64;
+    let (mut hits, mut misses, mut approached, mut hp) = (0, 0, false, target.hp);
+    let started = std::time::Instant::now();
+    loop {
+        let p = w
+            .world
+            .expect_where(
+                |q| (q.is(act, None) && q.int(1) == Some(tcid)) || (q.is(mv, None) && q.int(0) == Some(me)) || (q.is(c, Some(1)) && q.int(1) == Some(tcid) && q.int(11) == Some(2)),
+                10_000,
+                "coups portés",
+            )
+            .await?;
+        if p.ptype == mv.id {
+            if !approached {
+                let d = p.fields().vec3(2).unwrap_or_default();
+                println!("  ✓ le serveur fait approcher {char_name} jusqu'à {:.0}, {:.0}", d.x, d.z);
+                approached = true;
+            }
+            continue;
+        }
+        if p.ptype == c.id {
+            break;
+        }
+        anyhow::ensure!(p.int(0) == Some(me), "coup attribué à {:?}", p.int(0));
+        match p.int(2) {
+            Some(5) => {
+                hits += 1;
+                let now = p.fields().bytes(3).and_then(factors_hp).unwrap_or(hp);
+                anyhow::ensure!(now < hp || now == 0, "PV qui ne baissent pas : {hp} → {now}");
+                hp = now;
+                if hits == 1 || hits % 10 == 0 {
+                    println!("  coup {hits} : {hp}/{} PV", target.hp);
+                }
+            }
+            Some(1) => misses += 1,
+            other => anyhow::bail!("résultat inattendu {other:?}"),
+        }
+    }
+    println!("  ✓ {} meurt après {hits} coup(s) portés et {misses} manqué(s), en {:.0} s", target.name, started.elapsed().as_secs_f64());
+    let gain = w
+        .world
+        .expect_where(|q| q.ptype == ch.id && q.fields().text(6).is_some_and(|t| t.contains("expérience")), 3000, "gain d'expérience")
+        .await?;
+    println!("  ✓ {}", gain.fields().text(6).unwrap_or_default());
+
+    step("cadavre et réapparition");
+    w.world.expect_where(|q| q.is(c, Some(2)) && q.int(1) == Some(tcid), 30_000, "retrait du cadavre").await?;
+    println!("  ✓ cadavre retiré");
+    let back = w
+        .world
+        .expect_where(
+            |q| q.is(&schema::OPT_VIEW, Some(1)) && q.fields().bytes(1).and_then(|b| decode_mini(&mini::OPT_VIEW_CHAR, b).ok()).is_some_and(|v| v.int(0) == Some(tcid)),
+            120_000,
+            "réapparition",
+        )
+        .await?;
+    let view = decode_mini(&mini::OPT_VIEW_CHAR, back.fields().bytes(1).unwrap_or_default())?;
+    let full = view.bytes(5).and_then(factors_hp).unwrap_or(0);
+    anyhow::ensure!(full == target.hp, "réapparu avec {full} PV au lieu de {}", target.hp);
+    println!("  ✓ {} réapparaît avec {full} PV", target.name);
+    // Retour au village de départ (Anchorville), pour les autres scénarios.
+    let home = cfg.world.start_positions.get("1").map(|p| Vec3::new(p.x as f32, p.y as f32, p.z as f32)).unwrap_or(w.start);
+    w.world.send(mv, Fields::new(mv).with(0, w.cid).with(1, home).with(2, home).with(5, 0x04).with(6, 0)).await?;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    println!("\ncombat : OK");
     Ok(())
 }
 

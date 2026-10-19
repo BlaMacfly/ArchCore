@@ -8,7 +8,7 @@ them from the repository root; they read `config/archcore.json`, or the file nam
 | `archcore db-init [--account name pass [gm]]` | Creates the databases and applies `sql/`; with `--account`, creates or updates an account |
 | `archcore decrypt [source] [destination]` | Decrypts `Game/ini` (RC4, MD5("1111")) into `data/client-ini` |
 | `archcore import [folder] [--server folder]` | Imports `data/client-ini` into `archcore_world` (CP949 → UTF-8); with the original server tables (`--server`, or `data/server-ini` if it exists), also imports monster spawns and the server map |
-| `archcore sim client\|move\|shop\|addon …` | Simulated clients (see below) |
+| `archcore sim client\|move\|shop\|addon\|combat …` | Simulated clients (see below) |
 | `archcore i18n strings [Game]` | Lists the texts still in English in `data/i18n/pending-en.json` |
 | `archcore i18n coverage [Game]` | Measures how much of `ini_fr` is translated |
 | `archcore i18n apply [--ascii] [--dry]` | Applies the translation memory to the client (see [[Translation|EN-Translation]]) |
@@ -51,6 +51,19 @@ ARCHCORE_CONFIG=config/test.json archcore sim shop [user] [pass] [character]
 The character (`sima` / `SimA` by default) gets 1000 gold and appears next to Darryl (Anchorville).
 The test opens his shop, checks the list, buys 3 small life potions and sells them back. It changes
 the character's gold, position and inventory: run it against a test server too.
+
+## Combat test
+
+```bash
+ARCHCORE_CONFIG=config/test.json archcore sim combat [user] [pass] [character] [monster]
+```
+
+The character (`sima` / `SimA` by default) goes hunting north of Anchorville (Limelight North) and
+attacks the nearest requested monster (`Green Worm` by default). The test checks that the server walks
+it to its target, that each hit lowers the HP, that the monster dies, that experience is gained, that
+the corpse disappears and that the monster respawns with full HP; it then brings the character back to
+the village. Allow about 1 min 30: a level 1 warrior without a weapon hits a Green Worm (136 HP) for
+2 to 3 HP per hit, one hit per second.
 
 ## ArchRust extensions test
 

@@ -20,6 +20,8 @@
 - Creatures: 36,960 monsters placed from the original server tables, off blocked ground, with their stats
   (level, speeds, HP). Seen and targeted in game during a first test; sending their HP, added since,
   remains to be checked.
+- Melee combat against monsters: approach, hits (hit chance, class-based damage), death, experience and
+  level up, corpse then respawn. See [[Network protocol|EN-Network-protocol]].
 - ArchRust extensions, server side: capability negotiation and AddOn messages (whisper, `SAY`). See
   [[ArchRust extensions|EN-ArchRust-extensions]]; the client side remains to be written in ArchRust.
 - Selling an item to an NPC.
@@ -34,7 +36,7 @@
 1. Verify full character creation in game.
 2. Verify player visibility with two real clients.
 3. NPC functions: quests, teleport, bank.
-4. Combat against monsters, experience, drops, respawn.
+4. Combat: monster retaliation and pursuit (AI), drops, weapons in damage, skills.
 5. Items: moving them in the inventory, equipment, use; skills.
 6. Chat, parties, guilds.
 7. Automatic reconnection (type 0x63).

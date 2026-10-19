@@ -64,6 +64,8 @@ pub fn on_move(ctx: &WorldCtx, st: &mut WorldState, sid: u32, packet: &Packet) {
             return;
         }
     }
+    // Un déplacement demandé par le joueur interrompt son attaque.
+    p.attack = None;
     let flags = packet.int(5).unwrap_or(0);
     let dest = packet.vec3(2).filter(Vec3::is_finite);
     // Le client n'envoie pas toujours sa position actuelle : on prend alors la destination précédente,

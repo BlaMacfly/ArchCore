@@ -29,7 +29,8 @@ crates/archcore/           server and tools
     npcs.rs                NPCs (npc_spawn), npc.ini functions, view packet, title translation
     npc_events.rs          NPC dialog
     npc_trade.rs           shops: list, buy, sell
-    monsters.rs            creatures (monster_spawn): placement, stats, view packet
+    monsters.rs            creatures (monster_spawn): placement, stats, life cycle, view packet
+    combat.rs              attacking monsters: approach, hits, death, experience, respawn
     map.rs                 server map (map_segment): blocked ground, regions
     items.rs               item catalog, inventory, AGPMITEM packets
     chat.rs, gm.rs         chat and GM commands

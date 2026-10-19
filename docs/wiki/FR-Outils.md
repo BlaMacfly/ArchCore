@@ -9,7 +9,7 @@ Ils se lancent depuis la racine du dépôt et lisent `config/archcore.json`, ou 
 | `archcore db-init [--account nom mdp [mj]]` | Crée les bases et applique `sql/` ; avec `--account`, crée ou met à jour un compte |
 | `archcore decrypt [source] [destination]` | Déchiffre `Game/ini` (RC4, MD5(« 1111 »)) vers `data/client-ini` |
 | `archcore import [dossier] [--server dossier]` | Importe `data/client-ini` dans `archcore_world` (CP949 → UTF-8) ; avec les tables du serveur d'origine (`--server`, ou `data/server-ini` s'il existe), importe aussi les apparitions de monstres et la carte serveur |
-| `archcore sim client\|move\|shop\|addon …` | Clients simulés (voir plus bas) |
+| `archcore sim client\|move\|shop\|addon\|combat …` | Clients simulés (voir plus bas) |
 | `archcore i18n strings [Game]` | Liste les textes encore en anglais dans `data/i18n/pending-en.json` |
 | `archcore i18n coverage [Game]` | Mesure la part déjà traduite de `ini_fr` |
 | `archcore i18n apply [--ascii] [--dry]` | Applique la mémoire de traduction au client (voir [[Traduction|FR-Traduction]]) |
@@ -54,6 +54,19 @@ Le personnage (`sima` / `SimA` par défaut) reçoit 1000 pièces d'or et appara�
 (Anchorville). Le test ouvre sa boutique, vérifie la liste reçue, achète 3 petites potions de vie
 puis les revend. Il modifie l'or, la position et l'inventaire du personnage : à lancer lui aussi
 contre un serveur de test.
+
+## Test de combat
+
+```bash
+ARCHCORE_CONFIG=config/test.json archcore sim combat [compte] [mdp] [personnage] [monstre]
+```
+
+Le personnage (`sima` / `SimA` par défaut) part chasser au nord d'Anchorville (Limelight Nord) et
+attaque le monstre demandé le plus proche (`Green Worm` par défaut). Le test vérifie que le serveur
+l'approche de sa cible, que chaque coup fait baisser les PV, que le monstre meurt, que l'expérience est
+gagnée, que le cadavre disparaît puis que le monstre réapparaît avec tous ses PV ; il ramène enfin le
+personnage au village. Compter environ 1 min 30 : un guerrier de niveau 1 sans arme frappe un Ver vert
+(136 PV) 2 à 3 PV par coup, à un coup par seconde.
 
 ## Test des extensions ArchRust
 

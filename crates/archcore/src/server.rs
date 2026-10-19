@@ -32,6 +32,14 @@ pub async fn run(mode: &str) -> anyhow::Result<()> {
         let npcs = crate::world::npcs::NpcRegistry::load(&db, &translator).await?;
         let catalog = crate::world::items::ItemCatalog::load(&db).await?;
         let map = crate::world::map::WorldMap::load(&db).await?;
+        let mut level_exp = Vec::new();
+        for r in db.world.rows("SELECT level, exp FROM level_exp ORDER BY level", ()).await? {
+            let level: usize = crate::db::col(&r, "level");
+            if level >= level_exp.len() {
+                level_exp.resize(level + 1, 0);
+            }
+            level_exp[level] = crate::db::col(&r, "exp");
+        }
         let monsters = crate::world::monsters::MonsterRegistry::load(&db, &translator, &map).await?;
         let state = crate::world::WorldState {
             view_radius: config.world.view_radius,
@@ -40,10 +48,11 @@ pub async fn run(mode: &str) -> anyhow::Result<()> {
             ..Default::default()
         };
         let w = Arc::new(crate::world::World {
-            ctx: crate::world::WorldCtx { db: db.clone(), templates: templates.clone(), config: config.clone(), npcs, catalog, map, view_radius: config.world.view_radius },
+            ctx: crate::world::WorldCtx { db: db.clone(), templates: templates.clone(), config: config.clone(), npcs, catalog, map, level_exp, view_radius: config.world.view_radius },
             state: tokio::sync::Mutex::new(state),
         });
         crate::world::presence::spawn_autosave(w.clone());
+        crate::world::combat::spawn_ticker(w.clone());
         let listen = crate::config::Listen { port: config.world.port, bind: config.world.bind.clone() };
         crate::net::serve("world", &listen, Arc::new(crate::world::WorldService(w.clone()))).await?;
     }
