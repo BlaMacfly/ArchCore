@@ -239,6 +239,7 @@ pub async fn step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) -> anyhow::
         attack_step(ctx, st, sid, now).await?;
     }
     super::presence::move_step(ctx, st, now);
+    ai::walk_step(st, now);
     ai::step(ctx, st, now);
     ai::patrol_step(ctx, st, now);
     life_step(ctx, st, now);
@@ -464,6 +465,7 @@ fn life_step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) {
                 m.target = None;
                 let home = m.home;
                 st.monsters.relocate(cid, home);
+                st.monsters.walking.remove(&cid);
                 st.monsters.pending.remove(&cid);
                 respawn_view(ctx, st, cid);
             }
@@ -480,6 +482,7 @@ pub fn hit_player(st: &mut WorldState, sid: u32, monster: u32, outcome: i64, dam
     super::recovery::in_combat(&mut p.timers, Instant::now());
     let hp = (p.factors.point[POINT_HP] - damage).max(0);
     p.factors.point[POINT_HP] = hp;
+    debug!("[combat] {} reçoit {damage} dégât(s) (résultat {outcome}) : {hp}/{} PV", p.ch.name, p.factors.point_max[0]);
     let (cid, mp) = (p.ch.id, p.factors.point[1]);
     let factors = (outcome == result::SUCCESS).then(|| damage_factors(hp, mp, damage));
     let plain = action_packet(monster, cid, outcome, factors);

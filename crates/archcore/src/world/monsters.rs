@@ -201,6 +201,14 @@ pub struct SpawnPoint {
     pub respawn_sec: i64,
 }
 
+/// Marche d'un monstre : destination, vitesse (dixièmes d'unité par seconde), instant du dernier pas.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Walk {
+    pub dest: Vec3,
+    pub speed: f64,
+    pub at: Instant,
+}
+
 /// Monstres du monde, avec une grille X/Z pour retrouver vite ceux qui sont à portée.
 #[derive(Default)]
 pub struct MonsterRegistry {
@@ -215,6 +223,8 @@ pub struct MonsterRegistry {
     pub effects: HashMap<u32, Vec<super::effects::Effect>>,
     /// États spéciaux annoncés aux clients (monstres qui en ont).
     pub status_sent: HashMap<u32, u64>,
+    /// Marches en cours, avancées à chaque tour (`ai::walk_step`).
+    pub walking: HashMap<u32, Walk>,
     by_cid: HashMap<u32, usize>,
     grid: HashMap<(i64, i64), Vec<usize>>,
 }

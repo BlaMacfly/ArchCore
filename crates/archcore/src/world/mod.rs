@@ -502,6 +502,19 @@ pub fn sync_monsters(ctx: &WorldCtx, st: &mut WorldState, sid: u32, pos: Vec3) -
     for cid in &gone {
         p.seen_monsters.remove(cid);
         p.sess.send_raw(character_remove_packet(*cid));
+        if let Some(m) = st.monsters.get(*cid) {
+            debug!(
+                "[vue] #{sid} retire {} {cid:#x} en {:.0}, {:.0} (secteur {:?}, {}) ; vue depuis {:.0}, {:.0} (secteur {:?})",
+                m.name,
+                m.pos.x,
+                m.pos.z,
+                sector::of(m.pos),
+                if m.is_visible() { "visible" } else { "disparu" },
+                pos.x,
+                pos.z,
+                sector::of(pos)
+            );
+        }
     }
     (added, gone.len())
 }

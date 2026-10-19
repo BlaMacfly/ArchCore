@@ -786,8 +786,21 @@ async fn combat(user: &str, pass: &str, char_name: &str, prey: &str) -> anyhow::
     println!("  ✓ {char_name} s'éloigne de 1500 unités : le {prey} le suit jusqu'à {:.0}, {:.0}", d.x, d.z);
 
     step(&format!("mort de {char_name}"));
+    // Un monstre oublie son agresseur 30 s après le dernier coup reçu : un coup toutes les 20 s le garde
+    // sur le joueur, qui se remet ensuite hors de portée de ses propres coups (arrêt sur place).
     let started = std::time::Instant::now();
-    w.world.expect_where(|q| q.is(c, Some(1)) && q.int(1) == Some(me) && q.int(11) == Some(2), 90_000, "mort du joueur").await?;
+    let dead = |q: &Recv| q.is(c, Some(1)) && q.int(1) == Some(me) && q.int(11) == Some(2);
+    loop {
+        match w.world.expect_where(dead, 20_000, "mort du joueur").await {
+            Ok(_) => break,
+            Err(e) if started.elapsed() > std::time::Duration::from_secs(120) => return Err(e),
+            Err(_) => {
+                w.world.send(act, Fields::new(act).with(0, w.cid).with(1, target.cid).with(6, 1)).await?;
+                let _ = w.world.expect_where(|q| q.is(act, None) && q.int(0) == Some(me) && q.int(1) == Some(tcid), 5000, "coup de rappel").await;
+                w.world.send(mv, Fields::new(mv).with(0, w.cid).with(1, away).with(2, away).with(5, STOP).with(6, 0)).await?;
+            }
+        }
+    }
     println!("  ✓ {char_name} meurt après {:.0} s", started.elapsed().as_secs_f64());
 
     step("résurrection au village");

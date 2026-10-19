@@ -83,6 +83,7 @@ pub fn on_move(ctx: &WorldCtx, st: &mut WorldState, sid: u32, packet: &Packet) {
     // Position : celle que le serveur tient, la marche en cours avancée jusqu'à maintenant. Le vrai client ne
     // l'envoie pas ; si elle est fournie (simulateur, outils), elle la remplace.
     advance(p, Instant::now());
+    let tracked = p.ch.pos();
     let given = packet.vec3(1).filter(Vec3::is_finite);
     let pos = given.unwrap_or_else(|| p.ch.pos());
     p.ch.set_pos(pos);
@@ -103,7 +104,7 @@ pub fn on_move(ctx: &WorldCtx, st: &mut WorldState, sid: u32, packet: &Packet) {
         );
     }
     match dest {
-        Some(d) => debug!("[world] #{sid} {} → {:.0}, {:.0} (drapeaux 0x{flags:x})", p.ch.name, d.x, d.z),
+        Some(d) => debug!("[world] #{sid} {} → {:.0}, {:.0} (drapeaux 0x{flags:x}) depuis {:.0}, {:.0} (position suivie {:.0}, {:.0})", p.ch.name, d.x, d.z, pos.x, pos.z, tracked.x, tracked.z),
         None => debug!("[world] #{sid} {} → arrêt (drapeaux 0x{flags:x})", p.ch.name),
     }
     let cid = p.ch.id;
@@ -172,6 +173,7 @@ pub fn move_step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) {
         let changed = sector::of(at) != sector::of(p.view_pos);
         p.view_pos = at;
         if changed {
+            debug!("[vue] #{sid} {} passe au secteur {:?} en {:.0}, {:.0}", p.ch.name, sector::of(at), at.x, at.z);
             send_nearby_npcs(ctx, st, sid, at);
             refresh(st, sid);
         }

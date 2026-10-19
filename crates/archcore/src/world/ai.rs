@@ -6,6 +6,9 @@
 //! sa vitesse d'attaque. Sans agresseur, il rentre à son point d'apparition ; s'il s'en est éloigné de plus
 //! de 10 000 unités, il y est ramené d'un coup avec tous ses PV.
 //!
+//! Marche : un monstre avance pas à pas vers sa destination à chaque tour, comme les joueurs ; il entre dans la
+//! vue d'un joueur, ou en sort, quand il change vraiment de secteur.
+//!
 //! États spéciaux : étourdi, gelé ou endormi, un monstre ne bouge ni ne frappe ; immobilisé, il ne poursuit
 //! pas ; sous « attaque interdite » ou la peur, il ne frappe pas. Il ignore les joueurs invincibles ou
 //! invisibles. Le coup d'un monstre peut être esquivé, bloqué ou changé en PV ou PM selon les effets du
@@ -17,7 +20,7 @@
 
 use super::combat::{self, Attacker, Defender};
 use super::effects::{self, status, Guard};
-use super::monsters::{Aggro, Monster};
+use super::monsters::{Aggro, Monster, Walk};
 use super::{WorldCtx, WorldState};
 use crate::debug;
 use archcore_net::schema;
@@ -100,22 +103,46 @@ fn go(st: &mut WorldState, cid: u32, dest: Vec3, speed: i32, fast: bool) -> Dura
     for sid in combat::viewers(st, cid) {
         st.players[&sid].send(mv, fields.clone());
     }
-    st.monsters.relocate(cid, dest);
-    // Secteurs : le monstre apparaît chez ceux qui voient sa destination, disparaît chez les autres.
-    if super::sector::of(from) != super::sector::of(dest) {
-        let Some(m) = st.monsters.get(cid) else { return Duration::ZERO };
+    let tenths = if speed > 0 { speed as f64 } else { DEFAULT_SPEED * 10.0 };
+    st.monsters.walking.insert(cid, Walk { dest, speed: tenths, at: Instant::now() });
+    travel(combat::dist2d(from, dest), speed)
+}
+
+/// Fait avancer les monstres en marche. Quand l'un change de secteur, il apparaît chez les joueurs qui voient
+/// le nouveau (avec sa marche) et disparaît chez ceux qui ne le voient plus.
+pub fn walk_step(st: &mut WorldState, now: Instant) {
+    let moving: Vec<(u32, Walk)> = st.monsters.walking.iter().map(|(c, w)| (*c, *w)).collect();
+    for (cid, w) in moving {
+        let Some(from) = st.monsters.get(cid).filter(|m| m.is_alive()).map(|m| m.pos) else {
+            st.monsters.walking.remove(&cid);
+            continue;
+        };
+        let (next, arrived) = super::presence::step_toward(from, w.dest, w.speed, now.saturating_duration_since(w.at).as_secs_f64());
+        st.monsters.relocate(cid, next);
+        if arrived {
+            st.monsters.walking.remove(&cid);
+        } else if let Some(x) = st.monsters.walking.get_mut(&cid) {
+            x.at = now;
+        }
+        if super::sector::of(from) == super::sector::of(next) {
+            continue;
+        }
+        let Some(m) = st.monsters.get(cid) else { continue };
         let view = super::monsters::MonsterRegistry::view_packet(&st.monsters, m);
+        let mv = &schema::OPT_CHAR_MOVE;
+        let fields = Fields::new(mv).with(0, cid).with(1, next).with(2, w.dest).with(5, if arrived { 0x04 } else { combat::MOVE_FAST }).with(6, 0);
         for p in st.players.values_mut().filter(|p| p.in_game) {
-            let sees = super::sector::sees(p.view_pos, dest);
+            let sees = super::sector::sees(p.view_pos, next);
             if sees && p.seen_monsters.insert(cid) {
                 p.send_raw(view.clone());
-                p.send(mv, fields.clone());
+                if !arrived {
+                    p.send(mv, fields.clone());
+                }
             } else if !sees && p.seen_monsters.remove(&cid) {
                 p.send_raw(super::character_remove_packet(cid));
             }
         }
     }
-    travel(combat::dist2d(from, dest), speed)
 }
 
 /// Promenades des monstres au repos que voit au moins un joueur.
@@ -234,6 +261,7 @@ fn monster_step(st: &mut WorldState, cid: u32, now: Instant) {
         let dest = Vec3::new(m.pos.x + (ppos.x - m.pos.x) * k, ppos.y, m.pos.z + (ppos.z - m.pos.z) * k);
         let run = super::effects::speed(stats.run, st.monsters.mods(cid).movement_pct);
         let t = walk(st, cid, dest, run);
+        debug!("[ia] {} ({cid:#x}) poursuit : {distance:.0} unités, vers {:.0}, {:.0} en {:.1} s", m.name, dest.x, dest.z, t.as_secs_f64());
         st.monsters.get_mut(cid).unwrap().ready_at = now + t;
         return;
     }
@@ -272,6 +300,7 @@ fn monster_step(st: &mut WorldState, cid: u32, now: Instant) {
             debug!("[ia] {} ({cid:#x}) : coup {guard:?}", m.name);
         }
     }
+    debug!("[ia] {} ({cid:#x}) frappe : résultat {outcome}, {damage} dégât(s)", m.name);
     combat::hit_player(st, sid, cid, outcome, damage);
 }
 
