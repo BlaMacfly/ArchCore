@@ -23,7 +23,8 @@ works too. Run the commands from the repository root, where `config/` lives.
 
 The `db/start-mariadb.cmd` script starts a local instance whose data lives in `db/data`
 (port 3306, user `root`, password `archcore`). An existing MariaDB server works too: just set its
-credentials in `config/archcore.json` (see [[Configuration|EN-Configuration]]).
+credentials (`Database.*`) in `config/auth.conf` and `config/world.conf`, created on first start from
+their `.dist` templates (see [[Configuration|EN-Configuration]]).
 
 ## 3. Create the databases and an account
 

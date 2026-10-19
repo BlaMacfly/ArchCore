@@ -6,7 +6,7 @@ use std::time::Duration;
 
 /// Lance le serveur de connexion, le serveur monde, ou les deux.
 pub async fn run(mode: &str) -> anyhow::Result<()> {
-    let config = Arc::new(crate::config::load()?);
+    let config = Arc::new(crate::config::load_mode(mode)?);
     let db = crate::db::Databases::new(&config.database);
     db.check().await?;
     let templates = Arc::new(crate::character::Templates::load(&db).await?);

@@ -1,11 +1,12 @@
 # Outils
 
 Tous les outils sont des sous-commandes de l'exécutable `archcore` (voir [[Installation|FR-Installation]]).
-Ils se lancent depuis la racine du dépôt et lisent `config/archcore.json`, ou le fichier désigné par
-`ARCHCORE_CONFIG`.
+Ils se lancent depuis la racine du dépôt et lisent `config/auth.conf` et `config/world.conf`, ou ceux du
+dossier désigné par `ARCHCORE_CONF_DIR` (voir [[Configuration|FR-Configuration]]).
 
 | Commande | Rôle |
 |---|---|
+| `archcore config migrate <archcore.json> [dossier] [--force]` | Convertit une ancienne configuration JSON en `auth.conf` et `world.conf` |
 | `archcore db-init [--account nom mdp [mj]]` | Crée les bases et applique `sql/` ; avec `--account`, crée ou met à jour un compte |
 | `archcore decrypt [source] [destination]` | Déchiffre `Game/ini` (RC4, MD5(« 1111 »)) vers `data/client-ini` |
 | `archcore import [dossier] [--server dossier]` | Importe `data/client-ini` dans `archcore_world` (CP949 → UTF-8) ; avec les tables du serveur d'origine (`--server`, ou `data/server-ini` s'il existe), importe aussi les apparitions de monstres et la carte serveur |
@@ -40,14 +41,14 @@ se perdent de vue hors de portée, et que la déconnexion retire le personnage. 
 personnages et sauvegarde leur position : à lancer contre un serveur de test, par exemple :
 
 ```bash
-ARCHCORE_CONFIG=config/test.json archcore all      # autres ports, autres bases
-ARCHCORE_CONFIG=config/test.json archcore sim move
+ARCHCORE_CONF_DIR=config/test archcore all      # autres ports, autres bases
+ARCHCORE_CONF_DIR=config/test archcore sim move
 ```
 
 ## Test de boutique
 
 ```bash
-ARCHCORE_CONFIG=config/test.json archcore sim shop [compte] [mdp] [personnage]
+ARCHCORE_CONF_DIR=config/test archcore sim shop [compte] [mdp] [personnage]
 ```
 
 Le personnage (`sima` / `SimA` par défaut) reçoit 1000 pièces d'or et apparaît près de Darryl
@@ -58,7 +59,7 @@ contre un serveur de test.
 ## Test de combat
 
 ```bash
-ARCHCORE_CONFIG=config/test.json archcore sim combat [compte] [mdp] [personnage] [monstre]
+ARCHCORE_CONF_DIR=config/test archcore sim combat [compte] [mdp] [personnage] [monstre]
 ```
 
 Le personnage, un compte MJ (`gmtest` / `GmTest` par défaut), part chasser au nord d'Anchorville
@@ -77,7 +78,7 @@ une quinzaine de secondes.
 ## Test d'équipement
 
 ```bash
-ARCHCORE_CONFIG=config/test.json archcore sim equip [compte] [mdp] [personnage]
+ARCHCORE_CONF_DIR=config/test archcore sim equip [compte] [mdp] [personnage]
 ```
 
 Un compte MJ (`gmtest` / `GmTest` par défaut) se crée une épée courte, une armure de guerrier humain
@@ -88,7 +89,7 @@ lui puis disparaître. Les objets créés restent dans l'inventaire.
 ## Test des potions et de la régénération
 
 ```bash
-ARCHCORE_CONFIG=config/test.json archcore sim potion [compte] [mdp] [personnage]
+ARCHCORE_CONF_DIR=config/test archcore sim potion [compte] [mdp] [personnage]
 ```
 
 Un compte MJ (`gmtest` / `GmTest` par défaut) se crée 3 Petites potions de vie, se fait blesser par un Ver
@@ -99,8 +100,8 @@ vérifie qu'une seconde potion aussitôt est refusée.
 ## Test des parchemins et de la patrouille
 
 ```bash
-ARCHCORE_CONFIG=config/test.json archcore sim scroll [compte] [mdp] [personnage]
-ARCHCORE_CONFIG=config/test.json archcore sim patrol [compte] [mdp] [personnage]
+ARCHCORE_CONF_DIR=config/test archcore sim scroll [compte] [mdp] [personnage]
+ARCHCORE_CONF_DIR=config/test archcore sim patrol [compte] [mdp] [personnage]
 ```
 
 `sim scroll` (compte MJ `gmtest` par défaut) se crée trois parchemins et vérifie le passeport de Tullan
@@ -111,7 +112,7 @@ ARCHCORE_CONFIG=config/test.json archcore sim patrol [compte] [mdp] [personnage]
 ## Test de l'inventaire et de la résurrection
 
 ```bash
-ARCHCORE_CONFIG=config/test.json archcore sim bag [compte] [mdp] [personnage]
+ARCHCORE_CONF_DIR=config/test archcore sim bag [compte] [mdp] [personnage]
 ```
 
 Un compte MJ (`gmtest` par défaut) se crée une pile neuve de Petites potions de mana, la sépare (op 17),
@@ -121,7 +122,7 @@ il doit revenir au point de résurrection d'Anchorville (-476000, -61000).
 ## Test des extensions ArchRust
 
 ```bash
-ARCHCORE_CONFIG=config/test.json archcore sim addon [compteA mdpA persoA compteB mdpB persoB compteC mdpC persoC]
+ARCHCORE_CONF_DIR=config/test archcore sim addon [compteA mdpA persoA compteB mdpB persoB compteC mdpC persoC]
 ```
 
 Trois clients simulés entrent en jeu au même endroit : A et B (`sima` / `SimA`, `simb` / `SimB`)

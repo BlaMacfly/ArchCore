@@ -78,7 +78,7 @@ fuseau** (`AgpmEventNature`) : cette heure pilote le cycle jour/nuit, la musique
 (`skyset.ini`). Le serveur coréen d'origine envoyait vraisemblablement son heure locale.
 
 ArchCore envoie donc par défaut l'époque Unix **décalée du fuseau local** de la machine (minuit local
-de l'époque = 0), pour que l'heure du jeu soit l'heure du serveur ; `world.timeZone = "utc"` dans la
+de l'époque = 0), pour que l'heure du jeu soit l'heure du serveur ; `World.TimeZone = utc` dans la
 [[configuration|FR-Configuration]] renvoie à l'époque Unix UTC brute. Les champs 2 et 3 (u32) ne sont
 pas utilisés. `archcore sim` affiche la valeur reçue et l'heure en jeu correspondante.
 

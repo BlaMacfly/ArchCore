@@ -24,7 +24,8 @@ là où se trouve `config/`.
 
 Le script `db/start-mariadb.cmd` lance une instance locale dont les données sont dans `db/data`
 (port 3306, utilisateur `root`, mot de passe `archcore`). Un serveur MariaDB déjà installé convient
-aussi : il suffit de renseigner ses accès dans `config/archcore.json` (voir [[Configuration|FR-Configuration]]).
+aussi : il suffit de renseigner ses accès (`Database.*`) dans `config/auth.conf` et `config/world.conf`, créés
+au premier lancement à partir de leurs modèles `.dist` (voir [[Configuration|FR-Configuration]]).
 
 ## 3. Créer les bases et un compte
 

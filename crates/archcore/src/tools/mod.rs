@@ -1,5 +1,6 @@
 //! Outils en ligne de commande d'ArchCore (base, import, déchiffrement, traduction, simulateur, relevés).
 
+pub mod conf;
 pub mod db_init;
 pub mod decrypt;
 pub mod i18n;

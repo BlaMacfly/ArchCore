@@ -77,7 +77,7 @@ and derives the game hour as `(ms / 3 600 000) % 24`, **without any time-zone co
 (`skyset.ini`). The original Korean server most likely sent its local time.
 
 ArchCore therefore sends by default the Unix epoch **shifted by the machine's local offset** (local
-midnight of the epoch = 0), so that the game hour is the server's hour; `world.timeZone = "utc"` in
+midnight of the epoch = 0), so that the game hour is the server's hour; `World.TimeZone = utc` in
 the [[configuration|EN-Configuration]] sends the raw UTC Unix epoch instead. Fields 2 and 3 (u32) are
 unused. `archcore sim` prints the received value and the matching game hour.
 

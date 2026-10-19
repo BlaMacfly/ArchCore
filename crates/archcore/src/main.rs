@@ -2,6 +2,7 @@
 //!
 //! ```text
 //!   archcore [login|world|all]                 serveur (par défaut : all)
+//!   archcore config migrate <archcore.json>   convertit une ancienne configuration JSON en .conf
 //!   archcore db-init [--account nom mdp [mj]]  crée les bases et applique sql/*.sql
 //!   archcore import [dossier]                  importe les tables déchiffrées du client
 //!   archcore decrypt [source] [destination]    déchiffre Game/ini vers data/client-ini
@@ -10,8 +11,8 @@
 //!   archcore sim client|move|shop|addon [args…] client simulé (tests sans le jeu)
 //!   archcore re extract-schemas <fichiers…>    relevé des schémas de paquets (sorties REA)
 //! ```
-//! La configuration est lue dans `config/archcore.json` (ou `ARCHCORE_CONFIG`) depuis le dossier
-//! courant (ou `ARCHCORE_ROOT`).
+//! La configuration est lue dans `config/auth.conf` et `config/world.conf` (créés depuis leurs modèles
+//! `.dist`, ou dans le dossier `ARCHCORE_CONF_DIR`), depuis le dossier courant (ou `ARCHCORE_ROOT`).
 
 mod character;
 mod config;
@@ -24,7 +25,7 @@ mod server;
 mod tools;
 mod world;
 
-const USAGE: &str = "usage : archcore [login|world|all] | db-init | import | decrypt | i18n | sim | re (voir le wiki, page Outils)";
+const USAGE: &str = "usage : archcore [login|world|all] | config | db-init | import | decrypt | i18n | sim | re (voir le wiki, page Outils)";
 
 #[tokio::main]
 async fn main() {
@@ -35,6 +36,7 @@ async fn main() {
     let result = match cmd {
         "login" | "world" | "all" => server::run(cmd).await,
         "db-init" => tools::db_init::run(&rest).await,
+        "config" => tools::conf::run(&rest),
         "import" => tools::import::run(&rest).await,
         "decrypt" => tools::decrypt::run(&rest),
         "i18n" => tools::i18n::run(&rest),

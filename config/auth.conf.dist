@@ -1,0 +1,76 @@
+###############################################################################
+# ArchCore — serveur de connexion (archcore login)
+#
+# Modèle versionné. Au premier lancement, ArchCore le copie en auth.conf, qui
+# n'est pas versionné : c'est auth.conf qu'on modifie.
+#
+# Syntaxe : Clé = valeur ; les lignes commençant par # sont des commentaires,
+# les textes peuvent être entre guillemets. Une clé absente prend sa valeur par
+# défaut (avec un avertissement dans le journal), une clé inconnue est signalée.
+#
+# Chaque clé peut être remplacée par une variable d'environnement ARCHCORE_<CLÉ> :
+# points et majuscules intérieures deviennent des « _ », le tout en majuscules.
+#   LoginServer.Port  ->  ARCHCORE_LOGIN_SERVER_PORT=12002
+#
+# ARCHCORE_CONF_DIR désigne un autre dossier que config/ (serveur de test…).
+###############################################################################
+
+[authserver]
+
+###############################################################################
+# SOMMAIRE
+#   1. ÉCOUTE
+#   2. BASES DE DONNÉES
+###############################################################################
+
+###############################################################################
+# 1. ÉCOUTE
+#
+#    LoginServer.Bind
+#        Adresse d'écoute. 0.0.0.0 : toutes les interfaces ; 127.0.0.1 : cette
+#        machine seulement.
+#        Défaut : "0.0.0.0"
+
+LoginServer.Bind = "0.0.0.0"
+
+#    LoginServer.Port
+#        Port TCP du serveur de connexion, celui de realmlist.wtf côté client.
+#        Défaut : 11002
+
+LoginServer.Port = 11002
+
+###############################################################################
+# 2. BASES DE DONNÉES
+#
+#    Les mêmes clés figurent dans world.conf. Avec « archcore all », les deux
+#    fichiers sont lus et c'est world.conf qui l'emporte (un avertissement
+#    signale une différence).
+#
+#    Database.Host, Database.Port
+#        Serveur MariaDB.
+#        Défaut : "127.0.0.1", 3306
+
+Database.Host = "127.0.0.1"
+Database.Port = 3306
+
+#    Database.User, Database.Password
+#        Compte MariaDB. Changez le mot de passe par défaut dès que la base
+#        est joignable depuis une autre machine.
+#        Défaut : "root", "archcore"
+
+Database.User = "root"
+Database.Password = "archcore"
+
+#    Database.ConnectionLimit
+#        Connexions simultanées par base.
+#        Défaut : 8
+
+Database.ConnectionLimit = 8
+
+#    Database.Auth, Database.Characters, Database.World
+#        Noms des trois bases : comptes, personnages, données du monde.
+#        Défaut : "archcore_auth", "archcore_characters", "archcore_world"
+
+Database.Auth = "archcore_auth"
+Database.Characters = "archcore_characters"
+Database.World = "archcore_world"

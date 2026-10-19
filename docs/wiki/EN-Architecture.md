@@ -22,7 +22,8 @@ crates/archcore/           server and tools
   src/ext.rs               ArchRust extensions: HELLO / HELLO_ACK negotiation (type 0xAC)
   src/login.rs             accounts, world list, characters, world entry
   src/character.rs         templates, `characters` rows, factors, AGPMCHARACTER packet
-  src/config.rs, db.rs, log.rs
+  src/config.rs            reads auth.conf / world.conf (.dist templates, ARCHCORE_* variables)
+  src/db.rs, log.rs
   src/world/               world server
     mod.rs                 shared state, world entry, GM command actions
     presence.rs            movement, player visibility, position saving
@@ -41,7 +42,7 @@ crates/archcore/           server and tools
     items.rs               item catalog, inventory, AGPMITEM packets
     chat.rs, gm.rs         chat and GM commands
     addon.rs               AddOn messages of the ArchRust extensions
-  src/tools/               tools: db_init, decrypt, import, i18n, sim, re
+  src/tools/               tools: conf (migration), db_init, decrypt, import, i18n, sim, re
 sql/                       schemas of the three databases
 data/i18n/                 translation memory
 data/re/                   reverse engineering findings (packet schemas)

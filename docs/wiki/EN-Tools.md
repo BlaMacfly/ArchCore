@@ -1,10 +1,12 @@
 # Tools
 
 Every tool is a subcommand of the `archcore` executable (see [[Installation|EN-Installation]]). Run
-them from the repository root; they read `config/archcore.json`, or the file named by `ARCHCORE_CONFIG`.
+them from the repository root; they read `config/auth.conf` and `config/world.conf`, or those of the folder
+named by `ARCHCORE_CONF_DIR` (see [[Configuration|EN-Configuration]]).
 
 | Command | Role |
 |---|---|
+| `archcore config migrate <archcore.json> [folder] [--force]` | Converts a former JSON configuration into `auth.conf` and `world.conf` |
 | `archcore db-init [--account name pass [gm]]` | Creates the databases and applies `sql/`; with `--account`, creates or updates an account |
 | `archcore decrypt [source] [destination]` | Decrypts `Game/ini` (RC4, MD5("1111")) into `data/client-ini` |
 | `archcore import [folder] [--server folder]` | Imports `data/client-ini` into `archcore_world` (CP949 → UTF-8); with the original server tables (`--server`, or `data/server-ini` if it exists), also imports monster spawns and the server map |
@@ -38,14 +40,14 @@ they lose sight of each other out of range, and that disconnecting removes the c
 the characters and saves their position: run it against a test server, for example:
 
 ```bash
-ARCHCORE_CONFIG=config/test.json archcore all      # other ports, other databases
-ARCHCORE_CONFIG=config/test.json archcore sim move
+ARCHCORE_CONF_DIR=config/test archcore all      # other ports, other databases
+ARCHCORE_CONF_DIR=config/test archcore sim move
 ```
 
 ## Shop test
 
 ```bash
-ARCHCORE_CONFIG=config/test.json archcore sim shop [user] [pass] [character]
+ARCHCORE_CONF_DIR=config/test archcore sim shop [user] [pass] [character]
 ```
 
 The character (`sima` / `SimA` by default) gets 1000 gold and appears next to Darryl (Anchorville).
@@ -55,7 +57,7 @@ the character's gold, position and inventory: run it against a test server too.
 ## Combat test
 
 ```bash
-ARCHCORE_CONFIG=config/test.json archcore sim combat [user] [pass] [character] [monster]
+ARCHCORE_CONF_DIR=config/test archcore sim combat [user] [pass] [character] [monster]
 ```
 
 The character, a GM account (`gmtest` / `GmTest` by default), goes hunting the requested monster
@@ -74,7 +76,7 @@ it in about fifteen seconds.
 ## Equipment test
 
 ```bash
-ARCHCORE_CONFIG=config/test.json archcore sim equip [user] [pass] [character]
+ARCHCORE_CONF_DIR=config/test archcore sim equip [user] [pass] [character]
 ```
 
 A GM account (`gmtest` / `GmTest` by default) creates a short sword, a human warrior armour (level 2) and
@@ -85,7 +87,7 @@ disappear. The created items stay in the inventory.
 ## Potion and regeneration test
 
 ```bash
-ARCHCORE_CONFIG=config/test.json archcore sim potion [user] [pass] [character]
+ARCHCORE_CONF_DIR=config/test archcore sim potion [user] [pass] [character]
 ```
 
 A GM account (`gmtest` / `GmTest` by default) creates 3 Small Life Potions, gets wounded by a Green Worm,
@@ -96,8 +98,8 @@ potion right away is refused.
 ## Scroll and patrol tests
 
 ```bash
-ARCHCORE_CONFIG=config/test.json archcore sim scroll [user] [pass] [character]
-ARCHCORE_CONFIG=config/test.json archcore sim patrol [user] [pass] [character]
+ARCHCORE_CONF_DIR=config/test archcore sim scroll [user] [pass] [character]
+ARCHCORE_CONF_DIR=config/test archcore sim patrol [user] [pass] [character]
 ```
 
 `sim scroll` (GM account `gmtest` by default) creates three scrolls and checks the Tullan passport (fixed
@@ -108,7 +110,7 @@ destination), the round trip (village, then back to Tullan with op 6) and the pl
 ## Inventory and resurrection test
 
 ```bash
-ARCHCORE_CONFIG=config/test.json archcore sim bag [user] [pass] [character]
+ARCHCORE_CONF_DIR=config/test archcore sim bag [user] [pass] [character]
 ```
 
 A GM account (`gmtest` by default) creates a new stack of Small Mana Potions, splits it (op 17), merges it
@@ -118,7 +120,7 @@ must come back at Anchorville's resurrection point (-476000, -61000).
 ## ArchRust extensions test
 
 ```bash
-ARCHCORE_CONFIG=config/test.json archcore sim addon [userA passA charA userB passB charB userC passC charC]
+ARCHCORE_CONF_DIR=config/test archcore sim addon [userA passA charA userB passB charB userC passC charC]
 ```
 
 Three simulated clients enter the world at the same spot: A and B (`sima` / `SimA`, `simb` / `SimB`)

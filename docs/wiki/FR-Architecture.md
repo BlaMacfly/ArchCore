@@ -22,7 +22,8 @@ crates/archcore/           serveur et outils
   src/ext.rs               extensions ArchRust : négociation HELLO / HELLO_ACK (type 0xAC)
   src/login.rs             comptes, liste des mondes, personnages, entrée dans le monde
   src/character.rs         modèles, lignes `characters`, facteurs, paquet AGPMCHARACTER
-  src/config.rs, db.rs, log.rs
+  src/config.rs            lecture de auth.conf / world.conf (modèles .dist, variables ARCHCORE_*)
+  src/db.rs, log.rs
   src/world/               serveur monde
     mod.rs                 état partagé, entrée en jeu, actions des commandes MJ
     presence.rs            déplacement, visibilité entre joueurs, sauvegarde des positions
@@ -41,7 +42,7 @@ crates/archcore/           serveur et outils
     items.rs               catalogue d'objets, inventaire, paquets AGPMITEM
     chat.rs, gm.rs         discussion et commandes MJ
     addon.rs               messages d'AddOn des extensions ArchRust
-  src/tools/               outils : db_init, decrypt, import, i18n, sim, re
+  src/tools/               outils : conf (migration), db_init, decrypt, import, i18n, sim, re
 sql/                       schémas des trois bases
 data/i18n/                 mémoire de traduction
 data/re/                   relevés de rétro-ingénierie (schémas de paquets)

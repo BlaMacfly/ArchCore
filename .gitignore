@@ -20,3 +20,8 @@ ArchCore.png
 
 # Compilation Rust / Rust build output
 target/
+
+# Configuration locale (créée depuis les modèles .dist) / local configuration (created from the .dist templates)
+config/auth.conf
+config/world.conf
+config/*/

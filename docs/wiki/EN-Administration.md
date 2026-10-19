@@ -75,20 +75,21 @@ messages. ArchCore's replies are in French.
 | `/announce_restart <minutes> <seconds>` | 3 | Announces to every player, reminds every minute, counts down the last seconds. `0 0` cancels |
 | `/move x,z` | 1 | Teleports the GM to (x, z) and sends the NPCs of the new spot |
 
-The required level can be changed per command in `config/archcore.json`:
+The required level can be changed per command in `config/world.conf` (see
+[[Configuration|EN-Configuration]]):
 
-```json
-"world": {
-  "rates": { "exp": 2.0, "drop": 1.5 },
-  "gmCommandLevels": { "kill": 3, "move": 2 },
-  "exitOnRestart": false
-}
+```ini
+Rate.Exp = 2
+Rate.Drop = 1.5
+GM.CommandLevel.kill = 3
+GM.CommandLevel.move = 2
+World.ExitOnRestart = 0
 ```
 
-- `rates`: rates at startup (`exp`, `gold`, `drop`, `uniqueDrop`, `charisma`, `prestige`,
-  `chatBuff`). The `Set…` commands change them **in memory**: on restart they go back to these
+- `Rate.*`: rates at startup (`Exp`, `Gold`, `Drop`, `UniqueDrop`, `Charisma`, `Prestige`,
+  `ChatBuff`). The `Set…` commands change them **in memory**: on restart they go back to these
   values.
-- `exitOnRestart`: with `true`, the server stops at the end of the `/announce_restart` countdown so
+- `World.ExitOnRestart`: with `1`, the server stops at the end of the `/announce_restart` countdown so
   that a supervisor can restart it. By default it only announces.
 
 Current limits:

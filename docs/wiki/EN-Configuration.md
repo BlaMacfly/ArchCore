@@ -1,30 +1,54 @@
 # Configuration
 
-All settings live in `config/archcore.json`. Missing keys fall back to the defaults in
-`crates/archcore/src/config.rs`.
+Settings live in two files of the `config/` folder:
 
-## `login`
+| File | Read by | Contents |
+|---|---|---|
+| `auth.conf` | `archcore login` | Login server, databases |
+| `world.conf` | `archcore world` | World server, databases, client data, world settings, rates, GM commands |
+
+`archcore all` and the tools (`db-init`, `import`, `sim`…) read both; the `Database.*` keys, present in
+both files, are then taken from `world.conf` (a warning reports a difference).
+
+These files are not versioned. Their templates, `auth.conf.dist` and `world.conf.dist`, are, and document
+every option; on first start, a missing `.conf` is created by copying its template.
+
+## Syntax
+
+```ini
+[worldserver]
+# comment
+WorldServer.Port = 11008
+WorldServer.Name = "ArchCore"
+```
+
+One setting per line, `Key = value`; `#` starts a comment, text may be quoted, the `[authserver]` or
+`[worldserver]` header is ignored. A missing key takes its default value, with a warning in the log; an
+unknown key (typo) is reported.
+
+## `auth.conf`
 
 | Key | Default | Purpose |
 |---|---|---|
-| `port` | `11002` | Login server port, the one the client contacts |
-| `bind` | `0.0.0.0` | Listen address |
+| `LoginServer.Port` | `11002` | Login server port, the one the client contacts |
+| `LoginServer.Bind` | `0.0.0.0` | Listen address |
 
-## `world`
+## `world.conf`
 
 | Key | Default | Purpose |
 |---|---|---|
-| `port` | `11008` | World server port |
-| `bind` | `0.0.0.0` | Listen address |
-| `name` / `group` | `ArchCore` | World and group name in the server list |
-| `publicAddress` | `127.0.0.1` | World address sent to the client. Change it for a server reachable from the Internet |
-| `startPositions` | see the file | Spawn position per race: 1 Human, 2 Orc, 3 Moon Elf, 4 Scion |
-| `viewRadius` | `8000` | Radius within which NPCs are sent to the player |
-| `language` | `fr` | NPC title language (`data/i18n/npc-titles-<lang>.json`); `en` keeps them in English |
-| `rates` | all `1` | Rates at startup: `exp`, `gold`, `drop`, `uniqueDrop`, `charisma`, `prestige`, `chatBuff` (see [[Administration|EN-Administration]]) |
-| `gmCommandLevels` | `{}` | Required GM level per command, for example `{ "kill": 3 }` |
-| `exitOnRestart` | `false` | Stops the server at the end of the `/announce_restart` countdown |
-| `timeZone` | `local` | Time zone of the clock sent to the client (AGPMTIMER packet): `local` = the machine's time (day/night cycle, music and ambience follow the server's local time), `utc` = raw Unix epoch. See [[Network protocol|EN-Network-protocol]] |
+| `WorldServer.Port` | `11008` | World server port |
+| `WorldServer.Bind` | `0.0.0.0` | Listen address |
+| `WorldServer.Name` / `WorldServer.Group` | `ArchCore` | World and group name in the server list |
+| `WorldServer.PublicAddress` | `127.0.0.1` | World address sent to the client. Change it for a server reachable from the Internet |
+| `Client.DataDir` | `../client/ArchLord/Game` | The client's `Game` folder, used by the import and translation tools |
+| `World.Language` | `fr` | NPC title language (`data/i18n/npc-titles-<lang>.json`); `en` keeps them in English |
+| `World.ViewRadius` | `8000` | Radius within which NPCs, monsters, players and ground items are sent to the player |
+| `World.TimeZone` | `local` | Time zone of the clock sent to the client (AGPMTIMER packet): `local` = the machine's time (day/night cycle, music and ambience follow the server's local time), `utc` = raw Unix epoch. See [[Network protocol|EN-Network-protocol]] |
+| `World.ExitOnRestart` | `0` | `1`: stops the server at the end of the `/announce_restart` countdown |
+| `StartPosition.<race>.Village` / `.X` / `.Y` / `.Z` | see the template | Spawn position per race: 1 Human, 2 Orc, 3 Moon Elf, 4 Scion |
+| `Rate.Exp`, `Rate.Gold`, `Rate.Drop`, `Rate.UniqueDrop`, `Rate.Charisma`, `Rate.Prestige`, `Rate.ChatBuff` | `1` | Rates at startup (see [[Administration|EN-Administration]]) |
+| `GM.CommandLevel.<command>` | — | Required GM level for a command, for example `GM.CommandLevel.kill = 3` |
 
 Current starting villages:
 
@@ -35,24 +59,43 @@ Current starting villages:
 | 3 Moon Elf | Norine |
 | 4 Scion | Cien, unconfirmed |
 
-## `database`
+## Databases (both files)
 
 | Key | Default | Purpose |
 |---|---|---|
-| `host` / `port` | `127.0.0.1` / `3306` | MariaDB server |
-| `user` / `password` | `root` / `archcore` | Credentials. **Change them** outside a development machine |
-| `connectionLimit` | `8` | Pool size per database |
-| `auth` / `characters` / `world` | `archcore_*` | Names of the three databases |
-
-## `client`
-
-| Key | Default | Purpose |
-|---|---|---|
-| `dataDir` | `../client/ArchLord/Game` | The client's `Game` folder, used by the import and translation tools |
+| `Database.Host` / `Database.Port` | `127.0.0.1` / `3306` | MariaDB server |
+| `Database.User` / `Database.Password` | `root` / `archcore` | Credentials. **Change them** outside a development machine |
+| `Database.ConnectionLimit` | `8` | Pool size per database |
+| `Database.Auth` / `Database.Characters` / `Database.World` | `archcore_*` | Names of the three databases |
 
 ## Environment variables
 
+Any key can be overridden by an `ARCHCORE_<KEY>` variable: dots and inner capitals become `_`, all in
+upper case.
+
+| Key | Variable |
+|---|---|
+| `LoginServer.Port` | `ARCHCORE_LOGIN_SERVER_PORT` |
+| `World.ViewRadius` | `ARCHCORE_WORLD_VIEW_RADIUS` |
+| `Database.Password` | `ARCHCORE_DATABASE_PASSWORD` |
+| `Rate.Exp` | `ARCHCORE_RATE_EXP` |
+
+Other variables:
+
 | Variable | Effect |
 |---|---|
+| `ARCHCORE_CONF_DIR=<folder>` | Reads `auth.conf` and `world.conf` from another folder, for example a test server on other ports and databases |
+| `ARCHCORE_ROOT=<folder>` | Repository root (current folder by default) |
 | `ARCHCORE_TRACE=1` | Logs every packet received and sent |
-| `ARCHCORE_CONFIG=<file>` | Uses another configuration file, for example a test server on other ports and databases |
+
+## Former `archcore.json` configuration
+
+Until October 2026, settings lived in `config/archcore.json`. To convert it:
+
+```bash
+archcore config migrate config/archcore.json            # writes config/auth.conf and config/world.conf
+archcore config migrate test.json /path/conf-test       # into another folder (ARCHCORE_CONF_DIR)
+```
+
+The files are written from the `.dist` templates, comments included; an existing file is only replaced
+with `--force`.

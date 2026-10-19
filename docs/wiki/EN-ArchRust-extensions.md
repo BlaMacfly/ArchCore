@@ -138,7 +138,7 @@ answers `capabilities = "addon-msg/1"` with its limits.
 | Value | Scope | Recipients | Version 1 |
 |---|---|---|---|
 | 1 | `WHISPER` | the character named in `target` | ✅ |
-| 2 | `SAY` | players within the sender's chat range, sender included: the same radius as normal chat (`world.viewRadius`, 8000 units by default) | ✅ |
+| 2 | `SAY` | players within the sender's chat range, sender included: the same radius as normal chat (`World.ViewRadius`, 8000 units by default) | ✅ |
 | 3 | `PARTY` | the sender's party, sender included | answers `NOT_AVAILABLE` until parties exist |
 | 4 | `GUILD` | the sender's guild, sender included | same, until guilds exist |
 | 5 | `RAID` | reserved | `NOT_AVAILABLE` |
@@ -245,7 +245,7 @@ projects are GPL-3.0-or-later.
 1. **License**: ArchCore moves to **GPL-3.0-or-later**, like ArchRust, so `archcore-net` can be shared
    between the two projects.
 2. **`/chatban` and AddOns**: a muted player cannot send AddOn messages either (`NOT_ALLOWED`).
-3. **`SAY` scope**: same radius as normal chat (`world.viewRadius`). A `SAY` AddOn message reaches exactly
+3. **`SAY` scope**: same radius as normal chat (`World.ViewRadius`). A `SAY` AddOn message reaches exactly
    the players who would see a chat message; one setting for both.
 4. **Messages to the server**: the first uses of the `addon-data` capability will be detailed character
    stats, quests and world state. The `SERVER` scope stays closed in version 1.

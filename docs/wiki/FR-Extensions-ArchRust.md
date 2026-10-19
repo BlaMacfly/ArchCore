@@ -140,7 +140,7 @@ il répond `capabilities = "addon-msg/1"` avec ses limites.
 | Valeur | Portée | Destinataires | Version 1 |
 |---|---|---|---|
 | 1 | `WHISPER` | le personnage nommé dans `target` | ✅ |
-| 2 | `SAY` | les joueurs à portée de discussion de l'émetteur, émetteur compris : le même rayon que la discussion normale (`world.viewRadius`, 8000 unités par défaut) | ✅ |
+| 2 | `SAY` | les joueurs à portée de discussion de l'émetteur, émetteur compris : le même rayon que la discussion normale (`World.ViewRadius`, 8000 unités par défaut) | ✅ |
 | 3 | `PARTY` | le groupe de l'émetteur, émetteur compris | répond `NOT_AVAILABLE` tant que les groupes n'existent pas |
 | 4 | `GUILD` | la guilde de l'émetteur, émetteur compris | idem, en attendant les guildes |
 | 5 | `RAID` | réservé | `NOT_AVAILABLE` |
@@ -250,7 +250,7 @@ projets sont sous GPL-3.0-or-later.
    entre les deux projets est donc possible.
 2. **`/chatban` et AddOns** : un joueur réduit au silence ne peut pas non plus envoyer de messages d'AddOn
    (`NOT_ALLOWED`).
-3. **Portée `SAY`** : même rayon que la discussion normale (`world.viewRadius`). Un message d'AddOn en `SAY`
+3. **Portée `SAY`** : même rayon que la discussion normale (`World.ViewRadius`). Un message d'AddOn en `SAY`
    atteint exactement les joueurs qui verraient un message de discussion ; un seul réglage pour les deux.
 4. **Messages au serveur** : les premiers usages de la capacité `addon-data` seront les statistiques
    détaillées du personnage, les quêtes et l'état du monde. La portée `SERVER` reste fermée en version 1.

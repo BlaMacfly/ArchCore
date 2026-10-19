@@ -1,0 +1,192 @@
+###############################################################################
+# ArchCore — serveur monde (archcore world)
+#
+# Modèle versionné. Au premier lancement, ArchCore le copie en world.conf, qui
+# n'est pas versionné : c'est world.conf qu'on modifie.
+#
+# Syntaxe : Clé = valeur ; les lignes commençant par # sont des commentaires,
+# les textes peuvent être entre guillemets. Une clé absente prend sa valeur par
+# défaut (avec un avertissement dans le journal), une clé inconnue est signalée.
+#
+# Chaque clé peut être remplacée par une variable d'environnement ARCHCORE_<CLÉ> :
+# points et majuscules intérieures deviennent des « _ », le tout en majuscules.
+#   World.ViewRadius  ->  ARCHCORE_WORLD_VIEW_RADIUS=6000
+#   Rate.Exp          ->  ARCHCORE_RATE_EXP=2
+#
+# ARCHCORE_CONF_DIR désigne un autre dossier que config/ (serveur de test…).
+###############################################################################
+
+[worldserver]
+
+###############################################################################
+# SOMMAIRE
+#   1. ÉCOUTE ET LISTE DES MONDES
+#   2. BASES DE DONNÉES
+#   3. DONNÉES DU CLIENT
+#   4. MONDE
+#   5. VILLAGES DE DÉPART
+#   6. TAUX
+#   7. COMMANDES MJ
+###############################################################################
+
+###############################################################################
+# 1. ÉCOUTE ET LISTE DES MONDES
+#
+#    WorldServer.Bind
+#        Adresse d'écoute. 0.0.0.0 : toutes les interfaces.
+#        Défaut : "0.0.0.0"
+
+WorldServer.Bind = "0.0.0.0"
+
+#    WorldServer.Port
+#        Port TCP du serveur monde.
+#        Défaut : 11008
+
+WorldServer.Port = 11008
+
+#    WorldServer.Name, WorldServer.Group
+#        Nom du monde et de son groupe dans la liste de l'écran de connexion.
+#        Défaut : "ArchCore", "ArchCore"
+
+WorldServer.Name = "ArchCore"
+WorldServer.Group = "ArchCore"
+
+#    WorldServer.PublicAddress
+#        Adresse que le serveur de connexion donne aux clients pour rejoindre ce
+#        monde : adresse IP ou nom publics de la machine pour un serveur ouvert,
+#        127.0.0.1 pour jouer en local.
+#        Défaut : "127.0.0.1"
+
+WorldServer.PublicAddress = "127.0.0.1"
+
+###############################################################################
+# 2. BASES DE DONNÉES
+#
+#    Mêmes clés que dans auth.conf ; avec « archcore all », celles-ci
+#    l'emportent.
+#
+#    Database.Host, Database.Port, Database.User, Database.Password
+#        Serveur et compte MariaDB.
+#        Défaut : "127.0.0.1", 3306, "root", "archcore"
+
+Database.Host = "127.0.0.1"
+Database.Port = 3306
+Database.User = "root"
+Database.Password = "archcore"
+
+#    Database.ConnectionLimit
+#        Connexions simultanées par base.
+#        Défaut : 8
+
+Database.ConnectionLimit = 8
+
+#    Database.Auth, Database.Characters, Database.World
+#        Noms des trois bases.
+#        Défaut : "archcore_auth", "archcore_characters", "archcore_world"
+
+Database.Auth = "archcore_auth"
+Database.Characters = "archcore_characters"
+Database.World = "archcore_world"
+
+###############################################################################
+# 3. DONNÉES DU CLIENT
+#
+#    Client.DataDir
+#        Dossier Game du client, relatif à la racine du dépôt (ou absolu). Les
+#        outils d'import y lisent les tables.
+#        Défaut : "../client/ArchLord/Game"
+
+Client.DataDir = "../client/ArchLord/Game"
+
+###############################################################################
+# 4. MONDE
+#
+#    World.Language
+#        Langue des titres de PNJ envoyés aux joueurs : fichier
+#        data/i18n/npc-titles-<langue>.json ; "en" garde les textes d'origine.
+#        Défaut : "fr"
+
+World.Language = "fr"
+
+#    World.ViewRadius
+#        Distance (unités du jeu) en deçà de laquelle joueurs, monstres et
+#        objets au sol se voient.
+#        Défaut : 8000
+
+World.ViewRadius = 8000
+
+#    World.TimeZone
+#        Fuseau de l'horloge envoyée au client, qui en tire l'heure du ciel.
+#            local : heure de la machine du serveur
+#            utc   : temps universel
+#        Défaut : "local"
+
+World.TimeZone = "local"
+
+#    World.ExitOnRestart
+#        1 = arrêter le serveur à la fin du compte à rebours de /announce_restart
+#        (pour qu'un superviseur le relance), 0 = annoncer seulement.
+#        Défaut : 0
+
+World.ExitOnRestart = 0
+
+###############################################################################
+# 5. VILLAGES DE DÉPART
+#
+#    StartPosition.<race>.Village, .X, .Y, .Z
+#        Lieu d'apparition des nouveaux personnages par race (Race de
+#        chartype.ini : 1 Humain, 2 Orc, 3 Elfe de lune, 4 Scion), d'après les
+#        PNJ « <Village> Event » de npc.ini, décalé de 300 en X pour ne pas
+#        apparaître dans le PNJ.
+
+StartPosition.1.Village = "Anchorville"
+StartPosition.1.X = -475955
+StartPosition.1.Y = 4608.5
+StartPosition.1.Z = -66219
+
+StartPosition.2.Village = "Golundo"
+StartPosition.2.X = 136249
+StartPosition.2.Y = 11765.5
+StartPosition.2.Z = 512721
+
+StartPosition.3.Village = "Norine"
+StartPosition.3.X = 517472
+StartPosition.3.Y = 18310.5
+StartPosition.3.Z = 38020
+
+StartPosition.4.Village = "Cien (à confirmer)"
+StartPosition.4.X = -591942
+StartPosition.4.Y = 24446.5
+StartPosition.4.Z = 335917
+
+###############################################################################
+# 6. TAUX
+#
+#    Valeurs au démarrage ; les commandes MJ /SetExp, /SetGold… les changent
+#    en jeu jusqu'au prochain redémarrage. 1 = normal, 2 = double, de 0 à 100.
+#
+#    Rate.Exp         expérience
+#    Rate.Gold        or ramassé
+#    Rate.Drop        chance de butin
+#    Rate.UniqueDrop  chance de butin unique
+#    Rate.Charisma    charisme
+#    Rate.Prestige    prestige
+#    Rate.ChatBuff    bonus de discussion (1 activé, 0 désactivé)
+#        Défaut : 1
+
+Rate.Exp = 1
+Rate.Gold = 1
+Rate.Drop = 1
+Rate.UniqueDrop = 1
+Rate.Charisma = 1
+Rate.Prestige = 1
+Rate.ChatBuff = 1
+
+###############################################################################
+# 7. COMMANDES MJ
+#
+#    GM.CommandLevel.<commande>
+#        Niveau MJ requis pour une commande, à la place de son niveau par
+#        défaut (liste des commandes : page Administration du wiki).
+#        Exemple : GM.CommandLevel.kill = 3
+###############################################################################

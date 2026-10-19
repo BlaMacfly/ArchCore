@@ -76,20 +76,21 @@ la discussion comme messages système.
 | `/announce_restart <minutes> <secondes>` | 3 | Annonce à tous les joueurs, rappel chaque minute, compte à rebours sur les dernières secondes. `0 0` annule |
 | `/move x,z` | 1 | Téléporte le MJ en (x, z) et envoie les PNJ du nouvel endroit |
 
-Le niveau requis se change commande par commande dans `config/archcore.json` :
+Le niveau requis se change commande par commande dans `config/world.conf` (voir
+[[Configuration|FR-Configuration]]) :
 
-```json
-"world": {
-  "rates": { "exp": 2.0, "drop": 1.5 },
-  "gmCommandLevels": { "kill": 3, "move": 2 },
-  "exitOnRestart": false
-}
+```ini
+Rate.Exp = 2
+Rate.Drop = 1.5
+GM.CommandLevel.kill = 3
+GM.CommandLevel.move = 2
+World.ExitOnRestart = 0
 ```
 
-- `rates` : taux au démarrage (`exp`, `gold`, `drop`, `uniqueDrop`, `charisma`, `prestige`,
-  `chatBuff`). Les commandes `Set…` les changent **en mémoire** : au redémarrage, ils reprennent
+- `Rate.*` : taux au démarrage (`Exp`, `Gold`, `Drop`, `UniqueDrop`, `Charisma`, `Prestige`,
+  `ChatBuff`). Les commandes `Set…` les changent **en mémoire** : au redémarrage, ils reprennent
   ces valeurs.
-- `exitOnRestart` : avec `true`, le serveur s'arrête à la fin du compte à rebours de
+- `World.ExitOnRestart` : avec `1`, le serveur s'arrête à la fin du compte à rebours de
   `/announce_restart`, pour qu'un superviseur le relance. Par défaut, il se contente d'annoncer.
 
 Limites actuelles :
