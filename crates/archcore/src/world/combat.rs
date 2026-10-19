@@ -239,7 +239,7 @@ pub async fn step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) -> anyhow::
     for sid in st.sids() {
         attack_step(ctx, st, sid, now).await?;
     }
-    super::presence::view_step(ctx, st, now);
+    super::presence::move_step(ctx, st, now);
     ai::step(ctx, st, now);
     ai::patrol_step(ctx, st, now);
     life_step(ctx, st, now);

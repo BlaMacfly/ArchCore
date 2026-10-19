@@ -4,9 +4,10 @@
 //! 0 CID, 1 position actuelle, 2 destination, 3 cible suivie, 4 distance de suivi (u16),
 //! 5 drapeaux de déplacement, 6 direction. Drapeaux (champ 5) : 0x04 arrêt, 0x01 direction, 0x08 synchro.
 //! Visibilité : AGPMCHARACTER op 0 ajoute un personnage chez le client, op 2 le retire. PNJ, monstres et
-//! objets au sol se voient dans les 3 × 3 secteurs autour du joueur (`sector.rs`) ; sa position est suivie
-//! pendant la marche (vitesse de marche ou de course, en dixièmes d'unité par seconde) et la vue est
-//! recalculée quand il change de secteur.
+//! objets au sol se voient dans les 3 × 3 secteurs autour du joueur (`sector.rs`).
+//! Marche : le client n'envoie que sa destination ; le serveur avance lui-même le joueur à chaque tour (vitesse
+//! de marche ou de course en dixièmes d'unité par seconde), l'arrête à destination ou devant un sol
+//! infranchissable, et recalcule sa vue quand il change de secteur.
 
 use super::{character_add_packet, character_remove_packet, sector, send_nearby_npcs, WorldCtx, WorldState};
 use crate::{debug, info, warn};
@@ -78,14 +79,14 @@ pub fn on_move(ctx: &WorldCtx, st: &mut WorldState, sid: u32, packet: &Packet) {
     p.skills.cast = None;
     let flags = packet.int(5).unwrap_or(0);
     let dest = packet.vec3(2).filter(Vec3::is_finite);
-    // Le client n'envoie pas toujours sa position actuelle : on prend alors la destination précédente,
-    // supposée atteinte, sinon la dernière position connue.
+    // Position : celle que le serveur tient, la marche en cours avancée jusqu'à maintenant. Le vrai client ne
+    // l'envoie pas ; si elle est fournie (simulateur, outils), elle la remplace.
+    advance(&ctx.map, p, Instant::now());
     let given = packet.vec3(1).filter(Vec3::is_finite);
-    let pos = given.or(p.dest).unwrap_or_else(|| p.ch.pos());
+    let pos = given.unwrap_or_else(|| p.ch.pos());
     p.ch.set_pos(pos);
     p.view_pos = pos;
     p.dest = if flags & move_flag::STOP != 0 { None } else { dest };
-    p.moved_at = Instant::now();
     p.move_flags = flags;
     p.direction = packet.int(6).unwrap_or(0);
     p.follow_target = packet.int(3).unwrap_or(0);
@@ -125,29 +126,52 @@ pub fn on_move(ctx: &WorldCtx, st: &mut WorldState, sid: u32, packet: &Packet) {
     send_nearby_npcs(ctx, st, sid, pos);
 }
 
-/// Position estimée d'un joueur en marche : de sa dernière position vers sa destination, à sa vitesse.
-pub fn walking_pos(pos: Vec3, dest: Option<Vec3>, speed: f64, elapsed: Duration) -> Vec3 {
-    let Some(d) = dest else { return pos };
-    let (dx, dz) = ((d.x - pos.x) as f64, (d.z - pos.z) as f64);
+/// Un pas de marche : `speed` en dixièmes d'unité par seconde, `dt` en secondes. Rend la nouvelle position
+/// (hauteur inchangée en chemin) et vrai si la destination est atteinte.
+pub fn step_toward(pos: Vec3, dest: Vec3, speed: f64, dt: f64) -> (Vec3, bool) {
+    let (dx, dz) = ((dest.x - pos.x) as f64, (dest.z - pos.z) as f64);
     let total = (dx * dx + dz * dz).sqrt();
-    let done = speed.max(0.0) * elapsed.as_secs_f64();
+    let done = speed.max(0.0) * dt / 10.0;
     if total <= 0.0 || done >= total {
-        return d;
+        return (dest, true);
     }
-    let k = (done / total) as f32;
-    Vec3::new(pos.x + (d.x - pos.x) * k, pos.y + (d.y - pos.y) * k, pos.z + (d.z - pos.z) * k)
+    (Vec3::new(pos.x + (done * dx / total) as f32, pos.y, pos.z + (done * dz / total) as f32), false)
 }
 
-/// Suit les joueurs en marche ; à chaque changement de secteur, leur vue est recalculée (PNJ, monstres,
-/// objets au sol, joueurs).
-pub fn view_step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) {
+/// Avance la marche d'un joueur jusqu'à `now` : arrêt à destination ou devant un sol infranchissable.
+fn advance(map: &super::map::WorldMap, p: &mut super::Player, now: Instant) {
+    let dt = now.saturating_duration_since(p.moved_at).as_secs_f64();
+    p.moved_at = now;
+    let Some(dest) = p.dest else { return };
+    if p.dead {
+        return;
+    }
+    let speed = if p.move_flags & MOVE_FAST != 0 { p.factors.status[9] } else { p.factors.status[8] } as f64;
+    let (next, arrived) = step_toward(p.ch.pos(), dest, speed, dt);
+    if !arrived && map.is_blocked(next.x as f64, next.z as f64) {
+        p.dest = None;
+        return;
+    }
+    p.ch.set_pos(next);
+    if arrived {
+        p.dest = None;
+    }
+}
+
+/// Fait marcher les joueurs ; à chaque changement de secteur, leur vue est recalculée (PNJ, monstres, objets
+/// au sol, joueurs).
+pub fn move_step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) {
     for sid in st.sids() {
         let Some(p) = st.players.get_mut(&sid) else { continue };
-        if !p.in_game || p.dest.is_none() {
+        if !p.in_game {
             continue;
         }
-        let speed = if p.move_flags & MOVE_FAST != 0 { p.factors.status[9] } else { p.factors.status[8] } as f64 / 10.0;
-        let at = walking_pos(p.ch.pos(), p.dest, speed, now.duration_since(p.moved_at));
+        if p.dest.is_none() {
+            p.moved_at = now;
+            continue;
+        }
+        advance(&ctx.map, p, now);
+        let at = p.ch.pos();
         let changed = sector::of(at) != sector::of(p.view_pos);
         p.view_pos = at;
         if changed {
@@ -252,12 +276,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn position_pendant_la_marche() {
+    fn pas_de_marche() {
         let from = Vec3::new(0.0, 0.0, 0.0);
-        let to = Vec3::new(3000.0, 0.0, 4000.0);
-        // Course à 500 unités par seconde : 2 s font 1000 unités sur 5000.
-        assert_eq!(walking_pos(from, Some(to), 500.0, Duration::from_secs(2)), Vec3::new(600.0, 0.0, 800.0));
-        assert_eq!(walking_pos(from, Some(to), 500.0, Duration::from_secs(20)), to, "arrivé");
-        assert_eq!(walking_pos(from, None, 500.0, Duration::from_secs(2)), from, "à l'arrêt");
+        let to = Vec3::new(3000.0, 10.0, 4000.0);
+        // Course à 5000 (500 unités par seconde) : 2 s font 1000 unités sur 5000, hauteur inchangée en chemin.
+        assert_eq!(step_toward(from, to, 5000.0, 2.0), (Vec3::new(600.0, 0.0, 800.0), false));
+        assert_eq!(step_toward(from, to, 5000.0, 20.0), (to, true), "arrivé");
+        assert_eq!(step_toward(to, to, 5000.0, 0.1), (to, true), "déjà là");
     }
 }
