@@ -245,6 +245,20 @@ précision (`Physical_ATKRate`), PV, et pour une arme sa vitesse et sa portée d
 un message système et remet l'objet à sa place. En base, un objet porté a le statut 1 et sa partie dans
 `layer`. L'équipement d'un joueur est envoyé (op 0, statut 3) à ceux qui commencent à le voir.
 
+## Potions et régénération (types 0x04 et 0x02)
+
+Le client utilise un objet par AGPMITEM **op 3** (champ 2 = IID). Une potion est un objet utilisable
+(`ItemType` 1 d'itemdatatable.txt) qui rend `HP` PV ou `MP` PM, sans dépasser le maximum ; elle est
+refusée au mort, à jauge pleine, ou tant que le délai de sa sorte (vie ou mana, `Use Interval` en ms)
+court encore. Une utilisation consomme un exemplaire (AGPMITEM op 2 avec la nouvelle quantité, ou op 1 pour
+le dernier), se confirme par AGPMITEM **op 4** (TID au champ 3, utilisateur aux champs 4 et 12, délai de
+réutilisation en ms au champ 18) et renvoie les facteurs (AGPMCHARACTER op 1, champ 7) au joueur et à ceux
+qui le voient.
+
+Hors combat (aucun coup donné ni reçu depuis 10 s), un joueur vivant regagne toutes les 10 s 1,5 % de ses
+PV et PM maximum, plus son taux de récupération, plus 5 ; ses nouveaux facteurs sont envoyés de la même
+façon.
+
 ## Niveau MJ (type 0x12, AgpmAdmin)
 
 Drapeaux de champs sur 2 octets : op, CID, puis 13 mini-paquets. L'op 0 avec, au champ 2, un

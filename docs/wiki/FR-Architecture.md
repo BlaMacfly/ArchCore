@@ -34,6 +34,7 @@ crates/archcore/           serveur et outils
     ai.rs                  IA des monstres : agresseurs, riposte, poursuite, retour au point
     loot.rs                butin : tirage (or, groupes, objets propres), objets au sol, ramassage
     equipment.rs           équipement : restrictions, remplacement, facteurs, déplacement dans l'inventaire
+    recovery.rs            potions de vie et de mana, régénération hors combat
     map.rs                 carte serveur (map_segment) : sol infranchissable, régions
     items.rs               catalogue d'objets, inventaire, paquets AGPMITEM
     chat.rs, gm.rs         discussion et commandes MJ

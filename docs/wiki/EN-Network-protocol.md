@@ -243,6 +243,18 @@ and range. A refusal gives a system message and puts the item back. In the datab
 status 1 and its body part in `layer`. A player's equipment is sent (op 0, status 3) to those who start
 seeing them.
 
+## Potions and regeneration (types 0x04 and 0x02)
+
+The client uses an item with AGPMITEM **op 3** (field 2 = IID). A potion is a usable item (`ItemType` 1 in
+itemdatatable.txt) that restores `HP` HP or `MP` MP, up to the maximum; it is refused when dead, when the
+gauge is full, or while the delay of its kind (life or mana, `Use Interval` in ms) is still running. A use
+consumes one unit (AGPMITEM op 2 with the new count, or op 1 for the last one), is confirmed with AGPMITEM
+**op 4** (TID in field 3, user in fields 4 and 12, reuse delay in ms in field 18) and sends the factors
+again (AGPMCHARACTER op 1, field 7) to the player and to those who see them.
+
+Out of combat (no hit dealt or received for 10 s), a living player regains every 10 s 1.5% of their max HP
+and MP, plus their recovery rate, plus 5; the new factors are sent the same way.
+
 ## GM level (type 0x12, AgpmAdmin)
 
 2-byte field flags: op, CID, then 13 mini-packets. Op 0 with, in field 2, a "GM data" mini-packet of

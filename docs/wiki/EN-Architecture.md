@@ -34,6 +34,7 @@ crates/archcore/           server and tools
     ai.rs                  monster AI: attackers, retaliation, pursuit, going home
     loot.rs                drops: rolls (gold, groups, own items), ground items, pick-up
     equipment.rs           equipment: restrictions, replacement, factors, moving items in the inventory
+    recovery.rs            life and mana potions, out-of-combat regeneration
     map.rs                 server map (map_segment): blocked ground, regions
     items.rs               item catalog, inventory, AGPMITEM packets
     chat.rs, gm.rs         chat and GM commands

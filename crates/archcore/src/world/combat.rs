@@ -237,6 +237,7 @@ pub async fn step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) -> anyhow::
     ai::step(ctx, st, now);
     life_step(ctx, st, now);
     super::loot::expire(st, now);
+    super::recovery::regen_step(st, now);
     Ok(())
 }
 
@@ -277,7 +278,9 @@ async fn attack_step(ctx: &WorldCtx, st: &mut WorldState, sid: u32, now: Instant
     let (outcome, damage) = strike(&mut rand::thread_rng(), &attacker, &defender);
     let speed = p.factors.attack[2].max(1) as u64;
     let (cid, name) = (p.ch.id, p.ch.name.clone());
-    st.players.get_mut(&sid).unwrap().attack = Some(Attack { target: m.cid, ready_at: now + Duration::from_millis(60_000 / speed) });
+    let me = st.players.get_mut(&sid).unwrap();
+    me.attack = Some(Attack { target: m.cid, ready_at: now + Duration::from_millis(60_000 / speed) });
+    super::recovery::in_combat(&mut me.timers, now);
 
     let target = st.monsters.get_mut(m.cid).unwrap();
     target.hp = (target.hp - damage).max(0);
@@ -422,6 +425,7 @@ fn life_step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) {
 /// Le joueur `sid` reçoit le coup d'un monstre : PV, diffusion (à lui et à ceux qui le voient), mort.
 pub fn hit_player(st: &mut WorldState, sid: u32, monster: u32, outcome: i64, damage: i32) {
     let Some(p) = st.players.get_mut(&sid) else { return };
+    super::recovery::in_combat(&mut p.timers, Instant::now());
     let hp = (p.factors.point[POINT_HP] - damage).max(0);
     p.factors.point[POINT_HP] = hp;
     let (cid, mp) = (p.ch.id, p.factors.point[1]);

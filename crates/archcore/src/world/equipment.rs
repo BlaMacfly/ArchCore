@@ -241,7 +241,7 @@ mod tests {
     fn catalog(entries: &[(u32, EquipData)]) -> ItemCatalog {
         let mut c = ItemCatalog::default();
         for (tid, e) in entries {
-            c.items.insert(*tid, ItemData { tid: *tid, name: format!("objet {tid}"), npc_price: 0, pc_price: 0, stack: 1, equip: Some(e.clone()) });
+            c.items.insert(*tid, ItemData { tid: *tid, name: format!("objet {tid}"), npc_price: 0, pc_price: 0, stack: 1, equip: Some(e.clone()), potion: None });
         }
         c
     }

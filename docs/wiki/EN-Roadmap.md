@@ -24,7 +24,8 @@
   level up, corpse then respawn. Monsters that are hit fight back and chase their attacker; player death
   and resurrection in town. Drops: gold and items on the ground, pick-up.
   Equipment: weapons and armour worn (restrictions, two hands), counted in damage and defense, visible
-  to other players; moving items in the inventory. See
+  to other players; moving items in the inventory. Life and mana potions, out-of-combat HP and MP
+  regeneration. See
   [[Network protocol|EN-Network-protocol]].
 - ArchRust extensions, server side: capability negotiation and AddOn messages (whisper, `SAY`). See
   [[ArchRust extensions|EN-ArchRust-extensions]]; the client side remains to be written in ArchRust.
@@ -40,9 +41,8 @@
 1. Verify full character creation in game.
 2. Verify player visibility with two real clients.
 3. NPC functions: quests, teleport, bank.
-4. Combat: HP regeneration, monster patrols, per-region resurrection points, skills, elemental item
-   damage.
-5. Items: use (potions), merging stacks, destroying; skills.
+4. Combat: monster patrols, per-region resurrection points, skills, elemental item damage.
+5. Items: return scrolls, merging stacks, destroying; skills.
 6. Chat, parties, guilds.
 7. Automatic reconnection (type 0x63).
 8. Remaining GM commands on the [[Administration|EN-Administration]] page (arena, events, rifts…).

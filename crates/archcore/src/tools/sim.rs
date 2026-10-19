@@ -9,6 +9,7 @@
 //!   archcore sim combat [compte] [mdp] [perso] [monstre]      Vers verts au nord d'Anchorville : riposte, poursuite, mort et résurrection,
 //!                                                             puis (invincible) victoire, expérience, butin ramassé, réapparition ; compte MJ requis
 //!   archcore sim equip [compte] [mdp] [perso]                 équiper épée et armure (dégâts, défense), refus de classe, retrait ; SimA voit l'arme
+//!   archcore sim potion [compte] [mdp] [perso]                blessé par un Ver vert : régénération hors combat, potion de vie, refus ; compte MJ
 //! ```
 //! À lancer contre un serveur de test (`ARCHCORE_CONFIG`) : les personnages sont créés au besoin,
 //! déplacés, et `sim shop` leur donne 1000 pièces d'or.
@@ -43,9 +44,10 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
             ];
             Box::pin(addon(&acc)).await
         }
+        Some("potion") => Box::pin(potion(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("equip") => Box::pin(equip(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("combat") => Box::pin(combat(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "Green Worm"))).await,
-        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip [arguments]"),
+        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion [arguments]"),
     }
 }
 
@@ -822,6 +824,75 @@ async fn equip(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
     witness.world.expect_where(|q| q.is(it, Some(1)) && q.int(2) == Some(sword_iid), 3000, "épée retirée chez SimA").await?;
     println!("  ✓ SimA ne voit plus l'épée");
     println!("\néquipement : OK");
+    Ok(())
+}
+
+async fn potion(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
+    const HUNT: Vec3 = Vec3 { x: -466_468.0, y: 4_700.0, z: -50_010.0 };
+    const LIFE: i64 = 190; // Small Life Potion : 75 PV, 2 s
+    const STOP: i64 = 0x04;
+    let cfg = crate::config::load()?;
+    let (c, it, ch, act, mv, ov) = (&schema::CHARACTER, &schema::ITEM, &schema::CHATTING, &schema::OPT_CHAR_ACTION, &schema::OPT_CHAR_MOVE, &schema::OPT_VIEW);
+    step(&format!("{char_name} entre en jeu"));
+    let mut w = enter_world(&cfg, user, pass, char_name, "").await?;
+    let me = w.cid as i64;
+    let village = cfg.world.start_positions.get("1").map(|p| Vec3::new(p.x as f32, p.y as f32, p.z as f32)).unwrap_or(w.start);
+    let say = |cid: u32, text: &str| Fields::new(ch).with(0, 0).with(1, cid).with(2, chat_type::NORMAL).with(6, crate::tools::to_cp1252(text));
+
+    step("potions créées");
+    w.world.send(ch, say(w.cid, "/invincible 0")).await?;
+    w.world.send(ch, say(w.cid, &format!("/create \"{char_name}\" {LIFE} 3"))).await?;
+    let made = w.world.expect_where(|q| q.is(it, None) && q.int(3) == Some(LIFE) && q.int(1) == Some(2), 3000, "potions créées").await?;
+    let (iid, count) = (made.int(2).unwrap_or(0), made.int(5).unwrap_or(0));
+    println!("  ✓ {count} Small Life Potion(s), IID {iid}");
+
+    step("blessé par un Green Worm");
+    w.world.send(mv, Fields::new(mv).with(0, w.cid).with(1, HUNT).with(2, HUNT).with(5, STOP).with(6, 0)).await?;
+    let mut worm = None;
+    while let Ok(p) = w.world.expect_where(|q| q.is(ov, Some(1)), 1500, "monstres").await {
+        if let Ok(view) = decode_mini(&mini::OPT_VIEW_CHAR, p.fields().bytes(1).unwrap_or_default()) {
+            if view.text(2).as_deref() == Some("Green Worm") && view.bytes(5).and_then(factors_hp).unwrap_or(0) > 0 {
+                worm.get_or_insert(view.int(0).unwrap_or(0));
+            }
+        }
+    }
+    let worm = worm.ok_or_else(|| anyhow::anyhow!("aucun Green Worm en vue"))?;
+    w.world.send(act, Fields::new(act).with(0, w.cid).with(1, worm).with(6, 1)).await?;
+    let hit = w
+        .world
+        .expect_where(|q| q.is(act, None) && q.int(0) == Some(worm) && q.int(1) == Some(me) && q.int(2) == Some(5), 20_000, "coup du ver")
+        .await?;
+    let mut hp = hit.fields().bytes(3).and_then(factors_hp).unwrap_or(0);
+    w.world.send(ch, say(w.cid, "/invincible 1")).await?;
+    w.world.send(mv, Fields::new(mv).with(0, w.cid).with(1, village).with(2, village).with(5, STOP).with(6, 0)).await?;
+    println!("  ✓ blessé : {hp} PV ; invincible, retour au village");
+
+    step("régénération hors combat");
+    let regen = w
+        .world
+        .expect_where(|q| q.is(c, Some(1)) && q.int(1) == Some(me) && q.fields().bytes(7).and_then(factors_hp).is_some_and(|v| v > hp), 30_000, "régénération")
+        .await?;
+    let after = regen.fields().bytes(7).and_then(factors_hp).unwrap_or(0);
+    println!("  ✓ {hp} → {after} PV (10 s après le dernier coup)");
+    hp = after;
+
+    step("potion de vie");
+    w.world.send(it, Fields::new(it).with(0, 3).with(2, iid)).await?;
+    let left = w.world.expect_where(|q| q.is(it, Some(2)) && q.int(2) == Some(iid), 3000, "pile diminuée").await?;
+    w.world.expect_where(|q| q.is(it, Some(4)) && q.int(3) == Some(LIFE) && q.int(4) == Some(me), 3000, "potion utilisée").await?;
+    let f = w.world.expect_where(|q| q.is(c, Some(1)) && q.int(1) == Some(me) && q.fields().bytes(7).is_some(), 3000, "PV après la potion").await?;
+    let healed = f.fields().bytes(7).and_then(factors_hp).unwrap_or(0);
+    anyhow::ensure!(healed > hp, "la potion n'a pas soigné ({hp} → {healed})");
+    println!("  ✓ {hp} → {healed} PV, {} potion(s) restante(s)", o(left.int(5)));
+
+    step("seconde potion aussitôt");
+    w.world.send(it, Fields::new(it).with(0, 3).with(2, iid)).await?;
+    anyhow::ensure!(w.world.expect_where(|q| q.is(it, Some(4)), 1000, "refus").await.is_err(), "seconde potion acceptée");
+    println!("  ✓ refusée (PV pleins ou délai de 2 s)");
+
+    w.world.send(ch, say(w.cid, "/invincible 0")).await?;
+    w.world.expect_where(|q| q.ptype == ch.id, 3000, "réponse à /invincible 0").await?;
+    println!("\npotions et régénération : OK");
     Ok(())
 }
 

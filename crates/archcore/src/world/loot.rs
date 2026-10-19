@@ -342,6 +342,7 @@ pub async fn on_item_packet(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &P
     match p.int(0) {
         Some(PICKUP_ITEM) => pick_up(ctx, st, sid, p.int(2).unwrap_or(0) as u32, Instant::now()).await,
         Some(super::items::item_op::UPDATE) => super::equipment::on_item_update(ctx, st, sid, p).await,
+        Some(super::recovery::USE_ITEM) => super::recovery::use_item(ctx, st, sid, p, &ctx.catalog).await,
         op => {
             debug!("[world] #{sid} AGPMITEM op {op:?} (ignoré)");
             Ok(())

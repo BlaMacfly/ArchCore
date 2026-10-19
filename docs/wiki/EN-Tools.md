@@ -8,7 +8,7 @@ them from the repository root; they read `config/archcore.json`, or the file nam
 | `archcore db-init [--account name pass [gm]]` | Creates the databases and applies `sql/`; with `--account`, creates or updates an account |
 | `archcore decrypt [source] [destination]` | Decrypts `Game/ini` (RC4, MD5("1111")) into `data/client-ini` |
 | `archcore import [folder] [--server folder]` | Imports `data/client-ini` into `archcore_world` (CP949 → UTF-8); with the original server tables (`--server`, or `data/server-ini` if it exists), also imports monster spawns and the server map |
-| `archcore sim client\|move\|shop\|addon\|combat\|equip …` | Simulated clients (see below) |
+| `archcore sim client\|move\|shop\|addon\|combat\|equip\|potion …` | Simulated clients (see below) |
 | `archcore i18n strings [Game]` | Lists the texts still in English in `data/i18n/pending-en.json` |
 | `archcore i18n coverage [Game]` | Measures how much of `ini_fr` is translated |
 | `archcore i18n apply [--ascii] [--dry]` | Applies the translation memory to the client (see [[Translation|EN-Translation]]) |
@@ -81,6 +81,17 @@ A GM account (`gmtest` / `GmTest` by default) creates a short sword, a human war
 a mage wand with `/create`, wears the sword (damage 11 to 13) then the armour (defense 4), sees the wand
 refused (class), then puts both away. SimA, standing nearby, must see the sword appear on them and then
 disappear. The created items stay in the inventory.
+
+## Potion and regeneration test
+
+```bash
+ARCHCORE_CONFIG=config/test.json archcore sim potion [user] [pass] [character]
+```
+
+A GM account (`gmtest` / `GmTest` by default) creates 3 Small Life Potions, gets wounded by a Green Worm,
+becomes invincible and goes back to the village; the test waits for out-of-combat regeneration (HP rising
+about ten seconds after the last hit), drinks a potion (HP up, stack down, op 4), then checks that a second
+potion right away is refused.
 
 ## ArchRust extensions test
 

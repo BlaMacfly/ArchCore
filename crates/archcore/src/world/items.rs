@@ -97,6 +97,8 @@ pub struct ItemData {
     pub stack: i64,
     /// Caractéristiques d'équipement, pour un objet qui se porte.
     pub equip: Option<EquipData>,
+    /// Effet d'une potion.
+    pub potion: Option<super::recovery::Potion>,
 }
 
 /// Caractéristiques d'un équipement (colonnes d'itemdatatable.txt).
@@ -173,8 +175,10 @@ impl ItemCatalog {
             .iter()
             .map(|r| {
                 let tid: u32 = col(r, "tid");
-                let equip = serde_json::from_str::<serde_json::Value>(&col::<String>(r, "raw")).ok().and_then(|v| EquipData::from_raw(&v));
-                (tid, ItemData { tid, name: col(r, "name"), npc_price: col(r, "npc_price"), pc_price: col(r, "pc_price"), stack: col::<i64>(r, "stack").max(1), equip })
+                let raw = serde_json::from_str::<serde_json::Value>(&col::<String>(r, "raw")).ok();
+                let equip = raw.as_ref().and_then(EquipData::from_raw);
+                let potion = raw.as_ref().and_then(super::recovery::Potion::from_raw);
+                (tid, ItemData { tid, name: col(r, "name"), npc_price: col(r, "npc_price"), pc_price: col(r, "pc_price"), stack: col::<i64>(r, "stack").max(1), equip, potion })
             })
             .collect();
         let lists = db.world.rows("SELECT template_id, tid, count FROM npc_trade_list ORDER BY template_id, idx", ()).await?;
@@ -339,6 +343,18 @@ impl Inventory {
             .await?;
         self.items.insert(item.iid, item.clone());
         Ok(Some(item))
+    }
+
+    /// Retire `n` exemplaires d'un objet de l'inventaire : rend la pile restante, ou `None` s'il n'en reste rien.
+    pub async fn consume(&mut self, db: &Databases, iid: u32, n: i64) -> anyhow::Result<Option<InventoryItem>> {
+        let Some(item) = self.items.get_mut(&iid) else { return Ok(None) };
+        if item.count > n {
+            item.count -= n;
+            db.characters.exec("UPDATE character_items SET count = ? WHERE id = ?", (item.count, iid)).await?;
+            return Ok(Some(item.clone()));
+        }
+        self.remove(db, iid).await?;
+        Ok(None)
     }
 
     /// Déplace un objet de l'inventaire vers une case libre.

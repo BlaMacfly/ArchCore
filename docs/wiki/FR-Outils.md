@@ -9,7 +9,7 @@ Ils se lancent depuis la racine du dépôt et lisent `config/archcore.json`, ou 
 | `archcore db-init [--account nom mdp [mj]]` | Crée les bases et applique `sql/` ; avec `--account`, crée ou met à jour un compte |
 | `archcore decrypt [source] [destination]` | Déchiffre `Game/ini` (RC4, MD5(« 1111 »)) vers `data/client-ini` |
 | `archcore import [dossier] [--server dossier]` | Importe `data/client-ini` dans `archcore_world` (CP949 → UTF-8) ; avec les tables du serveur d'origine (`--server`, ou `data/server-ini` s'il existe), importe aussi les apparitions de monstres et la carte serveur |
-| `archcore sim client\|move\|shop\|addon\|combat\|equip …` | Clients simulés (voir plus bas) |
+| `archcore sim client\|move\|shop\|addon\|combat\|equip\|potion …` | Clients simulés (voir plus bas) |
 | `archcore i18n strings [Game]` | Liste les textes encore en anglais dans `data/i18n/pending-en.json` |
 | `archcore i18n coverage [Game]` | Mesure la part déjà traduite de `ini_fr` |
 | `archcore i18n apply [--ascii] [--dry]` | Applique la mémoire de traduction au client (voir [[Traduction|FR-Traduction]]) |
@@ -84,6 +84,17 @@ Un compte MJ (`gmtest` / `GmTest` par défaut) se crée une épée courte, une a
 (niveau 2) et une baguette de mage avec `/create`, porte l'épée (dégâts 11 à 13) puis l'armure (défense
 4), voit la baguette refusée (classe), puis range les deux. SimA, à côté, doit voir l'épée apparaître sur
 lui puis disparaître. Les objets créés restent dans l'inventaire.
+
+## Test des potions et de la régénération
+
+```bash
+ARCHCORE_CONFIG=config/test.json archcore sim potion [compte] [mdp] [personnage]
+```
+
+Un compte MJ (`gmtest` / `GmTest` par défaut) se crée 3 Petites potions de vie, se fait blesser par un Ver
+vert, devient invincible et rentre au village ; le test attend la régénération hors combat (PV en hausse
+une dizaine de secondes après le dernier coup), boit une potion (PV en hausse, pile diminuée, op 4), puis
+vérifie qu'une seconde potion aussitôt est refusée.
 
 ## Test des extensions ArchRust
 
