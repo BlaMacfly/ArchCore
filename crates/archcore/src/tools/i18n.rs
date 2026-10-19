@@ -4,7 +4,13 @@
 //!   archcore i18n coverage [Game]      lignes de ini_fr encore identiques à l'anglais (ini)
 //!   archcore i18n strings [Game]       chaînes affichables encore en anglais → data/i18n/pending-en.json
 //!   archcore i18n apply [--ascii] [--dry]
+//!   archcore i18n db [langue]          remplit localized_text (base monde) pour une langue (défaut : World.Language)
 //! ```
+//! `db` prend les titres de PNJ traduits (`data/i18n/npc-titles-<langue>.json`, appliqués aux noms de
+//! `npc_spawn` et de `monster_spawn`) et la mémoire de traduction `data/i18n/<langue>.json` (entrées
+//! `global` dont la clé est exactement un nom de quête, d'objet, de compétence ou de région). Les lignes
+//! existantes de la même langue sont remplacées ; les autres langues et les lignes saisies à la main
+//! pour d'autres identifiants restent.
 //! `apply` applique la mémoire de traduction `data/i18n/fr.json`. La première exécution copie ini_fr
 //! vers ini_fr.orig ; chaque application repart de ini_fr.orig (rejouable sans empiler les
 //! remplacements). Les fichiers chiffrés à l'origine (RC4 / MD5("1111")) sont rechiffrés.
@@ -20,13 +26,88 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 use unicode_normalization::UnicodeNormalization;
 
-pub fn run(args: &[String]) -> anyhow::Result<()> {
+pub async fn run(args: &[String]) -> anyhow::Result<()> {
     match args.first().map(String::as_str) {
         Some("coverage") => coverage(args.get(1)),
         Some("strings") => strings(args.get(1)),
         Some("apply") => apply(args.iter().any(|a| a == "--ascii"), args.iter().any(|a| a == "--dry")),
-        _ => anyhow::bail!("usage : archcore i18n coverage|strings [Game] | apply [--ascii] [--dry]"),
+        Some("db") => db(args.get(1)).await,
+        _ => anyhow::bail!("usage : archcore i18n coverage|strings [Game] | apply [--ascii] [--dry] | db [langue]"),
     }
+}
+
+// --------------------------------------------------------------------------------- db
+
+/// Lignes `localized_text` déduites des fichiers de `data/i18n` pour une langue : (sorte, identifiant, texte).
+pub fn localized_rows(lang: &str, translator: &crate::world::npcs::Translator, global: &HashMap<String, String>, originals: &[(&str, Vec<(u32, String)>)]) -> Vec<(String, u32, String)> {
+    use crate::locale::kind;
+    let mut rows = Vec::new();
+    for (k, items) in originals {
+        for (id, name) in items {
+            let translated = match *k {
+                kind::NPC_NAME | kind::MONSTER_NAME => {
+                    let t = translator.translate(name);
+                    if t == *name { global.get(name).cloned() } else { Some(t) }
+                }
+                _ => global.get(name).cloned(),
+            };
+            if let Some(t) = translated.filter(|t| !t.trim().is_empty() && t != name) {
+                rows.push((k.to_string(), *id, t));
+            }
+        }
+    }
+    let _ = lang;
+    rows
+}
+
+async fn db(lang: Option<&String>) -> anyhow::Result<()> {
+    use crate::db::{col, Databases};
+    use crate::locale::kind;
+    let cfg = crate::config::load()?;
+    let lang = archcore_net::ext_text::normalize_language(lang.map(String::as_str).unwrap_or(&cfg.world.language)).ok_or_else(|| anyhow::anyhow!("langue invalide"))?;
+    let root = cfg.root.clone();
+    let translator = crate::world::npcs::Translator::load(&root, archcore_net::ext_text::base_language(&lang));
+    let tm_path = root.join("data").join("i18n").join(format!("{lang}.json"));
+    let global: HashMap<String, String> = match std::fs::read_to_string(&tm_path) {
+        Ok(text) => serde_json::from_str::<serde_json::Value>(&text)?
+            .get("global")
+            .and_then(|g| g.as_object())
+            .map(|o| o.iter().filter_map(|(k, v)| v.as_str().map(|v| (k.clone(), v.to_string()))).collect())
+            .unwrap_or_default(),
+        Err(_) => HashMap::new(),
+    };
+    let db = Databases::new(&cfg.database);
+    let mut originals: Vec<(&str, Vec<(u32, String)>)> = Vec::new();
+    for (k, sql) in [
+        (kind::NPC_NAME, "SELECT id AS ref_id, name FROM npc_spawn"),
+        (kind::MONSTER_NAME, "SELECT DISTINCT tid AS ref_id, display_name AS name FROM monster_spawn"),
+        (kind::ITEM_NAME, "SELECT tid AS ref_id, name FROM item_data"),
+        (kind::QUEST_NAME, "SELECT tid AS ref_id, name FROM quest_template"),
+        (kind::SKILL_NAME, "SELECT tid AS ref_id, name FROM skill_template"),
+        (kind::REGION_NAME, "SELECT id AS ref_id, name FROM region_template"),
+    ] {
+        let rows = db.world.rows(sql, ()).await.unwrap_or_default();
+        originals.push((k, rows.iter().map(|r| (col::<u32>(r, "ref_id"), col::<String>(r, "name"))).collect()));
+    }
+    let rows = localized_rows(&lang, &translator, &global, &originals);
+    let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+    for (k, _, _) in &rows {
+        *counts.entry(k.clone()).or_default() += 1;
+    }
+    for (k, _) in &originals {
+        db.world.exec("DELETE FROM localized_text WHERE lang = ? AND kind = ?", (lang.clone(), k.to_string())).await?;
+    }
+    let params: Vec<(String, u32, String, String)> = rows.into_iter().map(|(k, id, t)| (k, id, lang.clone(), t)).collect();
+    let total = params.len();
+    if total > 0 {
+        db.world.batch("INSERT INTO localized_text (kind, ref_id, lang, text) VALUES (?,?,?,?)", params).await?;
+    }
+    for (k, n) in &counts {
+        println!("{k:<16}{n:>7} ligne(s)");
+    }
+    println!("{total} texte(s) en {lang} dans localized_text ({} entrée(s) « global » dans {})", global.len(), tm_path.display());
+    db.close().await;
+    Ok(())
 }
 
 fn sorted_files(dir: &Path) -> anyhow::Result<Vec<String>> {
@@ -242,5 +323,27 @@ mod tests {
     #[test]
     fn sans_accents() {
         assert_eq!(strip_accents("Épée « cœur »’"), "Epee \" coeur \"'");
+    }
+
+    #[test]
+    fn lignes_localisees() {
+        use crate::locale::kind;
+        let mut t = crate::world::npcs::Translator::default();
+        t.add_title("Merchant", "Marchand");
+        let global: HashMap<String, String> = [("Green Worm".to_string(), "Ver vert".to_string()), ("Short Sword".to_string(), "Épée courte".to_string())].into_iter().collect();
+        let originals = vec![
+            (kind::NPC_NAME, vec![(3, "<Merchant> Darryl".to_string()), (4, "Holly".to_string())]),
+            (kind::MONSTER_NAME, vec![(450, "Green Worm".to_string()), (451, "Blue Worm".to_string())]),
+            (kind::ITEM_NAME, vec![(190, "Short Sword".to_string()), (191, "Long Sword".to_string())]),
+        ];
+        let rows = localized_rows("fr", &t, &global, &originals);
+        assert_eq!(
+            rows,
+            vec![
+                (kind::NPC_NAME.to_string(), 3, "<Marchand> Darryl".to_string()),
+                (kind::MONSTER_NAME.to_string(), 450, "Ver vert".to_string()),
+                (kind::ITEM_NAME.to_string(), 190, "Épée courte".to_string()),
+            ]
+        );
     }
 }

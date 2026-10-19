@@ -13,7 +13,7 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         .user(Some(db.user.clone()))
         .pass(Some(db.password.clone()));
     let mut conn = mysql_async::Conn::new(opts).await?;
-    let targets = [("001_auth.sql", &db.auth), ("002_characters.sql", &db.characters), ("003_world.sql", &db.world)];
+    let targets = [("001_auth.sql", &db.auth), ("002_characters.sql", &db.characters), ("003_world.sql", &db.world), ("004_locale.sql", &db.world)];
     for (_, name) in &targets {
         conn.query_drop(format!("CREATE DATABASE IF NOT EXISTS `{name}` CHARACTER SET utf8mb4")).await?;
     }

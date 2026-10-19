@@ -10,10 +10,11 @@ named by `ARCHCORE_CONF_DIR` (see [[Configuration|EN-Configuration]]).
 | `archcore db-init [--account name pass [gm]]` | Creates the databases and applies `sql/`; with `--account`, creates or updates an account |
 | `archcore decrypt [source] [destination]` | Decrypts `Game/ini` (RC4, MD5("1111")) into `data/client-ini` |
 | `archcore import [folder] [--server folder]` | Imports `data/client-ini` into `archcore_world` (CP949 → UTF-8); with the original server tables (`--server`, or `data/server-ini` if it exists), also imports monster spawns and the server map |
-| `archcore sim client\|move\|shop\|addon\|combat\|equip\|potion\|scroll\|patrol\|bag\|skill\|effects\|bank\|trade\|quest …` | Simulated clients (see below) |
+| `archcore sim client\|move\|shop\|addon\|lang\|combat\|equip\|potion\|scroll\|patrol\|bag\|skill\|effects\|bank\|trade\|quest …` | Simulated clients (see below) |
 | `archcore i18n strings [Game]` | Lists the texts still in English in `data/i18n/pending-en.json` |
 | `archcore i18n coverage [Game]` | Measures how much of `ini_fr` is translated |
 | `archcore i18n apply [--ascii] [--dry]` | Applies the translation memory to the client (see [[Translation|EN-Translation]]) |
+| `archcore i18n db [language]` | Fills `localized_text` (world database) for a language: translated NPC titles and the `data/i18n/<language>.json` memory (see [[Translation|EN-Translation]]) |
 | `archcore re extract-schemas <files…>` | Extracts packet schemas from Ghidra pseudocode into `data/re/packet-schemas.json` |
 
 ## Client simulator
@@ -190,6 +191,29 @@ original client and must be a GM (`archcore db-init --account gmtest gmtest 3`).
 - that C never receives a `0xAC` packet.
 
 The protocol is described on the [[ArchRust extensions|EN-ArchRust-extensions]] page.
+
+## Language test
+
+```bash
+ARCHCORE_CONF_DIR=config/test archcore sim lang [user] [pass] [character]
+```
+
+The same character (`sima` / `SimA` by default) enters the world several times with the `language/1`
+capability:
+
+- in French (language announced in `HELLO`): `HELLO_ACK` grants `language/1`, applies `fr` and lists the
+  offered languages; the NPC names received are recorded;
+- in English: NPC names differ ("<Marchand> Darryl" → "<Merchant> Darryl");
+- `TEXT_REQUEST` returns the same names as the view packets, then `SET_LANGUAGE fr` brings them back to
+  French; an unknown language (`xx-YY`) falls back to `World.Language`, a malformed code and an unknown kind
+  get `INVALID_REQUEST`;
+- in "automatic" mode (HELLO without a language): `HELLO_ACK` announces the default language, then a
+  `LANGUAGE_ACK` on entry gives the account's language (`en`), and names are in English;
+- with the original client (no `HELLO`): no `0xAC` packet, names in the account's language;
+- finally the account is set back to French.
+
+`archcore db-init` must have been run (`language` and `localized_text` tables, `account.language` column);
+`archcore i18n db fr` is optional, the translated NPC titles serving as fallback.
 
 ## Original server tables
 

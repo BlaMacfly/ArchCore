@@ -10,10 +10,11 @@ dossier désigné par `ARCHCORE_CONF_DIR` (voir [[Configuration|FR-Configuration
 | `archcore db-init [--account nom mdp [mj]]` | Crée les bases et applique `sql/` ; avec `--account`, crée ou met à jour un compte |
 | `archcore decrypt [source] [destination]` | Déchiffre `Game/ini` (RC4, MD5(« 1111 »)) vers `data/client-ini` |
 | `archcore import [dossier] [--server dossier]` | Importe `data/client-ini` dans `archcore_world` (CP949 → UTF-8) ; avec les tables du serveur d'origine (`--server`, ou `data/server-ini` s'il existe), importe aussi les apparitions de monstres et la carte serveur |
-| `archcore sim client\|move\|shop\|addon\|combat\|equip\|potion\|scroll\|patrol\|bag\|skill\|effects\|bank\|trade\|quest …` | Clients simulés (voir plus bas) |
+| `archcore sim client\|move\|shop\|addon\|lang\|combat\|equip\|potion\|scroll\|patrol\|bag\|skill\|effects\|bank\|trade\|quest …` | Clients simulés (voir plus bas) |
 | `archcore i18n strings [Game]` | Liste les textes encore en anglais dans `data/i18n/pending-en.json` |
 | `archcore i18n coverage [Game]` | Mesure la part déjà traduite de `ini_fr` |
 | `archcore i18n apply [--ascii] [--dry]` | Applique la mémoire de traduction au client (voir [[Traduction|FR-Traduction]]) |
+| `archcore i18n db [langue]` | Remplit `localized_text` (base monde) pour une langue : titres de PNJ traduits et mémoire `data/i18n/<langue>.json` (voir [[Traduction|FR-Traduction]]) |
 | `archcore re extract-schemas <fichiers…>` | Extrait les schémas de paquets des pseudo-codes Ghidra vers `data/re/packet-schemas.json` |
 
 ## Simulateur de client
@@ -194,6 +195,28 @@ comme le client d'origine et doit être MJ (`archcore db-init --account gmtest g
 - que C ne reçoit jamais de paquet `0xAC`.
 
 Le protocole est décrit sur la page [[Extensions ArchRust|FR-Extensions-ArchRust]].
+
+## Test des langues
+
+```bash
+ARCHCORE_CONF_DIR=config/test archcore sim lang [compte] [mdp] [personnage]
+```
+
+Le même personnage (`sima` / `SimA` par défaut) entre en jeu plusieurs fois avec la capacité `language/1` :
+
+- en français (langue annoncée au `HELLO`) : `HELLO_ACK` accorde `language/1`, applique `fr` et liste les
+  langues proposées ; les noms des PNJ reçus sont relevés ;
+- en anglais : les noms de PNJ diffèrent (« <Marchand> Darryl » → « <Merchant> Darryl ») ;
+- `TEXT_REQUEST` rend les mêmes noms que les paquets de vue, puis `SET_LANGUAGE fr` les fait revenir en
+  français ; une langue inconnue (`xx-YY`) retombe sur `World.Language`, un code mal formé et une sorte
+  inconnue valent `INVALID_REQUEST` ;
+- en « automatique » (HELLO sans langue) : `HELLO_ACK` annonce la langue par défaut, puis un `LANGUAGE_ACK`
+  à l'entrée donne la langue du compte (`en`), et les noms sont en anglais ;
+- avec le client d'origine (sans `HELLO`) : aucun paquet `0xAC`, noms dans la langue du compte ;
+- enfin le compte est remis en français.
+
+Il faut avoir lancé `archcore db-init` (tables `language`, `localized_text`, colonne `account.language`) ;
+`archcore i18n db fr` est facultatif, les titres de PNJ traduits servant de repli.
 
 ## Tables du serveur d'origine
 

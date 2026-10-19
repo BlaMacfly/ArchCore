@@ -42,7 +42,75 @@ L'outil repart toujours de `ini_fr.orig`, on peut donc le relancer autant de foi
 ## Côté serveur
 
 Les titres des PNJ (« <Marchand> Darryl ») sont traduits au chargement avec
-`data/i18n/npc-titles-fr.json`, selon `world.language`.
+`data/i18n/npc-titles-fr.json`, selon `World.Language` : c'est la langue des joueurs qui n'en ont pas
+choisi d'autre.
+
+## Langues du serveur
+
+Depuis le 2026-10-19, le serveur sert ses textes dans la **langue du joueur** : un client ArchRust l'annonce
+par la capacité `language/1` des [[Extensions ArchRust|FR-Extensions-ArchRust]] (sélecteur dans la fenêtre
+Options), le choix suit le compte (`account.language`), et un client d'origine reçoit la dernière langue du
+compte, sinon `World.Language`. Les noms des PNJ et des monstres partent localisés dans les paquets de vue ;
+les autres textes (quêtes, objets, compétences, régions) se demandent par `TEXT_REQUEST`.
+
+### Langues retenues
+
+ArchLord n'a jamais eu de client multilingue unique ; les langues proposées (table `language`) viennent de
+l'histoire du jeu :
+
+| Code | Langue | Pourquoi |
+|---|---|---|
+| `ko` | coréen | version d'origine, NHN Corée (bêta ouverte 2005, service 2006) |
+| `en` | anglais | Codemasters, Amérique du Nord et Europe (octobre 2006), puis Webzen monde (2009-2014) ; langue du client de référence |
+| `ja` | japonais | NHN Japan, portail Hangame, « ARCHLORD ~THE GRAND CROSS~ » (bêta ouverte 26 juillet 2007) |
+| `zh-CN` | chinois simplifié | Shanda, « 霸王 », version chinoise annoncée en mars 2006 |
+| `de`, `fr`, `es`, `pt-BR` | allemand, français, espagnol, portugais | client multilingue annoncé par Webzen en janvier 2010 ; Archlord 2 (2014) : anglais, allemand, français (équipe de localisation Webzen Dublin) |
+| `tr`, `ru`, `pl` | turc, russe, polonais | communautés de serveurs privés (fils turcs sur DonanimHaber, client russe non officiel d'Archlord 2) ; désactivées par défaut (`enabled = 0`) |
+
+Sources : [Wikipédia, ArchLord](https://en.wikipedia.org/wiki/ArchLord) (dates et éditeurs),
+[Engadget, 14 janvier 2010](https://www.engadget.com/2010-01-14-archlord-announces-server-and-content-updates-for-2010.html)
+(client multilingue allemand, français, espagnol, portugais),
+[WorthPlaying, octobre 2009](https://worthplaying.com/article/2009/10/8/news/69161-webzen-expands-its-archlord-to-north-america-europe-adds-new-character-class/)
+(Webzen hors Corée, Japon et Chine), [Webzen, Archlord 2](https://company.webzen.com/en/pr/pressview?page=5&seq=363)
+(anglais, allemand, français), [Impress Game Watch, juillet 2007](https://game.watch.impress.co.jp/docs/20070720/on0720.htm)
+et [Inside Games](https://www.inside-games.jp/article/2007/07/20/22175.html) (Japon, Hangame),
+[17173, mars 2006](https://news.17173.com/content/2006-03-24/20060324104258614.shtml) (Chine, Shanda),
+[DonanimHaber](https://forum.donanimhaber.com/archlord-private-server--46358974) (communauté turque).
+Les versions japonaise et chinoise avaient leurs propres clients : seuls `ini` (anglais) et `ini_fr`
+(français) existent dans le client de référence (`client_folder`).
+
+### Tables
+
+- `language` : code BCP 47, noms, niveau (1 version officielle, 2 client Webzen 2010, 3 communauté),
+  dossier de textes du client, `enabled`, ordre d'affichage. Les langues désactivées ne sont pas proposées.
+- `localized_text` : une ligne par (`kind`, `ref_id`, `lang`). `kind` : `npc_name` (`npc_spawn.id`),
+  `monster_name` (TID), `item_name`, `item_desc` (TID), `quest_name`, `quest_desc` (TID), `skill_name`
+  (TID), `region_name`, `npc_dialog` (réservé).
+- `account.language` (base d'authentification) : dernier souhait du compte.
+
+Repli d'un texte : langue demandée → langue de base (`fr-CA` → `fr`) → titres de PNJ traduits
+(`npc-titles-<langue>.json`) → anglais → texte d'origine du client. Une ligne `en` sert aussi à corriger un
+texte d'origine pour tout le monde.
+
+### Remplir les textes
+
+```bash
+archcore db-init                 # crée language et localized_text, ajoute account.language
+archcore i18n db fr              # 555 noms de PNJ depuis npc-titles-fr.json, et la mémoire data/i18n/fr.json
+```
+
+`i18n db <langue>` remplace les lignes de cette langue pour les sortes qu'il produit, à partir des titres de
+PNJ (`npc_name`, `monster_name`) et des entrées `global` de `data/i18n/<langue>.json` dont la clé est
+exactement un nom de quête, d'objet, de compétence ou de région. Les traductions saisies à la main pour
+d'autres identifiants se font directement dans `localized_text` :
+
+```sql
+INSERT INTO localized_text (kind, ref_id, lang, text) VALUES ('quest_name', 5007, 'de', 'Erste Schritte')
+  ON DUPLICATE KEY UPDATE text = VALUES(text);
+```
+
+Le serveur relit les tables au démarrage. Vérification sans le jeu : `archcore sim lang` (page
+[[Outils|FR-Outils]]).
 
 ## Règles
 

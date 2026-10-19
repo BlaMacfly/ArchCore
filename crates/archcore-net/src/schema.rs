@@ -414,6 +414,11 @@ pub static ARCHCORE_EXT: Schema = Schema {
         f(MemBlock), // 13 nom de l'émetteur (rempli par le serveur)
         f(MemBlock), // 14 charge
         f(U8),       // 15 résultat (ext_result)
+        f(MemBlock), // 16 langue (BCP 47, ASCII) : souhaitée par le client, appliquée par le serveur — v1.1
+        f(MemBlock), // 17 langues disponibles sur le serveur, « fr;en;de » — v1.1
+        f(MemBlock), // 18 sorte de texte demandée (ext_text_kind, ASCII) — v1.1
+        f(MemBlock), // 19 identifiants demandés (UINT32 petit-boutiste, à la suite) — v1.1
+        f(MemBlock), // 20 textes rendus : UINT32 identifiant, UINT16 longueur, UTF-8, à la suite — v1.1
     ],
 };
 
@@ -639,6 +644,38 @@ pub mod ext_op {
     pub const ADDON_SEND: i64 = 2;
     pub const ADDON_RECV: i64 = 3;
     pub const RESULT: i64 = 4;
+    /// Capacité `language/1` (v1.1) : le client change de langue (champ 16).
+    pub const SET_LANGUAGE: i64 = 5;
+    /// Réponse : langue appliquée (16) et langues disponibles (17).
+    pub const LANGUAGE_ACK: i64 = 6;
+    /// Textes localisés demandés par le client (18 sorte, 19 identifiants).
+    pub const TEXT_REQUEST: i64 = 7;
+    /// Textes rendus (16 langue servie, 18 sorte, 20 textes).
+    pub const TEXT_REPLY: i64 = 8;
+}
+
+/// Sortes de textes localisés (champ 18 d'ARCHCORE_EXT) ; même nom que la colonne `kind` de
+/// `localized_text`. L'identifiant (champ 19) est celui de la table d'origine.
+pub mod ext_text_kind {
+    /// `npc_spawn.id`
+    pub const NPC_NAME: &str = "npc_name";
+    /// TID du monstre (`monster_spawn.tid`)
+    pub const MONSTER_NAME: &str = "monster_name";
+    /// `item_data.tid`
+    pub const ITEM_NAME: &str = "item_name";
+    pub const ITEM_DESC: &str = "item_desc";
+    /// `quest_template.tid`
+    pub const QUEST_NAME: &str = "quest_name";
+    pub const QUEST_DESC: &str = "quest_desc";
+    /// `skill_template.tid`
+    pub const SKILL_NAME: &str = "skill_name";
+    /// `region_template.id`
+    pub const REGION_NAME: &str = "region_name";
+    /// Identifiants d'un dialogue de PNJ (`npcdialog` du client) — réservé
+    pub const NPC_DIALOG: &str = "npc_dialog";
+    pub const ALL: &[&str] = &[NPC_NAME, MONSTER_NAME, ITEM_NAME, ITEM_DESC, QUEST_NAME, QUEST_DESC, SKILL_NAME, REGION_NAME, NPC_DIALOG];
+    /// Identifiants au plus par `TEXT_REQUEST`.
+    pub const MAX_IDS: usize = 64;
 }
 
 /// Portées d'un message d'AddOn (champ 10 d'ARCHCORE_EXT).
@@ -663,4 +700,7 @@ pub mod ext_result {
     pub const NOT_IN_GROUP: i64 = 6;
     pub const NOT_ALLOWED: i64 = 7;
     pub const TARGET_NO_EXTENSION: i64 = 8;
+    /// v1.1 : demande mal formée (langue invalide, sorte de texte inconnue, trop d'identifiants) ou
+    /// capacité `language` non accordée.
+    pub const INVALID_REQUEST: i64 = 9;
 }

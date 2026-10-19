@@ -3,6 +3,7 @@
 
 pub mod blowfish;
 mod blowfish_tables;
+pub mod ext_text;
 pub mod framing;
 pub mod packet;
 pub mod rc4;

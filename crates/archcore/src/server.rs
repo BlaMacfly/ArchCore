@@ -10,6 +10,9 @@ pub async fn run(mode: &str) -> anyhow::Result<()> {
     let db = crate::db::Databases::new(&config.database);
     db.check().await?;
     let templates = Arc::new(crate::character::Templates::load(&db).await?);
+    // Langues proposées et textes localisés ; le résumé sert au HELLO_ACK des deux serveurs.
+    let locale = crate::locale::Catalog::load(&db, &config.root, &config.world.language).await;
+    crate::locale::install(locale.summary.clone());
 
     if mode == "login" || mode == "all" {
         let svc = Arc::new(crate::login::LoginService::new(db.clone(), templates.clone(), config.clone()));
@@ -52,7 +55,7 @@ pub async fn run(mode: &str) -> anyhow::Result<()> {
             ..Default::default()
         };
         let w = Arc::new(crate::world::World {
-            ctx: crate::world::WorldCtx { db: db.clone(), templates: templates.clone(), config: config.clone(), npcs, catalog, map, level_exp, loot, regions, skills, quests, view_radius: config.world.view_radius },
+            ctx: crate::world::WorldCtx { db: db.clone(), templates: templates.clone(), config: config.clone(), npcs, catalog, map, level_exp, loot, regions, skills, quests, locale, view_radius: config.world.view_radius },
             state: tokio::sync::Mutex::new(state),
         });
         crate::world::presence::spawn_autosave(w.clone());

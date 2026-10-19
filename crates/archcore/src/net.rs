@@ -63,6 +63,22 @@ impl SessionHandle {
         self.0.ext.lock().unwrap().as_ref().is_some_and(|a| a.has(name))
     }
 
+    /// Langue souhaitée par le client (capacité `language`), normalisée ; `None` sans extensions ou sans choix.
+    pub fn language(&self) -> Option<String> {
+        self.0.ext.lock().unwrap().as_ref().and_then(|a| a.language.clone())
+    }
+
+    /// Enregistre le souhait de langue d'un `SET_LANGUAGE`. Rend `false` si la connexion n'a pas d'extensions.
+    pub fn set_language(&self, language: Option<String>) -> bool {
+        match self.0.ext.lock().unwrap().as_mut() {
+            Some(a) => {
+                a.language = language;
+                true
+            }
+            None => false,
+        }
+    }
+
     pub fn is_closed(&self) -> bool {
         self.0.closed.load(Ordering::Relaxed)
     }
@@ -272,9 +288,10 @@ fn extension_hello(session: &SessionHandle, packet: &Packet) {
     }
     let (agreement, ack) = crate::ext::hello(packet);
     info!(
-        "[{name}] #{id} extensions : {} → {}",
+        "[{name}] #{id} extensions : {} → {}{}",
         if agreement.software.is_empty() { "client inconnu" } else { agreement.software.as_str() },
-        if agreement.capabilities.is_empty() { "aucune capacité".to_string() } else { crate::ext::format_capabilities(&agreement.capabilities) }
+        if agreement.capabilities.is_empty() { "aucune capacité".to_string() } else { crate::ext::format_capabilities(&agreement.capabilities) },
+        agreement.language.as_deref().map(|l| format!(", langue {l}")).unwrap_or_default()
     );
     *slot = Some(agreement);
     drop(slot);

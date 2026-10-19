@@ -7,7 +7,7 @@ Toutes sont en `utf8mb4`.
 
 | Table | Contenu |
 |---|---|
-| `account` | Comptes : nom, empreinte SHA-256 du mot de passe, niveau MJ, bannissement, dernière connexion, clé d'entrée dans le monde |
+| `account` | Comptes : nom, empreinte SHA-256 du mot de passe, niveau MJ, bannissement, dernière connexion, clé d'entrée dans le monde, langue (dernier choix d'un client ArchRust, voir [[Traduction|FR-Traduction]]) |
 | `server_group` | Groupes de serveurs affichés dans la liste |
 | `world` | Mondes : nom, groupe, adresse `ip:port` (23 caractères max), statut |
 
@@ -47,6 +47,15 @@ Remplie par `archcore import` à partir des tables du client.
 | `drop_rank_rate` | `droprankrate.txt` du serveur d'origine | Rangs d'objets (pour cent) selon le rang de butin du monstre |
 | `region_template` | `RegionTemplate.ini` | 331 régions : nom, région parente, champ Type, sûreté (33 sûres) |
 | `resurrection_point` | `obj*.ini` (événement 19, type 1) | 62 points de résurrection : région, position, race et classe admises |
+
+### Langues (`sql/004_locale.sql`, même base)
+
+| Table | Contenu |
+|---|---|
+| `language` | Langues proposées aux clients : code BCP 47, noms, niveau (1 version officielle, 2 client Webzen 2010, 3 communauté), dossier de textes du client, `enabled`, ordre ; 11 lignes insérées par `db-init` |
+| `localized_text` | Textes localisés : `kind` (`npc_name`, `monster_name`, `item_name`, `item_desc`, `quest_name`, `quest_desc`, `skill_name`, `region_name`, `npc_dialog`), `ref_id` (identifiant de la table d'origine), `lang`, `text` ; remplie par `archcore i18n db <langue>` et à la main |
+
+Voir [[Traduction|FR-Traduction]] pour le repli et [[Extensions ArchRust|FR-Extensions-ArchRust]] pour le protocole.
 
 ## Ajouter un compte
 

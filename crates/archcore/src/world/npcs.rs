@@ -138,6 +138,12 @@ impl Translator {
         Translator { titles: map("titles"), names: map("names"), suffixes: map("suffixes") }
     }
 
+    /// Ajoute une traduction de titre (`Merchant` → `Marchand`), pour les tests.
+    #[cfg(test)]
+    pub fn add_title(&mut self, title: &str, translation: &str) {
+        self.titles.insert(title.to_string(), translation.to_string());
+    }
+
     pub fn translate(&self, name: &str) -> String {
         if let Some(n) = self.names.get(name) {
             return n.clone();
@@ -198,8 +204,9 @@ impl NpcRegistry {
         })
     }
 
-    /// Paquet d'apparition d'un PNJ (vue optimisée, opération 1).
-    pub fn view_packet(npc: &Npc) -> Vec<u8> {
+    /// Paquet d'apparition d'un PNJ (vue optimisée, opération 1) avec le nom à afficher : `npc.name` dans
+    /// la langue du serveur, ou le nom localisé pour le joueur (voir `locale.rs`).
+    pub fn view_packet_named(npc: &Npc, name: &str) -> Vec<u8> {
         let clamp16 = |v: f64| v.round().clamp(-32768.0, 32767.0) as i64;
         let vs = &mini::OPT_VIEW_CHAR;
         let view = build_mini(
@@ -207,7 +214,7 @@ impl NpcRegistry {
             &Fields::new(vs)
                 .with(0, npc.cid)
                 .with(1, npc.tid)
-                .with(2, archcore_net::text::encode(&npc.name))
+                .with(2, archcore_net::text::encode(name))
                 .with(6, 0)
                 .with(7, 0)
                 .with(8, npc.pos)
@@ -258,7 +265,7 @@ pub mod tests {
     #[test]
     fn la_vue_contient_les_fonctions() {
         let npc = darryl();
-        let view = decode_packet(&schema::OPT_VIEW, &NpcRegistry::view_packet(&npc)).unwrap();
+        let view = decode_packet(&schema::OPT_VIEW, &NpcRegistry::view_packet_named(&npc, &npc.name)).unwrap();
         let block = view.bytes(4).unwrap().to_vec();
         let mut found = Vec::new();
         let mut off = 0;
@@ -276,8 +283,11 @@ pub mod tests {
     #[test]
     fn traduction_des_titres() {
         let mut t = Translator::default();
-        t.titles.insert("Merchant".into(), "Marchand".into());
+        t.add_title("Merchant", "Marchand");
         assert_eq!(t.translate("<Merchant> Darryl"), "<Marchand> Darryl");
         assert_eq!(t.translate("Darryl"), "Darryl");
+        let view = decode_packet(&schema::OPT_VIEW, &NpcRegistry::view_packet_named(&darryl(), "<Händler> Darryl")).unwrap();
+        let mini = decode_mini(&mini::OPT_VIEW_CHAR, view.bytes(1).unwrap()).unwrap();
+        assert_eq!(mini.text(2).as_deref(), Some("<Händler> Darryl"));
     }
 }

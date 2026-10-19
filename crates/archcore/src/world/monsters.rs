@@ -400,6 +400,11 @@ impl MonsterRegistry {
     /// Paquet d'apparition d'un monstre (vue optimisée, opération 1) : immobile (drapeau d'arrêt, pas de
     /// destination), avec ses facteurs.
     pub fn view_packet(&self, m: &Monster) -> Vec<u8> {
+        self.view_packet_named(m, &m.name)
+    }
+
+    /// Comme `view_packet`, avec le nom à afficher (localisé pour le joueur, voir `locale.rs`).
+    pub fn view_packet_named(&self, m: &Monster, name: &str) -> Vec<u8> {
         let clamp16 = |v: f64| v.round().clamp(-32768.0, 32767.0) as i64;
         let stats = self.stats.get(&m.tid).cloned().unwrap_or_default();
         let vs = &mini::OPT_VIEW_CHAR;
@@ -408,7 +413,7 @@ impl MonsterRegistry {
             &Fields::new(vs)
                 .with(0, m.cid)
                 .with(1, m.tid)
-                .with(2, archcore_net::text::encode(&m.name))
+                .with(2, archcore_net::text::encode(name))
                 .with(3, if m.is_alive() { 0 } else { ACTION_STATUS_DEAD })
                 .with(5, factors_mini(&monster_factors(m.level, &stats, m.hp)))
                 .with(6, MOVE_STOP)

@@ -34,8 +34,11 @@
   ralentissement…), coups critiques, blocage, dégâts changés en PV ou PM. Banque du compte (objets, argent) et échange
   entre joueurs. Quêtes : prise, progression (monstres, objets de quête), fin et récompenses, abandon. Voir
   [[Protocole réseau|FR-Protocole-reseau]].
-- Extensions ArchRust, côté serveur : négociation de capacités et messages d'AddOn (murmure, `SAY`).
-  Voir [[Extensions ArchRust|FR-Extensions-ArchRust]] ; la partie client reste à écrire dans ArchRust.
+- Extensions ArchRust : négociation de capacités, messages d'AddOn (murmure, `SAY`), et langue du client
+  (version 1.1) : le serveur sert les noms des PNJ et des monstres dans la langue choisie, avec repli, et
+  les autres textes à la demande ; le choix suit le compte. Voir
+  [[Extensions ArchRust|FR-Extensions-ArchRust]] et [[Traduction|FR-Traduction]] ; côté ArchRust, sélecteur
+  de langue dans les Options.
 - Revente d'un objet à un PNJ.
 
 - Visibilité entre joueurs : déplacement relayé aux joueurs proches, apparition et disparition

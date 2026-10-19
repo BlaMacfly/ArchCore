@@ -100,7 +100,7 @@ impl LoginService {
 
 impl Service for Arc<LoginService> {
     fn handles(&self, t: u8) -> bool {
-        t == ptype::WORLD || t == ptype::LOGIN
+        t == ptype::WORLD || t == ptype::LOGIN || t == ptype::ARCHCORE_EXT
     }
     fn connect(&self, _session: &SessionHandle) -> Box<dyn Connection> {
         Box::new(LoginConn { svc: self.clone(), hash_key: None, account: None, characters: Vec::new(), world: String::new() })
@@ -128,12 +128,40 @@ impl Connection for LoginConn {
     async fn on_packet(&mut self, s: &SessionHandle, p: Packet) -> anyhow::Result<()> {
         match p.header.ptype {
             ptype::WORLD => self.on_world(s, &p),
+            ptype::ARCHCORE_EXT => self.on_ext(s, &p).await,
             _ => self.on_login(s, &p).await,
         }
     }
 }
 
 impl LoginConn {
+    /// Extensions ArchRust sur la connexion de login (capacité `language/1`) : `SET_LANGUAGE` change le
+    /// souhait de la connexion et, une fois authentifié, celui du compte. Les textes se demandent au monde.
+    async fn on_ext(&mut self, s: &SessionHandle, p: &Packet) -> anyhow::Result<()> {
+        use archcore_net::schema::{ext_op, ext_result};
+        let request_id = p.int(1).unwrap_or(0);
+        match p.int(0).unwrap_or(-1) {
+            ext_op::SET_LANGUAGE => {
+                let wish = crate::ext::language_field(p).filter(|_| s.has_capability(crate::ext::LANGUAGE));
+                let Some(wish) = wish else {
+                    s.send(&schema::ARCHCORE_EXT, crate::ext::result(request_id, ext_result::INVALID_REQUEST));
+                    return Ok(());
+                };
+                s.set_language(Some(wish.clone()));
+                let summary = crate::locale::summary();
+                let applied = summary.pick(Some(&wish));
+                info!("[login] #{} langue {wish} (appliquée : {applied})", s.id());
+                s.send(&schema::ARCHCORE_EXT, crate::ext::language_ack(request_id, &applied, &summary.available_list()));
+                if let Some((id, _)) = &self.account {
+                    crate::locale::save_account_language(&self.svc.db, *id, &wish).await;
+                }
+            }
+            ext_op::TEXT_REQUEST => s.send(&schema::ARCHCORE_EXT, crate::ext::result(request_id, ext_result::NOT_AVAILABLE)),
+            op => warn!("[login] #{} opération d'extension {op} ignorée", s.id()),
+        }
+        Ok(())
+    }
+
     fn on_world(&mut self, s: &SessionHandle, p: &Packet) -> anyhow::Result<()> {
         match p.int(0).unwrap_or(-1) {
             world_op::SERVER_LIST_REQ => {
@@ -214,6 +242,10 @@ impl LoginConn {
         }
         let (id, name): (u32, String) = (col(&row, "id"), col(&row, "username"));
         self.svc.db.auth.exec("UPDATE account SET last_login = NOW(), last_ip = ? WHERE id = ?", (s.ip().to_string(), id)).await?;
+        // Langue annoncée au HELLO par un client ArchRust : elle suit le compte (clients d'origine compris).
+        if let Some(lang) = s.language() {
+            crate::locale::save_account_language(&self.svc.db, id, &lang).await;
+        }
         self.account = Some((id, name.clone()));
         self.load_characters().await?;
         info!("[login] #{} {name} authentifié ({} personnage(s))", s.id(), self.characters.len());

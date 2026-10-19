@@ -25,6 +25,7 @@ pub mod effects;
 pub mod equipment;
 pub mod gm;
 pub mod items;
+pub mod lang;
 pub mod loot;
 pub mod map;
 pub mod monsters;
@@ -44,7 +45,7 @@ use crate::config::Config;
 use crate::db::{col, Databases};
 use crate::net::{Connection, Service, SessionHandle};
 use crate::{debug, info, warn};
-use archcore_net::schema::{self, char_mgr_op, chat_type, ptype};
+use archcore_net::schema::{self, char_mgr_op, chat_type, ext_op, ptype};
 use archcore_net::{build_packet, Fields, Packet, Vec3};
 use async_trait::async_trait;
 use items::{item_add, item_status, Inventory, ItemCatalog};
@@ -75,6 +76,8 @@ pub struct WorldCtx {
     pub skills: skills::SkillCatalog,
     /// Quêtes (questtemplate.ini, questgroup.ini).
     pub quests: quests::QuestCatalog,
+    /// Langues proposées et textes localisés (tables `language`, `localized_text`).
+    pub locale: crate::locale::Catalog,
     pub view_radius: f64,
 }
 
@@ -144,6 +147,8 @@ pub struct Player {
     pub trade: Option<trade::Trade>,
     /// Journal des quêtes.
     pub quests: quests::PlayerQuests,
+    /// Langue appliquée aux textes envoyés à ce joueur (code de la table `language`, voir `locale.rs`).
+    pub language: String,
 }
 
 impl Player {
@@ -263,7 +268,10 @@ impl Connection for WorldConn {
             ptype::ITEM => loot::on_item_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::EVENT_NPC_DIALOG => npc_events::on_dialog(ctx, &st, self.sid, &p),
             ptype::EVENT_NPC_TRADE => npc_trade::on_packet(ctx, &mut st, self.sid, &p).await?,
-            ptype::ARCHCORE_EXT => addon::on_packet(ctx, &mut st, self.sid, &p),
+            ptype::ARCHCORE_EXT => match p.int(0) {
+                Some(ext_op::SET_LANGUAGE | ext_op::TEXT_REQUEST) => lang::on_packet(ctx, &mut st, self.sid, &p).await?,
+                _ => addon::on_packet(ctx, &mut st, self.sid, &p),
+            },
             ptype::SKILL => skills::on_packet(ctx, &mut st, self.sid, &p),
             ptype::EVENT_SKILL_MASTER => skills::on_master_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::EVENT_BANK => bank::on_packet(ctx, &mut st, self.sid, &p),
@@ -334,8 +342,14 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
     factors.point[1] = factors.point[1].min(factors.point_max[1]);
     // Rattachement : la région où il se trouve si elle est sûre, sinon celle de sa race.
     let bound_region = ctx.map.region(ch.pos_x, ch.pos_z).filter(|r| ctx.regions.is_safe(*r)).unwrap_or_else(|| regions::default_region(factors.ftype[0]));
+    // Langue : souhait du client ArchRust (HELLO), sinon dernier choix du compte, sinon World.Language.
+    let wish = match s.language() {
+        Some(l) => Some(l),
+        None => crate::locale::account_language(&ctx.db, account.id).await,
+    };
+    let language = ctx.locale.pick(wish.as_deref());
     info!(
-        "[world] #{} {} entre avec {} (cid {}{})",
+        "[world] #{} {} entre avec {} (cid {}{}, langue {language})",
         s.id(),
         account.username,
         ch.name,
@@ -387,6 +401,7 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
             bank,
             trade: None,
             quests,
+            language,
         },
     );
     st.by_cid.insert(cid, s.id());
@@ -402,6 +417,12 @@ fn enter_world(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle) {
     };
     let pos = p.ch.pos();
     p.send_raw(character_packet(&p.view(), &p.factors, 0));
+    // Client ArchRust en « automatique » (HELLO sans langue) : le HELLO_ACK annonçait la langue par défaut ;
+    // la langue du compte s'applique finalement, on la lui dit (LANGUAGE_ACK, demande 0). Envoyé ici, juste
+    // après le paquet personnage : avant, le client n'attend que des paquets précis (CONFIG, personnage…).
+    if p.sess.has_capability(crate::ext::LANGUAGE) && p.sess.language().is_none() {
+        p.send(&schema::ARCHCORE_EXT, crate::ext::language_ack(0, &p.language, &ctx.locale.summary.available_list()));
+    }
     // Niveau MJ : le client l'accroche à un personnage déjà connu (CID), d'où l'envoi après le paquet personnage.
     if p.gm_level > 0 {
         p.send_raw(chat::admin_level_packet(p.ch.id, &p.ch.name, p.gm_level, &p.account.username));
@@ -441,7 +462,9 @@ pub fn send_nearby_npcs(ctx: &WorldCtx, st: &mut WorldState, sid: u32, pos: Vec3
     let mut sent = 0;
     for npc in ctx.npcs.near(pos, ctx.view_radius) {
         if p.seen_npcs.insert(npc.cid) {
-            p.sess.send_raw(NpcRegistry::view_packet(npc));
+            // Nom dans la langue du joueur (texte localisé, sinon titre traduit, sinon nom du serveur).
+            let name = ctx.locale.resolve(crate::locale::kind::NPC_NAME, npc.cid.wrapping_sub(npcs::NPC_CID_BASE), &p.language, &npc.name);
+            p.sess.send_raw(NpcRegistry::view_packet_named(npc, &name));
             sent += 1;
         }
     }
@@ -457,7 +480,8 @@ pub fn sync_monsters(ctx: &WorldCtx, st: &mut WorldState, sid: u32, pos: Vec3) -
     let mut added = 0;
     for m in st.monsters.near(pos, ctx.view_radius).filter(|m| m.is_visible()) {
         if p.seen_monsters.insert(m.cid) {
-            p.sess.send_raw(st.monsters.view_packet(m));
+            let name = ctx.locale.resolve(crate::locale::kind::MONSTER_NAME, m.tid, &p.language, &m.name);
+            p.sess.send_raw(st.monsters.view_packet_named(m, &name));
             added += 1;
         }
     }

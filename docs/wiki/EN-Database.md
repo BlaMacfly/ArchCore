@@ -6,7 +6,7 @@ ArchCore uses three MariaDB databases, created by `archcore db-init` from `sql/`
 
 | Table | Content |
 |---|---|
-| `account` | Accounts: name, SHA-256 password hash, GM level, ban, last login, world entry key |
+| `account` | Accounts: name, SHA-256 password hash, GM level, ban, last login, world entry key, language (last choice of an ArchRust client, see [[Translation|EN-Translation]]) |
 | `server_group` | Server groups shown in the list |
 | `world` | Worlds: name, group, `ip:port` address (23 characters max), status |
 
@@ -46,6 +46,15 @@ Filled by `archcore import` from the client tables.
 | `drop_rank_rate` | original server `droprankrate.txt` | Item ranks (percent) by the monster's drop rank |
 | `region_template` | `RegionTemplate.ini` | 331 regions: name, parent region, Type field, safety (33 safe) |
 | `resurrection_point` | `obj*.ini` (event 19, type 1) | 62 resurrection points: region, position, allowed race and class |
+
+### Languages (`sql/004_locale.sql`, same database)
+
+| Table | Content |
+|---|---|
+| `language` | Languages offered to clients: BCP 47 code, names, tier (1 official version, 2 Webzen 2010 client, 3 community), client text folder, `enabled`, order; 11 rows inserted by `db-init` |
+| `localized_text` | Localized texts: `kind` (`npc_name`, `monster_name`, `item_name`, `item_desc`, `quest_name`, `quest_desc`, `skill_name`, `region_name`, `npc_dialog`), `ref_id` (identifier in the source table), `lang`, `text`; filled by `archcore i18n db <language>` and by hand |
+
+See [[Translation|EN-Translation]] for the fallback and [[ArchRust extensions|EN-ArchRust-extensions]] for the protocol.
 
 ## Add an account
 

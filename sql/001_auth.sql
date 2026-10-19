@@ -35,5 +35,9 @@ CREATE TABLE IF NOT EXISTS world (
   CONSTRAINT fk_world_group FOREIGN KEY (group_id) REFERENCES server_group (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Langue choisie par le compte (dernier indicateur reçu d'un client ArchRust, capacité « language/1 ») ;
+-- NULL : aucun choix, le serveur monde applique World.Language.
+ALTER TABLE account ADD COLUMN IF NOT EXISTS language VARCHAR(16) NULL COMMENT 'BCP 47 (table language de la base monde)';
+
 INSERT IGNORE INTO server_group (id, name) VALUES (1, 'ArchCore');
 INSERT IGNORE INTO world (id, group_id, name, address, status, flag) VALUES (1, 1, 'ArchCore', '127.0.0.1:11008', 4, 4);

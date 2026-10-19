@@ -6,6 +6,7 @@
 //!   archcore sim move [compteA mdpA persoA compteB mdpB persoB] deux joueurs : visibilité et déplacement
 //!   archcore sim shop [compte] [mdp] [perso]                  boutique de Darryl : liste, achat, revente
 //!   archcore sim addon [A… B… C…]                             extensions ArchRust : messages d'AddOn (A, B : ArchRust ; C : client d'origine, MJ)
+//!   archcore sim lang [compte] [mdp] [perso]                  langues : HELLO avec langue, noms de PNJ localisés, SET_LANGUAGE, TEXT_REQUEST, client d'origine (lang.rs)
 //!   archcore sim combat [compte] [mdp] [perso] [monstre]      Vers verts au nord d'Anchorville : riposte, poursuite, mort et résurrection,
 //!                                                             puis (invincible) victoire, expérience, butin ramassé, réapparition ; compte MJ requis
 //!   archcore sim equip [compte] [mdp] [perso]                 équiper épée et armure (dégâts, défense), refus de classe, retrait ; SimA voit l'arme
@@ -34,6 +35,8 @@ use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
+mod lang;
+
 /// Valeur facultative affichée sans « Some(…) ».
 fn o<T: std::fmt::Display>(v: Option<T>) -> String {
     v.map(|x| x.to_string()).unwrap_or_else(|| "-".into())
@@ -53,6 +56,7 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
             ];
             Box::pin(addon(&acc)).await
         }
+        Some("lang") => Box::pin(lang::run(&a(1, "sima"), &a(2, "sima"), &a(3, "SimA"))).await,
         Some("bank") => Box::pin(bank(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("trade") => Box::pin(private_trade(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("quest") => Box::pin(quest(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
@@ -99,13 +103,15 @@ pub struct TestClient {
     encrypted: bool,
     /// Paquets d'extension (0xAC) reçus sur cette connexion.
     pub ext_seen: usize,
+    /// Dernier `HELLO_ACK` reçu.
+    pub hello_ack: Option<Fields>,
 }
 
 impl TestClient {
     pub async fn connect(label: &str, addr: &str) -> anyhow::Result<Self> {
         let stream = TcpStream::connect(addr).await.map_err(|e| anyhow::anyhow!("[{label}] connexion à {addr} : {e}"))?;
         println!("[{label}] connecté à {addr}");
-        Ok(TestClient { label: label.into(), stream, splitter: FrameSplitter::default(), queue: VecDeque::new(), server_cipher: None, client_cipher: None, counter: 0, encrypted: false, ext_seen: 0 })
+        Ok(TestClient { label: label.into(), stream, splitter: FrameSplitter::default(), queue: VecDeque::new(), server_cipher: None, client_cipher: None, counter: 0, encrypted: false, ext_seen: 0, hello_ack: None })
     }
 
     pub async fn send(&mut self, schema: &Schema, fields: Fields) -> anyhow::Result<()> {
@@ -205,30 +211,34 @@ impl TestClient {
         Ok(())
     }
 
-    /// Négociation des extensions ArchRust (HELLO → HELLO_ACK) ; rend les capacités accordées.
-    pub async fn hello(&mut self) -> anyhow::Result<String> {
+    /// Négociation des extensions ArchRust (HELLO → HELLO_ACK), avec la langue souhaitée (champ 16,
+    /// capacité `language/1`) ; rend le `HELLO_ACK` (capacités accordées au champ 5).
+    pub async fn hello_lang(&mut self, language: Option<&str>) -> anyhow::Result<Fields> {
         let s = &schema::ARCHCORE_EXT;
         let hello = Fields::new(s)
             .with(0, ext_op::HELLO)
             .with(2, 1)
-            .with(3, 0)
+            .with(3, 1)
             .with(4, b"ArchCore sim".to_vec())
-            .with(5, b"addon-msg/1;saved-vars/1".to_vec());
+            .with(5, b"addon-msg/1;language/1;saved-vars/1".to_vec())
+            .with_opt(16, language.map(|l| l.as_bytes().to_vec()));
         self.send(s, hello).await?;
         let ack = self.expect(s, Some(ext_op::HELLO_ACK)).await?;
-        let f = ack.fields();
-        let caps = f.text(5).unwrap_or_default();
+        let f = ack.fields().clone();
         println!(
-            "[{}] extensions : {} v{}.{} accorde « {caps} » (charge ≤ {} o, {} messages puis {}/s)",
+            "[{}] extensions : {} v{}.{} accorde « {} » (charge ≤ {} o, {} messages puis {}/s){}",
             self.label,
             f.text(4).unwrap_or_default(),
             o(f.int(2)),
             o(f.int(3)),
+            f.text(5).unwrap_or_default(),
             o(f.int(6)),
             o(f.int(7)),
-            o(f.int(8))
+            o(f.int(8)),
+            f.text(16).map(|l| format!(" ; langue {l} parmi {}", f.text(17).unwrap_or_default())).unwrap_or_default()
         );
-        Ok(caps)
+        self.hello_ack = Some(f.clone());
+        Ok(f)
     }
 }
 
@@ -251,6 +261,8 @@ pub struct InWorld {
     pub quests_active: Vec<i64>,
     /// Compétences reçues à l'entrée (vue op 2, champ 8) : (identifiant, TID, niveau).
     pub skills: Vec<(i64, i64, i64)>,
+    /// Langue appliquée annoncée par un `LANGUAGE_ACK` reçu pendant l'entrée (langue du compte).
+    pub language_ack: Option<String>,
 }
 
 /// Paquets complets mis bout à bout (champs « tous les objets », « compétences » de la vue op 2).
@@ -324,11 +336,16 @@ pub async fn enter_world(cfg: &Config, user: &str, pass: &str, char_name: &str, 
 
 /// Comme `enter_world` ; avec `ext`, négocie les extensions ArchRust sur chaque connexion, comme ArchRust.
 pub async fn enter_world_with(cfg: &Config, user: &str, pass: &str, char_name: &str, label: &str, ext: bool) -> anyhow::Result<InWorld> {
+    Box::pin(enter_world_opts(cfg, user, pass, char_name, label, ext, None)).await
+}
+
+/// Comme `enter_world_with`, en annonçant une langue au `HELLO` (capacité `language/1`).
+pub async fn enter_world_opts(cfg: &Config, user: &str, pass: &str, char_name: &str, label: &str, ext: bool, language: Option<&str>) -> anyhow::Result<InWorld> {
     let lg = &schema::LOGIN;
     let mut login = TestClient::connect(&format!("{label}login"), &format!("127.0.0.1:{}", cfg.login.port)).await?;
     login.handshake().await?;
     if ext {
-        login.hello().await?;
+        login.hello_lang(language).await?;
     }
 
     let ws = &schema::WORLD;
@@ -419,7 +436,7 @@ pub async fn enter_world_with(cfg: &Config, user: &str, pass: &str, char_name: &
     let mut world = TestClient::connect(&format!("{label}world"), &address).await?;
     world.handshake().await?;
     if ext {
-        let caps = world.hello().await?;
+        let caps = world.hello_lang(language).await?.text(5).unwrap_or_default();
         anyhow::ensure!(caps.split(';').any(|c| c == "addon-msg/1"), "capacité addon-msg/1 refusée : « {caps} »");
     }
     // Comme le client : op 2, champ 2 = 17, nom, clé d'auth, bloc de 248 octets ; puis un keepalive op 13.
@@ -450,16 +467,28 @@ pub async fn enter_world_with(cfg: &Config, user: &str, pass: &str, char_name: &
     let mut npcs = Vec::new();
     let mut items = Vec::new();
     let (mut quests_done, mut quests_active) = (Vec::new(), Vec::new());
+    let mut language_ack = None;
     loop {
         let p = world
             .expect_where(
-                |q| q.is(&schema::ADMIN, None) || q.is(&schema::OPT_VIEW, Some(1)) || q.is(&schema::OPT_VIEW, Some(2)) || q.is(&schema::QUEST, None) || q.is(cm, Some(char_mgr_op::FINISH_ENTER)),
+                |q| {
+                    q.is(&schema::ADMIN, None)
+                        || q.is(&schema::OPT_VIEW, Some(1))
+                        || q.is(&schema::OPT_VIEW, Some(2))
+                        || q.is(&schema::QUEST, None)
+                        || q.is(&schema::ARCHCORE_EXT, Some(ext_op::LANGUAGE_ACK))
+                        || q.is(cm, Some(char_mgr_op::FINISH_ENTER))
+                },
                 5000,
                 "entrée en jeu",
             )
             .await?;
         if p.ptype == cm.id {
             break;
+        }
+        if p.ptype == schema::ARCHCORE_EXT.id {
+            language_ack = p.fields().text(16);
+            continue;
         }
         if p.is(&schema::QUEST, Some(5)) {
             for (block, field) in [8usize, 9, 10].iter().enumerate() {
@@ -512,7 +541,7 @@ pub async fn enter_world_with(cfg: &Config, user: &str, pass: &str, char_name: &
     println!("  niveau {level}, {} compétence(s) : {skills:?}", skills.len());
     println!("  entrée en jeu confirmée");
     println!("  quêtes : terminées {quests_done:?}, en cours {quests_active:?}");
-    Ok(InWorld { world, cid, start, monsters, npcs, level, bank_money, items, quests_done, quests_active, skills })
+    Ok(InWorld { world, cid, start, monsters, npcs, level, bank_money, items, quests_done, quests_active, skills, language_ack })
 }
 
 async fn client(user: &str, pass: &str, char_name: &str, commands: &[String]) -> anyhow::Result<()> {

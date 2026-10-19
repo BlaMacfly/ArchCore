@@ -8,7 +8,8 @@
 //!   archcore decrypt [source] [destination]    déchiffre Game/ini vers data/client-ini
 //!   archcore i18n strings|coverage [Game]      mesure ce qui reste à traduire
 //!   archcore i18n apply [--ascii] [--dry]      applique data/i18n/fr.json à Game/ini_fr
-//!   archcore sim client|move|shop|addon [args…] client simulé (tests sans le jeu)
+//!   archcore i18n db [langue]                  remplit localized_text (titres de PNJ, mémoire de traduction)
+//!   archcore sim client|move|shop|addon|lang [args…] client simulé (tests sans le jeu)
 //!   archcore re extract-schemas <fichiers…>    relevé des schémas de paquets (sorties REA)
 //! ```
 //! La configuration est lue dans `config/auth.conf` et `config/world.conf` (créés depuis leurs modèles
@@ -18,6 +19,7 @@ mod character;
 mod config;
 mod db;
 mod ext;
+mod locale;
 mod log;
 mod login;
 mod net;
@@ -39,7 +41,7 @@ async fn main() {
         "config" => tools::conf::run(&rest),
         "import" => tools::import::run(&rest).await,
         "decrypt" => tools::decrypt::run(&rest),
-        "i18n" => tools::i18n::run(&rest),
+        "i18n" => tools::i18n::run(&rest).await,
         "sim" => tools::sim::run(&rest).await,
         "re" => tools::re::run(&rest),
         "-h" | "--help" | "help" => {
