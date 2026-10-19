@@ -29,7 +29,8 @@
   aller-retour, destination) ; patrouille des monstres. Résurrection au point de la dernière région sûre
   traversée ; piles d'objets séparées, réunies, détruites. Compétences : apprentissage et amélioration
   chez les instructeurs, points de compétence, lancement ; dégâts, zones, renforcements et
-  affaiblissements, dégâts sur la durée, soins, passives. Voir
+  affaiblissements, dégâts sur la durée, soins, passives. Banque du compte (objets, argent) et échange
+  entre joueurs. Voir
   [[Protocole réseau|FR-Protocole-reseau]].
 - Extensions ArchRust, côté serveur : négociation de capacités et messages d'AddOn (murmure, `SAY`).
   Voir [[Extensions ArchRust|FR-Extensions-ArchRust]] ; la partie client reste à écrire dans ArchRust.
@@ -46,10 +47,10 @@
 
 1. Valider la création complète d'un personnage en jeu.
 2. Vérifier la visibilité entre joueurs avec deux vrais clients.
-3. Fonctions des PNJ : quêtes, téléportation, banque.
+3. Fonctions des PNJ : quêtes, téléportation ; agrandissement de la banque.
 4. Compétences : états spéciaux (étourdissement…), renvois de dégâts, critiques, groupes ; maîtrises.
    Croissance des PV et PM avec le niveau (GrowUpFactor).
-5. Combat : dégâts élémentaires des objets. Objets : banque, échange entre joueurs.
+5. Combat : dégâts élémentaires des objets. Objets : raffinage, conversion.
 6. Discussion, groupes, guildes.
 7. Reconnexion automatique (type 0x63).
 8. Commandes MJ restantes de la page [[Administration|FR-Administration]] (arène, événements, failles…).

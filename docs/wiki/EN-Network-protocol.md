@@ -359,6 +359,49 @@ it is recomputed on entering the world, on learning and on upgrading.
 Still to do: special states (stun, state-based slows…), damage reflection and absorption, combat effects
 (criticals, skill block), dispels and party skills.
 
+## Bank (types 0x36, 0x04 and 0x02)
+
+The bank is shared by the characters of one account. Keepers ("Safe Keeper", 18 NPCs) carry function 20,
+with no data, sent in their view. AGPMEVENTBANK (0x36, 1 flag byte: op, event, CID): the client asks to open
+it with **op 0**; the server, if the keeper is in range, answers **op 1**.
+
+The bank has 4 pages of 7 rows × 4 columns; the first is always open, the next ones according to the
+character's field 23 (extra pages). Bank items have **status 100**, their slot is in **field 8** of
+AGPMITEM (instead of field 7 for the inventory); they are sent with the inventory on entering the world. To
+deposit or move, the client sends AGPMITEM op 2 with status 100 and the wanted slot; to withdraw, op 2 with
+status 2 and an inventory slot (or none: first free slot). Dropping onto a stack of the same item merges
+them. The server answers with op 2 (new status and slot); it refuses while the window is not open at a
+nearby keeper.
+
+Money goes through AGPMCHARACTER **op 7**: field 9 holds the amount deposited (negative: withdrawn). The
+server answers op 1 with the money carried (field 8) and banked (field 9). In the database, `account_bank`
+keeps the account's money and pages; items stay in `character_items` (status 2), attached to the
+character who deposited them and handed to the one who withdraws them.
+
+## Trading between players (type 0x07, AgpmPrivateTrade)
+
+2 flag bytes: op, CID, other player's CID, IID, TID, money (INT64), origin and destination slots, argument.
+
+| Op | Direction | Role |
+|---|---|---|
+| 1 | client | A asks B to trade (field 2); both get action status 7 |
+| 3 | server | B receives the request (field 1 = A) |
+| 4 / 25 | client | B accepts / refuses |
+| 6 | server | Start, to each (field 1 = self, field 2 = the other) |
+| 9 / 10 | client | Put / take back the item with the given IID (field 3) |
+| 23 / 24 | client, server | Money offered (field 5); the other gets op 24 |
+| 16, 17, 18, 19 | | Lock (self ← 16, other ← 17), unlock (18 / 19) |
+| 20 | server | Both sides are locked |
+| 21, 22 | | Ready (self ← 21, other ← 22); both ready: exchange |
+| 0 | server | Result (field 8 = 8: done) |
+| 5 | | Cancel, on both sides |
+
+An item put in the trade goes, for its owner, to status 6 (trade grid: 1 × 3 × 4) through AGPMITEM op 2;
+the other player receives it through AGPMITEM op 0, status 6, owner = the first one. It stays in the database
+and the inventory until the exchange, and can be neither moved, used nor destroyed. On exchange, the server
+checks the money and the inventory space, transfers the items (AGPMITEM op 1 for the old owner, op 0
+status 2 for the new one) and the money (AGPMCHARACTER field 8). A disconnection cancels the trade.
+
 ## GM level (type 0x12, AgpmAdmin)
 
 2-byte field flags: op, CID, then 13 mini-packets. Op 0 with, in field 2, a "GM data" mini-packet of
@@ -388,6 +431,7 @@ Full specification: [[ArchRust extensions|EN-ArchRust-extensions]].
 | 0x11 | Timer | 0x60 | Titles |
 | 0x13 | Quests | 0x63 | Reconnect |
 | 0x32 | NPC shops | 0x37 | NPC dialog |
-| 0x3B | Skill master | | |
+| 0x3B | Skill master | 0x36 | Bank |
+| 0x07 | Trading between players | | |
 
 Full schemas for the 86 modules are in `data/re/packet-schemas.json`.

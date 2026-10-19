@@ -14,6 +14,8 @@
 //!   archcore sim patrol [compte] [mdp] [perso]                immobile chez les Vers verts : des monstres se promènent
 //!   archcore sim bag [compte] [mdp] [perso]                   séparer, réunir et détruire une pile ; ressusciter au point de la région ; compte MJ
 //!   archcore sim skill [compte] [mdp] [perso]                 maître des compétences : apprendre, refus, amélioration ; Dual Slash sur un Ver vert ; compte MJ
+//!   archcore sim bank [compte] [mdp] [perso]                  banque chez Holly : dépôt d'objet et d'argent, reconnexion, retrait ; compte MJ
+//!   archcore sim trade [A… B…]                                échange GmTest ↔ SimA : objet et argent, verrou, échange ; refus ; A compte MJ
 //!   archcore sim effects [compte] [mdp] [perso]               passive (défense), renforcement (vitesse d'attaque), zone, affaiblissement d'un Ver vert ; compte MJ, personnage GmEffets
 //! ```
 //! À lancer contre un serveur de test (`ARCHCORE_CONF_DIR`) : les personnages sont créés au besoin,
@@ -49,6 +51,8 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
             ];
             Box::pin(addon(&acc)).await
         }
+        Some("bank") => Box::pin(bank(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
+        Some("trade") => Box::pin(private_trade(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("effects") => Box::pin(skill_effects(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmEffets"))).await,
         Some("skill") => Box::pin(skill(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("bag") => Box::pin(bag(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
@@ -57,7 +61,7 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         Some("potion") => Box::pin(potion(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("equip") => Box::pin(equip(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("combat") => Box::pin(combat(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "Green Worm"))).await,
-        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol|bag|skill|effects [arguments]"),
+        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol|bag|skill|effects|bank|trade [arguments]"),
     }
 }
 
@@ -234,6 +238,10 @@ pub struct InWorld {
     pub npcs: Vec<(i64, String)>,
     /// Niveau du personnage à l'entrée.
     pub level: i64,
+    /// Argent en banque (champ 9 du personnage).
+    pub bank_money: i64,
+    /// Objets reçus à l'entrée (vue op 2, champ 6) : (IID, TID, statut, quantité).
+    pub items: Vec<(i64, i64, i64, i64)>,
     /// Compétences reçues à l'entrée (vue op 2, champ 8) : (identifiant, TID, niveau).
     pub skills: Vec<(i64, i64, i64)>,
 }
@@ -421,6 +429,7 @@ pub async fn enter_world_with(cfg: &Config, user: &str, pass: &str, char_name: &
     println!("  horloge du serveur : {game_ms} ms, soit {} h en jeu", (game_ms / 3_600_000) % 24);
     world.send(cm, Fields::new(cm).with(0, char_mgr_op::ENTER_WORLD)).await?;
     let me = world.expect(&schema::CHARACTER, Some(0)).await?;
+    let bank_money = me.int(9).unwrap_or(0);
     let level = me
         .fields()
         .bytes(7)
@@ -432,6 +441,7 @@ pub async fn enter_world_with(cfg: &Config, user: &str, pass: &str, char_name: &
     let mut monsters = Vec::new();
     let mut skills = Vec::new();
     let mut npcs = Vec::new();
+    let mut items = Vec::new();
     loop {
         let p = world
             .expect_where(
@@ -444,6 +454,11 @@ pub async fn enter_world_with(cfg: &Config, user: &str, pass: &str, char_name: &
             break;
         }
         if p.is(&schema::OPT_VIEW, Some(2)) {
+            for raw in split_packets(p.fields().bytes(6).unwrap_or_default()) {
+                if let Ok(i) = decode_packet(&schema::ITEM, raw) {
+                    items.push((i.int(2).unwrap_or(0), i.int(3).unwrap_or(0), i.int(1).unwrap_or(0), i.int(5).unwrap_or(0)));
+                }
+            }
             for raw in split_packets(p.fields().bytes(8).unwrap_or_default()) {
                 if let Ok(k) = decode_packet(&schema::SKILL, raw) {
                     skills.push(skill_info(&k));
@@ -469,7 +484,7 @@ pub async fn enter_world_with(cfg: &Config, user: &str, pass: &str, char_name: &
     println!("  {} monstre(s) reçu(s)", monsters.len());
     println!("  niveau {level}, {} compétence(s) : {skills:?}", skills.len());
     println!("  entrée en jeu confirmée");
-    Ok(InWorld { world, cid, start, monsters, npcs, level, skills })
+    Ok(InWorld { world, cid, start, monsters, npcs, level, bank_money, items, skills })
 }
 
 async fn client(user: &str, pass: &str, char_name: &str, commands: &[String]) -> anyhow::Result<()> {
@@ -1108,6 +1123,166 @@ async fn bag(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
     anyhow::ensure!((d.x + 476_000.0).abs() < 1.0 && (d.z + 61_000.0).abs() < 1.0, "ressuscité en {d:?}");
     println!("  ✓ ressuscité au point de résurrection d'Anchorville : {:.0}, {:.0}", d.x, d.z);
     println!("\ninventaire et résurrection : OK");
+    Ok(())
+}
+
+/// Banque chez Holly (gardienne au sud d'Anchorville) : dépôt d'une pile et d'argent, reconnexion, retrait.
+async fn bank(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
+    const KEEPER: Vec3 = Vec3 { x: -480_400.0, y: 4_920.0, z: -69_100.0 };
+    const POTION: i64 = 190; // Small Life Potion
+    const BANK: i64 = 100;
+    const STOP: i64 = 0x04;
+    let cfg = crate::config::load()?;
+    let (it, ch, c, mv, eb, bk) = (&schema::ITEM, &schema::CHATTING, &schema::CHARACTER, &schema::OPT_CHAR_MOVE, &mini::EVENT_BASE, &schema::EVENT_BANK);
+    let say = |cid: u32, text: &str| Fields::new(ch).with(0, 0).with(1, cid).with(2, chat_type::NORMAL).with(6, crate::tools::to_cp1252(text));
+    let grid = |g: [i64; 3]| build_mini(&mini::ITEM_GRID, &Fields::new(&mini::ITEM_GRID).with(0, g[0]).with(1, g[1]).with(2, g[2]));
+
+    step(&format!("{char_name} entre en jeu, chez Holly"));
+    let mut w = enter_world(&cfg, user, pass, char_name, "").await?;
+    let me = w.cid as i64;
+    let bank0 = w.bank_money;
+    let banked0 = w.items.iter().filter(|i| i.2 == BANK).count();
+    w.world.send(mv, Fields::new(mv).with(0, w.cid).with(1, KEEPER).with(2, KEEPER).with(5, STOP).with(6, 0)).await?;
+    let mut keeper = w.npcs.iter().find(|n| n.1.ends_with(" Holly")).map(|n| n.0);
+    while let Ok(p) = w.world.expect_where(|q| q.is(&schema::OPT_VIEW, Some(1)), 1500, "PNJ").await {
+        if let Ok(view) = decode_mini(&mini::OPT_VIEW_CHAR, p.fields().bytes(1).unwrap_or_default()) {
+            if view.text(2).is_some_and(|n| n.ends_with(" Holly")) {
+                keeper = view.int(0);
+            }
+        }
+    }
+    let keeper = keeper.ok_or_else(|| anyhow::anyhow!("Holly introuvable"))?;
+    println!("  {} objet(s) déjà en banque, {bank0} pièce(s)", banked0);
+
+    step("dépôt refusé sans gardien");
+    w.world.send(ch, say(w.cid, &format!("/create \"{char_name}\" {POTION} 3"))).await?;
+    let made = w.world.expect_where(|q| q.is(it, None) && q.int(3) == Some(POTION) && q.int(1) == Some(2), 3000, "potions créées").await?;
+    let iid = made.int(2).unwrap_or(0);
+    w.world.send(it, Fields::new(it).with(0, 2).with(1, BANK).with(2, iid).with(8, grid([0, 6, 3]))).await?;
+    w.world.expect_where(|q| q.ptype == ch.id && q.int(2) == Some(chat_type::SYSTEM), 3000, "refus").await?;
+    println!("  ✓ refusé (fenêtre fermée)");
+
+    step("ouverture chez Holly");
+    let event = build_mini(eb, &Fields::new(eb).with(0, 3).with(1, keeper).with(3, 20));
+    w.world.send(bk, Fields::new(bk).with(0, 0).with(1, event.clone()).with(2, w.cid)).await?;
+    w.world.expect_where(|q| q.is(bk, Some(1)), 3000, "accord").await?;
+    println!("  ✓ banque ouverte ({keeper:#x})");
+
+    step("dépôt d'une pile et de 1000 pièces");
+    w.world.send(ch, say(w.cid, "/money 5000")).await?;
+    w.world.expect_where(|q| q.is(c, Some(1)) && q.int(8) == Some(5000), 3000, "argent").await?;
+    w.world.send(it, Fields::new(it).with(0, 2).with(1, BANK).with(2, iid).with(8, grid([0, 6, 3]))).await?;
+    let put = w.world.expect_where(|q| q.is(it, Some(2)) && q.int(2) == Some(iid), 3000, "objet en banque").await?;
+    anyhow::ensure!(put.int(1) == Some(BANK), "statut {:?}", put.int(1));
+    println!("  ✓ pile {iid} en banque");
+    w.world.send(c, Fields::new(c).with(0, 7).with(1, w.cid).with(9, 1000)).await?;
+    let m = w.world.expect_where(|q| q.is(c, Some(1)) && q.int(9).is_some(), 3000, "argent en banque").await?;
+    anyhow::ensure!(m.int(8) == Some(4000) && m.int(9) == Some(bank0 + 1000), "argent {:?}, banque {:?}", m.int(8), m.int(9));
+    println!("  ✓ 4000 sur soi, {} en banque", bank0 + 1000);
+
+    step("reconnexion");
+    drop(w);
+    let mut w = enter_world(&cfg, user, pass, char_name, "").await?;
+    anyhow::ensure!(w.items.iter().any(|i| i.0 == iid && i.2 == BANK), "pile absente de la banque à l'entrée");
+    anyhow::ensure!(w.bank_money == bank0 + 1000, "banque {} à l'entrée", w.bank_money);
+    println!("  ✓ pile et {} pièce(s) retrouvées en banque", w.bank_money);
+
+    step("retrait");
+    w.world.send(bk, Fields::new(bk).with(0, 0).with(1, event).with(2, w.cid)).await?;
+    w.world.expect_where(|q| q.is(bk, Some(1)), 3000, "accord").await?;
+    w.world.send(it, Fields::new(it).with(0, 2).with(1, 2).with(2, iid)).await?;
+    let back = w.world.expect_where(|q| q.is(it, Some(2)) && q.int(2) == Some(iid), 3000, "objet retiré").await?;
+    anyhow::ensure!(back.int(1) == Some(2), "statut {:?}", back.int(1));
+    w.world.send(c, Fields::new(c).with(0, 7).with(1, w.cid).with(9, -1000)).await?;
+    let m = w.world.expect_where(|q| q.is(c, Some(1)) && q.int(9).is_some(), 3000, "argent retiré").await?;
+    anyhow::ensure!(m.int(9) == Some(bank0), "banque {:?}", m.int(9));
+    println!("  ✓ pile dans l'inventaire, banque revenue à {bank0} pièce(s) ({me:#x})");
+    // La pile créée est détruite.
+    w.world.send(it, Fields::new(it).with(0, 21).with(2, iid)).await?;
+    w.world.expect_where(|q| q.is(it, Some(1)) && q.int(2) == Some(iid), 3000, "pile détruite").await?;
+    println!("\nbanque : OK");
+    Ok(())
+}
+
+/// Échange entre deux joueurs : A (compte MJ) propose une pile et de l'argent, B de l'argent.
+async fn private_trade(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> anyhow::Result<()> {
+    const SPOT: Vec3 = Vec3 { x: -476_000.0, y: 4_422.0, z: -61_000.0 };
+    const POTION: i64 = 190;
+    const STOP: i64 = 0x04;
+    let cfg = crate::config::load()?;
+    let (it, ch, c, mv, tr) = (&schema::ITEM, &schema::CHATTING, &schema::CHARACTER, &schema::OPT_CHAR_MOVE, &schema::PRIVATE_TRADE);
+    let say = |cid: u32, text: &str| Fields::new(ch).with(0, 0).with(1, cid).with(2, chat_type::NORMAL).with(6, crate::tools::to_cp1252(text));
+    let t = |op: i64| Fields::new(tr).with(0, op);
+    let is_t = |op: i64| move |q: &Recv| q.is(tr, Some(op));
+
+    step(&format!("{ca} et {cb} entrent en jeu au même endroit"));
+    let mut a = enter_world(&cfg, ua, pa, ca, "A-").await?;
+    let mut b = enter_world(&cfg, ub, pb, cb, "B-").await?;
+    for w in [&mut a, &mut b] {
+        let cid = w.cid;
+        w.world.send(mv, Fields::new(mv).with(0, cid).with(1, SPOT).with(2, SPOT).with(5, STOP).with(6, 0)).await?;
+    }
+    a.world.send(ch, say(a.cid, &format!("/create \"{ca}\" {POTION} 2"))).await?;
+    let made = a.world.expect_where(|q| q.is(it, None) && q.int(3) == Some(POTION) && q.int(1) == Some(2), 3000, "potions créées").await?;
+    let iid = made.int(2).unwrap_or(0);
+    a.world.send(ch, say(a.cid, "/money 10000")).await?;
+    a.world.expect_where(|q| q.is(c, Some(1)) && q.int(8) == Some(10_000), 3000, "argent de A").await?;
+    a.world.send(ch, say(a.cid, &format!("/money 300 \"{cb}\""))).await?;
+    b.world.expect_where(|q| q.is(c, Some(1)) && q.int(8) == Some(300), 3000, "argent de B").await?;
+    let (acid, bcid) = (a.cid as i64, b.cid as i64);
+
+    step("demande et acceptation");
+    a.world.send(tr, t(1).with(1, acid).with(2, bcid)).await?;
+    let ask = b.world.expect_where(is_t(3), 3000, "demande reçue").await?;
+    anyhow::ensure!(ask.int(1) == Some(acid), "demandeur {:?}", ask.int(1));
+    b.world.send(tr, t(4).with(1, bcid)).await?;
+    a.world.expect_where(is_t(6), 3000, "début chez A").await?;
+    b.world.expect_where(is_t(6), 3000, "début chez B").await?;
+    println!("  ✓ échange ouvert");
+
+    step("A propose une pile et 500 pièces, B 100 pièces");
+    a.world.send(tr, t(9).with(1, acid).with(3, iid)).await?;
+    a.world.expect_where(|q| q.is(it, Some(2)) && q.int(2) == Some(iid) && q.int(1) == Some(6), 3000, "pile dans la grille de A").await?;
+    b.world.expect_where(|q| q.is(it, Some(0)) && q.int(2) == Some(iid) && q.int(1) == Some(6) && q.int(4) == Some(acid), 3000, "pile vue par B").await?;
+    a.world.send(tr, t(23).with(1, acid).with(5, 500)).await?;
+    b.world.expect_where(|q| q.is(tr, Some(24)) && q.int(5) == Some(500), 3000, "argent de A vu par B").await?;
+    b.world.send(tr, t(23).with(1, bcid).with(5, 100)).await?;
+    a.world.expect_where(|q| q.is(tr, Some(24)) && q.int(5) == Some(100), 3000, "argent de B vu par A").await?;
+    // Un objet proposé ne se détruit pas.
+    a.world.send(it, Fields::new(it).with(0, 21).with(2, iid)).await?;
+    anyhow::ensure!(a.world.expect_where(|q| q.is(it, Some(1)) && q.int(2) == Some(iid), 800, "").await.is_err(), "objet proposé détruit");
+    println!("  ✓ propositions vues des deux côtés ; l'objet proposé reste intouchable");
+
+    step("verrous, puis échange");
+    a.world.send(tr, t(16).with(1, acid)).await?;
+    b.world.expect_where(is_t(17), 3000, "A verrouillé").await?;
+    b.world.send(tr, t(16).with(1, bcid)).await?;
+    a.world.expect_where(is_t(20), 3000, "prêt à échanger (A)").await?;
+    b.world.expect_where(is_t(20), 3000, "prêt à échanger (B)").await?;
+    a.world.send(tr, t(21).with(1, acid)).await?;
+    b.world.expect_where(is_t(22), 3000, "A prêt").await?;
+    b.world.send(tr, t(21).with(1, bcid)).await?;
+    let got = b.world.expect_where(|q| q.is(it, Some(0)) && q.int(2) == Some(iid) && q.int(4) == Some(bcid) && q.int(1) == Some(2), 3000, "pile reçue par B").await?;
+    let bm = b.world.expect_where(|q| q.is(c, Some(1)) && q.int(8).is_some(), 3000, "argent de B après").await?;
+    b.world.expect_where(|q| q.is(tr, Some(0)) && q.int(8) == Some(8), 3000, "résultat chez B").await?;
+    a.world.expect_where(|q| q.is(it, Some(1)) && q.int(2) == Some(iid), 3000, "pile partie de chez A").await?;
+    let am = a.world.expect_where(|q| q.is(c, Some(1)) && q.int(8).is_some(), 3000, "argent de A après").await?;
+    a.world.expect_where(|q| q.is(tr, Some(0)), 3000, "résultat chez A").await?;
+    anyhow::ensure!(am.int(8) == Some(9600) && bm.int(8) == Some(700), "argent A {:?}, B {:?}", am.int(8), bm.int(8));
+    println!("  ✓ B a reçu {} potion(s) ; A : 9600 pièces, B : 700", o(got.int(5)));
+
+    step("refus d'une seconde demande");
+    a.world.send(tr, t(1).with(1, acid).with(2, bcid)).await?;
+    b.world.expect_where(is_t(3), 3000, "seconde demande").await?;
+    b.world.send(tr, t(25).with(1, bcid)).await?;
+    a.world.expect_where(is_t(5), 3000, "annulation chez A").await?;
+    b.world.expect_where(is_t(5), 3000, "annulation chez B").await?;
+    println!("  ✓ refusée, échange annulé des deux côtés");
+
+    // B jette la pile reçue.
+    b.world.send(it, Fields::new(it).with(0, 21).with(2, iid)).await?;
+    b.world.expect_where(|q| q.is(it, Some(1)) && q.int(2) == Some(iid), 3000, "pile détruite").await?;
+    println!("\néchange : OK");
     Ok(())
 }
 

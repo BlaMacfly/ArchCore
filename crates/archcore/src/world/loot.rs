@@ -339,6 +339,10 @@ pub fn expire(st: &mut WorldState, now: Instant) {
 
 /// AGPMITEM reçu d'un joueur : ramassage (op 11) ici, changement de place (op 2) dans `equipment.rs`.
 pub async fn on_item_packet(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> anyhow::Result<()> {
+    if super::trade::is_offered(st, sid, p.int(2).unwrap_or(0) as u32) {
+        debug!("[échange] #{sid} AGPMITEM op {:?} sur un objet proposé à l'échange : ignoré", p.int(0));
+        return Ok(());
+    }
     match p.int(0) {
         Some(PICKUP_ITEM) => pick_up(ctx, st, sid, p.int(2).unwrap_or(0) as u32, Instant::now()).await,
         Some(super::items::item_op::UPDATE) => super::equipment::on_item_update(ctx, st, sid, p).await,

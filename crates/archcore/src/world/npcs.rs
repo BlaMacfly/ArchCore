@@ -15,6 +15,7 @@ use std::path::Path;
 /// Fonctions d'événement (ApmEventManager) des PNJ, numéros relevés dans npc.ini.
 pub mod event_function {
     pub const NPC_TRADE: i64 = 9;
+    pub const BANK: i64 = 20;
     pub const NPC_DIALOG: i64 = 21;
     pub const SKILL_MASTER: i64 = 25;
     pub const QUEST: i64 = 27;
@@ -95,6 +96,12 @@ pub fn event_block(npc: &Npc) -> Vec<u8> {
             let data = build_mini(sm, &Fields::new(sm).with(0, int("SkillRaceType")).with(1, int("SkillClassType")));
             let em = &schema::EVENT_MANAGER;
             out.extend(build_packet(em, &Fields::new(em).with(0, event_base(npc.cid, ev.function)).with(1, data)));
+            continue;
+        }
+        if ev.function == event_function::BANK {
+            // Gardien de banque : fonction sans données.
+            let em = &schema::EVENT_MANAGER;
+            out.extend(build_packet(em, &Fields::new(em).with(0, event_base(npc.cid, ev.function))));
             continue;
         }
         let Some(key) = event_int_param(ev.function) else { continue };

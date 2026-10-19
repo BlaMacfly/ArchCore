@@ -150,6 +150,9 @@ pub async fn on_item_update(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &P
     if !player.in_game || player.dead {
         return Ok(());
     }
+    if status == item_status::BANK || player.bank.items.contains_key(&iid) {
+        return super::bank::on_item_update(ctx, st, sid, p).await;
+    }
     let worn_part = player.inventory.equipment.iter().find(|(_, i)| i.iid == iid).map(|(part, _)| *part);
     match (status, worn_part) {
         (item_status::EQUIP, None) => equip(ctx, st, sid, iid).await,

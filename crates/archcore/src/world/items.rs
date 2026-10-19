@@ -23,6 +23,9 @@ pub mod item_op {
 pub mod item_status {
     pub const INVENTORY: i64 = 2;
     pub const EQUIP: i64 = 3;
+    /// Grille d'échange entre joueurs.
+    pub const TRADE_GRID: i64 = 6;
+    pub const BANK: i64 = 100;
     pub const NPC_TRADE: i64 = 10;
 }
 
@@ -30,6 +33,7 @@ pub mod item_status {
 pub mod stored_status {
     pub const INVENTORY: i64 = 0;
     pub const EQUIP: i64 = 1;
+    pub const BANK: i64 = 2;
 }
 
 /// Inventaire : 4 sacs de 4 × 4 cases utilisés (la grille du client en a 5 × 5 × 5).
@@ -53,11 +57,17 @@ fn grid_mini(g: Grid) -> Vec<u8> {
     build_mini(s, &Fields::new(s).with(0, g[0]).with(1, g[1]).with(2, g[2]))
 }
 
-/// AGPMITEM op 0 (ajout). `grid` = [sac, ligne, colonne] pour l'inventaire ou une boutique.
+/// Champ AGPMITEM de la case selon le statut : 8 pour la banque, 7 sinon (inventaire, boutique, échange).
+fn grid_field(status: i64) -> usize {
+    if status == item_status::BANK { 8 } else { 7 }
+}
+
+/// AGPMITEM op 0 (ajout). `grid` = [sac, ligne, colonne] pour l'inventaire, la banque, une boutique ou
+/// l'échange.
 pub fn item_add(iid: u32, tid: u32, owner: Option<u32>, count: i64, status: i64, grid: Option<Grid>) -> Vec<u8> {
     let s = &schema::ITEM;
     let f = Fields::new(s).with(0, item_op::ADD).with(1, status).with(2, iid).with(3, tid).with_opt(4, owner).with(5, count);
-    build_packet(s, &f.with_opt(7, grid.map(grid_mini)))
+    build_packet(s, &f.with_opt(grid_field(status), grid.map(grid_mini)))
 }
 
 /// AGPMITEM op 1 (retrait).
@@ -66,11 +76,12 @@ pub fn item_remove(iid: u32, owner: Option<u32>) -> Vec<u8> {
     build_packet(s, &Fields::new(s).with(0, item_op::REMOVE).with(2, iid).with_opt(4, owner))
 }
 
-/// AGPMITEM op 2 (mise à jour) du statut et de la place : case d'inventaire, ou aucune pour un objet équipé.
+/// AGPMITEM op 2 (mise à jour) du statut et de la place : case d'inventaire, de banque ou d'échange, ou
+/// aucune pour un objet équipé.
 pub fn item_update(item: &InventoryItem, owner: u32, status: i64) -> Vec<u8> {
     let s = &schema::ITEM;
     let f = Fields::new(s).with(0, item_op::UPDATE).with(1, status).with(2, item.iid).with(3, item.tid).with(4, owner).with(5, item.count);
-    build_packet(s, &f.with_opt(7, (status == item_status::INVENTORY).then(|| grid_mini(item.grid))))
+    build_packet(s, &f.with_opt(grid_field(status), (status != item_status::EQUIP).then(|| grid_mini(item.grid))))
 }
 
 /// AGPMITEM op 2 (mise à jour) de la quantité.

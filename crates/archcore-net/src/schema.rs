@@ -28,6 +28,7 @@ pub mod ptype {
     pub const CHAR_MANAGER: u8 = 0x03;
     pub const ITEM: u8 = 0x04;
     pub const SKILL: u8 = 0x05;
+    pub const PRIVATE_TRADE: u8 = 0x07;
     pub const PARTY: u8 = 0x08;
     pub const LOGIN: u8 = 0x0d;
     pub const CHATTING: u8 = 0x0f;
@@ -39,6 +40,7 @@ pub mod ptype {
     pub const WORLD: u8 = 0x18;
     pub const RETURN_TO_LOGIN: u8 = 0x2f;
     pub const EVENT_NPC_TRADE: u8 = 0x32;
+    pub const EVENT_BANK: u8 = 0x36;
     pub const EVENT_NPC_DIALOG: u8 = 0x37;
     pub const EVENT_SKILL_MASTER: u8 = 0x3b;
     pub const EVENT_MANAGER: u8 = 0x3c;
@@ -251,6 +253,27 @@ pub static SKILL: Schema = Schema {
     ],
 };
 
+/// AgpmEventBank (0x36) — drapeaux 1 : op (0 demande, 1 accord), événement (EVENT_BASE), CID du joueur.
+pub static EVENT_BANK: Schema = Schema { name: "AGPMEVENTBANK", id: ptype::EVENT_BANK, flag_len: 1, fields: &[f(I8), f(Packet), f(I32)] };
+
+/// AgpmPrivateTrade (0x07) — drapeaux 2 : échange entre joueurs.
+pub static PRIVATE_TRADE: Schema = Schema {
+    name: "AGPMPRIVATETRADE",
+    id: ptype::PRIVATE_TRADE,
+    flag_len: 2,
+    fields: &[
+        f(I8),     // 0 opération
+        f(I32),    // 1 CID
+        f(I32),    // 2 CID de l'autre joueur
+        f(I32),    // 3 IID
+        f(I32),    // 4 TID
+        f(I64),    // 5 argent
+        f(Packet), // 6 case d'origine (ITEM_GRID)
+        f(Packet), // 7 case (ITEM_GRID)
+        f(I32),    // 8 argument (résultat…)
+    ],
+};
+
 /// AgpmEventSkillMaster (0x3B) — drapeaux 1 : maître des compétences.
 pub static EVENT_SKILL_MASTER: Schema = Schema {
     name: "AGPMEVENTSKILLMASTER",
@@ -373,7 +396,7 @@ pub static ARCHCORE_EXT: Schema = Schema {
 /// Tous les schémas principaux, pour l'aiguillage par type.
 pub static MAIN: &[&Schema] = &[
     &CONFIG, &CHARACTER, &CHAR_MANAGER, &LOGIN, &TIMER, &WORLD, &CHATTING, &ADMIN, &ITEM, &EVENT_NPC_TRADE,
-    &EVENT_NPC_DIALOG, &EVENT_MANAGER, &SKILL, &EVENT_SKILL_MASTER, &SYSTEM_MESSAGE, &RETURN_TO_LOGIN, &OPT_CHAR_MOVE, &OPT_CHAR_ACTION, &OPT_VIEW,
+    &EVENT_NPC_DIALOG, &EVENT_MANAGER, &SKILL, &EVENT_SKILL_MASTER, &EVENT_BANK, &PRIVATE_TRADE, &SYSTEM_MESSAGE, &RETURN_TO_LOGIN, &OPT_CHAR_MOVE, &OPT_CHAR_ACTION, &OPT_VIEW,
     &STARTUP_ENCRYPTION, &ARCHCORE_EXT,
 ];
 

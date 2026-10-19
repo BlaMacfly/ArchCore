@@ -16,7 +16,8 @@ Toutes sont en `utf8mb4`.
 | Table | Contenu |
 |---|---|
 | `characters` | Compte, emplacement, nom unique, modèle (TID), niveau, expérience, PV/PM/PE, position, argent, banque, coiffure, visage, suppression logique |
-| `character_items` | Objets possédés (prévu) |
+| `character_items` | Objets : statut 0 inventaire, 1 équipé, 2 banque (rattaché au personnage qui l'a déposé) |
+| `account_bank` | Banque du compte : argent, pages en plus de la première (créée à la première entrée, avec l'argent que les personnages avaient en banque) |
 | `character_skills` | Compétences apprises et leur niveau (« Normal Attack » n'y figure pas : tout personnage la connaît) |
 
 ## `archcore_world` — données du jeu (`sql/003_world.sql`)

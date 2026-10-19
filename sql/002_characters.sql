@@ -45,6 +45,15 @@ CREATE TABLE IF NOT EXISTS character_items (
   CONSTRAINT fk_item_character FOREIGN KEY (character_id) REFERENCES characters (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Banque commune aux personnages d'un compte : argent et pages supplémentaires. Les objets en banque sont
+-- des lignes de character_items au statut 2, rattachées au personnage qui les a déposés.
+CREATE TABLE IF NOT EXISTS account_bank (
+  account_id   INT UNSIGNED NOT NULL,
+  money        BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  extra_slots  TINYINT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'pages de banque en plus de la première',
+  PRIMARY KEY (account_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS character_skills (
   character_id  INT UNSIGNED NOT NULL,
   skill_tid     INT UNSIGNED NOT NULL,

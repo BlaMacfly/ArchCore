@@ -40,6 +40,8 @@ crates/archcore/           serveur et outils
     regions.rs             régions sûres, rattachement, points de résurrection
     skills.rs              compétences : catalogue, points, maître des compétences, lancement, zones, dégâts
     effects.rs             effets durables : modificateurs, dégâts sur la durée, soins, passives
+    bank.rs                banque du compte : gardiens, objets, argent
+    trade.rs               échange entre joueurs
     map.rs                 carte serveur (map_segment) : sol infranchissable, régions
     items.rs               catalogue d'objets, inventaire, paquets AGPMITEM
     chat.rs, gm.rs         discussion et commandes MJ

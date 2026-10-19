@@ -40,6 +40,8 @@ crates/archcore/           server and tools
     regions.rs             safe regions, binding, resurrection points
     skills.rs              skills: catalogue, points, skill master, casting, areas, damage
     effects.rs             lasting effects: modifiers, damage over time, heals, passives
+    bank.rs                account bank: keepers, items, money
+    trade.rs               trading between players
     map.rs                 server map (map_segment): blocked ground, regions
     items.rs               item catalog, inventory, AGPMITEM packets
     chat.rs, gm.rs         chat and GM commands

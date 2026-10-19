@@ -366,6 +366,51 @@ qu'elle est connue ; il est recalculé à l'entrée en jeu, à l'apprentissage e
 Restent à faire : états spéciaux (étourdissement, ralentissement par état…), renvois et absorptions de
 dégâts, effets de combat (critiques, blocage des compétences), purges et compétences de groupe.
 
+## Banque (types 0x36, 0x04 et 0x02)
+
+La banque est commune aux personnages d'un même compte. Les gardiens (« Safe Keeper », 18 PNJ) portent la
+fonction 20, sans données, envoyée dans leur vue. AGPMEVENTBANK (0x36, drapeaux 1 : op, événement, CID) :
+le client demande l'ouverture par l'**op 0** ; le serveur, si le gardien est à portée, répond **op 1**.
+
+La banque compte 4 pages de 7 lignes × 4 colonnes ; la première est toujours ouverte, les suivantes selon
+le champ 23 du personnage (pages en plus). Les objets en banque ont le **statut 100**, leur case est au
+**champ 8** d'AGPMITEM (au lieu du champ 7 de l'inventaire) ; ils partent avec l'inventaire à l'entrée en
+jeu. Pour déposer ou ranger, le client envoie AGPMITEM op 2 avec le statut 100 et la case voulue ; pour
+retirer, op 2 avec le statut 2 et une case d'inventaire (ou aucune : première case libre). Poser sur une
+pile du même objet les réunit. Le serveur répond par op 2 (nouveau statut et case) ; il refuse tant que la
+fenêtre n'est pas ouverte auprès d'un gardien proche.
+
+L'argent passe par AGPMCHARACTER **op 7** : le champ 9 porte le montant déposé (négatif : retiré). Le
+serveur renvoie op 1 avec l'argent sur soi (champ 8) et en banque (champ 9). En base, `account_bank`
+garde l'argent et les pages du compte ; les objets restent dans `character_items` (statut 2), rattachés
+au personnage qui les a déposés et passés à celui qui les retire.
+
+## Échange entre joueurs (type 0x07, AgpmPrivateTrade)
+
+Drapeaux 2 : op, CID, CID de l'autre joueur, IID, TID, argent (INT64), cases d'origine et de destination,
+argument.
+
+| Op | Sens | Rôle |
+|---|---|---|
+| 1 | client | A demande un échange à B (champ 2) ; tous deux passent au statut d'action 7 |
+| 3 | serveur | B reçoit la demande (champ 1 = A) |
+| 4 / 25 | client | B accepte / refuse |
+| 6 | serveur | Début, à chacun (champ 1 = soi, champ 2 = l'autre) |
+| 9 / 10 | client | Mettre / reprendre l'objet d'IID donné (champ 3) |
+| 23 / 24 | client, serveur | Argent proposé (champ 5) ; l'autre reçoit op 24 |
+| 16, 17, 18, 19 | | Verrouiller (soi ← 16, l'autre ← 17), déverrouiller (18 / 19) |
+| 20 | serveur | Les deux côtés sont verrouillés |
+| 21, 22 | | Prêt (soi ← 21, l'autre ← 22) ; tous deux prêts : échange |
+| 0 | serveur | Résultat (champ 8 = 8 : échange fait) |
+| 5 | | Annulation, des deux côtés |
+
+Un objet mis dans l'échange passe, chez son propriétaire, au statut 6 (grille d'échange : 1 × 3 × 4) par
+AGPMITEM op 2 ; l'autre le reçoit par AGPMITEM op 0, statut 6, propriétaire = le premier. Il reste en base
+et dans l'inventaire jusqu'à l'échange, et ne peut être ni déplacé, ni utilisé, ni détruit. À l'échange, le
+serveur vérifie l'argent et la place dans les inventaires, transfère les objets (AGPMITEM op 1 chez l'ancien
+propriétaire, op 0 statut 2 chez le nouveau) et l'argent (AGPMCHARACTER champ 8). Une déconnexion annule
+l'échange.
+
 ## Niveau MJ (type 0x12, AgpmAdmin)
 
 Drapeaux de champs sur 2 octets : op, CID, puis 13 mini-paquets. L'op 0 avec, au champ 2, un
@@ -396,6 +441,7 @@ pas envoyé `HELLO`. Spécification complète : [[Extensions ArchRust|FR-Extensi
 | 0x11 | Horloge (AgpmTimer) | 0x60 | Titres |
 | 0x13 | Quêtes | 0x63 | Reconnexion |
 | 0x32 | Boutiques des PNJ | 0x37 | Dialogue des PNJ |
-| 0x3B | Maître des compétences | | |
+| 0x3B | Maître des compétences | 0x36 | Banque |
+| 0x07 | Échange entre joueurs | | |
 
 Les schémas complets des 86 modules sont dans `data/re/packet-schemas.json`.

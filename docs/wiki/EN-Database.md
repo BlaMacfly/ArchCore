@@ -15,7 +15,8 @@ ArchCore uses three MariaDB databases, created by `archcore db-init` from `sql/`
 | Table | Content |
 |---|---|
 | `characters` | Account, slot, unique name, template (TID), level, experience, HP/MP/SP, position, money, bank, hair, face, soft delete |
-| `character_items` | Owned items (planned) |
+| `character_items` | Items: status 0 inventory, 1 equipped, 2 bank (attached to the character who deposited it) |
+| `account_bank` | Account bank: money, pages beyond the first (created on first entry, with the money the characters had in the bank) |
 | `character_skills` | Learned skills and their level ("Normal Attack" is not stored: every character knows it) |
 
 ## `archcore_world` — game data (`sql/003_world.sql`)

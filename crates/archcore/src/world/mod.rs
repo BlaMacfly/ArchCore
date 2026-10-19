@@ -10,12 +10,14 @@
 //!   AGPMOPTIMIZEDCHARMOVE (0x40) : déplacement (presence.rs)
 //!   AGPMEVENTNPCDIALOG (0x37), AGCMEVENTNPCTRADE (0x32) : PNJ (npc_events.rs, npc_trade.rs)
 //!   AGPMSKILL (0x05), AGPMEVENTSKILLMASTER (0x3B) : compétences (skills.rs)
+//!   AGPMEVENTBANK (0x36), AGPMCHARACTER op 7 : banque (bank.rs) ; AGPMPRIVATETRADE (0x07) : échange (trade.rs)
 //! ```
 //! L'état du monde est partagé derrière un verrou : les paquets de tous les joueurs sont traités un à
 //! un, comme dans la boucle unique du serveur Node.
 
 pub mod addon;
 pub mod ai;
+pub mod bank;
 pub mod chat;
 pub mod combat;
 pub mod effects;
@@ -32,6 +34,7 @@ pub mod presence;
 pub mod recovery;
 pub mod regions;
 pub mod skills;
+pub mod trade;
 pub mod travel;
 
 use crate::character::{character_packet, factors_mini, make_factors, move_mini, CharView, CharacterRow, Factors, MoveMini, Templates};
@@ -131,6 +134,10 @@ pub struct Player {
     pub addon_bucket: addon::TokenBucket,
     /// Compétences connues et lancement en cours.
     pub skills: skills::PlayerSkills,
+    /// Banque du compte.
+    pub bank: bank::Bank,
+    /// Échange en cours avec un autre joueur.
+    pub trade: Option<trade::Trade>,
 }
 
 impl Player {
@@ -204,6 +211,8 @@ impl Service for WorldService {
                 | ptype::EVENT_NPC_TRADE
                 | ptype::SKILL
                 | ptype::EVENT_SKILL_MASTER
+                | ptype::EVENT_BANK
+                | ptype::PRIVATE_TRADE
                 | ptype::ARCHCORE_EXT
         )
     }
@@ -238,6 +247,7 @@ impl Connection for WorldConn {
                 }
             }
             ptype::CHARACTER if p.int(0) == Some(combat::REQUEST_RESURRECTION_TOWN) => combat::resurrect(ctx, &mut st, self.sid).await?,
+            ptype::CHARACTER if p.int(0) == Some(bank::MOVE_BANK_MONEY) => bank::move_money(ctx, &mut st, self.sid, p.int(9).unwrap_or(0)).await?,
             ptype::CHARACTER => debug!("[world] #{} AGPMCHARACTER op {:?} (ignoré)", s.id(), p.int(0)),
             ptype::CHATTING => chat::on_chatting(&world, &mut st, self.sid, &p).await?,
             ptype::OPT_CHAR_MOVE => presence::on_move(ctx, &mut st, self.sid, &p),
@@ -248,6 +258,8 @@ impl Connection for WorldConn {
             ptype::ARCHCORE_EXT => addon::on_packet(ctx, &mut st, self.sid, &p),
             ptype::SKILL => skills::on_packet(ctx, &mut st, self.sid, &p),
             ptype::EVENT_SKILL_MASTER => skills::on_master_packet(ctx, &mut st, self.sid, &p).await?,
+            ptype::EVENT_BANK => bank::on_packet(ctx, &mut st, self.sid, &p),
+            ptype::PRIVATE_TRADE => trade::on_packet(ctx, &mut st, self.sid, &p).await?,
             _ => {}
         }
         Ok(())
@@ -256,6 +268,8 @@ impl Connection for WorldConn {
     async fn on_close(&mut self, _s: &SessionHandle) {
         let world = self.world.clone();
         let mut st = world.state.lock().await;
+        // Un échange en cours est annulé : les objets n'ont pas quitté les inventaires.
+        trade::cancel(&mut st, self.sid);
         if let Err(e) = presence::leave(&world.ctx, &mut st, self.sid).await {
             warn!("[world] départ de #{} : {e:#}", self.sid);
         }
@@ -287,7 +301,7 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
         s.close();
         return Ok(());
     };
-    let ch = CharacterRow::from_row(&row);
+    let mut ch = CharacterRow::from_row(&row);
     let Some(tpl) = ctx.templates.get(ch.template_id) else {
         crate::error!("[world] template {} inconnu", ch.template_id);
         s.close();
@@ -295,6 +309,10 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
     };
     let gm_level: i64 = col(&acc, "gm_level");
     let inventory = Inventory::load(&ctx.db, ch.id).await?;
+    let bank = bank::Bank::load(&ctx.db, account.id).await?;
+    // Banque du compte : son argent et ses pages remplacent ceux de la ligne du personnage.
+    ch.bank_money = bank.money;
+    ch.bank_size = bank.extra_slots as i32;
     let mut factors = equipment::with_equipment(make_factors(tpl, Some(&ch)), &equipment::worn(&inventory, &ctx.catalog));
     let mut skills = skills::load(&ctx.db, &ctx.skills, ch.id, &mut st.next_skill_id).await?;
     skills::refresh_points(&ctx.skills, &skills, &mut factors);
@@ -352,6 +370,8 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
             bound_region,
             addon_bucket: addon::TokenBucket::default(),
             skills,
+            bank,
+            trade: None,
         },
     );
     st.by_cid.insert(cid, s.id());
@@ -373,7 +393,7 @@ fn enter_world(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle) {
     }
     // Inventaire : paquets AGPMITEM complets mis bout à bout dans le champ 6 (« tous les objets ») de la
     // vue optimisée op 2 ; le client rattache chaque objet au personnage déjà reçu (champ 4).
-    let all_items: Vec<u8> = p.inventory.add_packets().concat();
+    let all_items: Vec<u8> = p.inventory.add_packets().into_iter().chain(p.bank.add_packets(p.ch.id)).collect::<Vec<_>>().concat();
     info!("[world] #{sid} {} objet(s) d'inventaire et {} compétence(s) envoyé(s)", p.inventory.items.len(), p.skills.list.len());
     let ov = &schema::OPT_VIEW;
     let empty = Vec::<u8>::new();
