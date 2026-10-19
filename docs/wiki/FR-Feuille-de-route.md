@@ -17,6 +17,8 @@
 
 ## Validé avec le simulateur, à confirmer en jeu
 
+- Extensions ArchRust, côté serveur : négociation de capacités et messages d'AddOn (murmure, `SAY`).
+  Voir [[Extensions ArchRust|FR-Extensions-ArchRust]] ; la partie client reste à écrire dans ArchRust.
 - Revente d'un objet à un PNJ.
 
 - Visibilité entre joueurs : déplacement relayé aux joueurs proches, apparition et disparition

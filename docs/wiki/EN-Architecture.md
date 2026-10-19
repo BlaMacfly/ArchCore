@@ -19,6 +19,7 @@ crates/archcore/           server and tools
   src/main.rs              entry point and subcommand dispatch
   src/server.rs            loads config, templates, NPCs, starts the servers
   src/net.rs               one task per connection: encryption, 0x48 handshake, dispatch
+  src/ext.rs               ArchRust extensions: HELLO / HELLO_ACK negotiation (type 0xAC)
   src/login.rs             accounts, world list, characters, world entry
   src/character.rs         templates, `characters` rows, factors, AGPMCHARACTER packet
   src/config.rs, db.rs, log.rs
@@ -30,6 +31,7 @@ crates/archcore/           server and tools
     npc_trade.rs           shops: list, buy, sell
     items.rs               item catalog, inventory, AGPMITEM packets
     chat.rs, gm.rs         chat and GM commands
+    addon.rs               AddOn messages of the ArchRust extensions
   src/tools/               tools: db_init, decrypt, import, i18n, sim, re
 sql/                       schemas of the three databases
 data/i18n/                 translation memory
@@ -66,5 +68,5 @@ cargo test
 ```
 
 The tests cover the packet codec (against reference bytes), Blowfish and RC4, frame splitting, the
-configuration, NPC functions, the shop, the inventory, GM commands and the import and translation
+configuration, NPC functions, the shop, the inventory, GM commands, the ArchRust extensions and the import and translation
 tools. Full scenarios are replayed with `archcore sim`.

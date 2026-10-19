@@ -178,6 +178,13 @@ mini-paquet « données MJ » d'op 1 (CID, nom, niveau MJ en INT16, nom du compt
 du personnage. Le CID doit être celui d'un personnage déjà connu du client : ArchCore l'envoie juste
 après le paquet personnage de l'entrée en jeu.
 
+## Extensions ArchRust (type 0xAC)
+
+Type propre à ArchCore. Le client d'origine n'aiguille que les types 0x01 à 0x77 et ignore les autres ;
+un client ArchRust l'utilise après la poignée de main pour négocier ses extensions (`HELLO` /
+`HELLO_ACK`) puis échanger des messages d'AddOn. Le serveur n'en envoie jamais à une connexion qui n'a
+pas envoyé `HELLO`. Spécification complète : [[Extensions ArchRust|FR-Extensions-ArchRust]].
+
 ## Types connus
 
 | Type | Module | Type | Module |

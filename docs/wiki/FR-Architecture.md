@@ -19,6 +19,7 @@ crates/archcore/           serveur et outils
   src/main.rs              point d'entrée et aiguillage des sous-commandes
   src/server.rs            charge la config, les modèles, les PNJ, lance les serveurs
   src/net.rs               une tâche par connexion : chiffrement, poignée de main 0x48, aiguillage
+  src/ext.rs               extensions ArchRust : négociation HELLO / HELLO_ACK (type 0xAC)
   src/login.rs             comptes, liste des mondes, personnages, entrée dans le monde
   src/character.rs         modèles, lignes `characters`, facteurs, paquet AGPMCHARACTER
   src/config.rs, db.rs, log.rs
@@ -30,6 +31,7 @@ crates/archcore/           serveur et outils
     npc_trade.rs           boutiques : liste, achat, vente
     items.rs               catalogue d'objets, inventaire, paquets AGPMITEM
     chat.rs, gm.rs         discussion et commandes MJ
+    addon.rs               messages d'AddOn des extensions ArchRust
   src/tools/               outils : db_init, decrypt, import, i18n, sim, re
 sql/                       schémas des trois bases
 data/i18n/                 mémoire de traduction
@@ -66,5 +68,5 @@ cargo test
 ```
 
 Les tests couvrent le codec de paquets (avec des octets de référence), Blowfish et RC4, le découpage
-des trames, la configuration, les fonctions des PNJ, la boutique, l'inventaire, les commandes MJ et
+des trames, la configuration, les fonctions des PNJ, la boutique, l'inventaire, les commandes MJ, les extensions ArchRust et
 les outils d'import et de traduction. Les scénarios complets se rejouent avec `archcore sim`.

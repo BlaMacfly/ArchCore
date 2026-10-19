@@ -17,6 +17,8 @@
 
 ## Verified with the simulator, to confirm in game
 
+- ArchRust extensions, server side: capability negotiation and AddOn messages (whisper, `SAY`). See
+  [[ArchRust extensions|EN-ArchRust-extensions]]; the client side remains to be written in ArchRust.
 - Selling an item to an NPC.
 - Player visibility: movement relayed to nearby players, appearing and disappearing by distance.
 - Chat within view range, and whispers.

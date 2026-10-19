@@ -9,7 +9,7 @@ Ils se lancent depuis la racine du dépôt et lisent `config/archcore.json`, ou 
 | `archcore db-init [--account nom mdp [mj]]` | Crée les bases et applique `sql/` ; avec `--account`, crée ou met à jour un compte |
 | `archcore decrypt [source] [destination]` | Déchiffre `Game/ini` (RC4, MD5(« 1111 »)) vers `data/client-ini` |
 | `archcore import [dossier]` | Importe `data/client-ini` dans `archcore_world` (CP949 → UTF-8) |
-| `archcore sim client\|move\|shop …` | Clients simulés (voir plus bas) |
+| `archcore sim client\|move\|shop\|addon …` | Clients simulés (voir plus bas) |
 | `archcore i18n strings [Game]` | Liste les textes encore en anglais dans `data/i18n/pending-en.json` |
 | `archcore i18n coverage [Game]` | Mesure la part déjà traduite de `ini_fr` |
 | `archcore i18n apply [--ascii] [--dry]` | Applique la mémoire de traduction au client (voir [[Traduction|FR-Traduction]]) |
@@ -31,7 +31,7 @@ Sous Git Bash, préfixer par `MSYS_NO_PATHCONV=1` : sinon `/GetExp` est transfor
 ## Test à deux joueurs
 
 ```bash
-archcore sim move [compteA] [mdpA] [persoA] [compteB] [mdpB] [persoB]
+archcore sim | `archcore sim client|move|shop|addon …` | [compteA] [mdpA] [persoA] [compteB] [mdpB] [persoB]
 ```
 
 Deux clients simulés entrent en jeu (comptes `sima` et `simb` par défaut, personnages créés au
@@ -41,7 +41,7 @@ personnages et sauvegarde leur position : à lancer contre un serveur de test, p
 
 ```bash
 ARCHCORE_CONFIG=config/test.json archcore all      # autres ports, autres bases
-ARCHCORE_CONFIG=config/test.json archcore sim move
+ARCHCORE_CONFIG=config/test.json archcore sim | `archcore sim client|move|shop|addon …` |
 ```
 
 ## Test de boutique
@@ -54,6 +54,26 @@ Le personnage (`sima` / `SimA` par défaut) reçoit 1000 pièces d'or et appara�
 (Anchorville). Le test ouvre sa boutique, vérifie la liste reçue, achète 3 petites potions de vie
 puis les revend. Il modifie l'or, la position et l'inventaire du personnage : à lancer lui aussi
 contre un serveur de test.
+
+## Test des extensions ArchRust
+
+```bash
+ARCHCORE_CONFIG=config/test.json archcore sim addon [compteA mdpA persoA compteB mdpB persoB compteC mdpC persoC]
+```
+
+Trois clients simulés entrent en jeu au même endroit : A et B (`sima` / `SimA`, `simb` / `SimB`)
+négocient les extensions sur chaque connexion comme le fera ArchRust, C (`gmtest` / `GmTest`) se comporte
+comme le client d'origine et doit être MJ (`archcore db-init --account gmtest gmtest 3`). Le test vérifie :
+
+- le chuchotement d'AddOn de A à B (émetteur rempli par le serveur, charge intacte, aucun écho chez A) ;
+- le message `SAY`, reçu par A et B ;
+- chaque refus : destinataire sans extensions, destinataire absent, préfixe réservé `AC.`, préfixe
+  invalide, charge de 256 octets, canal de groupe non géré, joueur sous `/chatban` ;
+- qu'un message d'AddOn envoyé sans négociation est ignoré ;
+- la limite de débit : sur une rafale de 25 messages, 20 passent et 5 sont refusés ;
+- que C ne reçoit jamais de paquet `0xAC`.
+
+Le protocole est décrit sur la page [[Extensions ArchRust|FR-Extensions-ArchRust]].
 
 ## Tests unitaires
 

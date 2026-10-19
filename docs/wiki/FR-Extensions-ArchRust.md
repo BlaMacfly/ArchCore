@@ -1,6 +1,6 @@
 # Extensions ArchRust ↔ ArchCore
 
-> **Spécification, version 1.0 — validée le 2026-10-19** (décisions en section 10). Rien n'est encore codé. Ce document fait foi pour les deux
+> **Spécification, version 1.0 — validée le 2026-10-19** (décisions en section 10). La partie ArchCore est en place (section 9) ; reste la partie ArchRust. Ce document fait foi pour les deux
 > projets : le client [ArchRust](https://github.com/BlaMacfly/ArchRust) et le serveur ArchCore.
 
 ArchRust, le client réécrit en Rust, prend en charge des **AddOns Lua** sur le modèle de World of Warcraft.
@@ -222,24 +222,26 @@ annoncée avant d'envoyer, et rend `AddonMessageThrottle` s'il doit refuser.
   permettrait de la contourner.
 - Un abus répété de la limite de débit est journalisé, pour que les MJ puissent intervenir.
 
-## 9. Mise en œuvre prévue
+## 9. Mise en œuvre
 
-**ArchCore**
+**ArchCore** — fait le 2026-10-19
 - Schéma `ARCHCORE_EXT` et constantes dans `crates/archcore-net/src/schema.rs`.
 - Traitement de `HELLO` dans `net.rs`, à côté de la poignée de main `0x48`, pour le login comme pour le
   monde, avec l'accord gardé dans la session.
+- Négociation dans `crates/archcore/src/ext.rs`.
 - Module `crates/archcore/src/world/addon.rs` : contrôles, seau à jetons, relais.
-- Tests unitaires, et scénario `archcore sim addon` : deux clients simulés s'échangent des messages en
-  murmure et en `SAY`, et un client d'origine simulé n'en reçoit aucun.
+- Tests unitaires, et scénario `archcore sim addon` (page [[Outils|FR-Outils]]) : deux clients simulés
+  s'échangent des messages en murmure et en `SAY`, chaque refus de la section 6 est provoqué, et un client
+  d'origine simulé ne reçoit aucun paquet `0xAC`.
 
-**ArchRust**
+**ArchRust** — à faire
 - Envoi de `HELLO` après la poignée de main, attente de `HELLO_ACK` (3 s au plus).
 - API Lua et événements de la section 7 dans `archrust-addons`.
 - Lissage des envois selon les limites annoncées.
 
 **Code commun.** Les deux projets décrivent aujourd'hui le protocole chacun de leur côté (`archcore-net`,
 `archrust-protocol`). Pour l'extension, une seule source est préférable : ArchRust peut dépendre de la
-crate `archcore-net` (dépendance git), qui portera le schéma `0xAC`. Les licences le permettent : les deux
+crate `archcore-net` (dépendance git), qui porte déjà le schéma `0xAC`. Les licences le permettent : les deux
 projets sont sous GPL-3.0-or-later.
 
 ## 10. Décisions (2026-10-19)

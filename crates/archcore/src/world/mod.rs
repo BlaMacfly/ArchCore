@@ -13,6 +13,7 @@
 //! L'état du monde est partagé derrière un verrou : les paquets de tous les joueurs sont traités un à
 //! un, comme dans la boucle unique du serveur Node.
 
+pub mod addon;
 pub mod chat;
 pub mod gm;
 pub mod items;
@@ -91,6 +92,8 @@ pub struct Player {
     pub move_count: u32,
     pub inventory: Inventory,
     pub shop: Option<OpenShop>,
+    /// Limite de débit des messages d'AddOn.
+    pub addon_bucket: addon::TokenBucket,
 }
 
 impl Player {
@@ -148,7 +151,13 @@ impl Service for WorldService {
     fn handles(&self, t: u8) -> bool {
         matches!(
             t,
-            ptype::CHAR_MANAGER | ptype::CHARACTER | ptype::CHATTING | ptype::OPT_CHAR_MOVE | ptype::EVENT_NPC_DIALOG | ptype::EVENT_NPC_TRADE
+            ptype::CHAR_MANAGER
+                | ptype::CHARACTER
+                | ptype::CHATTING
+                | ptype::OPT_CHAR_MOVE
+                | ptype::EVENT_NPC_DIALOG
+                | ptype::EVENT_NPC_TRADE
+                | ptype::ARCHCORE_EXT
         )
     }
     fn connect(&self, session: &SessionHandle) -> Box<dyn Connection> {
@@ -186,6 +195,7 @@ impl Connection for WorldConn {
             ptype::OPT_CHAR_MOVE => presence::on_move(ctx, &mut st, self.sid, &p),
             ptype::EVENT_NPC_DIALOG => npc_events::on_dialog(ctx, &st, self.sid, &p),
             ptype::EVENT_NPC_TRADE => npc_trade::on_packet(ctx, &mut st, self.sid, &p).await?,
+            ptype::ARCHCORE_EXT => addon::on_packet(ctx, &mut st, self.sid, &p),
             _ => {}
         }
         Ok(())
@@ -272,6 +282,7 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
             move_count: 0,
             inventory,
             shop: None,
+            addon_bucket: addon::TokenBucket::default(),
         },
     );
     st.by_cid.insert(cid, s.id());

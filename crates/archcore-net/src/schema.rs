@@ -48,6 +48,9 @@ pub mod ptype {
     pub const STARTUP_ENCRYPTION: u8 = 0x48;
     pub const TITLE: u8 = 0x60;
     pub const RECONNECT: u8 = 0x63;
+    /// Extensions ArchRust ↔ ArchCore. Hors de la plage 0x01-0x77 acceptée par le répartiteur du
+    /// client d'origine, qui l'ignore donc sans erreur.
+    pub const ARCHCORE_EXT: u8 = 0xac;
 }
 
 // AgpmConfig — drapeaux 4 : drop d'objet à la mort, pénalité d'XP, serveur de test
@@ -305,11 +308,36 @@ pub static OPT_VIEW: Schema = Schema {
 pub static STARTUP_ENCRYPTION: Schema =
     Schema { name: "AGPMSTARTUPENCRYPTION", id: ptype::STARTUP_ENCRYPTION, flag_len: 1, fields: &[f(I8), f(MemBlock)] };
 
+/// Extensions ArchRust ↔ ArchCore (type 0xAC) — drapeaux 4. Voir la page « Extensions ArchRust » du wiki.
+pub static ARCHCORE_EXT: Schema = Schema {
+    name: "ARCHCORE_EXT",
+    id: ptype::ARCHCORE_EXT,
+    flag_len: 4,
+    fields: &[
+        f(U8),       // 0 opération (ext_op)
+        f(U32),      // 1 numéro de requête (choisi par le client)
+        f(U16),      // 2 version majeure du protocole d'extension
+        f(U16),      // 3 version mineure
+        f(MemBlock), // 4 logiciel (UTF-8, 64 octets au plus)
+        f(MemBlock), // 5 capacités « nom/version;… » (ASCII)
+        f(U16),      // 6 charge maximale d'un message d'AddOn
+        f(U16),      // 7 limite de débit : messages permis d'un coup
+        f(U16),      // 8 limite de débit : messages rendus par seconde
+        f(MemBlock), // 9 préfixe d'AddOn
+        f(U8),       // 10 portée (ext_channel)
+        f(MemBlock), // 11 destinataire (nom de personnage)
+        f(I32),      // 12 CID de l'émetteur (rempli par le serveur)
+        f(MemBlock), // 13 nom de l'émetteur (rempli par le serveur)
+        f(MemBlock), // 14 charge
+        f(U8),       // 15 résultat (ext_result)
+    ],
+};
+
 /// Tous les schémas principaux, pour l'aiguillage par type.
 pub static MAIN: &[&Schema] = &[
     &CONFIG, &CHARACTER, &CHAR_MANAGER, &LOGIN, &TIMER, &WORLD, &CHATTING, &ADMIN, &ITEM, &EVENT_NPC_TRADE,
     &EVENT_NPC_DIALOG, &EVENT_MANAGER, &SYSTEM_MESSAGE, &RETURN_TO_LOGIN, &OPT_CHAR_MOVE, &OPT_CHAR_ACTION, &OPT_VIEW,
-    &STARTUP_ENCRYPTION,
+    &STARTUP_ENCRYPTION, &ARCHCORE_EXT,
 ];
 
 pub fn main_by_id(id: u8) -> Option<&'static Schema> {
@@ -479,4 +507,37 @@ pub mod char_mgr_op {
     pub const ENTER_WORLD: i64 = 9;
     pub const AUTH_KEY: i64 = 11;
     pub const KEEPALIVE: i64 = 13;
+}
+
+/// Opérations du paquet d'extension (champ 0 d'ARCHCORE_EXT).
+pub mod ext_op {
+    pub const HELLO: i64 = 0;
+    pub const HELLO_ACK: i64 = 1;
+    pub const ADDON_SEND: i64 = 2;
+    pub const ADDON_RECV: i64 = 3;
+    pub const RESULT: i64 = 4;
+}
+
+/// Portées d'un message d'AddOn (champ 10 d'ARCHCORE_EXT).
+pub mod ext_channel {
+    pub const WHISPER: i64 = 1;
+    pub const SAY: i64 = 2;
+    pub const PARTY: i64 = 3;
+    pub const GUILD: i64 = 4;
+    pub const RAID: i64 = 5;
+    pub const CHANNEL: i64 = 6;
+    pub const SERVER: i64 = 7;
+}
+
+/// Codes de résultat (champ 15 d'ARCHCORE_EXT).
+pub mod ext_result {
+    pub const OK: i64 = 0;
+    pub const INVALID_PREFIX: i64 = 1;
+    pub const MESSAGE_TOO_LONG: i64 = 2;
+    pub const THROTTLED: i64 = 3;
+    pub const TARGET_OFFLINE: i64 = 4;
+    pub const NOT_AVAILABLE: i64 = 5;
+    pub const NOT_IN_GROUP: i64 = 6;
+    pub const NOT_ALLOWED: i64 = 7;
+    pub const TARGET_NO_EXTENSION: i64 = 8;
 }

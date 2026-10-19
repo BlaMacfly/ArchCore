@@ -5,6 +5,7 @@
 //!   archcore sim client [compte] [mdp] [perso] [commandes…]   connexion complète (+ commandes de discussion)
 //!   archcore sim move [compteA mdpA persoA compteB mdpB persoB] deux joueurs : visibilité et déplacement
 //!   archcore sim shop [compte] [mdp] [perso]                  boutique de Darryl : liste, achat, revente
+//!   archcore sim addon [A… B… C…]                             extensions ArchRust : messages d'AddOn (A, B : ArchRust ; C : client d'origine, MJ)
 //! ```
 //! À lancer contre un serveur de test (`ARCHCORE_CONFIG`) : les personnages sont créés au besoin,
 //! déplacés, et `sim shop` leur donne 1000 pièces d'or.
@@ -12,7 +13,7 @@
 use crate::config::Config;
 use archcore_net::blowfish::Blowfish;
 use archcore_net::framing::{FrameSplitter, FRAME_CLIENT, FRAME_HEADER, FRAME_OVERHEAD, FRAME_TAIL_CLIENT};
-use archcore_net::schema::{self, char_mgr_op, chat_type, crypt_op, login_op, mini, world_op};
+use archcore_net::schema::{self, char_mgr_op, chat_type, crypt_op, ext_channel, ext_op, ext_result, login_op, mini, world_op};
 use archcore_net::{build_mini, build_packet, decode_mini, decode_packet, parse_header, Fields, Packet, Schema, Vec3};
 use rand::RngCore;
 use std::collections::VecDeque;
@@ -31,7 +32,15 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         Some("client") => client(&a(1, "test"), &a(2, "test"), &a(3, "Testeur"), args.get(4..).unwrap_or_default()).await,
         Some("move") => movement(&a(1, "sima"), &a(2, "sima"), &a(3, "SimA"), &a(4, "simb"), &a(5, "simb"), &a(6, "SimB")).await,
         Some("shop") => shop(&a(1, "sima"), &a(2, "sima"), &a(3, "SimA")).await,
-        _ => anyhow::bail!("usage : archcore sim client|move|shop [arguments]"),
+        Some("addon") => {
+            let acc = [
+                (a(1, "sima"), a(2, "sima"), a(3, "SimA")),
+                (a(4, "simb"), a(5, "simb"), a(6, "SimB")),
+                (a(7, "gmtest"), a(8, "gmtest"), a(9, "GmTest")),
+            ];
+            Box::pin(addon(&acc)).await
+        }
+        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon [arguments]"),
     }
 }
 
@@ -63,13 +72,15 @@ pub struct TestClient {
     client_cipher: Option<Blowfish>,
     counter: u32,
     encrypted: bool,
+    /// Paquets d'extension (0xAC) reçus sur cette connexion.
+    pub ext_seen: usize,
 }
 
 impl TestClient {
     pub async fn connect(label: &str, addr: &str) -> anyhow::Result<Self> {
         let stream = TcpStream::connect(addr).await.map_err(|e| anyhow::anyhow!("[{label}] connexion à {addr} : {e}"))?;
         println!("[{label}] connecté à {addr}");
-        Ok(TestClient { label: label.into(), stream, splitter: FrameSplitter::default(), queue: VecDeque::new(), server_cipher: None, client_cipher: None, counter: 0, encrypted: false })
+        Ok(TestClient { label: label.into(), stream, splitter: FrameSplitter::default(), queue: VecDeque::new(), server_cipher: None, client_cipher: None, counter: 0, encrypted: false, ext_seen: 0 })
     }
 
     pub async fn send(&mut self, schema: &Schema, fields: Fields) -> anyhow::Result<()> {
@@ -119,6 +130,9 @@ impl TestClient {
                 o(packet.as_ref().and_then(|p| p.int(0))),
                 plain.len()
             );
+            if h.ptype == schema::ptype::ARCHCORE_EXT {
+                self.ext_seen += 1;
+            }
             self.queue.push_back(Recv { ptype: h.ptype, packet });
         }
         Ok(())
@@ -165,6 +179,32 @@ impl TestClient {
         println!("[{}] chiffrement établi", self.label);
         Ok(())
     }
+
+    /// Négociation des extensions ArchRust (HELLO → HELLO_ACK) ; rend les capacités accordées.
+    pub async fn hello(&mut self) -> anyhow::Result<String> {
+        let s = &schema::ARCHCORE_EXT;
+        let hello = Fields::new(s)
+            .with(0, ext_op::HELLO)
+            .with(2, 1)
+            .with(3, 0)
+            .with(4, b"ArchCore sim".to_vec())
+            .with(5, b"addon-msg/1;saved-vars/1".to_vec());
+        self.send(s, hello).await?;
+        let ack = self.expect(s, Some(ext_op::HELLO_ACK)).await?;
+        let f = ack.fields();
+        let caps = f.text(5).unwrap_or_default();
+        println!(
+            "[{}] extensions : {} v{}.{} accorde « {caps} » (charge ≤ {} o, {} messages puis {}/s)",
+            self.label,
+            f.text(4).unwrap_or_default(),
+            o(f.int(2)),
+            o(f.int(3)),
+            o(f.int(6)),
+            o(f.int(7)),
+            o(f.int(8))
+        );
+        Ok(caps)
+    }
 }
 
 pub struct InWorld {
@@ -175,9 +215,17 @@ pub struct InWorld {
 
 /// Se connecte au login, entre dans le monde avec `char_name` (créé s'il n'existe pas).
 pub async fn enter_world(cfg: &Config, user: &str, pass: &str, char_name: &str, label: &str) -> anyhow::Result<InWorld> {
+    Box::pin(enter_world_with(cfg, user, pass, char_name, label, false)).await
+}
+
+/// Comme `enter_world` ; avec `ext`, négocie les extensions ArchRust sur chaque connexion, comme ArchRust.
+pub async fn enter_world_with(cfg: &Config, user: &str, pass: &str, char_name: &str, label: &str, ext: bool) -> anyhow::Result<InWorld> {
     let lg = &schema::LOGIN;
     let mut login = TestClient::connect(&format!("{label}login"), &format!("127.0.0.1:{}", cfg.login.port)).await?;
     login.handshake().await?;
+    if ext {
+        login.hello().await?;
+    }
 
     let ws = &schema::WORLD;
     login.send(ws, Fields::new(ws).with(0, world_op::SERVER_LIST_REQ)).await?;
@@ -266,6 +314,10 @@ pub async fn enter_world(cfg: &Config, user: &str, pass: &str, char_name: &str, 
 
     let mut world = TestClient::connect(&format!("{label}world"), &address).await?;
     world.handshake().await?;
+    if ext {
+        let caps = world.hello().await?;
+        anyhow::ensure!(caps.split(';').any(|c| c == "addon-msg/1"), "capacité addon-msg/1 refusée : « {caps} »");
+    }
     // Comme le client : op 2, champ 2 = 17, nom, clé d'auth, bloc de 248 octets ; puis un keepalive op 13.
     world.send(cm, Fields::new(cm).with(0, char_mgr_op::GAME_ENTER).with(2, 17).with(3, format!("{char_name}#{world_name}").as_str()).with(6, auth_key).with(7, "")).await?;
     world.send(cm, Fields::new(cm).with(0, char_mgr_op::KEEPALIVE).with(2, 0)).await?;
@@ -370,6 +422,127 @@ async fn movement(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) ->
     b.world.expect_where(is_char(2, acid as u32), 3000, &format!("{cb} retire {ca} déconnecté")).await?;
     println!("  ✓ déconnexion : le personnage disparaît chez l'autre joueur");
     println!("\ndéplacement à deux joueurs : OK");
+    Ok(())
+}
+
+/// Paquet `ADDON_SEND`.
+fn addon_send(request_id: i64, prefix: &[u8], channel: i64, target: Option<&str>, payload: &[u8]) -> Fields {
+    let s = &schema::ARCHCORE_EXT;
+    let f = Fields::new(s).with(0, ext_op::ADDON_SEND).with(1, request_id).with(9, prefix.to_vec()).with(10, channel).with_opt(11, target);
+    if payload.is_empty() { f } else { f.with(14, payload.to_vec()) }
+}
+
+/// Attend le `RESULT` de la demande `request_id` et vérifie son code.
+async fn expect_result(w: &mut TestClient, request_id: i64, code: i64, what: &str) -> anyhow::Result<()> {
+    let s = &schema::ARCHCORE_EXT;
+    let r = w.expect_where(|p| p.is(s, Some(ext_op::RESULT)) && p.int(1) == Some(request_id), 3000, what).await?;
+    anyhow::ensure!(r.int(15) == Some(code), "{what} : résultat {} au lieu de {code}", o(r.int(15)));
+    println!("  ✓ {what} : résultat {code}");
+    Ok(())
+}
+
+/// Vérifie qu'aucun paquet d'extension n'arrive pendant `ms`.
+async fn expect_no_ext(w: &mut TestClient, ms: u64, what: &str) -> anyhow::Result<()> {
+    let s = &schema::ARCHCORE_EXT;
+    if let Ok(p) = w.expect_where(|p| p.ptype == s.id, ms, what).await {
+        anyhow::bail!("{what} : paquet d'extension inattendu (op {})", o(p.int(0)));
+    }
+    Ok(())
+}
+
+async fn addon(acc: &[(String, String, String); 3]) -> anyhow::Result<()> {
+    const STOP: i64 = 0x04;
+    let cfg = crate::config::load()?;
+    let s = &schema::ARCHCORE_EXT;
+    let [(ua, pa, ca), (ub, pb, cb), (uc, pc, cc)] = acc;
+    step(&format!("{ca} et {cb} entrent en jeu avec les extensions, {cc} avec le client d'origine"));
+    let mut a = Box::pin(enter_world_with(&cfg, ua, pa, ca, "A-", true)).await?;
+    let mut b = Box::pin(enter_world_with(&cfg, ub, pb, cb, "B-", true)).await?;
+    let mut c = Box::pin(enter_world_with(&cfg, uc, pc, cc, "C-", false)).await?;
+    // Tous au même endroit, à portée de discussion.
+    let mv = &schema::OPT_CHAR_MOVE;
+    let here = b.start;
+    for w in [&mut a, &mut c] {
+        w.world.send(mv, Fields::new(mv).with(0, w.cid).with(1, here).with(2, here).with(5, STOP).with(6, 0)).await?;
+    }
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let is_recv = |prefix: &'static str, channel: i64| {
+        move |p: &Recv| p.is(s, Some(ext_op::ADDON_RECV)) && p.fields().bytes(9) == Some(prefix.as_bytes()) && p.int(10) == Some(channel)
+    };
+
+    step("chuchotement d'AddOn");
+    a.world.send(s, addon_send(1, b"SimTest", ext_channel::WHISPER, Some(cb.as_str()), b"bonjour B")).await?;
+    let r = b.world.expect_where(is_recv("SimTest", ext_channel::WHISPER), 3000, "chuchotement reçu").await?;
+    let f = r.fields();
+    anyhow::ensure!(f.int(12) == Some(a.cid as i64), "émetteur {} au lieu de {}", o(f.int(12)), a.cid);
+    anyhow::ensure!(f.text(13).as_deref() == Some(ca.as_str()), "nom d'émetteur {:?}", f.text(13));
+    anyhow::ensure!(f.text(11).as_deref() == Some(cb.as_str()), "destinataire {:?}", f.text(11));
+    anyhow::ensure!(f.bytes(14) == Some(&b"bonjour B"[..]), "charge altérée");
+    println!("  ✓ {cb} reçoit le message de {ca} (cid {}), charge intacte", a.cid);
+    expect_no_ext(&mut a.world, 400, "pas d'écho ni d'erreur chez l'émetteur").await?;
+    println!("  ✓ pas d'écho ni de RESULT chez {ca}");
+
+    step("message d'AddOn à portée (SAY)");
+    let acid = a.cid as i64;
+    a.world.send(s, addon_send(2, b"SimTest", ext_channel::SAY, None, b"tout le monde")).await?;
+    for (w, n) in [(&mut a, ca), (&mut b, cb)] {
+        let r = w.world.expect_where(is_recv("SimTest", ext_channel::SAY), 3000, "SAY reçu").await?;
+        anyhow::ensure!(r.fields().text(11).is_none() && r.int(12) == Some(acid), "SAY mal formé");
+        println!("  ✓ {n} reçoit le SAY");
+    }
+
+    step("refus");
+    a.world.send(s, addon_send(3, b"SimTest", ext_channel::WHISPER, Some(cc.as_str()), b"x")).await?;
+    expect_result(&mut a.world, 3, ext_result::TARGET_NO_EXTENSION, &format!("chuchotement à {cc} (client d'origine)")).await?;
+    a.world.send(s, addon_send(4, b"SimTest", ext_channel::WHISPER, Some("PersonneIci"), b"x")).await?;
+    expect_result(&mut a.world, 4, ext_result::TARGET_OFFLINE, "chuchotement à un absent").await?;
+    a.world.send(s, addon_send(5, b"AC.Test", ext_channel::SAY, None, b"x")).await?;
+    expect_result(&mut a.world, 5, ext_result::NOT_ALLOWED, "préfixe réservé AC.").await?;
+    a.world.send(s, addon_send(6, b"a b", ext_channel::SAY, None, b"x")).await?;
+    expect_result(&mut a.world, 6, ext_result::INVALID_PREFIX, "préfixe avec espace").await?;
+    a.world.send(s, addon_send(7, b"SimTest", ext_channel::SAY, None, &[b'z'; 256])).await?;
+    expect_result(&mut a.world, 7, ext_result::MESSAGE_TOO_LONG, "charge de 256 octets").await?;
+    a.world.send(s, addon_send(8, b"SimTest", ext_channel::PARTY, None, b"x")).await?;
+    expect_result(&mut a.world, 8, ext_result::NOT_AVAILABLE, "canal de groupe").await?;
+
+    step(&format!("{cc} (sans HELLO) tente un message d'AddOn"));
+    c.world.send(s, addon_send(1, b"SimTest", ext_channel::SAY, None, b"intrus")).await?;
+    expect_no_ext(&mut b.world, 500, "message d'un client sans extensions").await?;
+    println!("  ✓ ignoré par le serveur");
+
+    step("interdiction de discussion");
+    let ch = &schema::CHATTING;
+    let say = |cid: u32, text: &str| Fields::new(ch).with(0, 0).with(1, cid).with(2, chat_type::NORMAL).with(6, crate::tools::to_cp1252(text));
+    c.world.send(ch, say(c.cid, &format!("/chatban {ca} 1"))).await?;
+    c.world.expect_where(|q| q.ptype == ch.id, 3000, "réponse à /chatban").await?;
+    a.world.send(s, addon_send(9, b"SimTest", ext_channel::SAY, None, b"x")).await?;
+    expect_result(&mut a.world, 9, ext_result::NOT_ALLOWED, &format!("{ca} sous /chatban")).await?;
+    c.world.send(ch, say(c.cid, &format!("/chatban {ca} 0"))).await?;
+    c.world.expect_where(|q| q.ptype == ch.id, 3000, "réponse à /chatban 0").await?;
+
+    step("rafale de 25 messages (limite : 20 puis 10/s)");
+    tokio::time::sleep(Duration::from_millis(2100)).await;
+    for i in 0..25 {
+        a.world.send(s, addon_send(100 + i, b"Rafale", ext_channel::WHISPER, Some(cb.as_str()), b"r")).await?;
+    }
+    let mut throttled = 0;
+    while let Ok(r) = a.world.expect_where(|p| p.is(s, Some(ext_op::RESULT)), 800, "refus").await {
+        anyhow::ensure!(r.int(15) == Some(ext_result::THROTTLED), "résultat {} inattendu", o(r.int(15)));
+        throttled += 1;
+    }
+    let mut delivered = 0;
+    while b.world.expect_where(is_recv("Rafale", ext_channel::WHISPER), 800, "rafale").await.is_ok() {
+        delivered += 1;
+    }
+    println!("  {delivered} remis, {throttled} refusés (THROTTLED)");
+    anyhow::ensure!(throttled >= 1 && delivered >= 20 && delivered + throttled == 25, "limite de débit inattendue");
+    println!("  ✓ limite de débit appliquée");
+
+    step(&format!("{cc} n'a reçu aucun paquet d'extension"));
+    let _ = c.world.expect_where(|_| false, 500, "vidage").await;
+    anyhow::ensure!(c.world.ext_seen == 0, "{} paquet(s) 0xAC envoyés au client d'origine", c.world.ext_seen);
+    println!("  ✓ aucun paquet 0xAC chez {cc}");
+    println!("\nextensions et messages d'AddOn : OK");
     Ok(())
 }
 

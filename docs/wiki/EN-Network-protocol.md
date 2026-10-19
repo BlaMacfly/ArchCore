@@ -175,6 +175,13 @@ message (memory block).
 op 1 (CID, name, GM level as INT16, account name) records the character's level. The CID must be a
 character the client already knows: ArchCore sends it right after the world-entry character packet.
 
+## ArchRust extensions (type 0xAC)
+
+A type of ArchCore's own. The original client only dispatches types 0x01 to 0x77 and ignores the rest;
+an ArchRust client uses it after the handshake to negotiate its extensions (`HELLO` / `HELLO_ACK`) and
+then exchange AddOn messages. The server never sends one to a connection that did not send `HELLO`.
+Full specification: [[ArchRust extensions|EN-ArchRust-extensions]].
+
 ## Known types
 
 | Type | Module | Type | Module |

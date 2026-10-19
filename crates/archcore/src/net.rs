@@ -13,7 +13,7 @@
 use crate::config::Listen;
 use crate::{debug, info, warn};
 use archcore_net::framing::{CryptoSession, FrameSplitter};
-use archcore_net::schema::{self, crypt_op};
+use archcore_net::schema::{self, crypt_op, ext_op};
 use archcore_net::{build_packet, decode_packet, hex_dump, parse_header, Fields, Packet, Schema};
 use async_trait::async_trait;
 use rand::RngCore;
@@ -38,6 +38,8 @@ struct SessionInner {
     crypto: Mutex<CryptoSession>,
     tx: mpsc::UnboundedSender<Out>,
     closed: AtomicBool,
+    /// Extensions ArchRust négociées sur cette connexion (`None` : client d'origine).
+    ext: Mutex<Option<crate::ext::Agreement>>,
 }
 
 /// Poignée vers une connexion : envoi de paquets (chiffrés une fois le handshake terminé), fermeture.
@@ -51,6 +53,16 @@ impl SessionHandle {
     pub fn ip(&self) -> &str {
         &self.0.ip
     }
+    /// Accord d'extensions conclu sur cette connexion, s'il y en a un.
+    pub fn extension(&self) -> Option<crate::ext::Agreement> {
+        self.0.ext.lock().unwrap().clone()
+    }
+
+    /// Vrai si la connexion a obtenu la capacité `name`.
+    pub fn has_capability(&self, name: &str) -> bool {
+        self.0.ext.lock().unwrap().as_ref().is_some_and(|a| a.has(name))
+    }
+
     pub fn is_closed(&self) -> bool {
         self.0.closed.load(Ordering::Relaxed)
     }
@@ -140,6 +152,7 @@ async fn run_session(name: &'static str, socket: TcpStream, remote: String, ip: 
         crypto: Mutex::new(CryptoSession::default()),
         tx,
         closed: AtomicBool::new(false),
+        ext: Mutex::new(None),
     }));
     let id = session.id();
     info!("[{name}] #{id} connecté depuis {}", session.0.remote);
@@ -202,6 +215,19 @@ async fn run_session(name: &'static str, socket: TcpStream, remote: String, ip: 
                 }
                 continue;
             }
+            if header.ptype == schema::ptype::ARCHCORE_EXT {
+                match decode_packet(&schema::ARCHCORE_EXT, &plain) {
+                    Ok(p) if p.int(0) == Some(ext_op::HELLO) => {
+                        extension_hello(&session, &p);
+                        continue;
+                    }
+                    Ok(p) if session.extension().is_none() => {
+                        warn!("[{name}] #{id} paquet d'extension op {} sans négociation, ignoré", p.int(0).unwrap_or(-1));
+                        continue;
+                    }
+                    _ => {}
+                }
+            }
             let schema = schema::main_by_id(header.ptype);
             let (Some(schema), true) = (schema, service.handles(header.ptype)) else {
                 warn!("[{name}] #{id} type 0x{:x} non géré ({} o) — {}", header.ptype, plain.len(), hex_dump(&plain, 96));
@@ -234,6 +260,25 @@ async fn wait_closed(session: &SessionHandle) {
     while !session.is_closed() {
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     }
+}
+
+/// HELLO d'extension : enregistre l'accord et répond HELLO_ACK (une seule fois par connexion).
+fn extension_hello(session: &SessionHandle, packet: &Packet) {
+    let (name, id) = (session.0.server, session.0.id);
+    let mut slot = session.0.ext.lock().unwrap();
+    if slot.is_some() {
+        warn!("[{name}] #{id} second HELLO d'extension ignoré");
+        return;
+    }
+    let (agreement, ack) = crate::ext::hello(packet);
+    info!(
+        "[{name}] #{id} extensions : {} → {}",
+        if agreement.software.is_empty() { "client inconnu" } else { agreement.software.as_str() },
+        if agreement.capabilities.is_empty() { "aucune capacité".to_string() } else { crate::ext::format_capabilities(&agreement.capabilities) }
+    );
+    *slot = Some(agreement);
+    drop(slot);
+    session.send(&schema::ARCHCORE_EXT, ack);
 }
 
 /// Traite un paquet AGPMSTARTUPENCRYPTION ; rend `false` si la connexion doit être fermée.

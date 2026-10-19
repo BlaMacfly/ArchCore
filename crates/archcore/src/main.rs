@@ -7,7 +7,7 @@
 //!   archcore decrypt [source] [destination]    déchiffre Game/ini vers data/client-ini
 //!   archcore i18n strings|coverage [Game]      mesure ce qui reste à traduire
 //!   archcore i18n apply [--ascii] [--dry]      applique data/i18n/fr.json à Game/ini_fr
-//!   archcore sim client|move|shop [args…]      client simulé (tests sans le jeu)
+//!   archcore sim client|move|shop|addon [args…] client simulé (tests sans le jeu)
 //!   archcore re extract-schemas <fichiers…>    relevé des schémas de paquets (sorties REA)
 //! ```
 //! La configuration est lue dans `config/archcore.json` (ou `ARCHCORE_CONFIG`) depuis le dossier
@@ -16,6 +16,7 @@
 mod character;
 mod config;
 mod db;
+mod ext;
 mod log;
 mod login;
 mod net;
