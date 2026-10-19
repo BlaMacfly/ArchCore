@@ -37,6 +37,29 @@ pub struct WorldConfig {
     pub rates: HashMap<String, f64>,
     pub gm_command_levels: HashMap<String, i64>,
     pub exit_on_restart: bool,
+    /// Fuseau de l'heure du jeu envoyée dans AGPMTIMER : `local` (défaut) ou `utc`.
+    pub time_zone: TimeZone,
+}
+
+/// Fuseau de l'horloge envoyée au client (`world.timeZone`). Le client calcule l'heure du ciel par
+/// `(ms / 3 600 000) % 24` sans correction de fuseau : `Local` lui donne l'heure de la machine.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TimeZone {
+    #[default]
+    Local,
+    Utc,
+}
+
+impl TimeZone {
+    /// Millisecondes à envoyer dans AGPMTIMER champ 1 : époque Unix, décalée du fuseau local pour
+    /// `Local` (le même instant « lu » comme s'il était UTC).
+    pub fn game_time_ms(self) -> i64 {
+        match self {
+            TimeZone::Utc => chrono::Utc::now().timestamp_millis(),
+            TimeZone::Local => chrono::Local::now().naive_local().and_utc().timestamp_millis(),
+        }
+    }
 }
 
 fn start_positions<'de, D: serde::Deserializer<'de>>(d: D) -> Result<HashMap<String, StartPosition>, D::Error> {
@@ -99,6 +122,7 @@ impl Default for WorldConfig {
             rates: HashMap::new(),
             gm_command_levels: HashMap::new(),
             exit_on_restart: false,
+            time_zone: TimeZone::Local,
         }
     }
 }
@@ -159,5 +183,26 @@ mod tests {
         assert_eq!(cfg.world.port, 11008);
         assert_eq!(cfg.world.start_positions["1"].x, 1.0);
         assert_eq!(cfg.world.start_positions.len(), 1);
+        assert_eq!(cfg.world.time_zone, super::TimeZone::Local);
+    }
+
+    #[test]
+    fn lit_le_fuseau_de_l_horloge() {
+        let cfg: super::Config = serde_json::from_str(r#"{ "world": { "timeZone": "utc" } }"#).unwrap();
+        assert_eq!(cfg.world.time_zone, super::TimeZone::Utc);
+        assert!(serde_json::from_str::<super::Config>(r#"{ "world": { "timeZone": "paris" } }"#).is_err());
+    }
+
+    #[test]
+    fn heure_du_jeu_locale_et_utc() {
+        use chrono::Timelike;
+        let local = super::TimeZone::Local.game_time_ms();
+        let utc = super::TimeZone::Utc.game_time_ms();
+        let offset_ms = i64::from(chrono::Local::now().offset().local_minus_utc()) * 1000;
+        assert!((local - utc - offset_ms).abs() < 1000, "local {local} utc {utc} décalage {offset_ms}");
+        // Comme AgpmEventNature : (ms / 3 600 000) % 24 doit valoir l'heure de la machine.
+        let heure = (local / 3_600_000) % 24;
+        let attendue = i64::from(chrono::Local::now().hour());
+        assert!(heure == attendue || (heure + 1) % 24 == attendue, "heure du jeu {heure}, locale {attendue}");
     }
 }

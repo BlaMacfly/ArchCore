@@ -24,6 +24,7 @@ All settings live in `config/archcore.json`. Missing keys fall back to the defau
 | `rates` | all `1` | Rates at startup: `exp`, `gold`, `drop`, `uniqueDrop`, `charisma`, `prestige`, `chatBuff` (see [[Administration|EN-Administration]]) |
 | `gmCommandLevels` | `{}` | Required GM level per command, for example `{ "kill": 3 }` |
 | `exitOnRestart` | `false` | Stops the server at the end of the `/announce_restart` countdown |
+| `timeZone` | `local` | Time zone of the clock sent to the client (AGPMTIMER packet): `local` = the machine's time (day/night cycle, music and ambience follow the server's local time), `utc` = raw Unix epoch. See [[Network protocol|EN-Network-protocol]] |
 
 Current starting villages:
 

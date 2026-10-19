@@ -69,6 +69,19 @@ La liste des mondes passe par le type 0x18 (AgpmWorld), au format `Nom=Groupe=0=
 4. Le serveur envoie les PNJ proches, puis l'**op 7** : le joueur est en jeu.
 5. Le client envoie l'**op 13** toutes les 15 secondes pour rester connecté.
 
+## Horloge (type 0x11, AgpmTimer)
+
+Entre la position de chargement (op 8) et l'entrée en jeu, le serveur envoie un paquet AGPMTIMER :
+op 6 au champ 0, et au champ 1 l'heure du serveur en **millisecondes** (u64). Le client la fait
+avancer localement et en tire l'heure du jeu par `(ms / 3 600 000) % 24`, **sans correction de
+fuseau** (`AgpmEventNature`) : cette heure pilote le cycle jour/nuit, la musique et l'ambiance de zone
+(`skyset.ini`). Le serveur coréen d'origine envoyait vraisemblablement son heure locale.
+
+ArchCore envoie donc par défaut l'époque Unix **décalée du fuseau local** de la machine (minuit local
+de l'époque = 0), pour que l'heure du jeu soit l'heure du serveur ; `world.timeZone = "utc"` dans la
+[[configuration|FR-Configuration]] renvoie à l'époque Unix UTC brute. Les champs 2 et 3 (u32) ne sont
+pas utilisés. `archcore sim` affiche la valeur reçue et l'heure en jeu correspondante.
+
 ## Apparition des PNJ (type 0x42, AgpmOptimizedView)
 
 L'op 1 porte au champ 1 un mini-paquet « vue de personnage » de 26 champs : CID, TID, nom,
@@ -314,7 +327,7 @@ pas envoyé `HELLO`. Spécification complète : [[Extensions ArchRust|FR-Extensi
 | 0x08 | Groupe | 0x42 | Vue optimisée |
 | 0x0D | Connexion | 0x44 | Message système |
 | 0x0F | Discussion | 0x48 | Chiffrement de démarrage |
-| 0x11 | Horloge | 0x60 | Titres |
+| 0x11 | Horloge (AgpmTimer) | 0x60 | Titres |
 | 0x13 | Quêtes | 0x63 | Reconnexion |
 | 0x32 | Boutiques des PNJ | 0x37 | Dialogue des PNJ |
 

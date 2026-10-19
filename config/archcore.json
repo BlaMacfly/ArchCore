@@ -37,7 +37,8 @@
       "_comment": "Villages de départ par race (Race de chartype.ini), d'après les PNJ « <Village> Event » de npc.ini. Décalage de 300 en X pour ne pas apparaître dans le PNJ."
     },
     "viewRadius": 8000,
-    "language": "fr"
+    "language": "fr",
+    "timeZone": "local"
   },
   "database": {
     "host": "127.0.0.1",

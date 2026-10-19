@@ -68,6 +68,19 @@ The world list goes through type 0x18 (AgpmWorld), formatted as `Name=Group=0=St
 4. The server sends nearby NPCs, then **op 7**: the player is in game.
 5. The client sends **op 13** every 15 seconds as a keepalive.
 
+## Clock (type 0x11, AgpmTimer)
+
+Between the loading position (op 8) and the world entry, the server sends an AGPMTIMER packet: op 6
+in field 0, and in field 1 the server time in **milliseconds** (u64). The client advances it locally
+and derives the game hour as `(ms / 3 600 000) % 24`, **without any time-zone correction**
+(`AgpmEventNature`): that hour drives the day/night cycle, the music and the zone ambience
+(`skyset.ini`). The original Korean server most likely sent its local time.
+
+ArchCore therefore sends by default the Unix epoch **shifted by the machine's local offset** (local
+midnight of the epoch = 0), so that the game hour is the server's hour; `world.timeZone = "utc"` in
+the [[configuration|EN-Configuration]] sends the raw UTC Unix epoch instead. Fields 2 and 3 (u32) are
+unused. `archcore sim` prints the received value and the matching game hour.
+
 ## NPC spawning (type 0x42, AgpmOptimizedView)
 
 Op 1 carries, in field 1, a 26-field "character view" mini-packet: CID, TID, name, position,

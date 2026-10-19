@@ -380,7 +380,9 @@ pub async fn enter_world_with(cfg: &Config, user: &str, pass: &str, char_name: &
     let start = loading.fields().vec3(5).unwrap_or_default();
     let cid = loading.int(4).unwrap_or(0) as u32;
     println!("  position de chargement : {:.0}, {:.0}, {:.0}", start.x, start.y, start.z);
-    world.expect(&schema::TIMER, None).await?;
+    let timer = world.expect(&schema::TIMER, None).await?;
+    let game_ms = timer.int(1).unwrap_or(0);
+    println!("  horloge du serveur : {game_ms} ms, soit {} h en jeu", (game_ms / 3_600_000) % 24);
     world.send(cm, Fields::new(cm).with(0, char_mgr_op::ENTER_WORLD)).await?;
     world.expect(&schema::CHARACTER, Some(0)).await?;
     let mut npc_names = Vec::new();

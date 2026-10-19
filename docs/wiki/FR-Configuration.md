@@ -24,6 +24,7 @@ de `crates/archcore/src/config.rs`.
 | `rates` | tous à `1` | Taux au démarrage : `exp`, `gold`, `drop`, `uniqueDrop`, `charisma`, `prestige`, `chatBuff` (voir [[Administration|FR-Administration]]) |
 | `gmCommandLevels` | `{}` | Niveau MJ requis par commande, par exemple `{ "kill": 3 }` |
 | `exitOnRestart` | `false` | Arrête le serveur à la fin du compte à rebours de `/announce_restart` |
+| `timeZone` | `local` | Fuseau de l'horloge envoyée au client (paquet AGPMTIMER) : `local` = heure de la machine (jour/nuit, musique et ambiance suivent l'heure locale du serveur), `utc` = époque Unix brute. Voir [[Protocole réseau|FR-Protocole-reseau]] |
 
 Villages de départ actuels :
 

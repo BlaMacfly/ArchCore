@@ -298,7 +298,9 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
     s.send(&schema::CHARACTER, Fields::new(&schema::CHARACTER).with(0, 25).with(1, ch.id).with(23, 0));
     let cm = &schema::CHAR_MANAGER;
     s.send(cm, Fields::new(cm).with(0, char_mgr_op::LOADING_POS).with(4, ch.id).with(5, pos));
-    let now_ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0);
+    // AGPMTIMER champ 1 : le client en tire l'heure du ciel par (ms / 3 600 000) % 24 sans correction
+    // de fuseau, d'où l'heure locale par défaut (config world.timeZone).
+    let now_ms = ctx.config.world.time_zone.game_time_ms();
     s.send(&schema::TIMER, Fields::new(&schema::TIMER).with(0, 6).with(1, now_ms));
     ctx.db.characters.exec("UPDATE characters SET last_played = NOW() WHERE id = ?", (ch.id,)).await?;
 
