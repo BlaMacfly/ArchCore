@@ -28,6 +28,7 @@ pub mod npc_trade;
 pub mod npcs;
 pub mod presence;
 pub mod recovery;
+pub mod travel;
 
 use crate::character::{character_packet, factors_mini, make_factors, move_mini, CharView, CharacterRow, Factors, MoveMini, Templates};
 use crate::config::Config;
@@ -114,6 +115,8 @@ pub struct Player {
     pub invincible_until: Option<Instant>,
     /// Délais des potions, état de combat, prochaine régénération.
     pub timers: recovery::Timers,
+    /// Endroit quitté par un parchemin d'aller-retour.
+    pub return_point: Option<Vec3>,
     /// Limite de débit des messages d'AddOn.
     pub addon_bucket: addon::TokenBucket,
 }
@@ -319,6 +322,7 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
             dead: false,
             invincible_until: None,
             timers: recovery::Timers::default(),
+            return_point: None,
             addon_bucket: addon::TokenBucket::default(),
         },
     );

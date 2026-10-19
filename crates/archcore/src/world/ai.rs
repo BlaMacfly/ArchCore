@@ -5,6 +5,10 @@
 //! parmi les joueurs vivants, en jeu et à moins de 5000 unités ; il le rejoint, puis le frappe au rythme de
 //! sa vitesse d'attaque. Sans agresseur, il rentre à son point d'apparition ; s'il s'en est éloigné de plus
 //! de 10 000 unités, il y est ramené d'un coup avec tous ses PV.
+//!
+//! Patrouille : un monstre (type « monstre ») au repos, vu par au moins un joueur et dont le point a un rayon,
+//! marche toutes les 15 à 45 s vers un endroit tiré au hasard dans ce rayon, hors sol infranchissable ; au plus
+//! 16 départs par tour.
 
 use super::combat::{self, Attacker, Defender};
 use super::monsters::{Aggro, Monster};
@@ -12,6 +16,7 @@ use super::{WorldCtx, WorldState};
 use crate::debug;
 use archcore_net::schema;
 use archcore_net::{Fields, Vec3};
+use rand::Rng;
 use std::time::{Duration, Instant};
 
 /// Un agresseur est oublié ce délai après son dernier coup.
@@ -29,6 +34,13 @@ const REACH_TOLERANCE: f64 = 50.0;
 /// Vitesse d'un monstre sans vitesse connue (unités par seconde) ; déplacement le plus long compté.
 const DEFAULT_SPEED: f64 = 300.0;
 const MAX_TRAVEL: Duration = Duration::from_secs(4);
+/// Patrouille : intervalle tiré entre ces bornes, départs au plus par tour, essais pour trouver un endroit libre.
+const PATROL_MIN: Duration = Duration::from_secs(15);
+const PATROL_MAX: Duration = Duration::from_secs(45);
+const MAX_PATROL_PER_TICK: usize = 16;
+const PATROL_TRIES: usize = 8;
+/// Bit « monstre » du type de personnage.
+const TYPE_MONSTER: i64 = 0x4;
 
 /// Le monstre `cid` vient d'être frappé par le joueur `attacker` (CID) pour `damage` PV.
 pub fn add_aggro(st: &mut WorldState, cid: u32, attacker: u32, damage: u64, now: Instant) {
@@ -65,16 +77,53 @@ fn travel(distance: f64, run: i32) -> Duration {
     Duration::from_secs_f64(distance / speed).min(MAX_TRAVEL)
 }
 
-/// Fait marcher le monstre jusqu'à `dest` (chez les joueurs qui le voient) ; rend le temps de trajet.
+/// Déplace le monstre jusqu'à `dest` (chez les joueurs qui le voient), en courant ou en marchant ; rend le
+/// temps de trajet, d'après la vitesse donnée.
 fn walk(st: &mut WorldState, cid: u32, dest: Vec3, run: i32) -> Duration {
+    go(st, cid, dest, run, true)
+}
+
+fn go(st: &mut WorldState, cid: u32, dest: Vec3, speed: i32, fast: bool) -> Duration {
     let Some(from) = st.monsters.get(cid).map(|m| m.pos) else { return Duration::ZERO };
     let mv = &schema::OPT_CHAR_MOVE;
-    let fields = Fields::new(mv).with(0, cid).with(1, from).with(2, dest).with(5, 0).with(6, 0);
+    let flags = if fast { combat::MOVE_FAST } else { 0 };
+    let fields = Fields::new(mv).with(0, cid).with(1, from).with(2, dest).with(5, flags).with(6, 0);
     for sid in combat::viewers(st, cid) {
         st.players[&sid].send(mv, fields.clone());
     }
     st.monsters.relocate(cid, dest);
-    travel(combat::dist2d(from, dest), run)
+    travel(combat::dist2d(from, dest), speed)
+}
+
+/// Promenades des monstres au repos que voit au moins un joueur.
+pub fn patrol_step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) {
+    let mut watched: Vec<u32> = st.players.values().filter(|p| p.in_game).flat_map(|p| p.seen_monsters.iter().copied()).collect();
+    watched.sort_unstable();
+    watched.dedup();
+    let mut rng = rand::thread_rng();
+    let mut started = 0;
+    for cid in watched {
+        if started >= MAX_PATROL_PER_TICK {
+            break;
+        }
+        let Some(m) = st.monsters.get(cid) else { continue };
+        if !m.is_alive() || m.target.is_some() || !m.aggro.is_empty() || m.roam <= 0.0 || now < m.patrol_at || now < m.ready_at {
+            continue;
+        }
+        let stats = st.monsters.stats_of(m.tid);
+        let next = now + Duration::from_millis(rng.gen_range(PATROL_MIN.as_millis() as u64..=PATROL_MAX.as_millis() as u64));
+        let (home, roam) = (m.home, m.roam);
+        st.monsters.get_mut(cid).unwrap().patrol_at = next;
+        if stats.char_type & TYPE_MONSTER == 0 {
+            continue;
+        }
+        let spot = (0..PATROL_TRIES).map(|_| (rng.gen_range(-roam..roam), rng.gen_range(-roam..roam))).find(|(dx, dz)| !ctx.map.is_blocked(home.x as f64 + dx, home.z as f64 + dz));
+        let Some((dx, dz)) = spot else { continue };
+        let dest = Vec3::new(home.x + dx as f32, home.y, home.z + dz as f32);
+        let t = go(st, cid, dest, stats.walk, false);
+        st.monsters.get_mut(cid).unwrap().ready_at = now + t;
+        started += 1;
+    }
 }
 
 /// Un pas d'IA pour tous les monstres engagés.

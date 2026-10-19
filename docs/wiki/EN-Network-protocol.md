@@ -205,6 +205,11 @@ them with the same 0x41 packet (attacker = monster, target = player), at its att
 attacker left it goes back to its spawn point; more than 10,000 units away from that point, it is
 brought back with full HP. No spontaneous attack on sight.
 
+**Patrols.** An idle monster ("monster" type, no attacker), seen by at least one player and whose spawn
+point has a radius, walks every 15 to 45 s to a random spot within that radius, off blocked ground:
+AGPMOPTIMIZEDCHARMOVE with field 5 set to 0 (walking), whereas a pursuit runs (0x10). At most 16
+departures per tick.
+
 **Player death.** At 0 HP: AGPMCHARACTER op 1 (factors, field 11 = 2) to the player and to those who see
 them; they can no longer move or attack, and monsters drop them. The client asks to be resurrected in
 town with AGPMCHARACTER **op 9**: the server restores HP and MP, sends status 0, teleports the character
@@ -254,6 +259,16 @@ again (AGPMCHARACTER op 1, field 7) to the player and to those who see them.
 
 Out of combat (no hit dealt or received for 10 s), a living player regains every 10 s 1.5% of their max HP
 and MP, plus their recovery rate, plus 5; the new factors are sent the same way.
+
+## Teleport scrolls (type 0x04)
+
+A scroll ("Passport") is a usable item of `Type` 4; its `SubType` gives its kind: 0 back to town, 1 round
+trip, 2 fixed destination (`Destination` column: x;y;z), 3 back to town right away. It is used with
+AGPMITEM op 3 like a potion (one unit consumed, op 4 confirmation), then the server teleports the player
+(AGPMOPTIMIZEDCHARMOVE and AGPMCHARACTER). The town is the race's starting village, as for resurrection.
+Going back to town (0 and 1) is refused in combat. The round trip remembers the place left and announces
+it with AGPMITEM **op 9** (field 4 = CID); the client asks to go back with **op 6**, refused in combat; the
+server answers **op 10** (return disabled) and takes the player back.
 
 ## GM level (type 0x12, AgpmAdmin)
 

@@ -171,6 +171,9 @@ pub struct Monster {
     /// Prochaine action possible (coup ou fin de déplacement) et prochain choix de cible.
     pub ready_at: Instant,
     pub scan_at: Instant,
+    /// Rayon de promenade autour du point d'apparition, et prochaine promenade.
+    pub roam: f64,
+    pub patrol_at: Instant,
 }
 
 impl Monster {
@@ -256,6 +259,8 @@ pub fn spawn_point(p: &SpawnPoint, first_cid: u32, blocked: &dyn Fn(f64, f64) ->
                 target: None,
                 ready_at: now,
                 scan_at: now,
+                roam: r,
+                patrol_at: now + std::time::Duration::from_millis(rng.gen_range(0..45_000)),
             }
         })
         .collect()

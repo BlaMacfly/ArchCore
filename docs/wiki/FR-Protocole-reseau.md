@@ -208,6 +208,11 @@ puis le frappe par le même paquet 0x41 (attaquant = monstre, cible = joueur), a
 d'attaque. Sans agresseur, il rentre à son point d'apparition ; à plus de 10 000 unités de ce point, il
 y est ramené avec tous ses PV. Pas d'attaque spontanée à vue.
 
+**Patrouille.** Un monstre au repos (type « monstre », sans agresseur), vu par au moins un joueur et dont le
+point d'apparition a un rayon, marche toutes les 15 à 45 s vers un endroit tiré au hasard dans ce rayon,
+hors sol infranchissable : AGPMOPTIMIZEDCHARMOVE avec le champ 5 à 0 (marche), alors qu'une poursuite
+court (0x10). Au plus 16 départs par tour.
+
 **Mort du joueur.** À 0 PV : AGPMCHARACTER op 1 (facteurs, champ 11 = 2) au joueur et à ceux qui le
 voient ; il ne bouge ni n'attaque plus, et les monstres le lâchent. Le client demande la résurrection au
 village par AGPMCHARACTER **op 9** : le serveur rend tous les PV et PM, renvoie le statut 0, téléporte le
@@ -258,6 +263,16 @@ qui le voient.
 Hors combat (aucun coup donné ni reçu depuis 10 s), un joueur vivant regagne toutes les 10 s 1,5 % de ses
 PV et PM maximum, plus son taux de récupération, plus 5 ; ses nouveaux facteurs sont envoyés de la même
 façon.
+
+## Parchemins de téléportation (type 0x04)
+
+Un parchemin (« Passport ») est un objet utilisable de `Type` 4 ; son `SubType` donne sa sorte : 0 retour au
+village, 1 aller-retour, 2 destination fixe (colonne `Destination` : x;y;z), 3 retour au village immédiat. Il
+s'utilise par AGPMITEM op 3 comme une potion (un exemplaire consommé, confirmation op 4), puis le serveur
+téléporte le joueur (AGPMOPTIMIZEDCHARMOVE et AGPMCHARACTER). Le village est celui de départ de la race,
+comme pour la résurrection. Le retour au village (0 et 1) est refusé en combat. L'aller-retour mémorise
+l'endroit quitté et l'annonce par AGPMITEM **op 9** (champ 4 = CID) ; le client demande à y revenir par
+**op 6**, refusé en combat ; le serveur répond **op 10** (retour désactivé) et y ramène le joueur.
 
 ## Niveau MJ (type 0x12, AgpmAdmin)
 

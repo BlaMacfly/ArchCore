@@ -54,6 +54,8 @@ const REACH_TOLERANCE: f64 = 50.0;
 /// Vitesse de course supposée pendant l'approche (unités par seconde) et durée maximale d'une approche.
 const APPROACH_SPEED: f64 = 500.0;
 const MAX_APPROACH: Duration = Duration::from_secs(4);
+/// Drapeau de déplacement « course ».
+pub const MOVE_FAST: i64 = 0x10;
 /// Niveau maximal d'un personnage.
 const MAX_LEVEL: i32 = 120;
 /// Invincibilité après une résurrection.
@@ -235,6 +237,7 @@ pub async fn step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) -> anyhow::
         attack_step(ctx, st, sid, now).await?;
     }
     ai::step(ctx, st, now);
+    ai::patrol_step(ctx, st, now);
     life_step(ctx, st, now);
     super::loot::expire(st, now);
     super::recovery::regen_step(st, now);
@@ -312,7 +315,7 @@ fn approach(st: &mut WorldState, sid: u32, from: Vec3, m: &Monster, hit_range: f
     }
     let cid = p.ch.id;
     let mv = &schema::OPT_CHAR_MOVE;
-    let fields = Fields::new(mv).with(0, cid).with(1, from).with(2, dest).with(5, 0).with(6, 0);
+    let fields = Fields::new(mv).with(0, cid).with(1, from).with(2, dest).with(5, MOVE_FAST).with(6, 0);
     p.send(mv, fields.clone());
     for (_, o) in st.players.iter().filter(|(other, o)| **other != sid && o.seen_players.contains(&cid)) {
         o.send(mv, fields.clone());
@@ -477,12 +480,7 @@ pub async fn resurrect(ctx: &WorldCtx, st: &mut WorldState, sid: u32) -> anyhow:
     p.invincible_until = Some(Instant::now() + RESURRECTION_GRACE);
     p.factors.point[POINT_HP] = p.factors.point_max[0];
     p.factors.point[1] = p.factors.point_max[1];
-    let race = p.factors.ftype[0].to_string();
-    let villages = &ctx.config.world.start_positions;
-    let (x, y, z) = match villages.get(&race).or_else(|| villages.get("1")) {
-        Some(v) => (v.x, Some(v.y), v.z),
-        None => (p.ch.pos_x, None, p.ch.pos_z),
-    };
+    let (x, y, z) = super::travel::home_village(ctx, p);
     let plain = status_packet(p, 0);
     info!("[combat] {} ressuscite au village", p.ch.name);
     send_around(st, sid, &plain);

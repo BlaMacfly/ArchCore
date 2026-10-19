@@ -8,7 +8,7 @@ them from the repository root; they read `config/archcore.json`, or the file nam
 | `archcore db-init [--account name pass [gm]]` | Creates the databases and applies `sql/`; with `--account`, creates or updates an account |
 | `archcore decrypt [source] [destination]` | Decrypts `Game/ini` (RC4, MD5("1111")) into `data/client-ini` |
 | `archcore import [folder] [--server folder]` | Imports `data/client-ini` into `archcore_world` (CP949 → UTF-8); with the original server tables (`--server`, or `data/server-ini` if it exists), also imports monster spawns and the server map |
-| `archcore sim client\|move\|shop\|addon\|combat\|equip\|potion …` | Simulated clients (see below) |
+| `archcore sim client\|move\|shop\|addon\|combat\|equip\|potion\|scroll\|patrol …` | Simulated clients (see below) |
 | `archcore i18n strings [Game]` | Lists the texts still in English in `data/i18n/pending-en.json` |
 | `archcore i18n coverage [Game]` | Measures how much of `ini_fr` is translated |
 | `archcore i18n apply [--ascii] [--dry]` | Applies the translation memory to the client (see [[Translation|EN-Translation]]) |
@@ -92,6 +92,18 @@ A GM account (`gmtest` / `GmTest` by default) creates 3 Small Life Potions, gets
 becomes invincible and goes back to the village; the test waits for out-of-combat regeneration (HP rising
 about ten seconds after the last hit), drinks a potion (HP up, stack down, op 4), then checks that a second
 potion right away is refused.
+
+## Scroll and patrol tests
+
+```bash
+ARCHCORE_CONFIG=config/test.json archcore sim scroll [user] [pass] [character]
+ARCHCORE_CONFIG=config/test.json archcore sim patrol [user] [pass] [character]
+```
+
+`sim scroll` (GM account `gmtest` by default) creates three scrolls and checks the Tullan passport (fixed
+destination), the round trip (village, then back to Tullan with op 6) and the plain passport (village).
+`sim patrol` (`sima` by default) stands still among the Green Worms and waits for monsters to wander
+(walking), then goes back to the village.
 
 ## ArchRust extensions test
 

@@ -139,6 +139,9 @@ pub async fn use_item(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet,
         return Ok(());
     }
     let Some(item) = player.inventory.get(iid).cloned() else { return Ok(()) };
+    if let Some(scroll) = catalog.get(item.tid).and_then(|d| d.scroll) {
+        return super::travel::use_scroll(ctx, st, sid, &item, scroll, now).await;
+    }
     let Some(potion) = catalog.get(item.tid).and_then(|d| d.potion) else {
         debug!("[objet] {} utilise l'objet {} : sans effet géré", player.ch.name, item.tid);
         return Ok(());

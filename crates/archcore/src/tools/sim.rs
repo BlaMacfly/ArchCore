@@ -10,6 +10,8 @@
 //!                                                             puis (invincible) victoire, expérience, butin ramassé, réapparition ; compte MJ requis
 //!   archcore sim equip [compte] [mdp] [perso]                 équiper épée et armure (dégâts, défense), refus de classe, retrait ; SimA voit l'arme
 //!   archcore sim potion [compte] [mdp] [perso]                blessé par un Ver vert : régénération hors combat, potion de vie, refus ; compte MJ
+//!   archcore sim scroll [compte] [mdp] [perso]                parchemins : destination fixe, aller-retour, retour au village ; compte MJ
+//!   archcore sim patrol [compte] [mdp] [perso]                immobile chez les Vers verts : des monstres se promènent
 //! ```
 //! À lancer contre un serveur de test (`ARCHCORE_CONFIG`) : les personnages sont créés au besoin,
 //! déplacés, et `sim shop` leur donne 1000 pièces d'or.
@@ -44,10 +46,12 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
             ];
             Box::pin(addon(&acc)).await
         }
+        Some("scroll") => Box::pin(scroll(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
+        Some("patrol") => Box::pin(patrol(&a(1, "sima"), &a(2, "sima"), &a(3, "SimA"))).await,
         Some("potion") => Box::pin(potion(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("equip") => Box::pin(equip(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("combat") => Box::pin(combat(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "Green Worm"))).await,
-        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion [arguments]"),
+        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol [arguments]"),
     }
 }
 
@@ -893,6 +897,86 @@ async fn potion(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
     w.world.send(ch, say(w.cid, "/invincible 0")).await?;
     w.world.expect_where(|q| q.ptype == ch.id, 3000, "réponse à /invincible 0").await?;
     println!("\npotions et régénération : OK");
+    Ok(())
+}
+
+async fn scroll(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
+    const GO_TOWN: i64 = 198; // Passport
+    const ROUNDTRIP: i64 = 213; // Roundtrip Passport
+    const TULLAN: i64 = 1830; // Tullan Passport : -353400 ; 81200
+    let cfg = crate::config::load()?;
+    let (it, ch, mv) = (&schema::ITEM, &schema::CHATTING, &schema::OPT_CHAR_MOVE);
+    step(&format!("{char_name} entre en jeu"));
+    let mut w = enter_world(&cfg, user, pass, char_name, "").await?;
+    let me = w.cid as i64;
+    let village = cfg.world.start_positions.get("1").map(|p| Vec3::new(p.x as f32, p.y as f32, p.z as f32)).unwrap_or(w.start);
+    let say = |cid: u32, text: &str| Fields::new(ch).with(0, 0).with(1, cid).with(2, chat_type::NORMAL).with(6, crate::tools::to_cp1252(text));
+    let mut iids = std::collections::HashMap::new();
+    for tid in [GO_TOWN, ROUNDTRIP, TULLAN] {
+        w.world.send(ch, say(w.cid, &format!("/create \"{char_name}\" {tid} 1"))).await?;
+        let p = w.world.expect_where(|q| q.is(it, None) && q.int(3) == Some(tid) && q.int(1) == Some(2), 3000, "parchemin créé").await?;
+        iids.insert(tid, p.int(2).unwrap_or(0));
+    }
+    println!("  ✓ trois parchemins dans l'inventaire");
+    // Utilise un objet et rend la destination de la téléportation qui suit.
+    async fn use_and_land(w: &mut InWorld, iid: i64, tid: i64) -> anyhow::Result<Vec3> {
+        let (it, mv, me) = (&schema::ITEM, &schema::OPT_CHAR_MOVE, w.cid as i64);
+        w.world.send(it, Fields::new(it).with(0, 3).with(2, iid)).await?;
+        w.world.expect_where(|q| q.is(it, Some(4)) && q.int(3) == Some(tid), 3000, "parchemin utilisé").await?;
+        let m = w.world.expect_where(|q| q.is(mv, None) && q.int(0) == Some(me), 3000, "téléportation").await?;
+        Ok(m.fields().vec3(2).unwrap_or_default())
+    }
+    let near = |a: Vec3, b: Vec3| (a.x - b.x).abs() < 1.0 && (a.z - b.z).abs() < 1.0;
+    let tullan = Vec3::new(-353_400.0, 2125.0, 81_200.0);
+
+    step("passeport de Tullan");
+    let at = use_and_land(&mut w, iids[&TULLAN], TULLAN).await?;
+    anyhow::ensure!(near(at, tullan), "arrivé en {at:?}");
+    println!("  ✓ à Tullan : {:.0}, {:.0}", at.x, at.z);
+
+    step("aller-retour");
+    let at = use_and_land(&mut w, iids[&ROUNDTRIP], ROUNDTRIP).await?;
+    anyhow::ensure!(near(at, village), "aller : {at:?}");
+    println!("  ✓ aller : au village");
+    w.world.send(it, Fields::new(it).with(0, 6).with(4, w.cid)).await?;
+    w.world.expect_where(|q| q.is(it, Some(10)) && q.int(4) == Some(me), 3000, "retour désactivé").await?;
+    let back = w.world.expect_where(|q| q.is(mv, None) && q.int(0) == Some(me), 3000, "retour").await?.fields().vec3(2).unwrap_or_default();
+    anyhow::ensure!(near(back, tullan), "retour en {back:?}");
+    println!("  ✓ retour : de nouveau à Tullan");
+
+    step("passeport (retour au village)");
+    let at = use_and_land(&mut w, iids[&GO_TOWN], GO_TOWN).await?;
+    anyhow::ensure!(near(at, village), "arrivé en {at:?}");
+    println!("  ✓ au village");
+    println!("\nparchemins : OK");
+    Ok(())
+}
+
+async fn patrol(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
+    const HUNT: Vec3 = Vec3 { x: -466_468.0, y: 4_700.0, z: -50_010.0 };
+    let cfg = crate::config::load()?;
+    let mv = &schema::OPT_CHAR_MOVE;
+    step(&format!("{char_name} entre en jeu"));
+    let mut w = enter_world(&cfg, user, pass, char_name, "").await?;
+    let home = cfg.world.start_positions.get("1").map(|p| Vec3::new(p.x as f32, p.y as f32, p.z as f32)).unwrap_or(w.start);
+    step("immobile chez les Vers verts (50 s au plus)");
+    w.world.send(mv, Fields::new(mv).with(0, w.cid).with(1, HUNT).with(2, HUNT).with(5, 0x04).with(6, 0)).await?;
+    let base = crate::world::monsters::MONSTER_CID_BASE as i64;
+    let mut walkers = std::collections::BTreeSet::new();
+    let started = std::time::Instant::now();
+    while walkers.len() < 3 && started.elapsed() < Duration::from_secs(50) {
+        if let Ok(p) = w.world.expect_where(|q| q.is(mv, None) && q.int(0).is_some_and(|c| c >= base), 5000, "promenade").await {
+            anyhow::ensure!(p.int(5) == Some(0), "promenade en courant (drapeaux {})", o(p.int(5)));
+            let d = p.fields().vec3(2).unwrap_or_default();
+            if walkers.insert(p.int(0).unwrap_or(0)) {
+                println!("  ✓ monstre {:#x} marche vers {:.0}, {:.0} ({:.0} s)", p.int(0).unwrap_or(0), d.x, d.z, started.elapsed().as_secs_f64());
+            }
+        }
+    }
+    anyhow::ensure!(!walkers.is_empty(), "aucun monstre ne s'est promené");
+    w.world.send(mv, Fields::new(mv).with(0, w.cid).with(1, home).with(2, home).with(5, 0x04).with(6, 0)).await?;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    println!("\npatrouille : OK ({} monstre(s) en promenade)", walkers.len());
     Ok(())
 }
 

@@ -99,6 +99,8 @@ pub struct ItemData {
     pub equip: Option<EquipData>,
     /// Effet d'une potion.
     pub potion: Option<super::recovery::Potion>,
+    /// Parchemin de téléportation.
+    pub scroll: Option<super::travel::Scroll>,
 }
 
 /// Caractéristiques d'un équipement (colonnes d'itemdatatable.txt).
@@ -178,7 +180,8 @@ impl ItemCatalog {
                 let raw = serde_json::from_str::<serde_json::Value>(&col::<String>(r, "raw")).ok();
                 let equip = raw.as_ref().and_then(EquipData::from_raw);
                 let potion = raw.as_ref().and_then(super::recovery::Potion::from_raw);
-                (tid, ItemData { tid, name: col(r, "name"), npc_price: col(r, "npc_price"), pc_price: col(r, "pc_price"), stack: col::<i64>(r, "stack").max(1), equip, potion })
+                let scroll = raw.as_ref().and_then(super::travel::Scroll::from_raw);
+                (tid, ItemData { tid, name: col(r, "name"), npc_price: col(r, "npc_price"), pc_price: col(r, "pc_price"), stack: col::<i64>(r, "stack").max(1), equip, potion, scroll })
             })
             .collect();
         let lists = db.world.rows("SELECT template_id, tid, count FROM npc_trade_list ORDER BY template_id, idx", ()).await?;

@@ -31,10 +31,11 @@ crates/archcore/           serveur et outils
     npc_trade.rs           boutiques : liste, achat, vente
     monsters.rs            créatures (monster_spawn) : placement, caractéristiques, cycle de vie, paquet de vue
     combat.rs              attaque des monstres : approche, coups, mort, expérience, réapparition ; mort et résurrection du joueur
-    ai.rs                  IA des monstres : agresseurs, riposte, poursuite, retour au point
+    ai.rs                  IA des monstres : agresseurs, riposte, poursuite, retour au point, patrouille
     loot.rs                butin : tirage (or, groupes, objets propres), objets au sol, ramassage
     equipment.rs           équipement : restrictions, remplacement, facteurs, déplacement dans l'inventaire
     recovery.rs            potions de vie et de mana, régénération hors combat
+    travel.rs              parchemins de téléportation : village, aller-retour, destination
     map.rs                 carte serveur (map_segment) : sol infranchissable, régions
     items.rs               catalogue d'objets, inventaire, paquets AGPMITEM
     chat.rs, gm.rs         discussion et commandes MJ

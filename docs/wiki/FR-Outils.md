@@ -9,7 +9,7 @@ Ils se lancent depuis la racine du dépôt et lisent `config/archcore.json`, ou 
 | `archcore db-init [--account nom mdp [mj]]` | Crée les bases et applique `sql/` ; avec `--account`, crée ou met à jour un compte |
 | `archcore decrypt [source] [destination]` | Déchiffre `Game/ini` (RC4, MD5(« 1111 »)) vers `data/client-ini` |
 | `archcore import [dossier] [--server dossier]` | Importe `data/client-ini` dans `archcore_world` (CP949 → UTF-8) ; avec les tables du serveur d'origine (`--server`, ou `data/server-ini` s'il existe), importe aussi les apparitions de monstres et la carte serveur |
-| `archcore sim client\|move\|shop\|addon\|combat\|equip\|potion …` | Clients simulés (voir plus bas) |
+| `archcore sim client\|move\|shop\|addon\|combat\|equip\|potion\|scroll\|patrol …` | Clients simulés (voir plus bas) |
 | `archcore i18n strings [Game]` | Liste les textes encore en anglais dans `data/i18n/pending-en.json` |
 | `archcore i18n coverage [Game]` | Mesure la part déjà traduite de `ini_fr` |
 | `archcore i18n apply [--ascii] [--dry]` | Applique la mémoire de traduction au client (voir [[Traduction|FR-Traduction]]) |
@@ -95,6 +95,18 @@ Un compte MJ (`gmtest` / `GmTest` par défaut) se crée 3 Petites potions de vie
 vert, devient invincible et rentre au village ; le test attend la régénération hors combat (PV en hausse
 une dizaine de secondes après le dernier coup), boit une potion (PV en hausse, pile diminuée, op 4), puis
 vérifie qu'une seconde potion aussitôt est refusée.
+
+## Test des parchemins et de la patrouille
+
+```bash
+ARCHCORE_CONFIG=config/test.json archcore sim scroll [compte] [mdp] [personnage]
+ARCHCORE_CONFIG=config/test.json archcore sim patrol [compte] [mdp] [personnage]
+```
+
+`sim scroll` (compte MJ `gmtest` par défaut) se crée trois parchemins et vérifie le passeport de Tullan
+(destination fixe), l'aller-retour (village puis retour à Tullan par op 6) et le passeport simple (village).
+`sim patrol` (`sima` par défaut) reste immobile chez les Vers verts et attend que des monstres se promènent
+(en marchant), puis rentre au village.
 
 ## Test des extensions ArchRust
 
