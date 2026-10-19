@@ -256,6 +256,68 @@ async fn import_map(db: &Databases, server_dir: &std::path::Path) -> anyhow::Res
     Ok(())
 }
 
+/// Régions de RegionTemplate.ini : (numéro, nom, région parente, champ Type).
+pub fn parse_regions(text: &str) -> Vec<(u32, String, i64, i64)> {
+    parse_ini(text)
+        .iter()
+        .filter(|s| is_uint(&s.id))
+        .map(|s| (s.id.parse().unwrap(), s.first("Name").unwrap_or("").to_string(), js_number(s.first("ParentIndex").unwrap_or("-1"), -1.0) as i64, num(s.first("Type")) as i64))
+        .collect()
+}
+
+/// Événement « binding » (fonction 19) d'un objet d'obj*.ini.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Binding {
+    pub name: String,
+    pub town: String,
+    pub binding_type: i64,
+    pub race: i64,
+    pub class: i64,
+    pub pos: [f64; 3],
+}
+
+/// Race ou classe exigée par un point : -1 (ou 4294967295, -1 sur 32 bits) et 0 veulent dire « toutes ».
+fn restriction(v: &str) -> i64 {
+    let n = js_number(v, 0.0);
+    if n > 0.0 && n < 1000.0 { n as i64 } else { 0 }
+}
+
+/// Événements « binding » des objets d'un fichier obj*.ini, avec la position de leur objet.
+pub fn parse_bindings(text: &str) -> Vec<Binding> {
+    let mut out = Vec::new();
+    for s in parse_ini(text) {
+        let Some(p) = s.first("Position") else { continue };
+        let pos: Vec<f64> = p.split(',').map(|x| js_number(x, 0.0)).collect();
+        let pos = [pos.first().copied().unwrap_or(0.0), pos.get(1).copied().unwrap_or(0.0), pos.get(2).copied().unwrap_or(0.0)];
+        let mut current: Option<Binding> = None;
+        for (k, val) in &s.order {
+            match k.as_str() {
+                "Function" => {
+                    out.extend(current.take());
+                    if val.trim() == "19" {
+                        current = Some(Binding { name: String::new(), town: String::new(), binding_type: 0, race: 0, class: 0, pos });
+                    }
+                }
+                "BindingEnd" => out.extend(current.take()),
+                _ => {
+                    if let Some(b) = current.as_mut() {
+                        match k.as_str() {
+                            "BindingName" => b.name = val.clone(),
+                            "TownName" => b.town = val.clone(),
+                            "BindingType" => b.binding_type = js_number(val, 0.0) as i64,
+                            "CharRaceType" => b.race = restriction(val),
+                            "CharClassType" => b.class = restriction(val),
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+        out.extend(current.take());
+    }
+    out
+}
+
 /// Lignes de butin propre à un monstre : (monstre, objet, min, max, taux sur 100 000).
 pub fn parse_monster_drops(text: &str) -> Vec<(u32, u32, i64, i64, i64)> {
     let (h, rows) = parse_tsv(text);
@@ -493,6 +555,35 @@ async fn import_all(db: &Databases, src: &Source) -> anyhow::Result<()> {
         println!("✓ npc_spawn : {n}");
     }
 
+    // ---------------------------------------------------------------- RegionTemplate.ini, obj*.ini (régions, résurrection)
+    if src.exists("RegionTemplate.ini") {
+        let regions = parse_regions(&src.read("RegionTemplate.ini")?);
+        let by_name: std::collections::HashMap<&str, u32> = regions.iter().map(|r| (r.1.as_str(), r.0)).collect();
+        let mut points = Vec::new();
+        let mut files: Vec<PathBuf> = std::fs::read_dir(&src.0)?
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("obj") && n.ends_with(".ini")))
+            .collect();
+        files.sort();
+        for f in &files {
+            let text = src.read(f.file_name().unwrap().to_str().unwrap())?;
+            for b in parse_bindings(&text).into_iter().filter(|b| b.binding_type == 1) {
+                if let Some(&region) = by_name.get(b.town.as_str()) {
+                    points.push((region, b));
+                }
+            }
+        }
+        let out: Vec<Vec<Value>> = regions.iter().map(|r| vec![v(r.0), v(r.1.clone()), v(r.2), v(r.3), v((r.3 >> 2) & 3)]).collect();
+        let n = replace(db, "region_template", "INSERT INTO region_template (id,name,parent_id,type_bits,safety) VALUES (?,?,?,?,?)", out).await?;
+        let out: Vec<Vec<Value>> = points
+            .iter()
+            .enumerate()
+            .map(|(i, (region, b))| vec![v(i as u32 + 1), v(*region), v(b.name.clone()), v(b.pos[0]), v(b.pos[1]), v(b.pos[2]), v(b.race), v(b.class)])
+            .collect();
+        let m = replace(db, "resurrection_point", "INSERT INTO resurrection_point (id,region_id,name,pos_x,pos_y,pos_z,race,class) VALUES (?,?,?,?,?,?,?,?)", out).await?;
+        println!("✓ region_template : {n} ; resurrection_point : {m} (sur {} fichier(s) obj*.ini)", files.len());
+    }
+
     // ---------------------------------------------------------------- itemdatatable.txt (prix, piles)
     {
         let (header, rows) = parse_tsv(&src.read("itemdatatable.txt")?);
@@ -586,6 +677,17 @@ mod tests {
         let s = parse_node_data(&bytes);
         assert_eq!(s.len(), 1, "secteur hors du monde écarté");
         assert_eq!((s[0].0, s[0].1, s[0].2.len()), (325, 389, 1024));
+    }
+
+    #[test]
+    fn regions_et_points_de_resurrection() {
+        let r = parse_regions("[9]\nName=Anchorville\nParentIndex=-1\nType=786929\n[x]\nName=?\n");
+        assert_eq!(r, vec![(9, "Anchorville".to_string(), -1, 786_929)]);
+        assert_eq!((786_929 >> 2) & 3, 0, "région sûre");
+        let obj = "[1]\nPosition=-579188.8,7930.4,26739.5\nFunction=8\nEventID=1\nFunction=19\nBindingName=Point\nTownName=Delfaras\nBindingType=1\nCharRaceType=2\nCharClassType=4294967295\nBindingEnd=0\n[2]\nFunction=19\nTownName=SansPosition\n";
+        let b = parse_bindings(obj);
+        assert_eq!(b.len(), 1);
+        assert_eq!((b[0].town.as_str(), b[0].binding_type, b[0].race, b[0].class, b[0].pos[0]), ("Delfaras", 1, 2, 0, -579188.8));
     }
 
     #[test]

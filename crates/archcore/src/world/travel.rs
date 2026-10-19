@@ -3,8 +3,9 @@
 //! Un parchemin est un objet utilisable (ItemType 1) de Type 4 dans itemdatatable.txt ; son SubType donne sa
 //! sorte : 0 retour au village, 1 aller-retour, 2 destination fixe (colonne « Destination » : x;y;z),
 //! 3 retour au village immédiat. Il s'utilise par AGPMITEM op 3 comme une potion : un exemplaire est
-//! consommé et l'op 4 confirme. Le retour au village (0 et 1) est refusé en combat. Le village est le village
-//! de départ de la race du personnage (comme la résurrection).
+//! consommé et l'op 4 confirme. Le retour au village (0 et 1) est refusé en combat. Le « village » est le
+//! point de résurrection de la région de rattachement le plus proche (`regions.rs`), comme la résurrection ;
+//! à défaut, le village de départ de la race.
 //!
 //! L'aller-retour mémorise l'endroit quitté et l'annonce au client par AGPMITEM op 9 ; le client demande à
 //! y revenir par op 6, refusé en combat ; le serveur répond op 10 (retour désactivé) et y ramène le joueur.
@@ -62,8 +63,14 @@ impl Scroll {
     }
 }
 
-/// Village de départ de la race du personnage ; à défaut celui des humains, sinon sa position.
+/// Point de résurrection de la région de rattachement le plus proche du joueur ; à défaut, le village de départ
+/// de sa race (ou celui des humains), sinon sa position.
 pub fn home_village(ctx: &WorldCtx, p: &Player) -> (f64, Option<f64>, f64) {
+    let here = p.dest.unwrap_or_else(|| p.ch.pos());
+    let f = &p.factors;
+    if let Some(pt) = ctx.regions.resurrection(p.bound_region, here, f.ftype[0] as i64, f.ftype[2] as i64) {
+        return (pt.x as f64, Some(pt.y as f64), pt.z as f64);
+    }
     let villages = &ctx.config.world.start_positions;
     match villages.get(&p.factors.ftype[0].to_string()).or_else(|| villages.get("1")) {
         Some(v) => (v.x, Some(v.y), v.z),

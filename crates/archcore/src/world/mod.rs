@@ -28,6 +28,7 @@ pub mod npc_trade;
 pub mod npcs;
 pub mod presence;
 pub mod recovery;
+pub mod regions;
 pub mod travel;
 
 use crate::character::{character_packet, factors_mini, make_factors, move_mini, CharView, CharacterRow, Factors, MoveMini, Templates};
@@ -60,6 +61,8 @@ pub struct WorldCtx {
     pub level_exp: Vec<u64>,
     /// Tables de butin.
     pub loot: loot::LootTables,
+    /// Régions (sûreté) et points de résurrection.
+    pub regions: regions::Regions,
     pub view_radius: f64,
 }
 
@@ -117,6 +120,8 @@ pub struct Player {
     pub timers: recovery::Timers,
     /// Endroit quitté par un parchemin d'aller-retour.
     pub return_point: Option<Vec3>,
+    /// Région sûre de rattachement (résurrection, retour au village).
+    pub bound_region: u16,
     /// Limite de débit des messages d'AddOn.
     pub addon_bucket: addon::TokenBucket,
 }
@@ -278,6 +283,8 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
     let gm_level: i64 = col(&acc, "gm_level");
     let inventory = Inventory::load(&ctx.db, ch.id).await?;
     let factors = equipment::with_equipment(make_factors(tpl, Some(&ch)), &equipment::worn(&inventory, &ctx.catalog));
+    // Rattachement : la région où il se trouve si elle est sûre, sinon celle de sa race.
+    let bound_region = ctx.map.region(ch.pos_x, ch.pos_z).filter(|r| ctx.regions.is_safe(*r)).unwrap_or_else(|| regions::default_region(factors.ftype[0]));
     info!(
         "[world] #{} {} entre avec {} (cid {}{})",
         s.id(),
@@ -323,6 +330,7 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
             invincible_until: None,
             timers: recovery::Timers::default(),
             return_point: None,
+            bound_region,
             addon_bucket: addon::TokenBucket::default(),
         },
     );

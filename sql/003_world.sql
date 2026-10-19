@@ -200,3 +200,25 @@ CREATE TABLE IF NOT EXISTS drop_rank_rate (
   rates        JSON NOT NULL COMMENT 'pour cent par rang d''objet 1 à 10',
   PRIMARY KEY (monster_rank)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='rang des objets selon le rang du monstre (droprankrate.txt du serveur d''origine)';
+
+CREATE TABLE IF NOT EXISTS region_template (
+  id        INT UNSIGNED NOT NULL COMMENT 'section [N] de RegionTemplate.ini (numéro de région de la carte)',
+  name      VARCHAR(96) NOT NULL DEFAULT '',
+  parent_id INT NOT NULL DEFAULT -1,
+  type_bits INT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'champ Type : bits 0-1 terrain, 2-3 sûreté…',
+  safety    TINYINT NOT NULL DEFAULT 0 COMMENT '0 sûre, 1 libre, 2 dangereuse',
+  PRIMARY KEY (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='régions du monde (RegionTemplate.ini)';
+
+CREATE TABLE IF NOT EXISTS resurrection_point (
+  id        INT UNSIGNED NOT NULL COMMENT 'ordre d''import',
+  region_id INT UNSIGNED NOT NULL,
+  name      VARCHAR(96) NOT NULL DEFAULT '',
+  pos_x     DOUBLE NOT NULL,
+  pos_y     DOUBLE NOT NULL,
+  pos_z     DOUBLE NOT NULL,
+  race      INT NOT NULL DEFAULT 0 COMMENT '0 : toutes',
+  class     INT NOT NULL DEFAULT 0 COMMENT '0 : toutes',
+  PRIMARY KEY (id),
+  KEY ix_rp_region (region_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='points de résurrection (objets à événement 19, BindingType 1, des obj*.ini du client)';

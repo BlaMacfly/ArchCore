@@ -26,7 +26,8 @@
   objets au sol, ramassage. Équipement : armes et armures portées (restrictions, deux mains), comptées
   dans les dégâts et la défense, visibles des autres joueurs ; déplacement dans l'inventaire. Potions
   de vie et de mana, régénération des PV et PM hors combat. Parchemins de téléportation (village,
-  aller-retour, destination) ; patrouille des monstres. Voir
+  aller-retour, destination) ; patrouille des monstres. Résurrection au point de la dernière région sûre
+  traversée ; piles d'objets séparées, réunies, détruites. Voir
   [[Protocole réseau|FR-Protocole-reseau]].
 - Extensions ArchRust, côté serveur : négociation de capacités et messages d'AddOn (murmure, `SAY`).
   Voir [[Extensions ArchRust|FR-Extensions-ArchRust]] ; la partie client reste à écrire dans ArchRust.
@@ -44,8 +45,8 @@
 1. Valider la création complète d'un personnage en jeu.
 2. Vérifier la visibilité entre joueurs avec deux vrais clients.
 3. Fonctions des PNJ : quêtes, téléportation, banque.
-4. Combat : points de résurrection par région, compétences, dégâts élémentaires des objets.
-5. Objets : fusion des piles, destruction ; compétences.
+4. Combat : compétences, dégâts élémentaires des objets.
+5. Objets : banque, échange entre joueurs ; compétences.
 6. Discussion, groupes, guildes.
 7. Reconnexion automatique (type 0x63).
 8. Commandes MJ restantes de la page [[Administration|FR-Administration]] (arène, événements, failles…).

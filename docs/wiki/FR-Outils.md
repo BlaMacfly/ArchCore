@@ -9,7 +9,7 @@ Ils se lancent depuis la racine du dépôt et lisent `config/archcore.json`, ou 
 | `archcore db-init [--account nom mdp [mj]]` | Crée les bases et applique `sql/` ; avec `--account`, crée ou met à jour un compte |
 | `archcore decrypt [source] [destination]` | Déchiffre `Game/ini` (RC4, MD5(« 1111 »)) vers `data/client-ini` |
 | `archcore import [dossier] [--server dossier]` | Importe `data/client-ini` dans `archcore_world` (CP949 → UTF-8) ; avec les tables du serveur d'origine (`--server`, ou `data/server-ini` s'il existe), importe aussi les apparitions de monstres et la carte serveur |
-| `archcore sim client\|move\|shop\|addon\|combat\|equip\|potion\|scroll\|patrol …` | Clients simulés (voir plus bas) |
+| `archcore sim client\|move\|shop\|addon\|combat\|equip\|potion\|scroll\|patrol\|bag …` | Clients simulés (voir plus bas) |
 | `archcore i18n strings [Game]` | Liste les textes encore en anglais dans `data/i18n/pending-en.json` |
 | `archcore i18n coverage [Game]` | Mesure la part déjà traduite de `ini_fr` |
 | `archcore i18n apply [--ascii] [--dry]` | Applique la mémoire de traduction au client (voir [[Traduction|FR-Traduction]]) |
@@ -107,6 +107,16 @@ ARCHCORE_CONFIG=config/test.json archcore sim patrol [compte] [mdp] [personnage]
 (destination fixe), l'aller-retour (village puis retour à Tullan par op 6) et le passeport simple (village).
 `sim patrol` (`sima` par défaut) reste immobile chez les Vers verts et attend que des monstres se promènent
 (en marchant), puis rentre au village.
+
+## Test de l'inventaire et de la résurrection
+
+```bash
+ARCHCORE_CONFIG=config/test.json archcore sim bag [compte] [mdp] [personnage]
+```
+
+Un compte MJ (`gmtest` par défaut) se crée une pile neuve de Petites potions de mana, la sépare (op 17),
+la réunit (op 2 sur la case de la pile d'origine) puis la détruit (op 21) ; enfin `/kill` et résurrection :
+il doit revenir au point de résurrection d'Anchorville (-476000, -61000).
 
 ## Test des extensions ArchRust
 

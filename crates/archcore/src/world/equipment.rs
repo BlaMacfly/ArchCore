@@ -7,8 +7,13 @@
 //! arme à deux mains libère aussi l'autre main. Le porteur reçoit les mises à jour (op 2), ceux qui le voient
 //! l'ajout (op 0, statut 3) ou le retrait (op 1) ; ses facteurs sont recalculés : dégâts et défense
 //! physiques, précision, PV, vitesse et portée d'attaque de l'arme.
+//!
+//! Dans l'inventaire, poser une pile sur une pile du même objet les réunit si le total tient dans une pile
+//! (la source disparaît, op 1 ; la cible est mise à jour, op 2). AGPMITEM op 17 sépare une pile (quantité au
+//! champ 5, case libre au champ 7 ; nouvelle pile par op 0, l'ancienne mise à jour par op 2) ; op 21 détruit
+//! un objet de l'inventaire (op 1 en réponse).
 
-use super::items::{item_add, item_remove, item_status, item_update, EquipData, Grid, Inventory, ItemCatalog};
+use super::items::{item_add, item_count, item_remove, item_status, item_update, EquipData, Grid, Inventory, ItemCatalog};
 use super::{send_system, Player, WorldCtx, WorldState};
 use crate::character::{factors_mini, make_factors, Factors, POINT_HP};
 use crate::{debug, info};
@@ -219,6 +224,20 @@ async fn unequip(ctx: &WorldCtx, st: &mut WorldState, sid: u32, at: i64, wanted:
 async fn move_in_bag(ctx: &WorldCtx, st: &mut WorldState, sid: u32, iid: u32, wanted: Option<Grid>) -> anyhow::Result<()> {
     let player = st.players.get_mut(&sid).unwrap();
     let cid = player.ch.id;
+    // Case prise par une pile du même objet : fusion.
+    let occupant = wanted.and_then(|g| player.inventory.at(g)).filter(|o| o.iid != iid).cloned();
+    if let Some(target) = occupant {
+        let max = ctx.catalog.get(target.tid).map(|d| d.stack).unwrap_or(1);
+        match player.inventory.merge(&ctx.db, iid, target.iid, max).await? {
+            Some(merged) => {
+                player.send_raw(item_remove(iid, Some(cid)));
+                player.send_raw(item_count(&merged, cid));
+                debug!("[inventaire] {} réunit deux piles de l'objet {} : {}", player.ch.name, merged.tid, merged.count);
+            }
+            None => resync(st, sid, iid),
+        }
+        return Ok(());
+    }
     match wanted {
         Some(g) => match player.inventory.move_to(&ctx.db, iid, g).await? {
             Some(item) => player.send_raw(item_update(&item, cid, item_status::INVENTORY)),
@@ -226,6 +245,39 @@ async fn move_in_bag(ctx: &WorldCtx, st: &mut WorldState, sid: u32, iid: u32, wa
         },
         None => resync(st, sid, iid),
     }
+    Ok(())
+}
+
+/// Opérations AGPMITEM « séparer une pile » et « détruire un objet ».
+pub const SPLIT_ITEM: i64 = 17;
+pub const REQUEST_DESTROY_ITEM: i64 = 21;
+
+/// AGPMITEM op 17 : sépare `count` exemplaires d'une pile vers une case libre.
+pub async fn split(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> anyhow::Result<()> {
+    let (iid, count) = (p.int(2).unwrap_or(0) as u32, p.int(5).unwrap_or(0));
+    let Some(grid) = wanted_grid(p) else { return Ok(()) };
+    let Some(player) = st.players.get_mut(&sid) else { return Ok(()) };
+    let cid = player.ch.id;
+    match player.inventory.split(&ctx.db, iid, count, grid).await? {
+        Some((origin, part)) => {
+            player.send_raw(item_add(part.iid, part.tid, Some(cid), part.count, item_status::INVENTORY, Some(part.grid)));
+            player.send_raw(item_count(&origin, cid));
+            debug!("[inventaire] {} sépare {count} exemplaire(s) de l'objet {}", player.ch.name, origin.tid);
+        }
+        None => resync(st, sid, iid),
+    }
+    Ok(())
+}
+
+/// AGPMITEM op 21 : détruit un objet de l'inventaire (pas un objet porté).
+pub async fn destroy(ctx: &WorldCtx, st: &mut WorldState, sid: u32, iid: u32) -> anyhow::Result<()> {
+    let Some(player) = st.players.get_mut(&sid) else { return Ok(()) };
+    let Some(item) = player.inventory.get(iid).cloned() else { return Ok(()) };
+    player.inventory.remove(&ctx.db, iid).await?;
+    let cid = player.ch.id;
+    player.send_raw(item_remove(iid, Some(cid)));
+    let label = ctx.catalog.get(item.tid).map(|d| d.name.clone()).unwrap_or_default();
+    info!("[inventaire] {} détruit {} × {label}", player.ch.name, item.count);
     Ok(())
 }
 

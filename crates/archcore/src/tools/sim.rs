@@ -12,6 +12,7 @@
 //!   archcore sim potion [compte] [mdp] [perso]                blessé par un Ver vert : régénération hors combat, potion de vie, refus ; compte MJ
 //!   archcore sim scroll [compte] [mdp] [perso]                parchemins : destination fixe, aller-retour, retour au village ; compte MJ
 //!   archcore sim patrol [compte] [mdp] [perso]                immobile chez les Vers verts : des monstres se promènent
+//!   archcore sim bag [compte] [mdp] [perso]                   séparer, réunir et détruire une pile ; ressusciter au point de la région ; compte MJ
 //! ```
 //! À lancer contre un serveur de test (`ARCHCORE_CONFIG`) : les personnages sont créés au besoin,
 //! déplacés, et `sim shop` leur donne 1000 pièces d'or.
@@ -46,12 +47,13 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
             ];
             Box::pin(addon(&acc)).await
         }
+        Some("bag") => Box::pin(bag(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("scroll") => Box::pin(scroll(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("patrol") => Box::pin(patrol(&a(1, "sima"), &a(2, "sima"), &a(3, "SimA"))).await,
         Some("potion") => Box::pin(potion(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("equip") => Box::pin(equip(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("combat") => Box::pin(combat(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "Green Worm"))).await,
-        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol [arguments]"),
+        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol|bag [arguments]"),
     }
 }
 
@@ -666,7 +668,9 @@ async fn combat(user: &str, pass: &str, char_name: &str, prey: &str) -> anyhow::
     anyhow::ensure!(hp > 0, "ressuscité sans PV");
     let tp = w.world.expect_where(|q| q.is(mv, None) && q.int(0) == Some(me), 5000, "retour au village").await?;
     let at = tp.fields().vec3(2).unwrap_or_default();
-    anyhow::ensure!((at.x - village.x).abs() < 1.0 && (at.z - village.z).abs() < 1.0, "ressuscité en {at:?}, pas au village");
+    // Point de résurrection de la région de rattachement : à quelques milliers d'unités du point de départ.
+    let from_village = (((at.x - village.x) as f64).powi(2) + ((at.z - village.z) as f64).powi(2)).sqrt();
+    anyhow::ensure!(from_village < 10_000.0, "ressuscité en {at:?}, à {from_village:.0} du village");
     println!("  ✓ {char_name} ressuscite au village avec {hp} PV");
 
     step(&format!("victoire : {char_name} invincible contre un {prey}"));
@@ -927,6 +931,8 @@ async fn scroll(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
         Ok(m.fields().vec3(2).unwrap_or_default())
     }
     let near = |a: Vec3, b: Vec3| (a.x - b.x).abs() < 1.0 && (a.z - b.z).abs() < 1.0;
+    // Retour « au village » : au point de résurrection de la région, à quelques milliers d'unités du départ.
+    let town = |a: Vec3| (((a.x - village.x) as f64).powi(2) + ((a.z - village.z) as f64).powi(2)).sqrt() < 10_000.0;
     let tullan = Vec3::new(-353_400.0, 2125.0, 81_200.0);
 
     step("passeport de Tullan");
@@ -936,7 +942,7 @@ async fn scroll(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
 
     step("aller-retour");
     let at = use_and_land(&mut w, iids[&ROUNDTRIP], ROUNDTRIP).await?;
-    anyhow::ensure!(near(at, village), "aller : {at:?}");
+    anyhow::ensure!(town(at), "aller : {at:?}");
     println!("  ✓ aller : au village");
     w.world.send(it, Fields::new(it).with(0, 6).with(4, w.cid)).await?;
     w.world.expect_where(|q| q.is(it, Some(10)) && q.int(4) == Some(me), 3000, "retour désactivé").await?;
@@ -946,7 +952,7 @@ async fn scroll(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
 
     step("passeport (retour au village)");
     let at = use_and_land(&mut w, iids[&GO_TOWN], GO_TOWN).await?;
-    anyhow::ensure!(near(at, village), "arrivé en {at:?}");
+    anyhow::ensure!(town(at), "arrivé en {at:?}");
     println!("  ✓ au village");
     println!("\nparchemins : OK");
     Ok(())
@@ -977,6 +983,74 @@ async fn patrol(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
     w.world.send(mv, Fields::new(mv).with(0, w.cid).with(1, home).with(2, home).with(5, 0x04).with(6, 0)).await?;
     tokio::time::sleep(Duration::from_millis(300)).await;
     println!("\npatrouille : OK ({} monstre(s) en promenade)", walkers.len());
+    Ok(())
+}
+
+async fn bag(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
+    const MANA: i64 = 193; // Small Mana Potion : une pile neuve, détruite à la fin
+    const FREE: [i64; 3] = [3, 3, 3]; // dernière case du dernier sac, libre en pratique
+    let cfg = crate::config::load()?;
+    let (c, it, ch, mv) = (&schema::CHARACTER, &schema::ITEM, &schema::CHATTING, &schema::OPT_CHAR_MOVE);
+    step(&format!("{char_name} entre en jeu"));
+    let mut w = enter_world(&cfg, user, pass, char_name, "").await?;
+    let me = w.cid as i64;
+    let say = |cid: u32, text: &str| Fields::new(ch).with(0, 0).with(1, cid).with(2, chat_type::NORMAL).with(6, crate::tools::to_cp1252(text));
+    let grid = |g: [i64; 3]| {
+        let s = &mini::ITEM_GRID;
+        build_mini(s, &Fields::new(s).with(0, g[0]).with(1, g[1]).with(2, g[2]))
+    };
+    let grid_of = |r: &Recv| r.fields().bytes(7).and_then(|b| decode_mini(&mini::ITEM_GRID, b).ok()).map(|g| [g.int(0).unwrap_or(0), g.int(1).unwrap_or(0), g.int(2).unwrap_or(0)]);
+
+    step("pile neuve de potions de mana");
+    let mut made = None;
+    for _ in 0..2 {
+        w.world.send(ch, say(w.cid, &format!("/create \"{char_name}\" {MANA} 4"))).await?;
+        let p = w.world.expect_where(|q| q.is(it, None) && q.int(3) == Some(MANA) && q.int(1) == Some(2), 3000, "potions de mana").await?;
+        match grid_of(&p) {
+            Some(g) => {
+                made = Some((p.int(2).unwrap_or(0), p.int(5).unwrap_or(0), g));
+                break;
+            }
+            // Pile laissée par un essai précédent : on la détruit et on recommence.
+            None => {
+                let old = p.int(2).unwrap_or(0);
+                w.world.send(it, Fields::new(it).with(0, 21).with(2, old)).await?;
+                w.world.expect_where(|q| q.is(it, Some(1)) && q.int(2) == Some(old), 3000, "ancienne pile détruite").await?;
+            }
+        }
+    }
+    let (iid, count, origin_grid) = made.ok_or_else(|| anyhow::anyhow!("pas de pile neuve"))?;
+    println!("  ✓ {count} potions en {origin_grid:?}");
+
+    step("séparer");
+    w.world.send(it, Fields::new(it).with(0, 17).with(2, iid).with(5, 2).with(7, grid(FREE))).await?;
+    let part = w.world.expect_where(|q| q.is(it, Some(0)) && q.int(3) == Some(MANA) && q.int(5) == Some(2), 3000, "nouvelle pile").await?;
+    let left = w.world.expect_where(|q| q.is(it, Some(2)) && q.int(2) == Some(iid), 3000, "pile d'origine").await?;
+    anyhow::ensure!(left.int(5) == Some(count - 2), "pile d'origine à {}", o(left.int(5)));
+    let part_iid = part.int(2).unwrap_or(0);
+    println!("  ✓ {count} → {} + 2 en {FREE:?}", count - 2);
+
+    step("réunir");
+    w.world.send(it, Fields::new(it).with(0, 2).with(1, 2).with(2, part_iid).with(7, grid(origin_grid))).await?;
+    w.world.expect_where(|q| q.is(it, Some(1)) && q.int(2) == Some(part_iid), 3000, "pile versée").await?;
+    let merged = w.world.expect_where(|q| q.is(it, Some(2)) && q.int(2) == Some(iid), 3000, "pile réunie").await?;
+    anyhow::ensure!(merged.int(5) == Some(count), "pile réunie à {}", o(merged.int(5)));
+    println!("  ✓ réunies : {count} potions");
+
+    step("détruire");
+    w.world.send(it, Fields::new(it).with(0, 21).with(2, iid)).await?;
+    w.world.expect_where(|q| q.is(it, Some(1)) && q.int(2) == Some(iid), 3000, "pile détruite").await?;
+    println!("  ✓ pile détruite");
+
+    step("résurrection au point de la région");
+    w.world.send(ch, say(w.cid, "/kill")).await?;
+    w.world.expect_where(|q| q.is(c, Some(1)) && q.int(1) == Some(me) && q.int(11) == Some(2), 3000, "mort").await?;
+    w.world.send(c, Fields::new(c).with(0, 9).with(1, w.cid)).await?;
+    let tp = w.world.expect_where(|q| q.is(mv, None) && q.int(0) == Some(me), 5000, "résurrection").await?;
+    let d = tp.fields().vec3(2).unwrap_or_default();
+    anyhow::ensure!((d.x + 476_000.0).abs() < 1.0 && (d.z + 61_000.0).abs() < 1.0, "ressuscité en {d:?}");
+    println!("  ✓ ressuscité au point de résurrection d'Anchorville : {:.0}, {:.0}", d.x, d.z);
+    println!("\ninventaire et résurrection : OK");
     Ok(())
 }
 

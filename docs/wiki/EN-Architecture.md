@@ -33,9 +33,10 @@ crates/archcore/           server and tools
     combat.rs              attacking monsters: approach, hits, death, experience, respawn; player death and resurrection
     ai.rs                  monster AI: attackers, retaliation, pursuit, going home, patrols
     loot.rs                drops: rolls (gold, groups, own items), ground items, pick-up
-    equipment.rs           equipment: restrictions, replacement, factors, moving items in the inventory
+    equipment.rs           equipment: restrictions, replacement, factors; inventory: move, merge, split, destroy
     recovery.rs            life and mana potions, out-of-combat regeneration
     travel.rs              teleport scrolls: town, round trip, destination
+    regions.rs             safe regions, binding, resurrection points
     map.rs                 server map (map_segment): blocked ground, regions
     items.rs               item catalog, inventory, AGPMITEM packets
     chat.rs, gm.rs         chat and GM commands

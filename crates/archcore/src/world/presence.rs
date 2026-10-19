@@ -106,6 +106,11 @@ pub fn on_move(ctx: &WorldCtx, st: &mut WorldState, sid: u32, packet: &Packet) {
             o.send(&schema::OPT_CHAR_MOVE, mv.clone());
         }
     }
+    // Rattachement à la dernière région sûre traversée.
+    let at = dest.unwrap_or(pos);
+    if let Some(region) = ctx.map.region(at.x as f64, at.z as f64).filter(|r| ctx.regions.is_safe(*r)) {
+        st.players.get_mut(&sid).unwrap().bound_region = region;
+    }
     refresh(st, sid);
     send_nearby_npcs(ctx, st, sid, dest.unwrap_or(pos));
 }

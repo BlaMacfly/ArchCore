@@ -216,7 +216,15 @@ court (0x10). Au plus 16 départs par tour.
 **Mort du joueur.** À 0 PV : AGPMCHARACTER op 1 (facteurs, champ 11 = 2) au joueur et à ceux qui le
 voient ; il ne bouge ni n'attaque plus, et les monstres le lâchent. Le client demande la résurrection au
 village par AGPMCHARACTER **op 9** : le serveur rend tous les PV et PM, renvoie le statut 0, téléporte le
-personnage au village de départ de sa race et le rend invincible 10 s.
+personnage au point de résurrection de sa région de rattachement et le rend invincible 10 s.
+
+**Régions et points de résurrection.** Chaque segment de la carte serveur porte un numéro de région
+(RegionTemplate.ini), dont le champ `Type` dit si elle est sûre (bits 2-3 à 0), libre ou dangereuse. Un
+joueur est rattaché à la dernière région sûre traversée ; à l'entrée en jeu, à celle où il se trouve si elle
+est sûre, sinon à celle de sa race (9 Anchorville, 5 Golundo, 26 Norine). Les points de résurrection sont
+les objets des obj*.ini du client qui portent un événement 19 (« binding ») de type 1 : région par son nom
+(`TownName`), race et classe admises (-1 ou 0 : toutes), position de l'objet. Le joueur revient au point de
+sa région le plus proche qu'il peut utiliser ; à défaut, au village de départ de sa race.
 
 **Butin.** À la mort d'un monstre, son butin tombe au sol autour du cadavre (± 150 unités) : AGPMITEM
 op 0 avec le statut 1 (« au sol »), l'IID (plage `0x30000000`), le TID, le propriétaire (CID du tueur),
@@ -250,6 +258,11 @@ précision (`Physical_ATKRate`), PV, et pour une arme sa vitesse et sa portée d
 un message système et remet l'objet à sa place. En base, un objet porté a le statut 1 et sa partie dans
 `layer`. L'équipement d'un joueur est envoyé (op 0, statut 3) à ceux qui commencent à le voir.
 
+Dans l'inventaire, poser une pile sur une pile du même objet (op 2, statut 2, case de la cible) les réunit
+si le total tient dans une pile : la source disparaît (op 1), la cible est mise à jour (op 2). AGPMITEM
+**op 17** sépare une pile (quantité au champ 5, case libre au champ 7) : la nouvelle pile arrive par op 0,
+l'ancienne est mise à jour par op 2. **Op 21** détruit un objet de l'inventaire (op 1 en réponse).
+
 ## Potions et régénération (types 0x04 et 0x02)
 
 Le client utilise un objet par AGPMITEM **op 3** (champ 2 = IID). Une potion est un objet utilisable
@@ -269,8 +282,8 @@ façon.
 Un parchemin (« Passport ») est un objet utilisable de `Type` 4 ; son `SubType` donne sa sorte : 0 retour au
 village, 1 aller-retour, 2 destination fixe (colonne `Destination` : x;y;z), 3 retour au village immédiat. Il
 s'utilise par AGPMITEM op 3 comme une potion (un exemplaire consommé, confirmation op 4), puis le serveur
-téléporte le joueur (AGPMOPTIMIZEDCHARMOVE et AGPMCHARACTER). Le village est celui de départ de la race,
-comme pour la résurrection. Le retour au village (0 et 1) est refusé en combat. L'aller-retour mémorise
+téléporte le joueur (AGPMOPTIMIZEDCHARMOVE et AGPMCHARACTER). Le « village » est le point de résurrection de
+la région de rattachement, comme pour la résurrection. Le retour au village (0 et 1) est refusé en combat. L'aller-retour mémorise
 l'endroit quitté et l'annonce par AGPMITEM **op 9** (champ 4 = CID) ; le client demande à y revenir par
 **op 6**, refusé en combat ; le serveur répond **op 10** (retour désactivé) et y ramène le joueur.
 

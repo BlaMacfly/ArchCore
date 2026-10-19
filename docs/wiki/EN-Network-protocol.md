@@ -213,7 +213,15 @@ departures per tick.
 **Player death.** At 0 HP: AGPMCHARACTER op 1 (factors, field 11 = 2) to the player and to those who see
 them; they can no longer move or attack, and monsters drop them. The client asks to be resurrected in
 town with AGPMCHARACTER **op 9**: the server restores HP and MP, sends status 0, teleports the character
-to their race's starting village and makes them invincible for 10 s.
+to the resurrection point of their bound region and makes them invincible for 10 s.
+
+**Regions and resurrection points.** Each segment of the server map has a region number
+(RegionTemplate.ini), whose `Type` field says whether it is safe (bits 2-3 at 0), free or dangerous. A
+player is bound to the last safe region they crossed; on entering the world, to the one they stand in if it
+is safe, otherwise to their race's (9 Anchorville, 5 Golundo, 26 Norine). Resurrection points are the
+objects of the client's obj*.ini files carrying an event 19 ("binding") of type 1: region by name
+(`TownName`), allowed race and class (-1 or 0: all), object position. The player comes back at the nearest
+point of their region they may use; failing that, at their race's starting village.
 
 **Drops.** When a monster dies, its loot falls on the ground around the corpse (± 150 units): AGPMITEM
 op 0 with status 1 ("on the ground"), the IID (`0x30000000` range), the TID, the owner (killer's CID),
@@ -248,6 +256,11 @@ and range. A refusal gives a system message and puts the item back. In the datab
 status 1 and its body part in `layer`. A player's equipment is sent (op 0, status 3) to those who start
 seeing them.
 
+In the inventory, dropping a stack on a stack of the same item (op 2, status 2, target slot) merges them if
+the total fits in one stack: the source disappears (op 1), the target is updated (op 2). AGPMITEM **op 17**
+splits a stack (count in field 5, free slot in field 7): the new stack arrives with op 0, the old one is
+updated with op 2. **Op 21** destroys an inventory item (op 1 in answer).
+
 ## Potions and regeneration (types 0x04 and 0x02)
 
 The client uses an item with AGPMITEM **op 3** (field 2 = IID). A potion is a usable item (`ItemType` 1 in
@@ -265,7 +278,8 @@ and MP, plus their recovery rate, plus 5; the new factors are sent the same way.
 A scroll ("Passport") is a usable item of `Type` 4; its `SubType` gives its kind: 0 back to town, 1 round
 trip, 2 fixed destination (`Destination` column: x;y;z), 3 back to town right away. It is used with
 AGPMITEM op 3 like a potion (one unit consumed, op 4 confirmation), then the server teleports the player
-(AGPMOPTIMIZEDCHARMOVE and AGPMCHARACTER). The town is the race's starting village, as for resurrection.
+(AGPMOPTIMIZEDCHARMOVE and AGPMCHARACTER). The "town" is the resurrection point of the bound region, as for
+resurrection.
 Going back to town (0 and 1) is refused in combat. The round trip remembers the place left and announces
 it with AGPMITEM **op 9** (field 4 = CID); the client asks to go back with **op 6**, refused in combat; the
 server answers **op 10** (return disabled) and takes the player back.

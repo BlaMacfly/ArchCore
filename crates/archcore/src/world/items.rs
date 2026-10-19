@@ -360,6 +360,48 @@ impl Inventory {
         Ok(None)
     }
 
+    /// Objet de l'inventaire posé sur cette case.
+    pub fn at(&self, g: Grid) -> Option<&InventoryItem> {
+        self.items.values().find(|i| i.grid == g)
+    }
+
+    /// Verse la pile `from` dans la pile `into` du même objet, si le total tient dans `max_stack` : rend la
+    /// pile réunie (`from` disparaît).
+    pub async fn merge(&mut self, db: &Databases, from: u32, into: u32, max_stack: i64) -> anyhow::Result<Option<InventoryItem>> {
+        let (Some(a), Some(b)) = (self.items.get(&from), self.items.get(&into)) else { return Ok(None) };
+        if from == into || a.tid != b.tid || a.count + b.count > max_stack {
+            return Ok(None);
+        }
+        let total = a.count + b.count;
+        self.remove(db, from).await?;
+        let target = self.items.get_mut(&into).unwrap();
+        target.count = total;
+        db.characters.exec("UPDATE character_items SET count = ? WHERE id = ?", (total, into)).await?;
+        Ok(Some(target.clone()))
+    }
+
+    /// Sépare `n` exemplaires d'une pile vers une case libre : rend (pile d'origine, nouvelle pile).
+    pub async fn split(&mut self, db: &Databases, iid: u32, n: i64, grid: Grid) -> anyhow::Result<Option<(InventoryItem, InventoryItem)>> {
+        let Some(item) = self.items.get(&iid) else { return Ok(None) };
+        if n <= 0 || n >= item.count || !self.is_free(grid) {
+            return Ok(None);
+        }
+        let (tid, left) = (item.tid, item.count - n);
+        db.characters.exec("UPDATE character_items SET count = ? WHERE id = ?", (left, iid)).await?;
+        let new_iid = db
+            .characters
+            .exec(
+                "INSERT INTO character_items (character_id, template_id, status, layer, row_idx, col_idx, count) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (self.character_id, tid, stored_status::INVENTORY, grid[0], grid[1], grid[2], n),
+            )
+            .await? as u32;
+        let part = InventoryItem { iid: new_iid, tid, count: n, grid };
+        self.items.insert(new_iid, part.clone());
+        let origin = self.items.get_mut(&iid).unwrap();
+        origin.count = left;
+        Ok(Some((origin.clone(), part)))
+    }
+
     /// Déplace un objet de l'inventaire vers une case libre.
     pub async fn move_to(&mut self, db: &Databases, iid: u32, grid: Grid) -> anyhow::Result<Option<InventoryItem>> {
         if !self.items.contains_key(&iid) || !self.is_free(grid) {
@@ -385,6 +427,14 @@ mod tests {
         assert_eq!(inv.stack_for(190, 10, 9999), Some(3));
         assert_eq!(inv.stack_for(190, 10, 1), None);
         assert!(!inv.is_free([4, 0, 0]));
+    }
+
+    #[test]
+    fn case_occupee() {
+        let mut inv = Inventory { character_id: 1, ..Default::default() };
+        inv.items.insert(3, InventoryItem { iid: 3, tid: 190, count: 5, grid: [0, 1, 2] });
+        assert_eq!(inv.at([0, 1, 2]).map(|i| i.iid), Some(3));
+        assert!(inv.at([0, 0, 0]).is_none());
     }
 
     #[test]
