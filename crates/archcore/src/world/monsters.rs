@@ -126,6 +126,15 @@ pub enum Life {
     Gone { respawn_at: Instant },
 }
 
+/// Un agresseur retenu par un monstre : dégâts cumulés, oublié 30 s après son dernier coup.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Aggro {
+    /// CID du joueur.
+    pub cid: u32,
+    pub damage: u64,
+    pub until: Instant,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Monster {
     pub cid: u32,
@@ -141,6 +150,14 @@ pub struct Monster {
     /// Délai de réapparition après le retrait du cadavre, en secondes.
     pub respawn_sec: i64,
     pub life: Life,
+    /// Position d'apparition, où il revient quand il abandonne.
+    pub home: Vec3,
+    pub aggro: Vec<Aggro>,
+    /// Joueur visé (CID).
+    pub target: Option<u32>,
+    /// Prochaine action possible (coup ou fin de déplacement) et prochain choix de cible.
+    pub ready_at: Instant,
+    pub scan_at: Instant,
 }
 
 impl Monster {
@@ -176,6 +193,8 @@ pub struct MonsterRegistry {
     pub stats: HashMap<u32, MonsterStats>,
     /// Monstres morts ou retirés, à faire avancer dans leur cycle de vie.
     pub pending: BTreeSet<u32>,
+    /// Monstres qui ont des agresseurs (IA active).
+    pub engaged: BTreeSet<u32>,
     by_cid: HashMap<u32, usize>,
     grid: HashMap<(i64, i64), Vec<usize>>,
 }
@@ -203,6 +222,8 @@ pub fn spawn_point(p: &SpawnPoint, first_cid: u32, blocked: &dyn Fn(f64, f64) ->
                 }
             }
             let (dx, dz) = offset;
+            let pos = Vec3::new(p.pos.x + dx as f32, p.pos.y, p.pos.z + dz as f32);
+            let now = Instant::now();
             let degree_y = rng.gen_range(-180..180) as f64;
             Monster {
                 cid: first_cid + i,
@@ -210,13 +231,18 @@ pub fn spawn_point(p: &SpawnPoint, first_cid: u32, blocked: &dyn Fn(f64, f64) ->
                 tid: p.tid,
                 level: p.level,
                 name: p.name.clone(),
-                pos: Vec3::new(p.pos.x + dx as f32, p.pos.y, p.pos.z + dz as f32),
+                pos,
                 degree_x: p.degree_x,
                 degree_y,
                 hp: p.max_hp,
                 max_hp: p.max_hp,
                 respawn_sec: p.respawn_sec,
                 life: Life::Alive,
+                home: pos,
+                aggro: Vec::new(),
+                target: None,
+                ready_at: now,
+                scan_at: now,
             }
         })
         .collect()
@@ -298,6 +324,20 @@ impl MonsterRegistry {
         self.by_cid.get(&cid).map(|&i| &mut self.monsters[i])
     }
 
+    /// Déplace un monstre et met la grille de recherche à jour.
+    pub fn relocate(&mut self, cid: u32, pos: Vec3) {
+        let Some(&i) = self.by_cid.get(&cid) else { return };
+        let old = self.monsters[i].pos;
+        let (from, to) = (cell_of(old.x as f64, old.z as f64), cell_of(pos.x as f64, pos.z as f64));
+        if from != to {
+            if let Some(v) = self.grid.get_mut(&from) {
+                v.retain(|&j| j != i);
+            }
+            self.grid.entry(to).or_default().push(i);
+        }
+        self.monsters[i].pos = pos;
+    }
+
     pub fn stats_of(&self, tid: u32) -> MonsterStats {
         self.stats.get(&tid).cloned().unwrap_or_default()
     }
@@ -357,7 +397,8 @@ mod tests {
         let p = point(7, 1000.0, -2000.0, 50, 2500.0);
         let a = spawn_point(&p, MONSTER_CID_BASE, &|_, _| false);
         assert_eq!(a.len(), 50);
-        assert_eq!(a, spawn_point(&p, MONSTER_CID_BASE, &|_, _| false), "même graine, mêmes positions");
+        let placed = |v: &[Monster]| v.iter().map(|m| (m.pos, m.degree_y)).collect::<Vec<_>>();
+        assert_eq!(placed(&a), placed(&spawn_point(&p, MONSTER_CID_BASE, &|_, _| false)), "même graine, mêmes positions");
         for m in &a {
             assert!((m.pos.x - 1000.0).abs() <= 2500.0 && (m.pos.z + 2000.0).abs() <= 2500.0);
             assert!((-180.0..180.0).contains(&m.degree_y));
@@ -385,6 +426,11 @@ mod tests {
         assert_eq!(reg.near(Vec3::new(-9000.0, 0.0, -9000.0), 10.0).count(), 1);
         // CID consécutifs, retrouvables.
         assert_eq!(reg.get(MONSTER_CID_BASE + 4).unwrap().spawn_id, 2);
+        // Un monstre déplacé se retrouve à sa nouvelle place, plus à l'ancienne.
+        let mut reg = reg;
+        reg.relocate(MONSTER_CID_BASE + 6, Vec3::new(30_000.0, 0.0, 30_000.0));
+        assert_eq!(reg.near(Vec3::new(-9000.0, 0.0, -9000.0), 10.0).count(), 0);
+        assert_eq!(reg.near(Vec3::new(30_000.0, 0.0, 30_000.0), 10.0).count(), 1);
     }
 
     #[test]

@@ -61,12 +61,17 @@ contre un serveur de test.
 ARCHCORE_CONFIG=config/test.json archcore sim combat [compte] [mdp] [personnage] [monstre]
 ```
 
-Le personnage (`sima` / `SimA` par défaut) part chasser au nord d'Anchorville (Limelight Nord) et
-attaque le monstre demandé le plus proche (`Green Worm` par défaut). Le test vérifie que le serveur
-l'approche de sa cible, que chaque coup fait baisser les PV, que le monstre meurt, que l'expérience est
-gagnée, que le cadavre disparaît puis que le monstre réapparaît avec tous ses PV ; il ramène enfin le
-personnage au village. Compter environ 1 min 30 : un guerrier de niveau 1 sans arme frappe un Ver vert
-(136 PV) 2 à 3 PV par coup, à un coup par seconde.
+Le personnage, un compte MJ (`gmtest` / `GmTest` par défaut), part chasser au nord d'Anchorville
+(Limelight Nord) le monstre demandé (`Green Worm` par défaut). Le test se déroule en deux temps :
+
+1. **Défaite** : il attaque ; le monstre riposte ; il s'éloigne de 1500 unités et le monstre le
+   poursuit ; il meurt, demande la résurrection et revient au village avec tous ses PV.
+2. **Victoire** : avec `/invincible 1`, il attaque un autre monstre, qui ne le blesse plus ; le monstre
+   meurt, l'expérience est gagnée, le cadavre disparaît puis le monstre réapparaît avec tous ses PV.
+
+Il remet ensuite `/invincible 0` et ramène le personnage au village. Compter environ 2 min : un
+guerrier de niveau 1 sans arme frappe un Ver vert (136 PV) 2 à 3 PV par coup, et le ver le tue en
+une quinzaine de secondes.
 
 ## Test des extensions ArchRust
 

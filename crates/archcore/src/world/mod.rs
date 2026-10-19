@@ -14,6 +14,7 @@
 //! un, comme dans la boucle unique du serveur Node.
 
 pub mod addon;
+pub mod ai;
 pub mod chat;
 pub mod combat;
 pub mod gm;
@@ -25,7 +26,7 @@ pub mod npc_trade;
 pub mod npcs;
 pub mod presence;
 
-use crate::character::{character_packet, factors_mini, make_factors, move_mini, CharView, CharacterRow, Factors, MoveMini, Templates, POINT_HP};
+use crate::character::{character_packet, factors_mini, make_factors, move_mini, CharView, CharacterRow, Factors, MoveMini, Templates};
 use crate::config::Config;
 use crate::db::{col, Databases};
 use crate::net::{Connection, Service, SessionHandle};
@@ -40,8 +41,6 @@ use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::Mutex;
 
-/// AGPMCHARACTER champ 11 (statut d'action) : 2 = mort.
-const ACTION_STATUS_DEAD: i64 = 2;
 /// Drapeaux de déplacement : 0x04 arrêt + 0x08 synchronisation.
 pub const MOVE_STOP_SYNC: i64 = 0x0c;
 
@@ -102,6 +101,10 @@ pub struct Player {
     pub shop: Option<OpenShop>,
     /// Attaque en cours (monstre visé).
     pub attack: Option<combat::Attack>,
+    /// Mort, en attente de résurrection.
+    pub dead: bool,
+    /// Invincible jusqu'à cet instant (après une résurrection).
+    pub invincible_until: Option<Instant>,
     /// Limite de débit des messages d'AddOn.
     pub addon_bucket: addon::TokenBucket,
 }
@@ -203,6 +206,7 @@ impl Connection for WorldConn {
                     op => warn!("[world] #{} AGSMCHARMANAGER op {op} non géré", s.id()),
                 }
             }
+            ptype::CHARACTER if p.int(0) == Some(combat::REQUEST_RESURRECTION_TOWN) => combat::resurrect(ctx, &mut st, self.sid).await?,
             ptype::CHARACTER => debug!("[world] #{} AGPMCHARACTER op {:?} (ignoré)", s.id(), p.int(0)),
             ptype::CHATTING => chat::on_chatting(&world, &mut st, self.sid, &p).await?,
             ptype::OPT_CHAR_MOVE => presence::on_move(ctx, &mut st, self.sid, &p),
@@ -298,6 +302,8 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
             inventory,
             shop: None,
             attack: None,
+            dead: false,
+            invincible_until: None,
             addon_bucket: addon::TokenBucket::default(),
         },
     );
@@ -420,11 +426,9 @@ pub async fn set_money(ctx: &WorldCtx, st: &mut WorldState, sid: u32, money: i64
 }
 
 pub fn kill_character(st: &mut WorldState, sid: u32) {
-    let Some(p) = st.players.get_mut(&sid) else { return };
-    p.factors.point[POINT_HP] = 0;
-    let c = &schema::CHARACTER;
-    p.send(c, Fields::new(c).with(0, 1).with(1, p.ch.id).with(7, factors_mini(&p.factors)).with(11, ACTION_STATUS_DEAD));
+    let Some(p) = st.players.get(&sid) else { return };
     info!("[mj] {} tué", p.ch.name);
+    combat::player_death(st, sid);
 }
 
 /// Personnage par nom : en jeu d'abord, sinon en base. Rend (id, nom exact).

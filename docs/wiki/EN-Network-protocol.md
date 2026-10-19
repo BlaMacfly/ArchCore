@@ -198,6 +198,18 @@ system message; experience is counted per level (`LevelUpExp.txt`), and a level 
 AGPMCHARACTER **op 5**. Only templates whose type has the "attackable" (0x10000) and "targetable"
 (0x20000) bits can be targeted: ambient creatures (type 8: roosters, hens…) cannot.
 
+**Monster retaliation.** A monster that is hit remembers its attacker (cumulative damage, forgotten 30 s
+after the last hit) and, every 500 ms, targets whoever dealt it the most damage among living players
+within 5000 units. It walks to them with AGPMOPTIMIZEDCHARMOVE (field 0 = the monster's CID), then hits
+them with the same 0x41 packet (attacker = monster, target = player), at its attack speed. With no
+attacker left it goes back to its spawn point; more than 10,000 units away from that point, it is
+brought back with full HP. No spontaneous attack on sight.
+
+**Player death.** At 0 HP: AGPMCHARACTER op 1 (factors, field 11 = 2) to the player and to those who see
+them; they can no longer move or attack, and monsters drop them. The client asks to be resurrected in
+town with AGPMCHARACTER **op 9**: the server restores HP and MP, sends status 0, teleports the character
+to their race's starting village and makes them invincible for 10 s.
+
 ## GM level (type 0x12, AgpmAdmin)
 
 2-byte field flags: op, CID, then 13 mini-packets. Op 0 with, in field 2, a "GM data" mini-packet of

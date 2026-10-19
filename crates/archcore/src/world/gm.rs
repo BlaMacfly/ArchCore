@@ -252,6 +252,7 @@ pub static COMMANDS: &[CommandDef] = &[
     CommandDef { name: "GetChatBuff", level: 1, args: Some(&[]), usage: "/GetChatBuff" },
     CommandDef { name: "chatban", level: 1, args: Some(&["name", "int"]), usage: "/chatban \"nom\" <minutes>" },
     CommandDef { name: "kill", level: 2, args: Some(&["name?"]), usage: "/kill \"nom\"" },
+    CommandDef { name: "invincible", level: 2, args: Some(&["int?"]), usage: "/invincible <0|1>" },
     CommandDef { name: "rename_char", level: 2, args: Some(&["name", "name"]), usage: "/rename_char \"ancien\" \"nouveau\"" },
     CommandDef { name: "create", level: 3, args: Some(&["name", "int", "int?", "int?"]), usage: "/create \"nom\" <TID> <quantité> <0|1>" },
     CommandDef { name: "money", level: 3, args: Some(&["int", "name?"]), usage: "/money <montant> \"nom\"" },
@@ -348,6 +349,14 @@ async fn run(world: &Arc<World>, st: &mut WorldState, sid: u32, cmd: &CommandDef
             let Some(target) = target else { return Ok(err(format!("personnage absent du monde : {}", a[0].name().unwrap_or("")))) };
             kill_character(st, target);
             Ok(format!("{} a été tué.", st.players[&target].ch.name))
+        }
+        "invincible" => {
+            let on = a[0].int().unwrap_or(1) != 0;
+            let p = st.players.get_mut(&sid).unwrap();
+            // Pas d'échéance : une année suffit.
+            p.invincible_until = on.then(|| std::time::Instant::now() + std::time::Duration::from_secs(365 * 24 * 3600));
+            info!("[mj] {} : invincibilité {}", p.ch.name, if on { "activée" } else { "désactivée" });
+            Ok(if on { "Invincibilité activée : les monstres ne vous blessent plus.".into() } else { "Invincibilité désactivée.".into() })
         }
         "rename_char" => {
             let (old, new) = (a[0].name().unwrap_or(""), a[1].name().unwrap_or(""));

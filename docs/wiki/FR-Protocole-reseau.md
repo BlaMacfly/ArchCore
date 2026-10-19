@@ -201,6 +201,18 @@ est signalée par AGPMCHARACTER **op 5**. Seuls les modèles dont le type porte 
 (0x10000) et « ciblable » (0x20000) peuvent être visés : les créatures d'ambiance (type 8 : coqs,
 poules…) ne le sont pas.
 
+**Riposte des monstres.** Un monstre frappé retient son agresseur (dégâts cumulés, oublié 30 s après son
+dernier coup) et vise, toutes les 500 ms, celui qui lui a fait le plus de dégâts parmi les joueurs
+vivants à moins de 5000 unités. Il le rejoint par AGPMOPTIMIZEDCHARMOVE (champ 0 = CID du monstre),
+puis le frappe par le même paquet 0x41 (attaquant = monstre, cible = joueur), au rythme de sa vitesse
+d'attaque. Sans agresseur, il rentre à son point d'apparition ; à plus de 10 000 unités de ce point, il
+y est ramené avec tous ses PV. Pas d'attaque spontanée à vue.
+
+**Mort du joueur.** À 0 PV : AGPMCHARACTER op 1 (facteurs, champ 11 = 2) au joueur et à ceux qui le
+voient ; il ne bouge ni n'attaque plus, et les monstres le lâchent. Le client demande la résurrection au
+village par AGPMCHARACTER **op 9** : le serveur rend tous les PV et PM, renvoie le statut 0, téléporte le
+personnage au village de départ de sa race et le rend invincible 10 s.
+
 ## Niveau MJ (type 0x12, AgpmAdmin)
 
 Drapeaux de champs sur 2 octets : op, CID, puis 13 mini-paquets. L'op 0 avec, au champ 2, un

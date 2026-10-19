@@ -64,6 +64,9 @@ pub fn on_move(ctx: &WorldCtx, st: &mut WorldState, sid: u32, packet: &Packet) {
             return;
         }
     }
+    if p.dead {
+        return;
+    }
     // Un déplacement demandé par le joueur interrompt son attaque.
     p.attack = None;
     let flags = packet.int(5).unwrap_or(0);

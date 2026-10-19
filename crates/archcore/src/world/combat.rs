@@ -10,8 +10,11 @@
 //! sous-paquet 0 (« résultat ») porte les dégâts affichés, le sous-paquet 3 les PV restants de la cible.
 //!
 //! Mort d'un monstre : statut d'action « mort », expérience au tueur, cadavre retiré au bout de 20 s, puis
-//! réapparition à sa place après le délai de son point d'apparition.
+//! réapparition à sa place après le délai de son point d'apparition. Les monstres frappés ripostent
+//! (`ai.rs`). Mort d'un joueur : statut « mort » ; AGPMCHARACTER op 9 (résurrection au village) le ramène
+//! au village de départ de sa race avec tous ses PV, invincible 10 s.
 
+use super::ai;
 use super::monsters::{Life, Monster, MonsterRegistry};
 use super::{character_remove_packet, send_system, Player, WorldCtx, WorldState};
 use crate::character::{factors_mini, POINT_HP};
@@ -36,6 +39,8 @@ pub mod class {
 
 /// Opération AGPMCHARACTER « montée de niveau ».
 const CHARACTER_LEVEL_UP: i64 = 5;
+/// Opération AGPMCHARACTER du client « ressusciter au village ».
+pub const REQUEST_RESURRECTION_TOWN: i64 = 9;
 /// AGPMCHARACTER champ 11 : statut d'action « mort ».
 const ACTION_STATUS_DEAD: i64 = 2;
 /// Cadence de la boucle de combat.
@@ -51,6 +56,8 @@ const APPROACH_SPEED: f64 = 500.0;
 const MAX_APPROACH: Duration = Duration::from_secs(4);
 /// Niveau maximal d'un personnage.
 const MAX_LEVEL: i32 = 120;
+/// Invincibilité après une résurrection.
+pub const RESURRECTION_GRACE: Duration = Duration::from_secs(10);
 
 /// Attaque en cours d'un joueur.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -122,9 +129,25 @@ pub fn hit_chance(a: &Attacker, d: &Defender) -> i32 {
     chance.clamp(10, 95)
 }
 
-/// Un coup : (résultat, dégâts). Les dégâts touchent au moins 1 PV.
+/// Chance de toucher d'un monstre (30 à 95 %) : même rapport, mais une cible de niveau supérieur garde au
+/// moins 85 - 3 × l'écart.
+pub fn monster_hit_chance(a: &Attacker, d: &Defender) -> i32 {
+    let (al, dl) = (a.level.max(1) as f64, d.level.max(1) as f64);
+    let mut chance = if a.ar + d.dr > 0 { (al / (al + dl) * (a.ar as f64 / (a.ar + d.dr) as f64) * 290.0) as i32 } else { 0 };
+    if d.level > a.level {
+        chance = chance.max(85 - 3 * (d.level - a.level));
+    }
+    chance.clamp(30, 95)
+}
+
+/// Un coup de joueur : (résultat, dégâts). Les dégâts touchent au moins 1 PV.
 pub fn strike(rng: &mut impl Rng, a: &Attacker, d: &Defender) -> (i64, i32) {
-    if rng.gen_range(0..100) >= hit_chance(a, d) {
+    strike_at(rng, hit_chance(a, d), a, d)
+}
+
+/// Un coup avec une chance de toucher donnée (en pour cent).
+pub fn strike_at(rng: &mut impl Rng, chance: i32, a: &Attacker, d: &Defender) -> (i64, i32) {
+    if rng.gen_range(0..100) >= chance {
         return (result::MISS, 0);
     }
     let (lo, hi) = a.damage_range();
@@ -170,7 +193,7 @@ pub fn gain_exp(level: i32, exp: u64, gain: u64, needed: &[u64]) -> (i32, u64, i
     (level, exp, ups)
 }
 
-fn dist2d(a: Vec3, b: Vec3) -> f64 {
+pub fn dist2d(a: Vec3, b: Vec3) -> f64 {
     let (dx, dz) = ((a.x - b.x) as f64, (a.z - b.z) as f64);
     (dx * dx + dz * dz).sqrt()
 }
@@ -180,7 +203,7 @@ pub fn on_action(st: &mut WorldState, sid: u32, p: &Packet) {
     let target = p.int(1).unwrap_or(0) as u32;
     let alive = st.monsters.get(target).is_some_and(|m| m.is_alive() && st.monsters.stats_of(m.tid).is_attackable());
     let Some(player) = st.players.get_mut(&sid) else { return };
-    if !player.in_game {
+    if !player.in_game || player.dead {
         return;
     }
     if !alive {
@@ -211,12 +234,13 @@ pub async fn step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) -> anyhow::
     for sid in st.sids() {
         attack_step(ctx, st, sid, now).await?;
     }
+    ai::step(ctx, st, now);
     life_step(ctx, st, now);
     Ok(())
 }
 
 /// Joueurs qui voient le monstre `cid`.
-fn viewers(st: &WorldState, cid: u32) -> Vec<u32> {
+pub fn viewers(st: &WorldState, cid: u32) -> Vec<u32> {
     st.players.iter().filter(|(_, p)| p.in_game && p.seen_monsters.contains(&cid)).map(|(sid, _)| *sid).collect()
 }
 
@@ -231,7 +255,7 @@ fn broadcast(st: &WorldState, sids: &[u32], plain: &[u8]) {
 async fn attack_step(ctx: &WorldCtx, st: &mut WorldState, sid: u32, now: Instant) -> anyhow::Result<()> {
     let Some(p) = st.players.get(&sid) else { return Ok(()) };
     let Some(attack) = p.attack else { return Ok(()) };
-    if !p.in_game || now < attack.ready_at {
+    if !p.in_game || p.dead || now < attack.ready_at {
         return Ok(());
     }
     let Some(m) = st.monsters.get(attack.target).filter(|m| m.is_alive()).cloned() else {
@@ -260,6 +284,9 @@ async fn attack_step(ctx: &WorldCtx, st: &mut WorldState, sid: u32, now: Instant
     let factors = (outcome == result::SUCCESS).then(|| damage_factors(hp, stats.max_mp, damage));
     let watchers = viewers(st, m.cid);
     broadcast(st, &watchers, &action_packet(cid, m.cid, outcome, factors));
+    if damage > 0 {
+        ai::add_aggro(st, m.cid, cid, damage as u64, now);
+    }
     debug!("[combat] {name} → {} : résultat {outcome}, {damage} dégât(s), {hp}/{} PV", m.name, m.max_hp);
     if hp == 0 {
         kill(ctx, st, sid, m.cid, now).await?;
@@ -293,6 +320,10 @@ fn approach(st: &mut WorldState, sid: u32, from: Vec3, m: &Monster, hit_range: f
 async fn kill(ctx: &WorldCtx, st: &mut WorldState, killer_sid: u32, cid: u32, now: Instant) -> anyhow::Result<()> {
     let target = st.monsters.get_mut(cid).unwrap();
     target.life = Life::Dead { remove_at: now + CORPSE_TIME };
+    target.aggro.clear();
+    target.target = None;
+    st.monsters.engaged.remove(&cid);
+    let target = st.monsters.get_mut(cid).unwrap();
     let (tid, name) = (target.tid, target.name.clone());
     st.monsters.pending.insert(cid);
     let c = &schema::CHARACTER;
@@ -371,6 +402,10 @@ fn life_step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) {
             Life::Gone { .. } => {
                 m.life = Life::Alive;
                 m.hp = m.max_hp;
+                m.aggro.clear();
+                m.target = None;
+                let home = m.home;
+                st.monsters.relocate(cid, home);
                 st.monsters.pending.remove(&cid);
                 respawn_view(ctx, st, cid);
             }
@@ -379,6 +414,73 @@ fn life_step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) {
             }
         }
     }
+}
+
+/// Le joueur `sid` reçoit le coup d'un monstre : PV, diffusion (à lui et à ceux qui le voient), mort.
+pub fn hit_player(st: &mut WorldState, sid: u32, monster: u32, outcome: i64, damage: i32) {
+    let Some(p) = st.players.get_mut(&sid) else { return };
+    let hp = (p.factors.point[POINT_HP] - damage).max(0);
+    p.factors.point[POINT_HP] = hp;
+    let (cid, mp) = (p.ch.id, p.factors.point[1]);
+    let factors = (outcome == result::SUCCESS).then(|| damage_factors(hp, mp, damage));
+    let plain = action_packet(monster, cid, outcome, factors);
+    send_around(st, sid, &plain);
+    if hp == 0 {
+        player_death(st, sid);
+    }
+}
+
+/// Envoie au joueur `sid` et aux joueurs qui le voient.
+fn send_around(st: &WorldState, sid: u32, plain: &[u8]) {
+    let Some(me) = st.players.get(&sid) else { return };
+    let cid = me.ch.id;
+    me.send_raw(plain.to_vec());
+    for (_, o) in st.players.iter().filter(|(other, o)| **other != sid && o.seen_players.contains(&cid)) {
+        o.send_raw(plain.to_vec());
+    }
+}
+
+/// Paquet AGPMCHARACTER op 1 : facteurs et statut d'action d'un joueur.
+fn status_packet(p: &Player, status: i64) -> Vec<u8> {
+    let c = &schema::CHARACTER;
+    build_packet(c, &Fields::new(c).with(0, 1).with(1, p.ch.id).with(7, factors_mini(&p.factors)).with(11, status))
+}
+
+/// Mort d'un joueur : il cesse d'attaquer et de bouger ; les monstres le lâchent.
+pub fn player_death(st: &mut WorldState, sid: u32) {
+    let Some(p) = st.players.get_mut(&sid) else { return };
+    p.dead = true;
+    p.attack = None;
+    if let Some(d) = p.dest.take() {
+        p.ch.set_pos(d);
+    }
+    p.factors.point[POINT_HP] = 0;
+    let plain = status_packet(p, ACTION_STATUS_DEAD);
+    info!("[combat] {} meurt", p.ch.name);
+    send_around(st, sid, &plain);
+}
+
+/// AGPMCHARACTER op 9 : résurrection au village de départ de la race, tous PV et PM, invincible 10 s.
+pub async fn resurrect(ctx: &WorldCtx, st: &mut WorldState, sid: u32) -> anyhow::Result<()> {
+    let Some(p) = st.players.get_mut(&sid) else { return Ok(()) };
+    if !p.dead {
+        return Ok(());
+    }
+    p.dead = false;
+    p.invincible_until = Some(Instant::now() + RESURRECTION_GRACE);
+    p.factors.point[POINT_HP] = p.factors.point_max[0];
+    p.factors.point[1] = p.factors.point_max[1];
+    let race = p.factors.ftype[0].to_string();
+    let villages = &ctx.config.world.start_positions;
+    let (x, y, z) = match villages.get(&race).or_else(|| villages.get("1")) {
+        Some(v) => (v.x, Some(v.y), v.z),
+        None => (p.ch.pos_x, None, p.ch.pos_z),
+    };
+    let plain = status_packet(p, 0);
+    info!("[combat] {} ressuscite au village", p.ch.name);
+    send_around(st, sid, &plain);
+    super::teleport(ctx, st, sid, x, y, z).await?;
+    Ok(())
 }
 
 /// Montre un monstre réapparu aux joueurs dans le rayon de vue.
@@ -426,6 +528,15 @@ mod tests {
             let (r, d) = strike(&mut rng, &warrior(), &tough);
             assert!(r == result::MISS && d == 0 || r == result::SUCCESS && d == 1);
         }
+    }
+
+    #[test]
+    fn chance_de_toucher_d_un_monstre() {
+        let worm = Attacker { level: 1, ar: 21, ..Default::default() };
+        let player = Defender { level: 1, dr: 13, defense: 0.0 };
+        assert_eq!(monster_hit_chance(&worm, &player), 89, "1/2 × 21/34 × 290");
+        assert_eq!(monster_hit_chance(&Attacker { ar: 0, ..worm }, &player), 30, "plancher");
+        assert_eq!(monster_hit_chance(&Attacker { ar: 0, ..worm }, &Defender { level: 11, ..player }), 55, "85 - 3 × 10");
     }
 
     #[test]

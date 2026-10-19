@@ -6,7 +6,8 @@
 //!   archcore sim move [compteA mdpA persoA compteB mdpB persoB] deux joueurs : visibilité et déplacement
 //!   archcore sim shop [compte] [mdp] [perso]                  boutique de Darryl : liste, achat, revente
 //!   archcore sim addon [A… B… C…]                             extensions ArchRust : messages d'AddOn (A, B : ArchRust ; C : client d'origine, MJ)
-//!   archcore sim combat [compte] [mdp] [perso] [monstre]      chasse au Ver vert au nord d'Anchorville : coups, mort, expérience, réapparition
+//!   archcore sim combat [compte] [mdp] [perso] [monstre]      Vers verts au nord d'Anchorville : riposte, poursuite, mort et résurrection,
+//!                                                             puis (invincible) victoire, expérience, réapparition ; compte MJ requis
 //! ```
 //! À lancer contre un serveur de test (`ARCHCORE_CONFIG`) : les personnages sont créés au besoin,
 //! déplacés, et `sim shop` leur donne 1000 pièces d'or.
@@ -41,7 +42,7 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
             ];
             Box::pin(addon(&acc)).await
         }
-        Some("combat") => Box::pin(combat(&a(1, "sima"), &a(2, "sima"), &a(3, "SimA"), &a(4, "Green Worm"))).await,
+        Some("combat") => Box::pin(combat(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "Green Worm"))).await,
         _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat [arguments]"),
     }
 }
@@ -588,73 +589,108 @@ async fn addon(acc: &[(String, String, String); 3]) -> anyhow::Result<()> {
 async fn combat(user: &str, pass: &str, char_name: &str, prey: &str) -> anyhow::Result<()> {
     /// Point de chasse : Vers verts au nord d'Anchorville (Limelight Nord).
     const HUNT: Vec3 = Vec3 { x: -466_468.0, y: 4_700.0, z: -50_010.0 };
+    const STOP: i64 = 0x04;
     let cfg = crate::config::load()?;
     let (c, act, mv, ch, ov) = (&schema::CHARACTER, &schema::OPT_CHAR_ACTION, &schema::OPT_CHAR_MOVE, &schema::CHATTING, &schema::OPT_VIEW);
+    let village = cfg.world.start_positions.get("1").map(|p| Vec3::new(p.x as f32, p.y as f32, p.z as f32));
     step(&format!("{char_name} entre en jeu"));
     let mut w = enter_world(&cfg, user, pass, char_name, "").await?;
+    let me = w.cid as i64;
+    let village = village.unwrap_or(w.start);
 
-    step(&format!("déplacement vers les {prey}s"));
-    w.world.send(mv, Fields::new(mv).with(0, w.cid).with(1, HUNT).with(2, HUNT).with(5, 0x04).with(6, 0)).await?;
-    let mut seen = w.monsters.clone();
-    while let Ok(p) = w.world.expect_where(|q| q.is(ov, Some(1)), 1500, "monstres du lieu de chasse").await {
-        if let Ok(view) = decode_mini(&mini::OPT_VIEW_CHAR, p.fields().bytes(1).unwrap_or_default()) {
-            if view.int(0).unwrap_or(0) >= crate::world::monsters::MONSTER_CID_BASE as i64 {
-                seen.push(SeenMonster::from_view(&view));
+    // Se rend au point de chasse et choisit le monstre demandé le plus proche.
+    async fn hunt(w: &mut InWorld, prey: &str) -> anyhow::Result<SeenMonster> {
+        let (mv, ov) = (&schema::OPT_CHAR_MOVE, &schema::OPT_VIEW);
+        w.world.send(mv, Fields::new(mv).with(0, w.cid).with(1, HUNT).with(2, HUNT).with(5, STOP).with(6, 0)).await?;
+        let mut seen = w.monsters.clone();
+        while let Ok(p) = w.world.expect_where(|q| q.is(ov, Some(1)), 1500, "monstres du lieu de chasse").await {
+            if let Ok(view) = decode_mini(&mini::OPT_VIEW_CHAR, p.fields().bytes(1).unwrap_or_default()) {
+                if view.int(0).unwrap_or(0) >= crate::world::monsters::MONSTER_CID_BASE as i64 {
+                    seen.push(SeenMonster::from_view(&view));
+                }
             }
         }
+        let dist = |p: Vec3| (((p.x - HUNT.x) as f64).powi(2) + ((p.z - HUNT.z) as f64).powi(2)).sqrt();
+        let target = seen
+            .iter()
+            .filter(|m| m.hp > 0 && m.name == prey)
+            .min_by_key(|m| dist(m.pos) as i64)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("aucun « {prey} » vivant en vue"))?;
+        println!("  cible : {} (TID {}, CID {:#x}), {} PV, à {:.0} unités", target.name, target.tid, target.cid, target.hp, dist(target.pos));
+        Ok(target)
     }
-    println!("  {} monstre(s) en vue", seen.len());
-    let dist = |p: Vec3| (((p.x - HUNT.x) as f64).powi(2) + ((p.z - HUNT.z) as f64).powi(2)).sqrt();
-    let target = seen
-        .iter()
-        .filter(|m| m.hp > 0 && m.name == prey)
-        .min_by_key(|m| dist(m.pos) as i64)
-        .cloned()
-        .ok_or_else(|| anyhow::anyhow!("aucun « {prey} » vivant en vue"))?;
-    println!("  cible : {} (TID {}, CID {:#x}), {} PV, à {:.0} unités", target.name, target.tid, target.cid, target.hp, dist(target.pos));
+    let say = |cid: u32, text: &str| Fields::new(ch).with(0, 0).with(1, cid).with(2, chat_type::NORMAL).with(6, crate::tools::to_cp1252(text));
 
-    step("attaque");
+    step(&format!("riposte : {char_name} attaque un {prey}"));
+    let target = hunt(&mut w, prey).await?;
     let tcid = target.cid as i64;
     w.world.send(act, Fields::new(act).with(0, w.cid).with(1, target.cid).with(6, 1)).await?;
-    let me = w.cid as i64;
-    let (mut hits, mut misses, mut approached, mut hp) = (0, 0, false, target.hp);
+    let first = w.world.expect_where(|q| q.is(act, None) && q.int(0) == Some(tcid) && q.int(1) == Some(me), 15_000, "riposte du monstre").await?;
+    let my_hp = first.fields().bytes(3).and_then(factors_hp);
+    println!("  ✓ le {prey} riposte (résultat {}, PV de {char_name} : {})", o(first.int(2)), o(my_hp));
+
+    step("poursuite");
+    let away = Vec3::new(target.pos.x + 1500.0, target.pos.y, target.pos.z);
+    w.world.send(mv, Fields::new(mv).with(0, w.cid).with(1, away).with(2, away).with(5, STOP).with(6, 0)).await?;
+    let chase = w.world.expect_where(|q| q.is(mv, None) && q.int(0) == Some(tcid), 10_000, "poursuite du monstre").await?;
+    let d = chase.fields().vec3(2).unwrap_or_default();
+    println!("  ✓ {char_name} s'éloigne de 1500 unités : le {prey} le suit jusqu'à {:.0}, {:.0}", d.x, d.z);
+
+    step(&format!("mort de {char_name}"));
+    let started = std::time::Instant::now();
+    w.world.expect_where(|q| q.is(c, Some(1)) && q.int(1) == Some(me) && q.int(11) == Some(2), 90_000, "mort du joueur").await?;
+    println!("  ✓ {char_name} meurt après {:.0} s", started.elapsed().as_secs_f64());
+
+    step("résurrection au village");
+    w.world.send(c, Fields::new(c).with(0, 9).with(1, w.cid)).await?;
+    let back = w.world.expect_where(|q| q.is(c, Some(1)) && q.int(1) == Some(me) && q.int(11) == Some(0), 5000, "résurrection").await?;
+    let hp = back.fields().bytes(7).and_then(factors_hp).unwrap_or(0);
+    anyhow::ensure!(hp > 0, "ressuscité sans PV");
+    let tp = w.world.expect_where(|q| q.is(mv, None) && q.int(0) == Some(me), 5000, "retour au village").await?;
+    let at = tp.fields().vec3(2).unwrap_or_default();
+    anyhow::ensure!((at.x - village.x).abs() < 1.0 && (at.z - village.z).abs() < 1.0, "ressuscité en {at:?}, pas au village");
+    println!("  ✓ {char_name} ressuscite au village avec {hp} PV");
+
+    step(&format!("victoire : {char_name} invincible contre un {prey}"));
+    w.world.send(ch, say(w.cid, "/invincible 1")).await?;
+    let reply = w.world.expect_where(|q| q.ptype == ch.id, 3000, "réponse à /invincible").await?;
+    println!("  {}", reply.fields().text(6).unwrap_or_default());
+    // Le monstre précédent garde son agresseur 30 s : on en prend un autre au repos si possible.
+    let target = hunt(&mut w, prey).await?;
+    let tcid = target.cid as i64;
+    w.world.send(act, Fields::new(act).with(0, w.cid).with(1, target.cid).with(6, 1)).await?;
+    let (mut hits, mut misses, mut wounds, mut hp) = (0, 0, 0, target.hp);
     let started = std::time::Instant::now();
     loop {
         let p = w
             .world
             .expect_where(
-                |q| (q.is(act, None) && q.int(1) == Some(tcid)) || (q.is(mv, None) && q.int(0) == Some(me)) || (q.is(c, Some(1)) && q.int(1) == Some(tcid) && q.int(11) == Some(2)),
+                |q| (q.is(act, None) && (q.int(1) == Some(tcid) || q.int(1) == Some(me))) || (q.is(c, Some(1)) && q.int(1) == Some(tcid) && q.int(11) == Some(2)),
                 10_000,
                 "coups portés",
             )
             .await?;
-        if p.ptype == mv.id {
-            if !approached {
-                let d = p.fields().vec3(2).unwrap_or_default();
-                println!("  ✓ le serveur fait approcher {char_name} jusqu'à {:.0}, {:.0}", d.x, d.z);
-                approached = true;
-            }
-            continue;
-        }
         if p.ptype == c.id {
             break;
         }
-        anyhow::ensure!(p.int(0) == Some(me), "coup attribué à {:?}", p.int(0));
+        if p.int(1) == Some(me) {
+            if p.int(2) == Some(5) {
+                wounds += 1;
+            }
+            continue;
+        }
         match p.int(2) {
             Some(5) => {
                 hits += 1;
-                let now = p.fields().bytes(3).and_then(factors_hp).unwrap_or(hp);
-                anyhow::ensure!(now < hp || now == 0, "PV qui ne baissent pas : {hp} → {now}");
-                hp = now;
-                if hits == 1 || hits % 10 == 0 {
-                    println!("  coup {hits} : {hp}/{} PV", target.hp);
-                }
+                hp = p.fields().bytes(3).and_then(factors_hp).unwrap_or(hp);
             }
             Some(1) => misses += 1,
             other => anyhow::bail!("résultat inattendu {other:?}"),
         }
     }
-    println!("  ✓ {} meurt après {hits} coup(s) portés et {misses} manqué(s), en {:.0} s", target.name, started.elapsed().as_secs_f64());
+    anyhow::ensure!(wounds == 0, "{wounds} coup(s) reçu(s) malgré l'invincibilité");
+    println!("  ✓ le {prey} meurt après {hits} coup(s) portés et {misses} manqué(s), en {:.0} s, sans blesser {char_name}", started.elapsed().as_secs_f64());
     let gain = w
         .world
         .expect_where(|q| q.ptype == ch.id && q.fields().text(6).is_some_and(|t| t.contains("expérience")), 3000, "gain d'expérience")
@@ -667,7 +703,7 @@ async fn combat(user: &str, pass: &str, char_name: &str, prey: &str) -> anyhow::
     let back = w
         .world
         .expect_where(
-            |q| q.is(&schema::OPT_VIEW, Some(1)) && q.fields().bytes(1).and_then(|b| decode_mini(&mini::OPT_VIEW_CHAR, b).ok()).is_some_and(|v| v.int(0) == Some(tcid)),
+            |q| q.is(ov, Some(1)) && q.fields().bytes(1).and_then(|b| decode_mini(&mini::OPT_VIEW_CHAR, b).ok()).is_some_and(|v| v.int(0) == Some(tcid)),
             120_000,
             "réapparition",
         )
@@ -676,9 +712,11 @@ async fn combat(user: &str, pass: &str, char_name: &str, prey: &str) -> anyhow::
     let full = view.bytes(5).and_then(factors_hp).unwrap_or(0);
     anyhow::ensure!(full == target.hp, "réapparu avec {full} PV au lieu de {}", target.hp);
     println!("  ✓ {} réapparaît avec {full} PV", target.name);
-    // Retour au village de départ (Anchorville), pour les autres scénarios.
-    let home = cfg.world.start_positions.get("1").map(|p| Vec3::new(p.x as f32, p.y as f32, p.z as f32)).unwrap_or(w.start);
-    w.world.send(mv, Fields::new(mv).with(0, w.cid).with(1, home).with(2, home).with(5, 0x04).with(6, 0)).await?;
+
+    // Remise en état : plus d'invincibilité, retour au village.
+    w.world.send(ch, say(w.cid, "/invincible 0")).await?;
+    w.world.expect_where(|q| q.ptype == ch.id, 3000, "réponse à /invincible 0").await?;
+    w.world.send(mv, Fields::new(mv).with(0, w.cid).with(1, village).with(2, village).with(5, STOP).with(6, 0)).await?;
     tokio::time::sleep(Duration::from_millis(300)).await;
     println!("\ncombat : OK");
     Ok(())

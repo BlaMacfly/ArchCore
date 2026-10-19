@@ -58,12 +58,17 @@ the character's gold, position and inventory: run it against a test server too.
 ARCHCORE_CONFIG=config/test.json archcore sim combat [user] [pass] [character] [monster]
 ```
 
-The character (`sima` / `SimA` by default) goes hunting north of Anchorville (Limelight North) and
-attacks the nearest requested monster (`Green Worm` by default). The test checks that the server walks
-it to its target, that each hit lowers the HP, that the monster dies, that experience is gained, that
-the corpse disappears and that the monster respawns with full HP; it then brings the character back to
-the village. Allow about 1 min 30: a level 1 warrior without a weapon hits a Green Worm (136 HP) for
-2 to 3 HP per hit, one hit per second.
+The character, a GM account (`gmtest` / `GmTest` by default), goes hunting the requested monster
+(`Green Worm` by default) north of Anchorville (Limelight North). The test has two parts:
+
+1. **Defeat**: it attacks; the monster fights back; it moves 1500 units away and the monster chases it;
+   it dies, asks to be resurrected and comes back to the village with full HP.
+2. **Victory**: with `/invincible 1`, it attacks another monster, which no longer wounds it; the monster
+   dies, experience is gained, the corpse disappears and the monster respawns with full HP.
+
+It then sets `/invincible 0` and brings the character back to the village. Allow about 2 min: a
+level 1 warrior without a weapon hits a Green Worm (136 HP) for 2 to 3 HP per hit, and the worm kills
+it in about fifteen seconds.
 
 ## ArchRust extensions test
 
