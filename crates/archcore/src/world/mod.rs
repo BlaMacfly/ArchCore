@@ -117,6 +117,9 @@ pub struct Player {
     pub seen_players: HashSet<u32>,
     pub in_game: bool,
     pub dest: Option<Vec3>,
+    /// Réception du dernier déplacement, et position autour de laquelle la vue a été calculée.
+    pub moved_at: Instant,
+    pub view_pos: Vec3,
     pub move_flags: i64,
     pub direction: i64,
     pub follow_target: i64,
@@ -378,6 +381,8 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
             factors,
             seen_npcs: HashSet::new(),
             seen_monsters: HashSet::new(),
+            moved_at: Instant::now(),
+            view_pos: Vec3::default(),
             seen_items: HashSet::new(),
             seen_players: HashSet::new(),
             in_game: false,

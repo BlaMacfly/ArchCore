@@ -3,14 +3,23 @@
 //! Le déplacement est un paquet AGPMOPTIMIZEDCHARMOVE (0x40), drapeaux sur 1 octet :
 //! 0 CID, 1 position actuelle, 2 destination, 3 cible suivie, 4 distance de suivi (u16),
 //! 5 drapeaux de déplacement, 6 direction. Drapeaux (champ 5) : 0x04 arrêt, 0x01 direction, 0x08 synchro.
-//! Visibilité : AGPMCHARACTER op 0 ajoute un personnage chez le client, op 2 le retire.
+//! Visibilité : AGPMCHARACTER op 0 ajoute un personnage chez le client, op 2 le retire. PNJ, monstres et
+//! objets au sol se calculent autour de la position du joueur, suivie pendant sa marche (vitesse de
+//! marche ou de course, en dixièmes d'unité par seconde) et réévaluée toutes les 500 ms dès qu'il a
+//! parcouru 200 unités.
 
 use super::{character_add_packet, character_remove_packet, send_nearby_npcs, WorldCtx, WorldState};
 use crate::{debug, info, warn};
 use archcore_net::schema;
 use archcore_net::{Fields, Packet, Vec3};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
+
+/// Fréquence du recalcul de la vue pendant la marche, et distance parcourue qui le déclenche.
+const VIEW_INTERVAL: Duration = Duration::from_millis(500);
+const VIEW_STEP: f64 = 200.0;
+/// Drapeau « course » du déplacement.
+const MOVE_FAST: i64 = 0x10;
 
 pub mod move_flag {
     pub const STOP: i64 = 0x04;
@@ -78,6 +87,7 @@ pub fn on_move(ctx: &WorldCtx, st: &mut WorldState, sid: u32, packet: &Packet) {
     let pos = given.or(p.dest).unwrap_or_else(|| p.ch.pos());
     p.ch.set_pos(pos);
     p.dest = if flags & move_flag::STOP != 0 { None } else { dest };
+    p.moved_at = Instant::now();
     p.move_flags = flags;
     p.direction = packet.int(6).unwrap_or(0);
     p.follow_target = packet.int(3).unwrap_or(0);
@@ -113,7 +123,41 @@ pub fn on_move(ctx: &WorldCtx, st: &mut WorldState, sid: u32, packet: &Packet) {
         st.players.get_mut(&sid).unwrap().bound_region = region;
     }
     refresh(st, sid);
-    send_nearby_npcs(ctx, st, sid, dest.unwrap_or(pos));
+    // Vue autour de la position actuelle : la destination d'un clic lointain ferait disparaître les monstres
+    // encore à l'écran derrière le joueur.
+    st.players.get_mut(&sid).unwrap().view_pos = pos;
+    send_nearby_npcs(ctx, st, sid, pos);
+}
+
+/// Position estimée d'un joueur en marche : de sa dernière position vers sa destination, à sa vitesse.
+pub fn walking_pos(pos: Vec3, dest: Option<Vec3>, speed: f64, elapsed: Duration) -> Vec3 {
+    let Some(d) = dest else { return pos };
+    let (dx, dz) = ((d.x - pos.x) as f64, (d.z - pos.z) as f64);
+    let total = (dx * dx + dz * dz).sqrt();
+    let done = speed.max(0.0) * elapsed.as_secs_f64();
+    if total <= 0.0 || done >= total {
+        return d;
+    }
+    let k = (done / total) as f32;
+    Vec3::new(pos.x + (d.x - pos.x) * k, pos.y + (d.y - pos.y) * k, pos.z + (d.z - pos.z) * k)
+}
+
+/// Vue des joueurs en marche, recalculée autour de leur position estimée.
+pub fn view_step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) {
+    for sid in st.sids() {
+        let Some(p) = st.players.get(&sid) else { continue };
+        if !p.in_game || p.dest.is_none() || now.duration_since(p.moved_at) < VIEW_INTERVAL {
+            continue;
+        }
+        let speed = if p.move_flags & MOVE_FAST != 0 { p.factors.status[9] } else { p.factors.status[8] } as f64 / 10.0;
+        let at = walking_pos(p.ch.pos(), p.dest, speed, now.duration_since(p.moved_at));
+        let (dx, dz) = ((at.x - p.view_pos.x) as f64, (at.z - p.view_pos.z) as f64);
+        if dx * dx + dz * dz < VIEW_STEP * VIEW_STEP {
+            continue;
+        }
+        st.players.get_mut(&sid).unwrap().view_pos = at;
+        send_nearby_npcs(ctx, st, sid, at);
+    }
 }
 
 /// Recalcule ce que voit `sid` et qui le voit : ajoute les joueurs entrés dans le rayon, retire ceux
@@ -217,5 +261,20 @@ impl WorldState {
     /// Rayon de vue, recopié dans l'état pour les calculs de visibilité (voir `World::new`).
     pub fn view_radius(&self) -> f64 {
         self.view_radius
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn position_pendant_la_marche() {
+        let from = Vec3::new(0.0, 0.0, 0.0);
+        let to = Vec3::new(3000.0, 0.0, 4000.0);
+        // Course à 500 unités par seconde : 2 s font 1000 unités sur 5000.
+        assert_eq!(walking_pos(from, Some(to), 500.0, Duration::from_secs(2)), Vec3::new(600.0, 0.0, 800.0));
+        assert_eq!(walking_pos(from, Some(to), 500.0, Duration::from_secs(20)), to, "arrivé");
+        assert_eq!(walking_pos(from, None, 500.0, Duration::from_secs(2)), from, "à l'arrêt");
     }
 }
