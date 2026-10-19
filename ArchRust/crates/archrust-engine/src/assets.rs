@@ -189,16 +189,21 @@ pub const CLIENT_DIR_CANDIDATES: &[&str] = &[
     "../client/ArchLord/Game",
 ];
 
-/// Résout le dossier du client : le chemin explicite s'il est donné, sinon le premier candidat qui
-/// ressemble à un dossier `Game` (présence de `character/` ou d'`ini/`). `None` = mode sans client.
+/// Résout le dossier du client : le chemin explicite s'il est donné, sinon le dossier de
+/// l'exécutable s'il ressemble à un dossier `Game` (présence de `character/` ou d'`ini/` :
+/// `ArchRust.exe` posé à côté d'`Archonia.exe`), sinon le premier candidat qui y ressemble.
+/// `None` = mode sans client.
 pub fn find_client_dir(explicit: Option<&Path>) -> Option<PathBuf> {
     let looks_like_client = |p: &Path| p.join("character").is_dir() || p.join("ini").is_dir();
     if let Some(p) = explicit {
         return Some(p.to_path_buf());
     }
-    CLIENT_DIR_CANDIDATES
-        .iter()
-        .map(PathBuf::from)
+    let beside_exe = std::env::current_exe()
+        .ok()
+        .and_then(|e| e.parent().map(Path::to_path_buf));
+    beside_exe
+        .into_iter()
+        .chain(CLIENT_DIR_CANDIDATES.iter().map(PathBuf::from))
         .find(|p| looks_like_client(p))
 }
 
@@ -515,7 +520,37 @@ impl Assets {
                 break;
             }
         }
-        let raw = raw.ok_or_else(|| anyhow!("texture {name} introuvable"))?;
+        let Some(raw) = raw else {
+            // Pas de `.tx1` : certaines textures du monde sont des images ordinaires du pack, comme
+            // le masque de fondu du sol `a0001c0t.tif` (TIFF 256×256 à quatre échantillons) dans
+            // `texture\world`.
+            for ext in ["tif", "png", "bmp", "dds"] {
+                let file = format!("{name}.{ext}");
+                for dir in texture_search_path(&self.quality) {
+                    if let Some(bytes) = self.open(&format!("{dir}\\{file}"), true)? {
+                        // TIFF : lecteur propre, qui garde le 4ᵉ échantillon (alpha des masques).
+                        let (width, height, data) = if ext == "tif" {
+                            let t = archrust_data::tiff::decode(&bytes)
+                                .with_context(|| format!("image {dir}\\{file}"))?;
+                            (t.width, t.height, t.rgba)
+                        } else {
+                            let img = image::load_from_memory(&bytes)
+                                .with_context(|| format!("image {dir}\\{file}"))?
+                                .to_rgba8();
+                            (img.width(), img.height(), img.into_raw())
+                        };
+                        return Ok(RgbaImage {
+                            width,
+                            height,
+                            data,
+                            uv_scale: 1.0,
+                            from_patch: None,
+                        });
+                    }
+                }
+            }
+            return Err(anyhow!("texture {name} introuvable"));
+        };
         let plain = capi_crypt(KEY_TEXTURE, &raw);
         let dict =
             TextureDictionary::parse(&plain).with_context(|| format!("dictionnaire {name}"))?;
@@ -850,5 +885,28 @@ mod tests {
         assert_eq!(tile_of_sector(272, 272), 1717);
         assert_eq!(tile_of_sector(287, 272), 1717);
         assert_eq!(tile_of_sector(288, 272), 1817);
+    }
+
+    /// Un `[[files]]` de patch l'emporte sur le pack pour une image d'interface, et le TIFF RGBA
+    /// non compressé (cadres `et_*`/`tb_*` du client) est décodé.
+    #[test]
+    fn patched_ui_image_tiff_wins_over_pack() {
+        use image::ImageEncoder;
+        let dir = std::env::temp_dir().join(format!("archrust-ui-patch-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("files")).unwrap();
+        std::fs::write(dir.join("patch.toml"), "[patch]\nid = \"t\"\nname = \"t\"\npriority = 5\n\n[[files]]\npath = \"texture/ui/tb_back.tif\"\nfile = \"files/tb_back.tif\"\n").unwrap();
+        let rgba: Vec<u8> = (0..4u8).flat_map(|i| [10 * i, 20 * i, 30 * i, 100 + i]).collect();
+        let mut cursor = std::io::Cursor::new(Vec::new());
+        image::codecs::tiff::TiffEncoder::new(&mut cursor).write_image(&rgba, 2, 2, image::ExtendedColorType::Rgba8).unwrap();
+        std::fs::write(dir.join("files/tb_back.tif"), cursor.into_inner()).unwrap();
+
+        let assets = Assets::new(None, &[dir.clone()]);
+        let img = assets.image("texture/ui", "TB_BACK.TIF").unwrap();
+        assert_eq!((img.width, img.height), (2, 2));
+        assert_eq!(img.from_patch.as_deref(), Some("t"));
+        assert_eq!(img.data, rgba);
+        assert!(assets.image("texture/ui", "absent.png").is_err());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

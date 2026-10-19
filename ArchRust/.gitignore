@@ -12,3 +12,11 @@
 # Atelier free-assets : exports de reference du client (OBJ/MTL/PNG extraits), jamais publies.
 /free-assets/[0-9][0-9]-*/
 
+# Builds de test (exécutable, copies d'assets et exports du client) : jamais publiés.
+/dist/
+# Interface HD : upscale des images du client, œuvres dérivées à usage privé (voir son patch.toml).
+/patches/interface-hd/
+# Variables sauvegardées locales des AddOns.
+/saved-variables/
+# Icône extraite d'Archonia.exe (donnée du client) : locale, jamais publiée.
+/apps/archrust/res/archrust.ico

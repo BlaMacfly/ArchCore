@@ -57,9 +57,13 @@ pub fn patched_model_meshes(
 pub fn build_clump_meshes(
     renderer: &mut Renderer,
     assets: &Assets,
-    clump: &Clump,
+    clump: &Arc<Clump>,
 ) -> Vec<(Arc<Mesh>, Mat4)> {
     let world = clump.world_matrices();
+    let has_hierarchy = clump
+        .frames
+        .iter()
+        .any(|f| f.hanim.as_ref().is_some_and(|h| !h.nodes.is_empty()));
     let mut out = Vec::new();
     for atomic in &clump.atomics {
         let Some(geom) = clump.geometries.get(atomic.geometry as usize) else {
@@ -68,7 +72,14 @@ pub fn build_clump_meshes(
         if geom.vertices.is_empty() {
             continue;
         }
-        let mesh = build_geometry_mesh(renderer, assets, geom);
+        let mut mesh = build_geometry_mesh(renderer, assets, geom);
+        if geom.skin.is_some() && has_hierarchy {
+            mesh.skin = Some(Arc::new(crate::animation::SkinBinding {
+                clump: clump.clone(),
+                geometry: atomic.geometry as usize,
+                base: geometry_vertices(geom),
+            }));
+        }
         let model = world
             .get(atomic.frame as usize)
             .copied()
@@ -80,6 +91,13 @@ pub fn build_clump_meshes(
 
 /// Maillage d'une géométrie : les triangles sont regroupés par matériau.
 pub fn build_geometry_mesh(renderer: &mut Renderer, assets: &Assets, geom: &Geometry) -> Mesh {
+    let n = geom.vertices.len();
+    let vertices = geometry_vertices(geom);
+    build_geometry_mesh_from(renderer, assets, geom, n, vertices)
+}
+
+/// Sommets GPU d'une géométrie (position, normale, UV0, couleur), normales calculées si absentes.
+pub fn geometry_vertices(geom: &Geometry) -> Vec<Vertex> {
     let n = geom.vertices.len();
     let uv0 = geom.uv_sets.first();
     let mut vertices: Vec<Vertex> = Vec::with_capacity(n);
@@ -105,6 +123,16 @@ pub fn build_geometry_mesh(renderer: &mut Renderer, assets: &Assets, geom: &Geom
     if geom.normals.is_empty() {
         compute_normals(&mut vertices, &geom.triangles);
     }
+    vertices
+}
+
+fn build_geometry_mesh_from(
+    renderer: &mut Renderer,
+    assets: &Assets,
+    geom: &Geometry,
+    n: usize,
+    vertices: Vec<Vertex>,
+) -> Mesh {
     // Indices par matériau (listes de triangles ; les bandes du Bin Mesh sont dépliées si besoin).
     let mut by_material: HashMap<u16, Vec<u32>> = HashMap::new();
     if !geom.meshes.is_empty() {
@@ -344,6 +372,11 @@ pub struct Entity {
     pub hp: Option<i32>,
     pub position: Vec3,
     pub destination: Vec3,
+    /// Orientation autour de l'axe vertical, en degrés (`m_fTurnY` d'Archonia, voir
+    /// [`turn_towards`]).
+    pub turn_y: f32,
+    /// Tête par défaut affichée (visage, cheveux).
+    pub head: Head,
     pub meshes: Vec<(Arc<Mesh>, Mat4)>,
     pub equipment: Vec<EquipmentView>,
     pub is_player: bool,
@@ -389,10 +422,11 @@ pub fn entity_meshes_with_equipment(
     renderer: &mut Renderer,
     assets: &Assets,
     tid: i32,
+    head: Head,
     equipment: &[EquipmentView],
     fallback: &Arc<Mesh>,
 ) -> Result<Vec<(Arc<Mesh>, Mat4)>> {
-    let mut meshes = entity_meshes(renderer, assets, tid, fallback)?;
+    let mut meshes = entity_meshes(renderer, assets, tid, head, fallback)?;
     for item in equipment {
         let Some(file) = item_model_for_tid(assets, item.template_id) else {
             continue;
@@ -405,10 +439,99 @@ pub fn entity_meshes_with_equipment(
     Ok(meshes)
 }
 
+/// Angle (degrés) qui tourne un personnage de `from` vers `to`, comme `FUN_14016bf60`
+/// d'Archonia : `atan(dx / dz)` corrigé par quadrant, soit `atan2(dx, dz)`. Les modèles regardent
+/// vers +Z ; l'angle est appliqué par `D3DXMatrixRotationY(turnY × π / 180)` (`FUN_14016a070`),
+/// qui envoie +Z sur (sin, 0, cos) comme `Mat4::from_rotation_y`. `None` sans écart horizontal
+/// (le client garde alors l'orientation précédente).
+pub fn turn_towards(from: Vec3, to: Vec3) -> Option<f32> {
+    let (dx, dz) = (to.x - from.x, to.z - from.z);
+    (dx != 0.0 || dz != 0.0).then(|| dx.atan2(dz).to_degrees())
+}
+
 impl Entity {
     pub fn model_matrix(&self) -> Mat4 {
-        Mat4::from_translation(self.position)
+        Mat4::from_translation(self.position) * Mat4::from_rotation_y(self.turn_y.to_radians())
     }
+}
+
+/// Visage et cheveux choisis pour un personnage (indices dans `charactertemplatecustomize.ini`),
+/// fournis par le paquet `CHARACTER` (champs 20/21) ; 0 = premier visage / première coiffure.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Head {
+    pub face: i32,
+    pub hair: i32,
+}
+
+/// Nombres de visages et de coiffures par défaut d'un TID (`DEFAULT_FACE_NUM`,
+/// `DEFAULT_HAIR_NUM` de `charactertemplatecustomize.ini`).
+pub fn head_counts(assets: &Assets, tid: i32) -> (i32, i32) {
+    let Ok(table) = assets.table("ini", "charactertemplatecustomize.ini") else {
+        return (0, 0);
+    };
+    let (Some(header), Some(sec)) = (table.section(""), table.section(&tid.to_string())) else {
+        return (0, 0);
+    };
+    let count = |name: &str| {
+        header
+            .entries
+            .iter()
+            .find(|(_, v)| v.eq_ignore_ascii_case(name))
+            .and_then(|(k, _)| sec.get(k))
+            .and_then(|v| v.trim().parse::<i32>().ok())
+            .unwrap_or(0)
+    };
+    (count("DEFAULT_FACE_NUM"), count("DEFAULT_HAIR_NUM"))
+}
+
+/// Fichiers de la tête par défaut d'un TID : `(dossier, fichier)` du visage puis des cheveux.
+///
+/// Archonia (`FUN_14074fc70` visages, `FUN_14074ff40` cheveux) range dans le modèle du TID la
+/// liste `DEFAULT_FACE…` / `DEFAULT_HAIR…` de `charactertemplatecustomize.ini` (`DEFAULT_FACE_NUM`,
+/// `DEFAULT_HAIR_NUM` entrées), mais charge depuis les packs `characterdefaultheadace` et
+/// `…hair` des fichiers nommés `"%s%.*x.%s"` = `V%07x.ecl` : `TID × 0x200 + i` pour le visage i,
+/// `TID × 0x100 + i` pour la coiffure i. Vérifié pour le TID 96 : 24 visages `v000c000…v000c017`,
+/// 58 coiffures `v0006000…v0006039`, autant que les compteurs de la table. Un indice hors liste
+/// retombe sur 0.
+pub fn default_head_files(assets: &Assets, tid: i32, head: Head) -> Vec<(&'static str, String)> {
+    let Ok(table) = assets.table("ini", "charactertemplatecustomize.ini") else {
+        return Vec::new();
+    };
+    let (Some(header), Some(sec)) = (table.section(""), table.section(&tid.to_string())) else {
+        return Vec::new();
+    };
+    let count = |name: &str| {
+        header
+            .entries
+            .iter()
+            .find(|(_, v)| v.eq_ignore_ascii_case(name))
+            .and_then(|(k, _)| sec.get(k))
+            .and_then(|v| v.trim().parse::<i32>().ok())
+            .unwrap_or(0)
+    };
+    let mut out = Vec::new();
+    for (dir, column, index, stride) in [
+        (
+            "character/defaulthead/face",
+            "DEFAULT_FACE_NUM",
+            head.face,
+            0x200,
+        ),
+        (
+            "character/defaulthead/hair",
+            "DEFAULT_HAIR_NUM",
+            head.hair,
+            0x100,
+        ),
+    ] {
+        let n = count(column);
+        if n <= 0 {
+            continue;
+        }
+        let i = if (0..n).contains(&index) { index } else { 0 };
+        out.push((dir, format!("v{:07x}.ecl", tid * stride + i)));
+    }
+    out
 }
 
 /// Fichiers de modèle d'un personnage d'après `charactertemplateclient.ini`.
@@ -457,11 +580,14 @@ fn fallback_models(assets: &Assets, tid: i32) -> Vec<String> {
     vec![format!("a{tid:07x}.ecl")]
 }
 
-/// Charge (ou fabrique) les maillages d'une entité : corps puis armure par défaut.
+/// Charge (ou fabrique) les maillages d'une entité : corps, armure par défaut, puis visage et
+/// cheveux par défaut. Les clumps de tête portent leur propre copie du squelette (88 frames,
+/// 86 nœuds HAnim, peau à 86 os pour le TID 96) : ils se déforment avec le même clip que le corps.
 pub fn entity_meshes(
     renderer: &mut Renderer,
     assets: &Assets,
     tid: i32,
+    head: Head,
     fallback: &Arc<Mesh>,
 ) -> Result<Vec<(Arc<Mesh>, Mat4)>> {
     let files = models_for_tid(assets, tid);
@@ -481,8 +607,37 @@ pub fn entity_meshes(
             Err(e) => log::warn!("TID {tid} : {file} : {e:#}"),
         }
     }
+    if !meshes.is_empty() {
+        for (dir, file) in default_head_files(assets, tid, head) {
+            match model_meshes(renderer, assets, dir, &file) {
+                Ok(part) => meshes.extend(part),
+                Err(e) => log::warn!("TID {tid} : tête {dir}/{file} : {e:#}"),
+            }
+        }
+    }
     if meshes.is_empty() {
         meshes.push((fallback.clone(), Mat4::IDENTITY));
     }
     Ok(meshes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn turn_follows_archonia_convention() {
+        // FUN_14016bf60 : atan2(dx, dz) en degrés ; l'avant du modèle (+Z) suit la destination.
+        let o = Vec3::ZERO;
+        assert_eq!(turn_towards(o, Vec3::new(0.0, 0.0, 10.0)), Some(0.0));
+        assert_eq!(turn_towards(o, Vec3::new(10.0, 5.0, 0.0)), Some(90.0));
+        assert_eq!(turn_towards(o, Vec3::new(-10.0, 0.0, 0.0)), Some(-90.0));
+        assert_eq!(turn_towards(o, Vec3::new(0.0, 0.0, -10.0)), Some(180.0));
+        assert_eq!(turn_towards(o, Vec3::new(0.0, 7.0, 0.0)), None);
+        for to in [Vec3::new(3.0, 0.0, 4.0), Vec3::new(-5.0, 0.0, -1.0)] {
+            let turn = turn_towards(o, to).unwrap();
+            let forward = Mat4::from_rotation_y(turn.to_radians()).transform_vector3(Vec3::Z);
+            assert!((forward - to.normalize()).length() < 1e-5);
+        }
+    }
 }

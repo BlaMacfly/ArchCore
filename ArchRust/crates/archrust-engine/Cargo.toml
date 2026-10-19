@@ -19,7 +19,7 @@ bytemuck = { workspace = true }
 winit = { workspace = true }
 wgpu = { workspace = true }
 pollster = { workspace = true }
-image = { workspace = true, features = ["jpeg"] }
+image = { workspace = true, features = ["jpeg", "tga", "tiff"] }
 tokio = { workspace = true }
 egui = "0.31"
 egui-wgpu = { version = "0.31", features = ["winit"] }
@@ -28,4 +28,8 @@ serde = { workspace = true }
 toml = { workspace = true }
 serde_json = { workspace = true }
 gltf = { version = "1.4", default-features = false, features = ["import", "utils", "names"] }
+rodio = { version = "0.23", default-features = false, features = ["playback", "mp3", "wav"] }
 base64 = "0.22"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Security_Cryptography", "Win32_System_SystemInformation"] }

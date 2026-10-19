@@ -12,12 +12,12 @@ points qui restent à examiner.
 | Domaine | Couverture actuelle | Écart principal |
 |---|---|---|
 | Démarrage, packs et ressources | Résolution packs/disque/`etc`, clés AES, textures `.tx1`, qualité et modèles GLB natifs | Options client, chemins et cas rares encore à comparer au runtime Archonia |
-| Connexion et entrée en jeu | Poignée de main, compte, mondes, personnages, entrée dans le monde | Suppression et parcours complets de création à comparer au client |
+| Connexion et entrée en jeu | Poignée de main, compte, mondes, sélection et création de personnage dans la scène d'origine (`LoginSettings.txt`), suppression, entrée dans le monde | Interface d'origine (`UI_LG_*`, textures), renommage, choix du serveur |
 | Monde et réseau | Paquets de vue personnage et équipement, déplacement 0x40, cycle CHARACTER, décodage 0x41, objets AgpmItem et snapshot OPT_VIEW op 2 | Effets des actions, attachement des équipements aux os, événements et autres modules |
-| Rendu | Terrain, modèles RenderWare statiques, PNJ, joueur, caméra et interface de base | Animation `.ean`, déformation des personnages, effets, éclairage et fidélité des interfaces |
-| Personnages | Résolution des modèles par `charactertemplateclient.ini`, corps, armure par défaut et clumps d'équipement de `ItemTemplateAll.ini` | Attachement des pièces au squelette, apparence, statistiques et états du personnage |
+| Rendu | Terrain multi-couches (base + couches fondues par masque, mipmaps), objets du monde (`obj%05d.ini`), modèles RenderWare, PNJ, joueur, personnages animés (attente, course) et tournés vers leur marche, caméra et interface de base | Effets, éclairage, eau, herbe, LOD et animations des objets, fidélité des interfaces |
+| Personnages | Résolution des modèles par `charactertemplateclient.ini`, corps, armure par défaut, visage et cheveux par défaut (`charactertemplatecustomize.ini`), clumps d'équipement de `ItemTemplateAll.ini` | Attachement des pièces au squelette, visage/coiffure des autres joueurs, statistiques et états du personnage |
 | Systèmes de jeu | AddOns Lua, commandes de développement et inventaire AgpmItem nommé | Icônes/options d'objets, compétences, combat, quêtes, groupes, guildes et interactions PNJ |
-| Audio et présentation | Non couvert de façon fonctionnelle | Son, musique, vidéos, options graphiques et écrans secondaires |
+| Audio et présentation | Musique de région (`.amf` → `RegionTemplate.ini` → `skyset.ini`), ambiance, effets des packs `.pk`/`sound/ui`, volumes persistés, `PlaySound`/`PlayMusic` des AddOns | Table des ambiances et sons 3D, heure du jeu, kits sonores, vidéos, options graphiques et écrans secondaires |
 
 Les schémas réseau des 86 modules extraits sont référencés dans
 `../ArchCore/data/re/packet-schemas.json`. ArchRust ne décode actuellement que les paquets utilisés
@@ -26,23 +26,19 @@ reproduit.
 
 ## Jalons
 
-1. **Personnages animés** — le lecteur `.ean` préserve tous les blocs et interprète les clés de 36
-   octets comme temps, quaternion, translation et mot de liaison opaque. C'est une disposition
-   candidate : les en-têtes RenderWare de référence déclarent le pointeur précédent en tête de la
-   structure en mémoire, sans établir l'ordre sérialisé par Archonia. Les offsets de liaison
-   observés reconstruisent des pistes candidates (`a0060000.ean` : 3 911 liens internes alignés
-   sur 36 octets pour 3 997 clés, soit 86 racines candidates). `a0060000.ean` et le squelette
-   `a0000060.ecl` ont tous deux 86 éléments. Une comparaison de la première clé avec les frames locales au repos donne
-   l'indice ordinal attendu comme frame la plus proche pour 78 pistes sur 86 ; les translations
-   correspondent à celles du squelette pour 76 pistes. Ces indices ne suffisent pas à établir
-   l'association complète ni la convention des rotations. Le calcul des
-   matrices monde animées par indice HAnim et le skinning CPU sont maintenant disponibles dans
-   `Clump::world_matrices_with_pose` et `Clump::deform_geometry_positions`. La pose sans animation
-   conserve les sommets de `b0000060.ecl` avec moins de `2.5e-5` d'écart. En revanche, l'application
-   directe de `a0060000.ean` déplace certaines géométries jusqu'à 180 unités : ne pas encore envoyer
-   ces résultats au rendu. Résoudre cet écart sur les vrais rigs et plusieurs clips, puis envoyer
-   les sommets validés au GPU et sélectionner repos/marche depuis les états réseau. Comparer des
-   poses et séquences à Archonia.
+1. **Personnages animés** — établi sur Archonia.exe et les données du client (détails dans
+   `docs/FORMATS.md`, section « Animations des personnages ») : choix du clip par
+   `charactertemplateanimation.ini` (`type:équipement:variante:fichier`, taux de tirage),
+   pistes `.ean` dans l'ordre du tableau de nœuds HAnim, quaternions appliqués tels quels, matrices
+   inverses de bind à quatrième ligne nulle corrigée et retrait de la frame de l'atomic (pose de
+   bind à 4e-6 près). Le rendu rejoue l'attente et la course selon le déplacement ; vérifié en jeu
+   sur ArchCore avec le TID 96. Le modèle regarde vers sa destination (avant = +Z, angle
+   `atan2(dx, dz)` en degrés, `FUN_14016bf60` / `FUN_14016a070`) et part du champ 13 de la vue
+   optimisée ; visage et cheveux par défaut viennent de `character\defaulthead` (`V%07x.ecl`,
+   `TID × 0x200 + i` / `TID × 0x100 + i`), skinnés sur leur copie du squelette (sections
+   « Orientation des personnages » et « Têtes par défaut » de `docs/FORMATS.md`). Restent :
+   animations selon l'arme, attaque/coup reçu/mort déclenchés par les actions réseau,
+   visage/coiffure des autres joueurs, et comparaison visuelle avec Archonia en marche.
 2. **Actions et cycle de vie du monde** — les champs de l'action optimisée 0x41 sont décodés en
    événement, y compris les champs connus du paquet `FACTOR_POINT` (PV, PM et dégâts par type),
    d'après le code Archonia `ap_factors_make_damage_packet` et `ap_optimized_packet2_on_receive_char_action`.
@@ -76,10 +72,8 @@ jour de `README.md` et `docs/FORMATS.md` lorsque les résultats changent la docu
 
 ## Prochaine étape
 
-Continuer le jalon 1 : la correspondance des pistes TID 96 n'est que partiellement établie, et la
-pose animée directe produit des déplacements trop grands pour certaines géométries. Il
-faut établir la convention de rotation et vérifier le résultat visuel contre le client, puis
-téléverser les sommets animés et choisir repos/marche selon l'état réseau.
+Brancher les animations d'attaque, de coup reçu et de mort sur les actions 0x41 et les états
+réseau, et choisir les clips selon l'arme équipée.
 
 ## Limites de l'inventaire
 

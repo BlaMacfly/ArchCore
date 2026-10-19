@@ -29,9 +29,9 @@ async fn main() -> anyhow::Result<()> {
     }
     if !names.iter().any(|n| n == name) {
         let bases = login.enter_creation().await?;
-        println!("écran de création : {bases} modèles de base");
-        let cid = login.create_character(name, 96, 1, 2).await?;
-        println!("personnage {name} créé, cid {cid}");
+        println!("écran de création : {} modèles de base", bases.len());
+        let created = login.create_character(name, 96, 1, 2).await?;
+        println!("personnage {name} créé, cid {}", created.cid);
     }
     let ticket = login.enter_world(name, &world).await?;
     login.close().await;

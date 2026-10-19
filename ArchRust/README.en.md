@@ -33,13 +33,19 @@ and the [ArchCore](https://github.com/BlaMacfly/ArchCore) server emulator. This 
 | `.tx1` textures (RenderWare TXD, DXT1/3/5, BGRA, palette) | ✅ 66/66 tested |
 | World tiles (`MagPack` + aPLib): sectors, textures, attributes | ✅ 1280/1280 sectors read |
 | wgpu rendering (terrain around the player, models, orbit camera), egui interface | ✅ terrain, player and NPCs drawn ([screenshot](docs/captures/anchorville.png)) |
+| Ground textures (base + mask-blended layers, `0xfffff001` extension) | ✅ correct scale, soft transitions, verified in game |
+| World objects (`ini/obj%05d.ini` + `objecttemplate.ini`, `object` pack) | ✅ Anchorville buildings, trees, fences, props; LOD and animations remain |
 | Character models (`charactertemplateclient.ini` rule → hexadecimal `a/b/c` files) | ✅ player and the 18 Anchorville NPCs |
-| Lua AddOns (`.toc`, frames, events, slash commands, timers, SavedVariables) | ✅ core API |
+| Lua AddOns (`.toc`, frames, events, slash commands, timers, SavedVariables, LibStub + Ace3, extended API) | ✅ see [docs/ADDONS.en.md](docs/ADDONS.en.md) |
 | HD patches (`patch.toml`, folder or `.ahp`, priorities, patterns) | ✅ textures/models/files |
 | Movement (click to walk, `/goto`), terrain height, packet 0x40 and stop on arrival | ✅ verified with two clients on ArchCore ([screenshot](docs/captures/deplacement.png)) |
 | Optimized action 0x41 | 🟡 factors/HP decoded; known HP changes appear in combat log; bars/animations remain |
 | Inventory and equipment | 🟡 0x04 and equipped views decoded, names resolved, `d…` models loaded; rig attachment remains unverified |
-| `.ean` animations, combat, skills | ⏳ to do |
+| `.ean` animations (idle, run) | ✅ verified in game on ArchCore (TID 96); combat animations remain |
+| Character selection and creation (original `LoginSettings.txt` scene: throne room, race temples, cameras, zoom) | ✅ list, race/class/face/hair/name creation, deletion, entering the world, verified on ArchCore |
+| Facing and default heads | ✅ characters face their walking direction, skinned face and hair (`character\defaulthead`), verified in game (TID 96) |
+| Sound (region music `RegionTemplate.ini` → `skyset.ini`, ambience, effects from `.pk` packs and `sound/ui`, volumes, AddOn `PlaySound`) | ✅ rodio; login and Anchorville music, effects verified on ArchCore; ambience table still to identify |
+| Combat, skills | ⏳ to do |
 
 ## Quick start
 
@@ -51,12 +57,42 @@ cargo build --release
 cargo run --release -- inspect pack character              # list a pack
 cargo run --release -- inspect model character a0000005.ecl
 cargo run --release -- inspect animation a0060000.ean --time 0.5 --model b0000060.ecl
-cargo run --release -- extract a0057aab a0057aab.png       # decoded texture
+cargo run --release -- extract texture a0057aab a0057aab.png   # decoded texture
+cargo run --release -- inspect sound index                 # soundpak.info: sound packs
+cargo run --release -- inspect sound sd.pk --limit 5       # one .pk pack (or effect/mono/maa.pk)
+cargo run --release -- extract sound sd0000.wav sd0000.wav # a sound from a pack (or sound/ui/block.wav)
 cargo run --release -- login test test Testeur             # full flow, headless
 cargo run --release -- play --connect test:test@127.0.0.1:11002/Testeur
 cargo run --release -- addons                              # check the AddOns
 cargo run --release -- patch build patches/my-patch my-patch.ahp
 ```
+
+### Installing beside the client and `realmlist.wtf`
+
+`ArchRust.exe` (with the Archonia icon when `apps/archrust/res/archrust.ico` exists locally: extracted from the client, it is not published) can live in the client's `Game` folder, in place of `Archonia.exe`, together with
+`addons/`, `free-assets/` and `patches/`: it detects the client there without options, and a
+double-click starts the game (`play` is the default command).
+
+The login server is set as in World of Warcraft, with a `realmlist.wtf` file:
+
+```text
+# comment
+set realmlist 127.0.0.1:11002
+```
+
+Form `set realmlist <host>[:<port>]` (port 11002 by default, optional quotes, the last line wins).
+The file is looked up next to the executable, then in the current folder, then in the `Game`
+folder; it pre-fills the login screen. `--connect user:pass@/character` (no host) connects to that
+server; a host given to `--connect` still takes precedence.
+
+The login screen shows `crates/archrust-engine/assets/login-screen.png` ("ArchRust — Awakening of the
+Eternal Storm"), embedded in the executable; as in WoW, AddOn UI only appears in game.
+
+After login, the selection screen uses Archonia's scene (account characters in the throne room,
+click to pick); "Créer un personnage" opens the chosen race's creation scene. For tests:
+`--connect test:test@` (no `/character`) goes through these screens and
+`--login-exec "créer; race Orc; classe Berserker; visage 3; nom Grokk; valider; choisir 1; entrer"`
+plays commands there.
 
 In game: left-click the ground to walk, right-drag to orbit, mouse wheel to zoom, WASD to move the
 camera, `` ` `` opens the Lua console, and the chat window accepts `/` commands (`/goto x y z`, `/cam distance [yaw°] [pitch°]`,
@@ -70,13 +106,14 @@ entry and `--screenshot file.png` saves a capture then exits (under Git Bash, pr
 crates/
   archrust-crypto     RC4 (CryptoAPI MD5), little-endian Blowfish, AES-128-GCM
   archrust-protocol   AuPacket, field schemas, A1/B1 frames, handshake
-  archrust-data       ini tables, packs, MagPack + aPLib, RenderWare (DFF/TXD/sectors)
+  archrust-data       ini tables, packs, MagPack + aPLib, RenderWare (DFF/TXD/sectors), .pk sound packs
   archrust-netclient  tokio client: login, world, events, commands
-  archrust-addons     Lua 5.4 (mlua), .toc, frames, events, slash commands, SavedVariables
+  archrust-addons     Lua 5.4 (mlua), .toc, frames, events, slash commands, SavedVariables, LibStub/Ace3
   archrust-patch      TOML manifest, patch stack, .ahp archives
-  archrust-engine     winit + wgpu + egui: rendering, terrain, entities, UI, network bridge
+  archrust-engine     winit + wgpu + egui: rendering, terrain, entities, UI, network bridge, audio (rodio)
 apps/archrust         executable: play / login / inspect / extract / addons / patch
-addons/HelloArch      sample AddOn
+addons/HelloArch      sample AddOn (core API)
+addons/ArchAce        LibStub/Ace3 sample AddOn (unit frames, nameplates, theme, options)
 docs/FORMATS.md       reconstructed file formats (in French)
 ```
 
@@ -91,11 +128,19 @@ An AddOn lives in `addons/<Name>/` with a `<Name>.toc` file:
 core.lua
 ```
 
-The API follows WoW naming: `CreateFrame`, `frame:SetPoint`, `frame:SetScript("OnEvent", f)`,
-`frame:RegisterEvent("PLAYER_LOGIN")`, `SlashCmdList`, `SLASH_X1`, `print`, `GetTime`, `UnitName`,
-`UnitHealth`, `SendChatMessage`, `C_Timer.After`… Fired events: `ADDON_LOADED`, `ADDONS_LOADED`,
-`PLAYER_LOGIN`, `PLAYER_ENTERING_WORLD`, `PLAYER_LOGOUT`, `CHAT_MSG_SAY`, `CHAT_MSG_WHISPER`,
-`CHAT_MSG_PARTY`. The sandbox exposes neither `io`, nor `os`, nor `package`.
+The API follows WoW so that code and habits carry over: frames as Lua tables (`CreateFrame`,
+anchors, strata, textures, `.ttf` fonts, `GameTooltip`, `StaticPopup`, options panel), events
+(`PLAYER_LOGIN`, `UNIT_HEALTH`, `PLAYER_TARGET_CHANGED`, `CHAT_MSG_*`, `COMBAT_LOG_EVENT_UNFILTERED`…),
+`Unit*`, `C_Timer`, `SlashCmdList`, `hooksecurefunc`, CVars. The safe standard Lua libraries are open
+(`string`, `table`, `math`, `utf8`, `coroutine`, a reduced `os`, `bit`/`bit32`, `require` limited to
+AddOn folders) with WoW aliases (`strsplit`, `tinsert`, `wipe`, `format`…), and LibStub,
+CallbackHandler, Ace3 (AceAddon, AceEvent, AceTimer, AceConsole, AceDB, AceHook, AceLocale,
+AceSerializer), LibDataBroker and LibSharedMedia are built in. The `ArchRust` namespace changes the
+client: camera, sky colour and lighting, model tints, native window colours, key bindings,
+nameplates (`ArchRust.WorldToScreen`). AddOns load when entering the world, as in WoW. No disk access
+beyond the AddOns' own files and SavedVariables.
+
+Full reference: **[docs/ADDONS.en.md](docs/ADDONS.en.md)**. Sample: `addons/ArchAce` (`/archace`).
 
 ## HD patches
 
@@ -126,6 +171,27 @@ Patches in the `patches/` folder are stacked by decreasing priority; the first o
 resource wins, otherwise the original game data is used. glTF/GLB `[[models]]` are drawn in place of
 the client's model (characters, NPCs, `world/D272,272.dff` sectors) with their own textures;
 `archrust inspect gltf <file>` describes a glTF file.
+
+## Sound
+
+The audio engine (`rodio`, MP3/WAV decoding by Symphonia) plays three tracks:
+
+* **music**: looped MP3 with crossfade. On the login screens, `sound/bgm/htt_001.mp3` (CVar
+  `loginMusic`); in game, the music of the player's region from the client tables (sector `.amf`
+  grid → `RegionTemplate.ini` → `skyset.ini`, per time slot, see [docs/FORMATS.md](docs/FORMATS.md),
+  in French), else `worldMusic`;
+* **ambience**: looped `sound/stream/*.mp3` (CVar `worldAmbience`, city by day as default: the
+  ambience table has not been identified yet);
+* **effects**: one-shot WAVs, `sound/ui/<name>.wav` (pack), `sound/effect/sd0000.wav` (entry of a
+  `.pk` through `soundpak.info`, or RIFF scan for `effect/mono/`), or an AddOn file.
+
+Every sound goes through the patches: a `[[files]]` rule on `sound/bgm/htt_001.mp3` or
+`sound/effect/sd.pk` replaces the music or a whole pack. Without a client (`--no-client`), only
+sounds provided by patches play; everything else is silent.
+
+Volumes (music, ambience, effects, mute): **Options** window (button or Escape key), saved in
+`saved-variables/options.toml`. Commands: `/music <path>|off|auto`, `/sound <path>`; AddOns:
+`PlaySound`/`PlaySoundFile(path)`, `PlayMusic(path)`, `StopMusic()`.
 
 ## Client data and free assets
 

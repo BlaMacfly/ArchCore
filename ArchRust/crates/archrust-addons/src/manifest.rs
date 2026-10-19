@@ -102,16 +102,102 @@ impl Manifest {
         Ok(Self::parse(&name, dir, &text))
     }
 
-    /// Fichiers Lua (les `.xml` sont signalés mais ignorés dans cette version).
+    /// Fichiers Lua listés directement dans le `.toc`.
     pub fn lua_files(&self) -> impl Iterator<Item = PathBuf> + '_ {
         self.files
             .iter()
-            .filter(|f| {
-                f.extension()
-                    .map(|e| e.eq_ignore_ascii_case("lua"))
-                    .unwrap_or(false)
-            })
+            .filter(|f| has_ext(f, "lua"))
             .map(|f| self.dir.join(f))
+    }
+
+    /// Tous les fichiers Lua à exécuter, dans l'ordre : ceux du `.toc`, et pour chaque `.xml`
+    /// (ex. `embeds.xml`, `libs\AceAddon-3.0\AceAddon-3.0.xml`) les `<Script file="…"/>` et
+    /// `<Include file="…"/>` qu'il contient, récursivement, relatifs au dossier du `.xml`. Les
+    /// définitions de frames en XML ne sont pas interprétées (créer les frames en Lua).
+    pub fn script_files(&self) -> Vec<PathBuf> {
+        let mut out = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for f in &self.files {
+            let p = self.dir.join(f);
+            if has_ext(f, "lua") {
+                out.push(p);
+            } else if has_ext(f, "xml") {
+                expand_xml(&p, &self.dir, &mut out, &mut seen, 0);
+            }
+        }
+        out
+    }
+}
+
+fn has_ext(p: &Path, ext: &str) -> bool {
+    p.extension()
+        .map(|e| e.eq_ignore_ascii_case(ext))
+        .unwrap_or(false)
+}
+
+/// Valeurs de l'attribut `file` des balises `<Script>` et `<Include>` d'un XML d'interface.
+pub fn xml_file_refs(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    // Retire les commentaires.
+    let mut clean = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(i) = rest.find("<!--") {
+        clean.push_str(&rest[..i]);
+        rest = match rest[i..].find("-->") {
+            Some(j) => &rest[i + j + 3..],
+            None => "",
+        };
+    }
+    clean.push_str(rest);
+    let lower = clean.to_ascii_lowercase();
+    let mut pos = 0;
+    while let Some(i) = lower[pos..].find('<') {
+        let start = pos + i + 1;
+        let end = lower[start..].find('>').map(|e| start + e).unwrap_or(lower.len());
+        let tag = &clean[start..end];
+        let tag_lower = &lower[start..end];
+        if tag_lower.starts_with("script") || tag_lower.starts_with("include") {
+            if let Some(a) = tag_lower.find("file") {
+                let after = &tag[a + 4..];
+                let after = after.trim_start().strip_prefix('=').unwrap_or(after).trim_start();
+                if let Some(q) = after.chars().next().filter(|c| *c == '"' || *c == '\'') {
+                    if let Some(close) = after[1..].find(q) {
+                        out.push(after[1..1 + close].to_string());
+                    }
+                }
+            }
+        }
+        pos = end.max(start);
+    }
+    out
+}
+
+fn expand_xml(
+    xml: &Path,
+    root: &Path,
+    out: &mut Vec<PathBuf>,
+    seen: &mut std::collections::HashSet<PathBuf>,
+    depth: usize,
+) {
+    if depth > 16 || !seen.insert(xml.to_path_buf()) {
+        return;
+    }
+    let Ok(text) = std::fs::read_to_string(xml) else {
+        log::warn!("addons : {} illisible", xml.display());
+        return;
+    };
+    let base = xml.parent().unwrap_or(root);
+    for r in xml_file_refs(&text) {
+        let Some(rel) = crate::manager::safe_relative(&r) else {
+            log::warn!("addons : chemin refusé dans {} : {r}", xml.display());
+            continue;
+        };
+        let p = base.join(rel);
+        if has_ext(&p, "lua") {
+            out.push(p);
+        } else if has_ext(&p, "xml") {
+            expand_xml(&p, root, out, seen, depth + 1);
+        }
     }
 }
 

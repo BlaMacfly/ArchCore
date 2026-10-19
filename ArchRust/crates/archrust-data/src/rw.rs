@@ -45,6 +45,8 @@ pub const ID_ANIMATION: u32 = 0x1b;
 pub const ID_HANIM_PLG: u32 = 0x11e;
 pub const ID_SKIN_PLG: u32 = 0x116;
 pub const ID_BIN_MESH_PLG: u32 = 0x50e;
+/// Extension privée de matériau d'Archonia : textures supplémentaires (couches du sol).
+pub const ID_MATERIAL_LAYERS_PLG: u32 = 0xffff_f001;
 pub const ID_FRAME_NODE_NAME: u32 = 0x253f2fe;
 
 #[derive(Debug, thiserror::Error)]
@@ -260,6 +262,21 @@ pub struct Material {
     pub ambient: f32,
     pub specular: f32,
     pub diffuse: f32,
+    /// Textures supplémentaires de l'extension `0xfffff001`, dans l'ordre du fichier.
+    pub layers: Vec<MaterialLayer>,
+}
+
+/// Entrée de l'extension de matériau `0xfffff001` d'Archonia (`FUN_14087fee0` en lecture,
+/// enregistrée par `FUN_1405ec940` avec 0x60 octets par matériau) : `u16` nombre d'entrées, puis
+/// pour chacune un `u32` type et, s'il est non nul, un bloc `Texture` complet.
+///
+/// Sur le terrain, les entrées vont par paires : type 3 = masque de fondu (`a0001c0t`, atlas 4×4
+/// dans son alpha), type 1 = texture de la couche. L'étage n du matériau (0 = texture de base,
+/// puis chaque entrée) lit le jeu d'UV n de la géométrie.
+#[derive(Debug, Clone, Default)]
+pub struct MaterialLayer {
+    pub kind: u32,
+    pub texture: Option<Texture>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -482,6 +499,63 @@ impl Clump {
         out
     }
 
+    /// Matrices de skin d'une géométrie pour une pose : `inverse(monde de la frame de l'atomic)
+    /// × monde animé de l'os × inverse de bind`, comme RpSkin. Les sommets restent ainsi dans
+    /// l'espace de la frame de l'atomic. Vérifié sur `b0000060.ecl` : en pose de bind, chaque
+    /// matrice vaut l'identité à moins de 1e-3 près (sans le retrait de la frame de l'atomic,
+    /// il reste la translation de 0,45 de ses ancêtres).
+    pub fn skin_matrices(
+        &self,
+        geometry_index: usize,
+        pose: &[HAnimSample],
+    ) -> Result<Vec<Mat4>, RwError> {
+        let geometry = self
+            .geometries
+            .get(geometry_index)
+            .ok_or_else(|| RwError::Unsupported(format!("géométrie absente : {geometry_index}")))?;
+        let skin = geometry
+            .skin
+            .as_ref()
+            .ok_or_else(|| RwError::Unsupported("géométrie sans skin".into()))?;
+        let hierarchy = self
+            .frames
+            .iter()
+            .filter_map(|frame| frame.hanim.as_ref())
+            .find(|hierarchy| !hierarchy.nodes.is_empty())
+            .ok_or_else(|| RwError::Unsupported("palette HAnim absente".into()))?;
+        let world = self.world_matrices_with_pose(pose);
+        let atomic_world_inv = self
+            .atomics
+            .iter()
+            .find(|a| a.geometry as usize == geometry_index)
+            .and_then(|a| world.get(a.frame as usize))
+            .map_or(Mat4::IDENTITY, |m| m.inverse());
+        let mut frame_by_index = vec![None; hierarchy.nodes.len()];
+        for node in &hierarchy.nodes {
+            if let Some(slot) = frame_by_index.get_mut(node.index as usize) {
+                *slot = self
+                    .frames
+                    .iter()
+                    .position(|frame| frame.hanim.as_ref().is_some_and(|h| h.node_id == node.id));
+            }
+        }
+        Ok(skin
+            .inverse_bind
+            .iter()
+            .enumerate()
+            .map(|(index, bind)| {
+                frame_by_index
+                    .get(index)
+                    .copied()
+                    .flatten()
+                    // Convention glam (vecteurs colonnes) : sommet de bind → espace de l'os
+                    // (inverse de bind) → monde animé de l'os → espace de l'atomic.
+                    .map(|frame| atomic_world_inv * world[frame] * *bind)
+                    .unwrap_or(Mat4::IDENTITY)
+            })
+            .collect())
+    }
+
     /// Déforme une géométrie skinnée avec une pose `.ean`; retourne les positions originales
     /// pour les géométries sans Skin PLG.
     pub fn deform_geometry_positions(
@@ -496,35 +570,7 @@ impl Clump {
         let Some(skin) = &geometry.skin else {
             return Ok(geometry.vertices.clone());
         };
-        let hierarchy = self
-            .frames
-            .iter()
-            .filter_map(|frame| frame.hanim.as_ref())
-            .find(|hierarchy| !hierarchy.nodes.is_empty())
-            .ok_or_else(|| RwError::Unsupported("palette HAnim absente".into()))?;
-        let world = self.world_matrices_with_pose(pose);
-        let mut frame_by_index = vec![None; hierarchy.nodes.len()];
-        for node in &hierarchy.nodes {
-            if let Some(slot) = frame_by_index.get_mut(node.index as usize) {
-                *slot = self
-                    .frames
-                    .iter()
-                    .position(|frame| frame.hanim.as_ref().is_some_and(|h| h.node_id == node.id));
-            }
-        }
-        let skin_matrices: Vec<_> = skin
-            .inverse_bind
-            .iter()
-            .enumerate()
-            .map(|(index, bind)| {
-                frame_by_index
-                    .get(index)
-                    .copied()
-                    .flatten()
-                    .map(|frame| world[frame].transpose() * bind.transpose())
-                    .unwrap_or(Mat4::IDENTITY)
-            })
-            .collect();
+        let skin_matrices = self.skin_matrices(geometry_index, pose)?;
         skin.deform_positions(&geometry.vertices, &skin_matrices)
     }
 }
@@ -594,6 +640,73 @@ fn parse_frame_list(r: &mut Reader) -> Result<Vec<Frame>, RwError> {
         }
     }
     Ok(frames)
+}
+
+/// Bloc `Texture` : drapeaux de filtrage, nom, masque (l'extension de la texture est sautée).
+fn read_texture(r: &mut Reader) -> Result<Texture, RwError> {
+    let tc = r.expect(ID_TEXTURE)?;
+    let mut t = r.enter(&tc);
+    let tst = t.expect(ID_STRUCT)?;
+    let mut ts = t.enter(&tst);
+    let filter_flags = ts.u16()?;
+    let _ = ts.u16()?;
+    let name = t.string_chunk()?;
+    let mask = t.string_chunk()?;
+    Ok(Texture {
+        name,
+        mask,
+        filter: (filter_flags & 0xff) as u8,
+        address_u: ((filter_flags >> 8) & 0xf) as u8,
+        address_v: ((filter_flags >> 12) & 0xf) as u8,
+    })
+}
+
+/// Extension d'un matériau, lue juste après sa texture ; rend les couches `0xfffff001`.
+///
+/// La taille que le client écrit pour `0xfffff001` (`FUN_14087fe60` : 2 + Σ (4 + taille des
+/// données de la texture)) ne compte pas les 12 octets d'en-tête de chaque bloc Texture ; elle se
+/// répercute sur l'extension, le matériau, la liste, la géométrie et l'atomic. On lit donc ce bloc
+/// par sa structure et on décale d'autant la fin de l'extension. Le lecteur `r` est laissé après
+/// le contenu réel.
+fn read_material_extension(r: &mut Reader) -> Result<Vec<MaterialLayer>, RwError> {
+    let mut layers = Vec::new();
+    if r.remaining() < 12 {
+        return Ok(layers);
+    }
+    let save = r.pos;
+    let Ok(ext) = r.chunk() else {
+        r.pos = save;
+        return Ok(layers);
+    };
+    if ext.id != ID_EXTENSION {
+        r.pos = save;
+        return Ok(layers);
+    }
+    let mut end = ext.end();
+    let mut e = Reader {
+        data: r.data,
+        pos: ext.start,
+    };
+    while e.pos + 12 <= end {
+        let c = e.chunk()?;
+        if c.id == ID_MATERIAL_LAYERS_PLG {
+            let count = e.u16()?;
+            for _ in 0..count {
+                let kind = e.u32()?;
+                let texture = if kind != 0 {
+                    Some(read_texture(&mut e)?)
+                } else {
+                    None
+                };
+                layers.push(MaterialLayer { kind, texture });
+            }
+            end += e.pos.saturating_sub(c.end());
+        } else {
+            e.skip(&c);
+        }
+    }
+    r.pos = e.pos.max(end);
+    Ok(layers)
 }
 
 fn parse_geometry(r: &mut Reader, version: u32) -> Result<Geometry, RwError> {
@@ -673,7 +786,13 @@ fn parse_geometry(r: &mut Reader, version: u32) -> Result<Geometry, RwError> {
     }
     // Material list
     let ml = r.expect(ID_MATERIAL_LIST)?;
-    let mut mr = r.enter(&ml);
+    // Les tailles déclarées de la liste et de ses matériaux omettent les en-têtes des textures de
+    // l'extension `0xfffff001` : on lit la liste par sa structure, sans la borner.
+    let mut mr = Reader {
+        data: r.data,
+        pos: ml.start,
+    };
+    r.pos = ml.end();
     let mst = mr.expect(ID_STRUCT)?;
     let mut ms = mr.enter(&mst);
     let num_mat = ms.u32()? as usize;
@@ -708,7 +827,11 @@ fn parse_geometry(r: &mut Reader, version: u32) -> Result<Geometry, RwError> {
             continue;
         }
         let mc = mr.expect(ID_MATERIAL)?;
-        let mut m = mr.enter(&mc);
+        let mut m = Reader {
+            data: mr.data,
+            pos: mc.start,
+        };
+        mr.pos = mc.end();
         let st = m.expect(ID_STRUCT)?;
         let mut s = m.enter(&st);
         let _flags = s.u32()?;
@@ -728,27 +851,19 @@ fn parse_geometry(r: &mut Reader, version: u32) -> Result<Geometry, RwError> {
             ambient,
             specular,
             diffuse,
+            layers: Vec::new(),
         };
         if textured {
-            let tc = m.expect(ID_TEXTURE)?;
-            let mut t = m.enter(&tc);
-            let tst = t.expect(ID_STRUCT)?;
-            let mut ts = t.enter(&tst);
-            let filter_flags = ts.u16()?;
-            let _ = ts.u16()?;
-            let name = t.string_chunk()?;
-            let mask = t.string_chunk()?;
-            mat.texture = Some(Texture {
-                name,
-                mask,
-                filter: (filter_flags & 0xff) as u8,
-                address_u: ((filter_flags >> 8) & 0xf) as u8,
-                address_v: ((filter_flags >> 12) & 0xf) as u8,
-            });
+            mat.texture = Some(read_texture(&mut m)?);
         }
+        mat.layers = read_material_extension(&mut m)?;
+        // Le bloc Material réel peut dépasser sa taille déclarée (voir `read_material_extension`).
+        mr.pos = mr.pos.max(m.pos);
         parsed.push(mat.clone());
         g.materials.push(mat);
     }
+    // Idem pour la liste : la suite de la géométrie commence après le dernier matériau lu.
+    r.pos = r.pos.max(mr.pos);
     // Extension de la géométrie : Bin Mesh, Skin…
     while r.remaining() >= 12 {
         // Le client ajoute parfois des données privées après les extensions RenderWare;
@@ -806,6 +921,14 @@ fn parse_geometry(r: &mut Reader, version: u32) -> Result<Geometry, RwError> {
                         for v in m.iter_mut() {
                             *v = k.f32()?;
                         }
+                        // RwMatrix : right, up, at, pos, chacun suivi d'un mot de drapeaux ou de
+                        // remplissage. Dans les skins du client, ces quatre mots valent 0 ou des
+                        // restes de mémoire (vérifié sur b0000060.ecl) : la quatrième ligne de la
+                        // matrice affine est donc imposée à (0, 0, 0, 1).
+                        m[3] = 0.0;
+                        m[7] = 0.0;
+                        m[11] = 0.0;
+                        m[15] = 1.0;
                         skin.inverse_bind.push(Mat4::from_cols_array(&m));
                     }
                     g.skin = Some(skin);
@@ -845,7 +968,12 @@ impl SectorGeometry {
             atomic_struct.push(s.u32()?);
         }
         let gc = a.expect(ID_GEOMETRY)?;
-        let mut g = a.enter(&gc);
+        // Les tailles de l'atomic et de la géométrie sont trop courtes (extension `0xfffff001`
+        // des matériaux) : la géométrie est lue sans borne.
+        let mut g = Reader {
+            data: r.data,
+            pos: gc.start,
+        };
         let geometry = parse_geometry(&mut g, gc.rw_version())?;
         Ok(SectorGeometry {
             atomic_struct,

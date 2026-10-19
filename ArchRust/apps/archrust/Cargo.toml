@@ -24,3 +24,6 @@ log = { workspace = true }
 tokio = { workspace = true }
 image = { workspace = true }
 glam = { workspace = true }
+
+[build-dependencies]
+winresource = { version = "0.1", default-features = false }

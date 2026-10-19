@@ -34,6 +34,9 @@ pub struct CharacterSummary {
     pub tid: i32,
     pub name: String,
     pub level: i32,
+    /// Visage et coiffure (champs 20 et 21 du paquet CHARACTER), 0 s'ils manquent.
+    pub face: i32,
+    pub hair: i32,
 }
 
 /// Billet d'entrée remis par le serveur de connexion.
@@ -93,6 +96,8 @@ pub fn character_summary(p: &Incoming) -> Option<CharacterSummary> {
         tid,
         name,
         level,
+        face: p.get(20).and_then(Value::as_i64).unwrap_or(0) as i32,
+        hair: p.get(21).and_then(Value::as_i64).unwrap_or(0) as i32,
     })
 }
 
@@ -221,8 +226,9 @@ impl LoginClient {
         Ok(chars)
     }
 
-    /// Entre dans l'écran de création (op 10) et rend le nombre de modèles de base reçus.
-    pub async fn enter_creation(&mut self) -> Result<usize, NetError> {
+    /// Entre dans l'écran de création (op 10) et rend les modèles de base que le serveur propose
+    /// (un paquet CHARACTER par modèle : TID, nom de classe ; CID réservés à l'écran).
+    pub async fn enter_creation(&mut self) -> Result<Vec<CharacterSummary>, NetError> {
         self.conn
             .send(
                 main::LOGIN,
@@ -232,7 +238,7 @@ impl LoginClient {
                 ),
             )
             .await?;
-        let mut bases = 0;
+        let mut bases = Vec::new();
         loop {
             let p = self
                 .conn
@@ -247,19 +253,46 @@ impl LoginClient {
             if p.packet_type == packet_type::LOGIN {
                 break;
             }
-            bases += 1;
+            if let Some(c) = character_summary(&p) {
+                bases.push(c);
+            }
         }
         Ok(bases)
     }
 
-    /// Crée un personnage (op 11) ; rend son CID.
+    /// Supprime un personnage du compte (op 13, nom dans le mini-paquet) ; attend la réponse op 13.
+    pub async fn delete_character(&mut self, name: &str) -> Result<(), NetError> {
+        let info = build_mini(
+            mini::LOGIN_CHAR_INFO,
+            &sparse(mini::LOGIN_CHAR_INFO, &[(1, Value::str(name))]),
+        )?;
+        self.conn
+            .send(
+                main::LOGIN,
+                &sparse(
+                    main::LOGIN,
+                    &[
+                        (0, Value::I8(login_op::DELETE_CHAR)),
+                        (8, Value::Packet(info)),
+                    ],
+                ),
+            )
+            .await?;
+        self.conn
+            .expect(packet_type::LOGIN, Some(login_op::DELETE_CHAR as i64))
+            .await?;
+        self.names.retain(|n| !n.eq_ignore_ascii_case(name));
+        Ok(())
+    }
+
+    /// Crée un personnage (op 11) ; rend sa fiche (CID, TID, nom, niveau, visage, coiffure).
     pub async fn create_character(
         &mut self,
         name: &str,
         tid: i32,
         hair: i32,
         face: i32,
-    ) -> Result<i32, NetError> {
+    ) -> Result<CharacterSummary, NetError> {
         let info = build_mini(
             mini::LOGIN_CHAR_INFO,
             &sparse(
@@ -291,7 +324,15 @@ impl LoginClient {
                 "création refusée (résultat {code})"
             )));
         }
-        self.conn.expect(packet_type::CHARACTER, None).await?;
+        let created = self.conn.expect(packet_type::CHARACTER, None).await?;
+        let mut summary = character_summary(&created).unwrap_or(CharacterSummary {
+            cid: 0,
+            tid,
+            name: name.to_string(),
+            level: 1,
+            face,
+            hair,
+        });
         let fin = self
             .conn
             .expect(
@@ -299,9 +340,11 @@ impl LoginClient {
                 Some(login_op::CREATE_CHAR_FINISH as i64),
             )
             .await?;
-        let cid = fin.get(6).and_then(Value::as_i64).unwrap_or(0) as i32;
+        if let Some(cid) = fin.get(6).and_then(Value::as_i64) {
+            summary.cid = cid as i32;
+        }
         self.names.push(name.to_string());
-        Ok(cid)
+        Ok(summary)
     }
 
     /// Demande l'entrée dans le monde avec un personnage ; rend le billet (clé d'auth + adresse).

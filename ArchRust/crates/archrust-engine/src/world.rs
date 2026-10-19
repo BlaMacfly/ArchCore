@@ -4,7 +4,8 @@
 //! coordonnée divisée par 6400, décalée de 400 (vérifié : `D272,272` couvre x,z ∈ [-819200, -812800]).
 //! Seize secteurs par axe forment une tuile `(sx/16)*100 + sy/16` :
 //!
-//! * `world/b%06dx.ma2` → `D{sx},{sy}.dff` : géométrie (1536 sommets, 512 triangles, 6 jeux d'UV) ;
+//! * `world/b%06dx.ma2` → `D{sx},{sy}.dff` : géométrie (1536 sommets, 512 triangles, 6 jeux d'UV),
+//!   matériaux multi-couches (extension `0xfffff001`) dessinés par `terrain.wgsl` ;
 //! * `world/a%06dx.ma2` → `R{sx},{sy}.dff` : dictionnaire de textures du secteur (128×128 DXT1) ;
 //! * `world/a%06dx.ma1` → `C{sx},{sy}.amf` : grille d'attributs 16×16 (collision, zones).
 //!
@@ -12,11 +13,11 @@
 //! posé à l'origine du secteur ; la hauteur du sol est alors tirée de ses sommets.
 
 use crate::assets::Assets;
-use crate::render::{DrawItem, Mesh, Renderer};
-use crate::scene::{build_geometry_mesh, patched_model_meshes};
+use crate::render::{DrawItem, Mesh, Renderer, TerrainMesh, TerrainVertex, TERRAIN_STAGES};
+use crate::scene::{ensure_texture, patched_model_meshes};
 use archrust_crypto::{capi_crypt, KEY_TEXTURE};
 use archrust_data::magpack::MagPack;
-use archrust_data::rw::{SectorGeometry, TextureDictionary};
+use archrust_data::rw::{Geometry, SectorGeometry, TextureDictionary};
 use glam::{Mat4, Vec3};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -127,9 +128,15 @@ impl HeightField {
     }
 }
 
+/// Contenu affiché d'un secteur : sol du client (multi-couches) ou modèles d'un patch glTF.
+enum SectorMeshes {
+    Ground(Arc<TerrainMesh>),
+    Models(Vec<(Arc<Mesh>, Mat4)>),
+}
+
 pub struct Terrain {
     pub radius: i32,
-    sectors: HashMap<(i32, i32), Vec<(Arc<Mesh>, Mat4)>>,
+    sectors: HashMap<(i32, i32), SectorMeshes>,
     heights: HashMap<(i32, i32), HeightField>,
     failed: HashSet<(i32, i32)>,
     tiles_a: HashMap<u32, Option<Arc<MagPack>>>,
@@ -188,7 +195,7 @@ impl Terrain {
         assets: &Assets,
         sx: i32,
         sy: i32,
-    ) -> Option<Vec<(Arc<Mesh>, Mat4)>> {
+    ) -> Option<SectorMeshes> {
         // 1. Un patch fournit un glTF pour ce secteur : posé à l'origine du secteur, hauteurs tirées de ses sommets.
         let key = format!("world/D{sx},{sy}.dff");
         if let Some(meshes) = patched_model_meshes(renderer, assets, &key) {
@@ -204,12 +211,12 @@ impl Terrain {
                 self.heights
                     .insert((sx, sy), HeightField::from_vertices(sx, sy, &pts));
             }
-            return Some(
+            return Some(SectorMeshes::Models(
                 meshes
                     .into_iter()
                     .map(|(m, local)| (m, root * local))
                     .collect(),
-            );
+            ));
         }
         // 2. Géométrie du client.
         let tile = tile_of(sx, sy);
@@ -259,7 +266,9 @@ impl Terrain {
             (sx, sy),
             HeightField::from_vertices(sx, sy, &geometry.vertices),
         );
-        // Le matériau sans texture reçoit la texture du secteur (carte de couleurs).
+        // Un matériau sans texture de base (aucun observé depuis la lecture de l'extension
+        // 0xfffff001) reçoit la texture du secteur. Elle couvre tout le secteur alors que les UV
+        // sont par cellule : ce n'est qu'un repli.
         for m in geometry.materials.iter_mut() {
             if m.texture.is_none() && renderer.texture(&r_name).is_some() {
                 m.texture = Some(archrust_data::rw::Texture {
@@ -268,8 +277,9 @@ impl Terrain {
                 });
             }
         }
-        let mesh = Arc::new(build_geometry_mesh(renderer, assets, &geometry));
-        Some(vec![(mesh, Mat4::IDENTITY)])
+        Some(SectorMeshes::Ground(Arc::new(build_terrain_mesh(
+            renderer, assets, &geometry,
+        ))))
     }
 
     /// Charge progressivement les secteurs autour de `center`, décharge les lointains.
@@ -316,11 +326,26 @@ impl Terrain {
     pub fn draw_items(&self) -> Vec<DrawItem> {
         self.sectors
             .values()
+            .filter_map(|s| match s {
+                SectorMeshes::Models(m) => Some(m),
+                SectorMeshes::Ground(_) => None,
+            })
             .flatten()
             .map(|(m, model)| DrawItem {
                 mesh: m.clone(),
                 model: *model,
                 tint: [1.0; 4],
+            })
+            .collect()
+    }
+
+    /// Secteurs de sol du client, dessinés par le pipeline multi-couches.
+    pub fn ground_meshes(&self) -> Vec<Arc<TerrainMesh>> {
+        self.sectors
+            .values()
+            .filter_map(|s| match s {
+                SectorMeshes::Ground(g) => Some(g.clone()),
+                SectorMeshes::Models(_) => None,
             })
             .collect()
     }
@@ -366,6 +391,86 @@ impl Terrain {
         }
         None
     }
+}
+
+/// Textures des étages d'un matériau de sol : base, puis les entrées de l'extension `0xfffff001`
+/// dans l'ordre du fichier (paires masque de type 3 / couche de type 1). L'étage n lit le jeu d'UV n
+/// (vérifié sur `D325,389` : les cellules à une couche ont un UV1 en pas de 0,25 — case de l'atlas
+/// du masque — et un UV2 de 0 à 1 ; celles à deux couches ont en plus UV3 en pas de 0,25 et UV4 de
+/// 0 à 1 ; les étages inutilisés gardent des UV par défaut en pas de 0,5).
+pub fn stage_textures(material: &archrust_data::rw::Material) -> [Option<String>; TERRAIN_STAGES] {
+    let mut stages: [Option<String>; TERRAIN_STAGES] = Default::default();
+    stages[0] = material.texture.as_ref().map(|t| t.name.clone());
+    for (i, layer) in material.layers.iter().enumerate() {
+        if i + 1 >= TERRAIN_STAGES {
+            log::debug!(
+                "matériau de sol : {} couches, au-delà de 2 ignorées",
+                material.layers.len()
+            );
+            break;
+        }
+        stages[i + 1] = layer.texture.as_ref().map(|t| t.name.clone());
+    }
+    stages
+}
+
+/// Maillage GPU d'un secteur du client : sommets en coordonnées monde, cinq jeux d'UV, triangles
+/// regroupés par matériau (Bin Mesh s'il est présent, sinon la liste de triangles).
+fn build_terrain_mesh(renderer: &mut Renderer, assets: &Assets, g: &Geometry) -> TerrainMesh {
+    let n = g.vertices.len();
+    let vertices: Vec<TerrainVertex> = (0..n)
+        .map(|i| {
+            let mut uv = [[0.0; 2]; TERRAIN_STAGES];
+            for (k, set) in g.uv_sets.iter().take(TERRAIN_STAGES).enumerate() {
+                uv[k] = set.get(i).copied().unwrap_or([0.0, 0.0]);
+            }
+            TerrainVertex {
+                position: g.vertices[i].to_array(),
+                normal: g.normals.get(i).copied().unwrap_or(Vec3::Y).to_array(),
+                color: g
+                    .colors
+                    .get(i)
+                    .map(|c| c.map(|v| v as f32 / 255.0))
+                    .unwrap_or([1.0; 4]),
+                uv,
+            }
+        })
+        .collect();
+    let mut by_material: HashMap<u32, Vec<u32>> = HashMap::new();
+    if !g.meshes.is_empty() && !g.tristrip {
+        for m in &g.meshes {
+            by_material
+                .entry(m.material)
+                .or_default()
+                .extend(m.indices.iter().copied().filter(|&i| (i as usize) < n));
+        }
+    } else {
+        for t in &g.triangles {
+            if t.v.iter().all(|&i| (i as usize) < n) {
+                by_material
+                    .entry(t.material as u32)
+                    .or_default()
+                    .extend(t.v.iter().map(|&i| i as u32));
+            }
+        }
+    }
+    let mut materials: Vec<_> = by_material.into_iter().collect();
+    materials.sort_by_key(|(m, _)| *m);
+    let mut indices = Vec::new();
+    let mut parts = Vec::new();
+    for (material, list) in materials {
+        let stages = g
+            .materials
+            .get(material as usize)
+            .map(stage_textures)
+            .unwrap_or_default();
+        for name in stages.iter().flatten() {
+            ensure_texture(renderer, assets, name);
+        }
+        parts.push((indices.len() as u32, list.len() as u32, stages));
+        indices.extend(list);
+    }
+    renderer.create_terrain_mesh(&vertices, &indices, parts)
 }
 
 #[cfg(test)]

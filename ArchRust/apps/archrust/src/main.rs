@@ -3,9 +3,10 @@
 //! ```text
 //! archrust play      [--game <Game>] [--preview a0000005.ecl]   lance le jeu
 //! archrust login     [--host 127.0.0.1] <user> <pass> <perso>   rejoue login → monde sans affichage
-//! archrust inspect   [--game <Game>] <pack|model|texture|animation|table|tile> … inspecte les données du client
+//! archrust inspect   [--game <Game>] <pack|model|texture|animation|table|tile|sound> … inspecte les données du client
 //! archrust inspect   gltf <fichier.glb>                         décrit un glTF/GLB (sans client)
 //! archrust extract   [--game <Game>] texture <nom> <sortie.png>  exporte une texture décodée
+//! archrust extract   [--game <Game>] sound <entrée> <sortie.wav> exporte un son (pack .pk, sound/ui, MP3)
 //! archrust addons    [--dir addons]                              vérifie et liste les AddOns
 //! archrust patch     build <dossier> <sortie.ahp> | check <patch> construit / vérifie un patch HD
 //! ```
@@ -13,6 +14,7 @@
 use anyhow::{anyhow, Context, Result};
 use archrust_crypto::{capi_crypt, KEY_TEXTURE};
 use archrust_data::rw::{Clump, TextureDictionary};
+use archrust_engine::audio::{normalize_sound_path, SoundLibrary};
 use archrust_engine::gltf_model::GltfModel;
 use archrust_engine::{Assets, Config};
 use clap::{Parser, Subcommand};
@@ -65,6 +67,10 @@ enum Cmd {
         /// Commande exécutée à l'entrée en jeu (ex. "/goto -478000 0 -68000").
         #[arg(long)]
         exec: Option<String>,
+        /// Commandes des écrans de sélection et de création, pour les tests (ex.
+        /// "créer; race Orc; classe Berserker; nom Toto; valider").
+        #[arg(long)]
+        login_exec: Option<String>,
     },
     /// Rejoue le flux complet login → monde sans affichage.
     Login {
@@ -82,8 +88,11 @@ enum Cmd {
         #[command(subcommand)]
         what: Inspect,
     },
-    /// Exporte une texture décodée en PNG.
-    Extract { name: String, out: PathBuf },
+    /// Exporte une ressource du client (texture décodée en PNG, son en WAV).
+    Extract {
+        #[command(subcommand)]
+        what: Extract,
+    },
     /// Exporte un modèle d'un pack en OBJ + MTL + textures PNG (référence privée, à ne pas publier).
     Export {
         /// Pack (`character`, `object`, `effect/clump`…).
@@ -139,6 +148,22 @@ enum Inspect {
     Tile { file: String },
     /// Décrit un fichier glTF/GLB (maillages, images, nœuds, boîte englobante) ; ne demande pas de client.
     Gltf { file: PathBuf },
+    /// Décrit l'index des sons (`index`), un pack (`sd.pk`, `effect/mono/maa.pk`) ou un son
+    /// (`sd0000.wav`, `sound/ui/click.wav`, `sound/bgm/htt_001.mp3`).
+    Sound {
+        what: String,
+        /// Nombre d'entrées listées pour un pack.
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+    },
+}
+
+#[derive(Subcommand)]
+enum Extract {
+    /// Texture par nom RenderWare, décodée en PNG.
+    Texture { name: String, out: PathBuf },
+    /// Son (`sd0000.wav`, `sound/ui/click.wav`, entrée d'un `.pk` ou MP3), écrit tel quel.
+    Sound { name: String, out: PathBuf },
 }
 
 #[derive(Subcommand)]
@@ -155,7 +180,12 @@ fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
         .format_timestamp_millis()
         .init();
-    let cli = Cli::parse();
+    // Sans argument (double-clic sur ArchRust.exe), on joue : `play` est la commande par défaut.
+    let mut args: Vec<std::ffi::OsString> = std::env::args_os().collect();
+    if args.len() == 1 {
+        args.push("play".into());
+    }
+    let cli = Cli::parse_from(args);
     let game_dir = if cli.no_client {
         None
     } else {
@@ -172,6 +202,7 @@ fn main() -> Result<()> {
             screenshot,
             screenshot_after,
             exec,
+            login_exec,
         } => archrust_engine::run(Config {
             game_dir,
             addons_dir: cli.addons,
@@ -182,6 +213,7 @@ fn main() -> Result<()> {
             auto_connect: connect,
             screenshot: screenshot.map(|p| (p, screenshot_after)),
             exec_on_enter: exec,
+            login_exec,
         }),
         Cmd::Login {
             host,
@@ -197,7 +229,9 @@ fn main() -> Result<()> {
             let assets = Assets::new(Some(require_client("export")?), &patch_dirs);
             export_obj(&assets, &dir, &name, &out)
         }
-        Cmd::Extract { name, out } => {
+        Cmd::Extract {
+            what: Extract::Texture { name, out },
+        } => {
             let assets = Assets::new(Some(require_client("extract")?), &patch_dirs);
             let img = assets.texture(&name)?;
             image::RgbaImage::from_raw(img.width, img.height, img.data.clone())
@@ -206,12 +240,28 @@ fn main() -> Result<()> {
             println!("{name} ({}x{}) → {}", img.width, img.height, out.display());
             Ok(())
         }
+        Cmd::Extract {
+            what: Extract::Sound { name, out },
+        } => {
+            let assets = Assets::new(Some(require_client("extract")?), &patch_dirs);
+            let lib = SoundLibrary::new(std::sync::Arc::new(assets), None);
+            let sound = lib.read(&name)?;
+            std::fs::write(&out, &sound.bytes)
+                .with_context(|| out.display().to_string())?;
+            println!(
+                "{name} ({} octets, {}) → {}",
+                sound.bytes.len(),
+                sound.source,
+                out.display()
+            );
+            Ok(())
+        }
         Cmd::Addons => {
             let mut mgr = archrust_addons::AddonManager::new("saved-variables")
                 .map_err(|e| anyhow!("AddOns : {e}"))?;
             mgr.load_dir(&cli.addons)
                 .map_err(|e| anyhow!("AddOns : {e}"))?;
-            for a in &mgr.addons {
+            for a in &mgr.addons() {
                 let m = &a.manifest;
                 println!(
                     "{} {} {} — {} fichier(s){}",
@@ -288,8 +338,8 @@ async fn login(host: &str, user: &str, password: &str, character: &str) -> Resul
     }
     if !names.iter().any(|n| n == character) {
         login.enter_creation().await?;
-        let cid = login.create_character(character, 96, 1, 2).await?;
-        println!("personnage {character} créé (cid {cid})");
+        let created = login.create_character(character, 96, 1, 2).await?;
+        println!("personnage {character} créé (cid {})", created.cid);
     }
     let ticket = login.enter_world(character, &world).await?;
     login.close().await;
@@ -671,6 +721,84 @@ fn inspect(game: &PathBuf, patch_dirs: &[PathBuf], what: Inspect) -> Result<()> 
                 println!("  {} {} o", e.name, e.size);
             }
         }
+        Inspect::Sound { what, limit } => {
+            inspect_sound(std::sync::Arc::new(assets), &what, limit)?;
+        }
+    }
+    Ok(())
+}
+
+/// `inspect sound` : l'index `soundpak.info`, un pack `.pk` ou un son.
+fn inspect_sound(assets: std::sync::Arc<Assets>, what: &str, limit: usize) -> Result<()> {
+    use archrust_data::soundpak::WavInfo;
+    let lib = SoundLibrary::new(assets, None);
+    let norm = normalize_sound_path(what);
+    let lower = norm.to_ascii_lowercase();
+    if lower == "index" || lower.ends_with("soundpak.info") {
+        let idx = lib
+            .index()
+            .ok_or_else(|| anyhow!("sound/soundpak.info introuvable ou illisible"))?;
+        for g in &idx.groups {
+            println!(
+                "groupe {} (version {}, réservés {:?}) : {} packs",
+                g.name,
+                g.version,
+                g.reserved,
+                g.packs.len()
+            );
+            for p in &g.packs {
+                println!(
+                    "  {:<8} préfixe {:<4} {:>5} sons, dernier index {:>5}, {:>9} octets déclarés, drapeau {:#04x}",
+                    p.file,
+                    p.prefix,
+                    p.entries.len(),
+                    p.last_index,
+                    p.declared_len(),
+                    p.flag
+                );
+            }
+        }
+        println!("{} packs, {} sons", idx.packs().count(), idx.entry_count());
+        return Ok(());
+    }
+    if lower.ends_with(".pk") {
+        let rel = if !norm.contains('/') {
+            format!("sound/effect/{norm}")
+        } else if !lower.starts_with("sound") {
+            format!("sound/{norm}")
+        } else {
+            norm.clone()
+        };
+        let bytes = lib.pack_bytes(&rel)?;
+        let (entries, how) = match lib.index().and_then(|i| i.pack(&rel).cloned()) {
+            Some(p) => (p.entries, "soundpak.info"),
+            None => ((*lib.scanned_entries(&rel, &bytes)).clone(), "balayage RIFF"),
+        };
+        println!("{rel} : {} octets, {} sons ({how})", bytes.len(), entries.len());
+        for e in entries.iter().take(limit) {
+            let info = e.slice(&bytes).ok().and_then(WavInfo::parse);
+            println!(
+                "  {:>4} {:<14} décalage {:>9} taille {:>8} id {:>5}  {}",
+                e.index,
+                e.name.to_ascii_lowercase(),
+                e.offset,
+                e.size,
+                e.id,
+                info.map(|i| i.to_string())
+                    .unwrap_or_else(|| "WAV invalide".into())
+            );
+        }
+        if entries.len() > limit {
+            println!("  … {} de plus (--limit)", entries.len() - limit);
+        }
+        return Ok(());
+    }
+    let s = lib.read(&norm)?;
+    println!("{norm} : {} octets, {}", s.bytes.len(), s.source);
+    match WavInfo::parse(&s.bytes) {
+        Some(i) => println!("  WAV {i}"),
+        None if lower.ends_with(".mp3") => println!("  MP3"),
+        None => println!("  format non reconnu"),
     }
     Ok(())
 }

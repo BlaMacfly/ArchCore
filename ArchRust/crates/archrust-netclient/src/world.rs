@@ -29,6 +29,9 @@ pub struct SeenCharacter {
     pub name: String,
     pub position: Vec3,
     pub destination: Vec3,
+    /// Orientation autour de Y en degrés (champ 13 de la vue, INT16), `None` si absente. Archonia
+    /// (`FUN_140260d40`) passe les champs 12/13 comme angles X/Y du mini-paquet `CHAR_MOVE`.
+    pub turn_y: Option<f32>,
     pub equipment: Vec<EquipmentView>,
 }
 
@@ -74,11 +77,13 @@ pub struct ActionFactorPoints {
 #[derive(Debug, Clone)]
 pub enum WorldEvent {
     Connected,
-    /// Paquet CHARACTER du joueur (op 25 puis 0) : CID, TID, nom.
+    /// Paquet CHARACTER du joueur (op 25 puis 0) : CID, TID, nom, visage et cheveux (champs 20/21).
     SelfCharacter {
         cid: i32,
         tid: i32,
         name: String,
+        face: Option<i32>,
+        hair: Option<i32>,
     },
     CharacterUpdated {
         cid: i32,
@@ -197,6 +202,7 @@ pub fn decode_view(mini_bytes: &[u8]) -> Option<SeenCharacter> {
         name: text(g(2)),
         position: vec3(g(8)).unwrap_or(Vec3::ZERO),
         destination: vec3(g(9)).unwrap_or(Vec3::ZERO),
+        turn_y: g(13).and_then(Value::as_i64).map(|v| v as f32),
         equipment: Vec::new(),
     })
 }
@@ -262,6 +268,8 @@ pub fn translate(p: &Incoming) -> WorldEvent {
                 cid: p.get(1).and_then(Value::as_i64).unwrap_or(0) as i32,
                 tid: p.get(2).and_then(Value::as_i64).unwrap_or(0) as i32,
                 name: text(p.get(3)),
+                face: p.get(20).and_then(Value::as_i64).map(|v| v as i32),
+                hair: p.get(21).and_then(Value::as_i64).map(|v| v as i32),
             }
         }
         packet_type::CHARACTER if p.op() == Some(character_op::UPDATE as i64) => {
@@ -666,6 +674,7 @@ pub fn build_view(c: &SeenCharacter) -> Vec<u8> {
                 (2, Value::Block(c.name.as_bytes().to_vec())),
                 (8, Value::Vec3(c.position.to_array())),
                 (9, Value::Vec3(c.destination.to_array())),
+                (13, Value::I16(c.turn_y.unwrap_or(0.0).round() as i16)),
             ],
         ),
     )
@@ -785,6 +794,7 @@ mod tests {
             name: "<Merchant> Darryl".into(),
             position: Vec3::new(-479097.9, 4753.4, -66021.9),
             destination: Vec3::ZERO,
+            turn_y: Some(135.0),
             equipment: Vec::new(),
         };
         let bytes = build_view(&c);
@@ -802,6 +812,7 @@ mod tests {
             name: "Joueur".into(),
             position: Vec3::ZERO,
             destination: Vec3::ZERO,
+            turn_y: Some(0.0),
             equipment: Vec::new(),
         };
         let view = build_view(&character);
@@ -968,6 +979,7 @@ mod tests {
             name: "Cible".into(),
             position: Vec3::ZERO,
             destination: Vec3::ZERO,
+            turn_y: Some(0.0),
             equipment: Vec::new(),
         }];
         WorldClient::track_view_event(

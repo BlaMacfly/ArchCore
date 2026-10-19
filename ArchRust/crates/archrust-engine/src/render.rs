@@ -2,7 +2,7 @@
 
 use anyhow::{anyhow, Result};
 use bytemuck::{Pod, Zeroable};
-use glam::{Mat4, Vec3, Vec4};
+use glam::{Mat4, Vec3};
 use std::collections::HashMap;
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
@@ -27,6 +27,48 @@ impl Vertex {
             attributes: &Self::ATTRS,
         }
     }
+}
+
+/// Sommet d'un secteur de sol : cinq jeux d'UV, un par étage de texture (base, masque 1,
+/// couche 1, masque 2, couche 2 ; voir `terrain.wgsl`).
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable, Debug)]
+pub struct TerrainVertex {
+    pub position: [f32; 3],
+    pub normal: [f32; 3],
+    pub color: [f32; 4],
+    pub uv: [[f32; 2]; TERRAIN_STAGES],
+}
+
+/// Étages de texture du sol pris en charge (base + deux couches masquées).
+pub const TERRAIN_STAGES: usize = 5;
+
+impl TerrainVertex {
+    const ATTRS: [wgpu::VertexAttribute; 8] = wgpu::vertex_attr_array![
+        0 => Float32x3, 1 => Float32x3, 2 => Float32x4, 3 => Float32x2,
+        4 => Float32x2, 5 => Float32x2, 6 => Float32x2, 7 => Float32x2
+    ];
+    fn layout() -> wgpu::VertexBufferLayout<'static> {
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<TerrainVertex>() as u64,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &Self::ATTRS,
+        }
+    }
+}
+
+/// Plage d'indices d'un matériau du sol et ses textures liées.
+pub struct TerrainPart {
+    pub index_start: u32,
+    pub index_count: u32,
+    bind_group: wgpu::BindGroup,
+}
+
+/// Secteur de sol prêt à dessiner (sommets en coordonnées monde).
+pub struct TerrainMesh {
+    vertices: wgpu::Buffer,
+    indices: wgpu::Buffer,
+    pub parts: Vec<TerrainPart>,
 }
 
 #[repr(C)]
@@ -59,10 +101,14 @@ pub struct Mesh {
     pub parts: Vec<SubMesh>,
     pub bounds_center: Vec3,
     pub bounds_radius: f32,
+    /// Liaison au squelette d'une géométrie skinnée du client, pour l'animation
+    /// (voir `animation`). `None` pour les maillages statiques.
+    pub skin: Option<Arc<crate::animation::SkinBinding>>,
 }
 
 pub struct GpuTexture {
     pub bind_group: wgpu::BindGroup,
+    pub view: wgpu::TextureView,
     pub width: u32,
     pub height: u32,
 }
@@ -80,6 +126,10 @@ pub struct Renderer {
     pub surface: wgpu::Surface<'static>,
     pub config: wgpu::SurfaceConfiguration,
     pipeline: wgpu::RenderPipeline,
+    terrain_pipeline: wgpu::RenderPipeline,
+    terrain_layout: wgpu::BindGroupLayout,
+    /// Masque neutre (alpha 0) des étages de sol absents.
+    clear: Arc<GpuTexture>,
     globals_buf: wgpu::Buffer,
     globals_bg: wgpu::BindGroup,
     texture_layout: wgpu::BindGroupLayout,
@@ -90,6 +140,9 @@ pub struct Renderer {
     pub white: Arc<GpuTexture>,
     instance_pool: Vec<(wgpu::Buffer, wgpu::BindGroup)>,
     pub clear_color: wgpu::Color,
+    /// Direction du soleil et lumière ambiante (CVars `lightDirection`, `ambientColor` des AddOns).
+    pub light_dir: Vec3,
+    pub ambient: [f32; 4],
     /// Demande de capture de la prochaine image (lue dans `take_capture`).
     pub capture_next: bool,
     captured: Option<(u32, u32, Vec<u8>)>,
@@ -233,6 +286,73 @@ impl Renderer {
             multiview: None,
             cache: None,
         });
+        let terrain_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("terrain"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("terrain.wgsl").into()),
+        });
+        let mut terrain_entries: Vec<wgpu::BindGroupLayoutEntry> = (0..TERRAIN_STAGES as u32)
+            .map(|binding| wgpu::BindGroupLayoutEntry {
+                binding,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            })
+            .collect();
+        terrain_entries.push(wgpu::BindGroupLayoutEntry {
+            binding: TERRAIN_STAGES as u32,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+            count: None,
+        });
+        let terrain_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("terrain"),
+            entries: &terrain_entries,
+        });
+        let terrain_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("terrain"),
+                bind_group_layouts: &[&globals_layout, &terrain_layout],
+                push_constant_ranges: &[],
+            });
+        let terrain_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("terrain"),
+            layout: Some(&terrain_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &terrain_shader,
+                entry_point: Some("vs_main"),
+                buffers: &[TerrainVertex::layout()],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &terrain_shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                cull_mode: None,
+                ..Default::default()
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
+            multisample: Default::default(),
+            multiview: None,
+            cache: None,
+        });
         let globals_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("globals"),
             size: std::mem::size_of::<Globals>() as u64,
@@ -267,6 +387,16 @@ impl Renderer {
             1,
             &[255, 255, 255, 255],
         ));
+        let clear = Arc::new(upload_rgba(
+            &device,
+            &queue,
+            &texture_layout,
+            &sampler,
+            "__clear",
+            1,
+            1,
+            &[0, 0, 0, 0],
+        ));
         let mut textures = HashMap::new();
         textures.insert("__white".to_string(), white.clone());
         Ok(Renderer {
@@ -275,6 +405,9 @@ impl Renderer {
             surface,
             config,
             pipeline,
+            terrain_pipeline,
+            terrain_layout,
+            clear,
             globals_buf,
             globals_bg,
             texture_layout,
@@ -290,6 +423,8 @@ impl Renderer {
                 b: 0.6,
                 a: 1.0,
             },
+            light_dir: Vec3::new(0.4, 0.8, 0.3),
+            ambient: [0.45, 0.45, 0.5, 1.0],
             capture_next: false,
             captured: None,
         })
@@ -404,7 +539,8 @@ impl Renderer {
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: Some("vertices"),
                     contents: bytemuck::cast_slice(vertices),
-                    usage: wgpu::BufferUsages::VERTEX,
+                    // COPY_DST : les sommets des personnages animés sont réécrits à chaque pose.
+                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
                 }),
             indices: self
                 .device
@@ -416,6 +552,84 @@ impl Renderer {
             parts,
             bounds_center: center,
             bounds_radius: radius,
+            skin: None,
+        }
+    }
+
+    /// Maillage de sol : `parts` = (premier indice, nombre d'indices, textures des étages). Un étage
+    /// sans texture, ou dont la texture n'est pas sur le GPU, reçoit la texture neutre : blanc pour
+    /// la base et les couches, transparent pour les masques (étages impairs).
+    pub fn create_terrain_mesh(
+        &self,
+        vertices: &[TerrainVertex],
+        indices: &[u32],
+        parts: Vec<(u32, u32, [Option<String>; TERRAIN_STAGES])>,
+    ) -> TerrainMesh {
+        let parts = parts
+            .into_iter()
+            .map(|(index_start, index_count, names)| {
+                let views: Vec<Arc<GpuTexture>> = names
+                    .iter()
+                    .enumerate()
+                    .map(|(stage, name)| {
+                        name.as_ref()
+                            .and_then(|n| self.texture(n))
+                            .unwrap_or_else(|| {
+                                if stage % 2 == 1 {
+                                    self.clear.clone()
+                                } else {
+                                    self.white.clone()
+                                }
+                            })
+                    })
+                    .collect();
+                let mut entries: Vec<wgpu::BindGroupEntry> = views
+                    .iter()
+                    .enumerate()
+                    .map(|(i, t)| wgpu::BindGroupEntry {
+                        binding: i as u32,
+                        resource: wgpu::BindingResource::TextureView(&t.view),
+                    })
+                    .collect();
+                entries.push(wgpu::BindGroupEntry {
+                    binding: TERRAIN_STAGES as u32,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                });
+                TerrainPart {
+                    index_start,
+                    index_count,
+                    bind_group: self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some("terrain"),
+                        layout: &self.terrain_layout,
+                        entries: &entries,
+                    }),
+                }
+            })
+            .collect();
+        TerrainMesh {
+            vertices: self
+                .device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("terrain vertices"),
+                    contents: bytemuck::cast_slice(vertices),
+                    usage: wgpu::BufferUsages::VERTEX,
+                }),
+            indices: self
+                .device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("terrain indices"),
+                    contents: bytemuck::cast_slice(indices),
+                    usage: wgpu::BufferUsages::INDEX,
+                }),
+            parts,
+        }
+    }
+
+    /// Réécrit les sommets d'un maillage (même nombre de sommets qu'à sa création).
+    pub fn write_vertices(&self, mesh: &Mesh, vertices: &[Vertex]) {
+        let bytes: &[u8] = bytemuck::cast_slice(vertices);
+        if bytes.len() as u64 <= mesh.vertices.size() {
+            self.queue.write_buffer(&mesh.vertices, 0, bytes);
         }
     }
 
@@ -444,6 +658,7 @@ impl Renderer {
         &mut self,
         view_proj: Mat4,
         camera_pos: Vec3,
+        terrain: &[Arc<TerrainMesh>],
         items: &[DrawItem],
         ui: impl FnOnce(&wgpu::Device, &wgpu::Queue, &mut wgpu::CommandEncoder, &wgpu::TextureView),
     ) -> Result<()> {
@@ -458,8 +673,8 @@ impl Renderer {
         let view = frame.texture.create_view(&Default::default());
         let globals = Globals {
             view_proj: view_proj.to_cols_array_2d(),
-            light_dir: Vec4::new(0.4, 0.8, 0.3, 0.0).to_array(),
-            ambient: [0.45, 0.45, 0.5, 1.0],
+            light_dir: self.light_dir.extend(0.0).to_array(),
+            ambient: self.ambient,
             camera_pos: camera_pos.extend(1.0).to_array(),
         };
         self.queue
@@ -500,8 +715,23 @@ impl Renderer {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
-            pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &self.globals_bg, &[]);
+            if !terrain.is_empty() {
+                pass.set_pipeline(&self.terrain_pipeline);
+                for mesh in terrain {
+                    pass.set_vertex_buffer(0, mesh.vertices.slice(..));
+                    pass.set_index_buffer(mesh.indices.slice(..), wgpu::IndexFormat::Uint32);
+                    for part in &mesh.parts {
+                        pass.set_bind_group(1, &part.bind_group, &[]);
+                        pass.draw_indexed(
+                            part.index_start..part.index_start + part.index_count,
+                            0,
+                            0..1,
+                        );
+                    }
+                }
+            }
+            pass.set_pipeline(&self.pipeline);
             for (i, item) in items.iter().enumerate() {
                 let (_, bg) = &self.instance_pool[i];
                 pass.set_bind_group(2, bg, &[]);
@@ -582,31 +812,40 @@ fn upload_rgba(
         height,
         depth_or_array_layers: 1,
     };
+    // Chaîne de mipmaps calculée sur le CPU (moyenne 2×2) : sans elle, les textures 1024² du sol
+    // vues de loin scintillent et forment un damier.
+    let levels = mip_chain(width, height, rgba);
     let tex = device.create_texture(&wgpu::TextureDescriptor {
         label: Some(name),
         size,
-        mip_level_count: 1,
+        mip_level_count: levels.len() as u32,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
         format: wgpu::TextureFormat::Rgba8UnormSrgb,
         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
         view_formats: &[],
     });
-    queue.write_texture(
-        wgpu::TexelCopyTextureInfo {
-            texture: &tex,
-            mip_level: 0,
-            origin: wgpu::Origin3d::ZERO,
-            aspect: wgpu::TextureAspect::All,
-        },
-        rgba,
-        wgpu::TexelCopyBufferLayout {
-            offset: 0,
-            bytes_per_row: Some(4 * width),
-            rows_per_image: Some(height),
-        },
-        size,
-    );
+    for (level, (w, h, data)) in levels.iter().enumerate() {
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &tex,
+                mip_level: level as u32,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            data,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(4 * w),
+                rows_per_image: Some(*h),
+            },
+            wgpu::Extent3d {
+                width: *w,
+                height: *h,
+                depth_or_array_layers: 1,
+            },
+        );
+    }
     let view = tex.create_view(&Default::default());
     let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some(name),
@@ -624,9 +863,40 @@ fn upload_rgba(
     });
     GpuTexture {
         bind_group,
+        view,
         width,
         height,
     }
+}
+
+/// Niveaux de mipmap d'une image RGBA8 : l'image elle-même puis des moyennes 2×2 jusqu'à 1×1.
+fn mip_chain(width: u32, height: u32, rgba: &[u8]) -> Vec<(u32, u32, std::borrow::Cow<'_, [u8]>)> {
+    let mut levels = vec![(width, height, std::borrow::Cow::Borrowed(rgba))];
+    if rgba.len() < (4 * width * height) as usize {
+        return levels;
+    }
+    let (mut w, mut h) = (width, height);
+    while w > 1 || h > 1 {
+        let (nw, nh) = ((w / 2).max(1), (h / 2).max(1));
+        let src = &levels.last().unwrap().2;
+        let mut dst = vec![0u8; (4 * nw * nh) as usize];
+        for y in 0..nh {
+            for x in 0..nw {
+                for c in 0..4 {
+                    let mut sum = 0u32;
+                    for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+                        let sx = (2 * x + dx).min(w - 1);
+                        let sy = (2 * y + dy).min(h - 1);
+                        sum += src[((sy * w + sx) * 4 + c) as usize] as u32;
+                    }
+                    dst[((y * nw + x) * 4 + c) as usize] = ((sum + 2) / 4) as u8;
+                }
+            }
+        }
+        levels.push((nw, nh, std::borrow::Cow::Owned(dst)));
+        (w, h) = (nw, nh);
+    }
+    levels
 }
 
 fn bounds(vertices: &[Vertex]) -> (Vec3, f32) {
