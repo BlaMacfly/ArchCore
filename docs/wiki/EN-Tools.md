@@ -64,7 +64,8 @@ The character, a GM account (`gmtest` / `GmTest` by default), goes hunting the r
 1. **Defeat**: it attacks; the monster fights back; it moves 1500 units away and the monster chases it;
    it dies, asks to be resurrected and comes back to the village with full HP.
 2. **Victory**: with `/invincible 1`, it attacks another monster, which no longer wounds it; the monster
-   dies, experience is gained, the corpse disappears and the monster respawns with full HP.
+   dies, experience is gained, its loot falls on the ground (at least gold) and the character picks it
+   all up; the corpse disappears and the monster respawns.
 
 It then sets `/invincible 0` and brings the character back to the village. Allow about 2 min: a
 level 1 warrior without a weapon hits a Green Worm (136 HP) for 2 to 3 HP per hit, and the worm kills
@@ -100,6 +101,9 @@ tables, to be placed in `data/server-ini` (never committed) or pointed to with `
 | `spawndatatable.txt` | What: group, monster template and level, count, respawn delay, siege war | `monster_spawn` |
 | `spawninstancetable.txt` | Where: position, orientation, radius of each point (a name may have several positions) | `monster_spawn` |
 | `world/node_data` (next to it or in the sibling folder) | Map: 16 × 16 segments of 400 units per sector, blocked ground and region | `map_segment` |
+| `itemdroptable.txt` | Each monster's own items: count, rate out of 100,000 | `monster_drop` |
+| `groupdroprate.txt` | Drop groups: rate, `DropMeditation` sensitivity, level bonus | `drop_group` |
+| `droprankrate.txt` | Item ranks given by the monster's drop rank | `drop_rank_rate` |
 
 ```bash
 archcore db-init

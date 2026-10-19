@@ -67,7 +67,8 @@ Le personnage, un compte MJ (`gmtest` / `GmTest` par défaut), part chasser au n
 1. **Défaite** : il attaque ; le monstre riposte ; il s'éloigne de 1500 unités et le monstre le
    poursuit ; il meurt, demande la résurrection et revient au village avec tous ses PV.
 2. **Victoire** : avec `/invincible 1`, il attaque un autre monstre, qui ne le blesse plus ; le monstre
-   meurt, l'expérience est gagnée, le cadavre disparaît puis le monstre réapparaît avec tous ses PV.
+   meurt, l'expérience est gagnée, son butin tombe au sol (de l'or au moins) et le personnage ramasse
+   tout ; le cadavre disparaît puis le monstre réapparaît.
 
 Il remet ensuite `/invincible 0` et ramène le personnage au village. Compter environ 2 min : un
 guerrier de niveau 1 sans arme frappe un Ver vert (136 PV) 2 à 3 PV par coup, et le ver le tue en
@@ -104,6 +105,9 @@ serveur d'origine d'ArchLord, à placer dans `data/server-ini` (jamais versionn�
 | `spawndatatable.txt` | Quoi : groupe, modèle et niveau du monstre, nombre, délai de réapparition, guerre de siège | `monster_spawn` |
 | `spawninstancetable.txt` | Où : position, orientation, rayon de chaque point (un nom peut avoir plusieurs positions) | `monster_spawn` |
 | `world/node_data` (à côté ou dans le dossier voisin) | Carte : 16 × 16 segments de 400 unités par secteur, sol infranchissable et région | `map_segment` |
+| `itemdroptable.txt` | Objets propres à chaque monstre : quantité, taux sur 100 000 | `monster_drop` |
+| `groupdroprate.txt` | Groupes de butin : taux, sensibilité à `DropMeditation`, bonus par niveau | `drop_group` |
+| `droprankrate.txt` | Rangs d'objets donnés selon le rang de butin du monstre | `drop_rank_rate` |
 
 ```bash
 archcore db-init

@@ -210,6 +210,23 @@ them; they can no longer move or attack, and monsters drop them. The client asks
 town with AGPMCHARACTER **op 9**: the server restores HP and MP, sends status 0, teleports the character
 to their race's starting village and makes them invincible for 10 s.
 
+**Drops.** When a monster dies, its loot falls on the ground around the corpse (± 150 units): AGPMITEM
+op 0 with status 1 ("on the ground"), the IID (`0x30000000` range), the TID, the owner (killer's CID),
+the count and, in field 6, a mini-packet holding a single VEC3F, the position (read from the x64
+client). Gold is the TID 268 item, its count being the amount. The client asks to pick an item up with
+AGPMITEM **op 11** (field 2 = IID); the server stores the item (AGPMITEM op 0 status 2, or op 2 for an
+existing stack) or credits the gold (AGPMCHARACTER op 1, field 8), then answers **op 12** (field 1: 0
+success, 1 failure; 2 IID, 3 TID, 5 count) and removes the item from the ground (op 1) for those who saw
+it. An item is reserved for the killer for 30 s, can be picked up from at most 2000 units, and vanishes
+after 45 s.
+
+Rolls: gold between the monster's `Geld_Min` and `Geld_Max` × the `gold` rate; for each group of
+`groupdroprate.txt`, a chance out of 100,000 (group rate × `drop` rate, × the monster's `DropMeditation`
+for groups affected by it, + a bonus by killer level), then an item rank from the monster's drop rank
+(`droprankrate.txt`) and an item of that group and rank (`GroupID`, `DropRank`, `DropRate` from
+itemdatatable.txt) suited to the monster's level; finally the monster's own items (`itemdroptable.txt`),
+always given at 100,000.
+
 ## GM level (type 0x12, AgpmAdmin)
 
 2-byte field flags: op, CID, then 13 mini-packets. Op 0 with, in field 2, a "GM data" mini-packet of

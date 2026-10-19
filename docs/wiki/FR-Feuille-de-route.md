@@ -22,7 +22,8 @@
   l'envoi des PV, ajouté depuis, reste à vérifier.
 - Combat au corps à corps contre les monstres : approche, coups (chance de toucher, dégâts selon la
   classe), mort, expérience et montée de niveau, cadavre puis réapparition. Les monstres frappés
-  ripostent et poursuivent leur agresseur ; mort du joueur et résurrection au village. Voir
+  ripostent et poursuivent leur agresseur ; mort du joueur et résurrection au village. Butin : or et
+  objets au sol, ramassage. Voir
   [[Protocole réseau|FR-Protocole-reseau]].
 - Extensions ArchRust, côté serveur : négociation de capacités et messages d'AddOn (murmure, `SAY`).
   Voir [[Extensions ArchRust|FR-Extensions-ArchRust]] ; la partie client reste à écrire dans ArchRust.
@@ -40,7 +41,7 @@
 1. Valider la création complète d'un personnage en jeu.
 2. Vérifier la visibilité entre joueurs avec deux vrais clients.
 3. Fonctions des PNJ : quêtes, téléportation, banque.
-4. Combat : butin, armes et armures dans les dégâts, régénération des PV, patrouille des monstres,
+4. Combat : armes et armures dans les dégâts, régénération des PV, patrouille des monstres,
    points de résurrection par région, compétences.
 5. Objets : déplacement dans l'inventaire, équipement, utilisation ; compétences.
 6. Discussion, groupes, guildes.

@@ -174,3 +174,29 @@ CREATE TABLE IF NOT EXISTS map_segment (
   segments  BLOB NOT NULL COMMENT '16 × 16 segments de 400 unités, u32 LE, ligne Z puis colonne X : octet 0 type de case, octet 1 blocage (bit 0 sol, bit 1 ciel), octets 2-3 région',
   PRIMARY KEY (sector_x, sector_z)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='carte serveur du monde (node_data des tables du serveur d''origine)';
+
+CREATE TABLE IF NOT EXISTS monster_drop (
+  id          INT UNSIGNED NOT NULL COMMENT 'ordre dans itemdroptable.txt',
+  monster_tid INT UNSIGNED NOT NULL,
+  item_tid    INT UNSIGNED NOT NULL,
+  min_count   INT NOT NULL DEFAULT 1,
+  max_count   INT NOT NULL DEFAULT 1,
+  rate        INT NOT NULL COMMENT 'sur 100 000 ; 100 000 = toujours',
+  PRIMARY KEY (id),
+  KEY ix_md_monster (monster_tid)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='butin propre à un monstre (itemdroptable.txt du serveur d''origine)';
+
+CREATE TABLE IF NOT EXISTS drop_group (
+  group_id    INT UNSIGNED NOT NULL,
+  name        VARCHAR(64) NOT NULL DEFAULT '',
+  meditation  TINYINT NOT NULL DEFAULT 0 COMMENT 'taux multiplié par DropMeditation du monstre',
+  rate        INT NOT NULL COMMENT 'sur 100 000',
+  level_bonus JSON NOT NULL COMMENT 'bonus de taux par tranche de 10 niveaux du tueur (LevelBonus10…100)',
+  PRIMARY KEY (group_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='groupes de butin (groupdroprate.txt du serveur d''origine)';
+
+CREATE TABLE IF NOT EXISTS drop_rank_rate (
+  monster_rank INT UNSIGNED NOT NULL COMMENT 'DropRank du monstre (CharacterDataTable.txt)',
+  rates        JSON NOT NULL COMMENT 'pour cent par rang d''objet 1 à 10',
+  PRIMARY KEY (monster_rank)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='rang des objets selon le rang du monstre (droprankrate.txt du serveur d''origine)';

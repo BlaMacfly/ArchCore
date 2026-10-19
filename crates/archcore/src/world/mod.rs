@@ -19,6 +19,7 @@ pub mod chat;
 pub mod combat;
 pub mod gm;
 pub mod items;
+pub mod loot;
 pub mod map;
 pub mod monsters;
 pub mod npc_events;
@@ -54,6 +55,8 @@ pub struct WorldCtx {
     pub map: map::WorldMap,
     /// Expérience nécessaire pour passer chaque niveau (indice = niveau, LevelUpExp.txt).
     pub level_exp: Vec<u64>,
+    /// Tables de butin.
+    pub loot: loot::LootTables,
     pub view_radius: f64,
 }
 
@@ -88,6 +91,8 @@ pub struct Player {
     pub factors: Factors,
     pub seen_npcs: HashSet<u32>,
     pub seen_monsters: HashSet<u32>,
+    /// Objets au sol déjà montrés.
+    pub seen_items: HashSet<u32>,
     pub seen_players: HashSet<u32>,
     pub in_game: bool,
     pub dest: Option<Vec3>,
@@ -139,6 +144,8 @@ pub struct WorldState {
     pub restart: Option<RestartState>,
     /// Monstres du monde.
     pub monsters: monsters::MonsterRegistry,
+    /// Objets posés au sol.
+    pub ground: loot::Ground,
 }
 
 impl WorldState {
@@ -171,6 +178,7 @@ impl Service for WorldService {
                 | ptype::CHATTING
                 | ptype::OPT_CHAR_MOVE
                 | ptype::OPT_CHAR_ACTION
+                | ptype::ITEM
                 | ptype::EVENT_NPC_DIALOG
                 | ptype::EVENT_NPC_TRADE
                 | ptype::ARCHCORE_EXT
@@ -211,6 +219,7 @@ impl Connection for WorldConn {
             ptype::CHATTING => chat::on_chatting(&world, &mut st, self.sid, &p).await?,
             ptype::OPT_CHAR_MOVE => presence::on_move(ctx, &mut st, self.sid, &p),
             ptype::OPT_CHAR_ACTION => combat::on_action(&mut st, self.sid, &p),
+            ptype::ITEM => loot::on_item_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::EVENT_NPC_DIALOG => npc_events::on_dialog(ctx, &st, self.sid, &p),
             ptype::EVENT_NPC_TRADE => npc_trade::on_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::ARCHCORE_EXT => addon::on_packet(ctx, &mut st, self.sid, &p),
@@ -290,6 +299,7 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
             factors,
             seen_npcs: HashSet::new(),
             seen_monsters: HashSet::new(),
+            seen_items: HashSet::new(),
             seen_players: HashSet::new(),
             in_game: false,
             dest: None,
@@ -360,6 +370,7 @@ pub fn send_nearby_npcs(ctx: &WorldCtx, st: &mut WorldState, sid: u32, pos: Vec3
         }
     }
     sync_monsters(ctx, st, sid, pos);
+    loot::sync_ground(ctx, st, sid, pos);
     sent
 }
 

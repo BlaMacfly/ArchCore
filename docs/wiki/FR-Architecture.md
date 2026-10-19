@@ -32,6 +32,7 @@ crates/archcore/           serveur et outils
     monsters.rs            créatures (monster_spawn) : placement, caractéristiques, cycle de vie, paquet de vue
     combat.rs              attaque des monstres : approche, coups, mort, expérience, réapparition ; mort et résurrection du joueur
     ai.rs                  IA des monstres : agresseurs, riposte, poursuite, retour au point
+    loot.rs                butin : tirage (or, groupes, objets propres), objets au sol, ramassage
     map.rs                 carte serveur (map_segment) : sol infranchissable, régions
     items.rs               catalogue d'objets, inventaire, paquets AGPMITEM
     chat.rs, gm.rs         discussion et commandes MJ

@@ -35,6 +35,9 @@ Filled by `archcore import` from the client tables.
 | `client_table` | other `.txt` tables | Rows as JSON, for tables not modelled yet |
 | `monster_spawn` | original server tables (`spawndatatable.txt` + `spawninstancetable.txt`) | 12,802 spawn points, 36,960 creatures: template, level, count, respawn, position, radius, public name (`CharacterTemplatePublic.ini`) |
 | `map_segment` | original server `world/node_data` | 45,312 sectors: blocked ground and region per 400-unit segment |
+| `monster_drop` | original server `itemdroptable.txt` | 4,653 items of 550 monsters: count, rate out of 100,000 |
+| `drop_group` | original server `groupdroprate.txt` | 28 drop groups; each group's items come from `item_data` (GroupID, DropRank, DropRate) |
+| `drop_rank_rate` | original server `droprankrate.txt` | Item ranks (percent) by the monster's drop rank |
 
 ## Add an account
 

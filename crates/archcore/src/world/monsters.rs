@@ -62,6 +62,12 @@ pub struct MonsterStats {
     pub hit_range: i32,
     /// Type de personnage (bits `char_type`).
     pub char_type: i64,
+    /// Or laissé à la mort (« Geld_Min », « Geld_Max »).
+    pub geld_min: i32,
+    pub geld_max: i32,
+    /// Rang de butin (« DropRank ») et multiplicateur des groupes sensibles (« DropMeditation »).
+    pub drop_rank: i32,
+    pub drop_meditation: f64,
 }
 
 impl MonsterStats {
@@ -91,6 +97,13 @@ impl MonsterStats {
             ac: n("AC"),
             hit_range: DEFAULT_HIT_RANGE,
             char_type: n("Type") as i64,
+            geld_min: n("Geld_Min"),
+            geld_max: n("Geld_Max"),
+            drop_rank: n("DropRank"),
+            drop_meditation: match v.get("DropMeditation") {
+                Some(serde_json::Value::String(t)) => t.trim().parse().unwrap_or(1.0),
+                _ => 1.0,
+            },
         }
     }
 

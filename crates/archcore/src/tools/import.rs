@@ -1,7 +1,8 @@
 //! `archcore import [dossier] [--server dossier]` : importe les tables déchiffrées du client
 //! (`data/client-ini`) dans `archcore_world`. Les fichiers sont en CP949 (coréen) ; ils sont convertis en
-//! UTF-8. Avec `--server` (par défaut `data/server-ini` s'il existe), importe aussi les apparitions de
-//! monstres depuis les tables du serveur d'origine (`spawndatatable.txt`, `spawninstancetable.txt`).
+//! UTF-8. Avec `--server` (par défaut `data/server-ini` s'il existe), importe aussi, depuis les tables du
+//! serveur d'origine, les apparitions de monstres (`spawndatatable.txt`, `spawninstancetable.txt`), la carte
+//! (`world/node_data`) et le butin (`itemdroptable.txt`, `groupdroprate.txt`, `droprankrate.txt`).
 
 use crate::db::Databases;
 use mysql_async::Value;
@@ -141,6 +142,7 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         Some(d) => {
             import_spawns(&db, &src, &Source(d.clone())).await?;
             import_map(&db, &d).await?;
+            import_loot(&db, &Source(d.clone())).await?;
         }
         None => println!("· monster_spawn : pas de tables du serveur (data/server-ini ou --server), ignoré"),
     }
@@ -251,6 +253,65 @@ async fn import_map(db: &Databases, server_dir: &std::path::Path) -> anyhow::Res
     let out: Vec<Vec<Value>> = parse_node_data(&bytes).into_iter().map(|(x, z, segs)| vec![v(x), v(z), v(segs)]).collect();
     let n = replace(db, "map_segment", "INSERT INTO map_segment (sector_x,sector_z,segments) VALUES (?,?,?)", out).await?;
     println!("✓ map_segment : {n} secteur(s)");
+    Ok(())
+}
+
+/// Lignes de butin propre à un monstre : (monstre, objet, min, max, taux sur 100 000).
+pub fn parse_monster_drops(text: &str) -> Vec<(u32, u32, i64, i64, i64)> {
+    let (h, rows) = parse_tsv(text);
+    let c = ["MonsterTID", "ItemTID", "Min", "Max", "Rate"].map(|n| h.iter().position(|x| x == n));
+    let cell = |r: &[String], i: Option<usize>| js_number(i.and_then(|i| r.get(i)).map(String::as_str).unwrap_or(""), 0.0) as i64;
+    rows.iter()
+        .filter_map(|r| {
+            let (monster, item) = (cell(r, c[0]), cell(r, c[1]));
+            let min = cell(r, c[2]).max(1);
+            (monster > 0 && item > 0).then(|| (monster as u32, item as u32, min, cell(r, c[3]).max(min), cell(r, c[4]).clamp(0, 100_000)))
+        })
+        .collect()
+}
+
+async fn import_loot(db: &Databases, server: &Source) -> anyhow::Result<()> {
+    if server.exists("itemdroptable.txt") {
+        let rows = parse_monster_drops(&server.read("itemdroptable.txt")?);
+        let out: Vec<Vec<Value>> = rows.iter().enumerate().map(|(i, r)| vec![v(i as u32 + 1), v(r.0), v(r.1), v(r.2), v(r.3), v(r.4)]).collect();
+        let n = replace(db, "monster_drop", "INSERT INTO monster_drop (id,monster_tid,item_tid,min_count,max_count,rate) VALUES (?,?,?,?,?,?)", out).await?;
+        println!("✓ monster_drop : {n}");
+    }
+    if server.exists("groupdroprate.txt") {
+        let (h, rows) = parse_tsv(&server.read("groupdroprate.txt")?);
+        let col = |n: &str| h.iter().position(|x| x == n);
+        let bonus_cols: Vec<Option<usize>> = (1..=10).map(|k| col(&format!("LevelBonus{}", k * 10))).collect();
+        let cell = |r: &[String], i: Option<usize>| i.and_then(|i| r.get(i)).map(|x| x.trim().to_string()).unwrap_or_default();
+        let out: Vec<Vec<Value>> = rows
+            .iter()
+            .filter(|r| js_number(&cell(r, col("GroupID")), 0.0) > 0.0)
+            .map(|r| {
+                let bonus: Vec<i64> = bonus_cols.iter().map(|c| js_number(&cell(r, *c), 0.0) as i64).collect();
+                vec![
+                    v(js_number(&cell(r, col("GroupID")), 0.0) as u32),
+                    v(cell(r, col("GroupName"))),
+                    v(js_number(&cell(r, col("IsAffectedByDropMed")), 0.0) as i64),
+                    v(js_number(&cell(r, col("DropRate")), 0.0) as i64),
+                    v(serde_json::to_string(&bonus).unwrap()),
+                ]
+            })
+            .collect();
+        let n = replace(db, "drop_group", "INSERT INTO drop_group (group_id,name,meditation,rate,level_bonus) VALUES (?,?,?,?,?)", out).await?;
+        println!("✓ drop_group : {n}");
+    }
+    if server.exists("droprankrate.txt") {
+        let (_, rows) = parse_tsv(&server.read("droprankrate.txt")?);
+        let out: Vec<Vec<Value>> = rows
+            .iter()
+            .filter(|r| r.first().is_some_and(|x| js_number(x, 0.0) > 0.0))
+            .map(|r| {
+                let rates: Vec<i64> = (1..=10).map(|i| js_number(r.get(i).map(String::as_str).unwrap_or(""), 0.0) as i64).collect();
+                vec![v(js_number(&r[0], 0.0) as u32), v(serde_json::to_string(&rates).unwrap())]
+            })
+            .collect();
+        let n = replace(db, "drop_rank_rate", "INSERT INTO drop_rank_rate (monster_rank,rates) VALUES (?,?)", out).await?;
+        println!("✓ drop_rank_rate : {n}");
+    }
     Ok(())
 }
 
@@ -525,6 +586,15 @@ mod tests {
         let s = parse_node_data(&bytes);
         assert_eq!(s.len(), 1, "secteur hors du monde écarté");
         assert_eq!((s[0].0, s[0].1, s[0].2.len()), (325, 389, 1024));
+    }
+
+    #[test]
+    fn butin_propre_aux_monstres() {
+        let t = "MonsterName\tMonsterTID\tItemCount\tItemName\tItemTID\tMin\tMax\tRate\r\n\
+                 Taravan\t15\t2\t\t5018\t1\t3\t10\r\n\
+                 Taravan\t15\t2\t\t1856\t0\t0\t500\r\n\
+                 Vide\t0\t1\t\t99\t1\t1\t5\r\n";
+        assert_eq!(parse_monster_drops(t), vec![(15, 5018, 1, 3, 10), (15, 1856, 1, 1, 500)]);
     }
 
     #[test]

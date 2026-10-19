@@ -7,7 +7,7 @@
 //!   archcore sim shop [compte] [mdp] [perso]                  boutique de Darryl : liste, achat, revente
 //!   archcore sim addon [A… B… C…]                             extensions ArchRust : messages d'AddOn (A, B : ArchRust ; C : client d'origine, MJ)
 //!   archcore sim combat [compte] [mdp] [perso] [monstre]      Vers verts au nord d'Anchorville : riposte, poursuite, mort et résurrection,
-//!                                                             puis (invincible) victoire, expérience, réapparition ; compte MJ requis
+//!                                                             puis (invincible) victoire, expérience, butin ramassé, réapparition ; compte MJ requis
 //! ```
 //! À lancer contre un serveur de test (`ARCHCORE_CONFIG`) : les personnages sont créés au besoin,
 //! déplacés, et `sim shop` leur donne 1000 pièces d'or.
@@ -697,6 +697,31 @@ async fn combat(user: &str, pass: &str, char_name: &str, prey: &str) -> anyhow::
         .await?;
     println!("  ✓ {}", gain.fields().text(6).unwrap_or_default());
 
+    step("butin");
+    let it = &schema::ITEM;
+    let mut ground = Vec::new();
+    while let Ok(p) = w.world.expect_where(|q| q.is(it, Some(0)) && q.int(1) == Some(1) && q.int(4) == Some(me), 1500, "butin au sol").await {
+        ground.push((p.int(2).unwrap_or(0), p.int(3).unwrap_or(0), p.int(5).unwrap_or(0)));
+    }
+    anyhow::ensure!(ground.iter().any(|g| g.1 == crate::world::loot::GOLD_TID as i64), "pas d'or au sol : {ground:?}");
+    println!("  ✓ {} objet(s) au sol : {}", ground.len(), ground.iter().map(|g| format!("TID {} × {}", g.1, g.2)).collect::<Vec<_>>().join(", "));
+    // Ordre du serveur : objet rangé (AGPMITEM statut 2) puis résultat (op 12) ; pour l'or, résultat puis somme.
+    for (iid, tid, count) in &ground {
+        w.world.send(it, Fields::new(it).with(0, 11).with(2, *iid)).await?;
+        let gold = *tid == crate::world::loot::GOLD_TID as i64;
+        if !gold {
+            w.world.expect_where(|q| q.is(it, None) && q.int(3) == Some(*tid) && q.int(1) == Some(2), 3000, "objet rangé").await?;
+        }
+        let r = w.world.expect_where(|q| q.is(it, Some(12)) && q.int(2) == Some(*iid), 3000, "résultat du ramassage").await?;
+        anyhow::ensure!(r.int(1) == Some(0), "ramassage de {iid:#x} refusé");
+        if gold {
+            let m = w.world.expect_where(|q| q.is(c, Some(1)) && q.int(1) == Some(me) && q.int(8).is_some(), 3000, "or crédité").await?;
+            println!("  ✓ {count} pièce(s) d'or ramassée(s) : {} au total", o(m.int(8)));
+        } else {
+            println!("  ✓ objet TID {tid} × {count} rangé dans l'inventaire");
+        }
+    }
+
     step("cadavre et réapparition");
     w.world.expect_where(|q| q.is(c, Some(2)) && q.int(1) == Some(tcid), 30_000, "retrait du cadavre").await?;
     println!("  ✓ cadavre retiré");
@@ -710,7 +735,8 @@ async fn combat(user: &str, pass: &str, char_name: &str, prey: &str) -> anyhow::
         .await?;
     let view = decode_mini(&mini::OPT_VIEW_CHAR, back.fields().bytes(1).unwrap_or_default())?;
     let full = view.bytes(5).and_then(factors_hp).unwrap_or(0);
-    anyhow::ensure!(full == target.hp, "réapparu avec {full} PV au lieu de {}", target.hp);
+    // La cible a pu être entamée avant ce combat : elle revient au moins avec les PV vus au départ.
+    anyhow::ensure!(full >= target.hp && full > 0, "réapparu avec {full} PV (vus au départ : {})", target.hp);
     println!("  ✓ {} réapparaît avec {full} PV", target.name);
 
     // Remise en état : plus d'invincibilité, retour au village.

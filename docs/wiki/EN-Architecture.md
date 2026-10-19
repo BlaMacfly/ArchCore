@@ -32,6 +32,7 @@ crates/archcore/           server and tools
     monsters.rs            creatures (monster_spawn): placement, stats, life cycle, view packet
     combat.rs              attacking monsters: approach, hits, death, experience, respawn; player death and resurrection
     ai.rs                  monster AI: attackers, retaliation, pursuit, going home
+    loot.rs                drops: rolls (gold, groups, own items), ground items, pick-up
     map.rs                 server map (map_segment): blocked ground, regions
     items.rs               item catalog, inventory, AGPMITEM packets
     chat.rs, gm.rs         chat and GM commands

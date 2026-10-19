@@ -236,6 +236,7 @@ pub async fn step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) -> anyhow::
     }
     ai::step(ctx, st, now);
     life_step(ctx, st, now);
+    super::loot::expire(st, now);
     Ok(())
 }
 
@@ -335,7 +336,9 @@ async fn kill(ctx: &WorldCtx, st: &mut WorldState, killer_sid: u32, cid: u32, no
     let Some(p) = st.players.get_mut(&killer_sid) else { return Ok(()) };
     p.attack = None;
     info!("[combat] {} tue {name} ({cid:#x}) : +{gain} d'expérience", p.ch.name);
-    reward(ctx, st, killer_sid, gain).await
+    reward(ctx, st, killer_sid, gain).await?;
+    super::loot::on_kill(ctx, st, killer_sid, cid, now);
+    Ok(())
 }
 
 /// Expérience gagnée : facteurs mis à jour, montée de niveau éventuelle, sauvegarde.

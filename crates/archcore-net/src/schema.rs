@@ -437,6 +437,9 @@ pub mod mini {
     /// Case dans une grille (inventaire, boutique, banque) — drapeaux 1.
     pub static ITEM_GRID: Schema = Schema { name: "AGPMITEM_GRID", id: 123, flag_len: 1, fields: &rep::<3>(I16) };
 
+    /// Position d'un objet au sol (AGPMITEM champ 6), drapeaux 1 : un VEC3F (relevé dans le client x64).
+    pub static ITEM_FIELD: Schema = Schema { name: "AGPMITEM_FIELD", id: 140, flag_len: 1, fields: &[f(Vec3)] };
+
     /// Détail d'un objet de boutique (AgcmEventNPCTrade) — drapeaux 2 : TID, prix, quantité, statut,
     /// sac, ligne, colonne, puis trois entiers.
     pub static NPC_TRADE_DETAIL: Schema = Schema {
