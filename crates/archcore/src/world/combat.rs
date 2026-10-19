@@ -365,7 +365,9 @@ pub(super) async fn reward(ctx: &WorldCtx, st: &mut WorldState, sid: u32, gain: 
     p.factors.point[3] = (exp % (1u64 << 32)) as u32 as i32;
     p.factors.point[4] = (exp >> 32) as i32;
     if ups > 0 {
-        // Montée de niveau : PV et PM restaurés, nouveaux points de compétence.
+        // Montée de niveau : facteurs du nouveau niveau (croissance, équipement, effets), PV et PM restaurés,
+        // nouveaux points de compétence.
+        super::equipment::recompute_factors(ctx, p);
         p.factors.point[POINT_HP] = p.factors.point_max[0];
         p.factors.point[1] = p.factors.point_max[1];
         super::skills::refresh_points(&ctx.skills, &p.skills, &mut p.factors);
@@ -386,7 +388,8 @@ pub(super) async fn reward(ctx: &WorldCtx, st: &mut WorldState, sid: u32, gain: 
     Ok(())
 }
 
-/// Niveau fixé par un MJ : expérience remise à zéro, PV et PM restaurés, points de compétence recalculés.
+/// Niveau fixé par un MJ : expérience remise à zéro, facteurs du niveau (croissance, équipement, effets),
+/// PV et PM restaurés, points de compétence recalculés.
 pub async fn set_level(ctx: &WorldCtx, st: &mut WorldState, sid: u32, level: i32) -> anyhow::Result<()> {
     let Some(p) = st.players.get_mut(&sid) else { return Ok(()) };
     let level = level.clamp(1, MAX_LEVEL);
@@ -395,6 +398,7 @@ pub async fn set_level(ctx: &WorldCtx, st: &mut WorldState, sid: u32, level: i32
     p.factors.status[7] = level;
     p.factors.point[3] = 0;
     p.factors.point[4] = 0;
+    super::equipment::recompute_factors(ctx, p);
     p.factors.point[POINT_HP] = p.factors.point_max[0];
     p.factors.point[1] = p.factors.point_max[1];
     super::skills::refresh_points(&ctx.skills, &p.skills, &mut p.factors);

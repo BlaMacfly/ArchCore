@@ -338,6 +338,8 @@ impl LoginConn {
         info!("[login] #{} {name} apparaîtra à {} (race {})", s.id(), start.village.as_deref().unwrap_or("?"), tpl.race);
         let account_id = self.account.as_ref().unwrap().0;
         let level = if tpl.level != 0 { tpl.level } else { 1 };
+        // Points pleins au niveau de départ (croissance du modèle).
+        let (hp, mp, sp) = tpl.max_points(level);
         let new_id = self
             .svc
             .db
@@ -350,9 +352,9 @@ impl LoginConn {
                     name.clone().into(),
                     tid.into(),
                     level.into(),
-                    tpl.hp.into(),
-                    tpl.mp.into(),
-                    tpl.sp.into(),
+                    hp.into(),
+                    mp.into(),
+                    sp.into(),
                     start.x.into(),
                     start.y.into(),
                     start.z.into(),

@@ -21,7 +21,8 @@
   avec leurs caractéristiques (niveau, vitesses, PV). Vus et ciblés en jeu lors d'un premier essai ;
   l'envoi des PV, ajouté depuis, reste à vérifier.
 - Combat au corps à corps contre les monstres : approche, coups (chance de toucher, dégâts selon la
-  classe), mort, expérience et montée de niveau, cadavre puis réapparition. Les monstres frappés
+  classe), mort, expérience et montée de niveau (caractéristiques, PV et PM selon GrowUpFactor), cadavre
+  puis réapparition. Les monstres frappés
   ripostent et poursuivent leur agresseur ; mort du joueur et résurrection au village. Butin : or et
   objets au sol, ramassage. Équipement : armes et armures portées (restrictions, deux mains), comptées
   dans les dégâts et la défense, visibles des autres joueurs ; déplacement dans l'inventaire. Potions
@@ -49,7 +50,6 @@
 2. Vérifier la visibilité entre joueurs avec deux vrais clients.
 3. Fonctions des PNJ : téléportation ; agrandissement de la banque ; quêtes à objets d'interaction.
 4. Compétences : états spéciaux (étourdissement…), renvois de dégâts, critiques, groupes ; maîtrises.
-   Croissance des PV et PM avec le niveau (GrowUpFactor).
 5. Combat : dégâts élémentaires des objets. Objets : raffinage, conversion.
 6. Discussion, groupes, guildes.
 7. Reconnexion automatique (type 0x63).

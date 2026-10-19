@@ -71,7 +71,7 @@ The character, a GM account (`gmtest` / `GmTest` by default), goes hunting the r
 
 It then sets `/invincible 0` and brings the character back to the village. Allow about 2 min: a
 level 1 warrior without a weapon hits a Green Worm (136 HP) for 2 to 3 HP per hit, and the worm kills
-it in about fifteen seconds.
+it (120 HP) in about twenty seconds.
 
 ## Equipment test
 
@@ -158,10 +158,10 @@ ARCHCORE_CONF_DIR=config/test archcore sim effects [user] [pass] [character]
 ```
 
 The GM account, with a separate character (`GmEffets`, created if needed, so as not to strengthen the one
-used by the other tests), is raised to level 25 and learns Speed Attack, Defense Hold, Linear Blow and Blade Sting from
-Black (if needed). It checks the passive (defense +20), the buff (effect announced on itself, attack speed
+used by the other tests), is raised to level 25 (at least 456 HP and 108 MP, from GrowUpFactor) and learns Speed Attack,
+Defense Hold, Linear Blow and Blade Sting from Black (if needed). It checks the passive (defense +20), the buff (effect announced on itself, attack speed
 +18 %), Linear Blow's area (target and neighbours hit) and Blade Sting's debuff (set on the Green Worm,
-removed after 6 s). As a warrior's MP do not grow with level yet, `/level` refills them between casts.
+removed after 6 s). `/level` refills MP between casts.
 
 ## ArchRust extensions test
 

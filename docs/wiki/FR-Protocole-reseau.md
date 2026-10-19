@@ -214,6 +214,18 @@ est signalée par AGPMCHARACTER **op 5**. Seuls les modèles dont le type porte 
 (0x10000) et « ciblable » (0x20000) peuvent être visés : les créatures d'ambiance (type 8 : coqs,
 poules…) ne le sont pas.
 
+**Croissance par niveau.** Les facteurs d'un joueur suivent son niveau d'après `GrowUpFactor.txt` (table
+`growup_factor`) : un bloc par modèle (ligne d'en-tête = TID, puis une ligne par niveau, de 1 à 121), en
+valeurs absolues. La ligne du niveau remplace les caractéristiques (FOR, DEX, CON, SAG, INT), les PV, PM
+et PE maximum et la défense physique (`AC`) du modèle ; charisme, précision, esquive et dégâts ne le
+remplacent que s'ils ne sont pas nuls (ils le sont partout dans le fichier), et les résistances ne sont
+pas lues. Au-delà du dernier niveau, la dernière ligne vaut ; un modèle sans bloc prend celui d'un modèle
+jouable de même race et de même classe. À la création, le personnage reçoit les PV, PM et PE de son
+niveau. À chaque montée de niveau et à `/level`, les facteurs sont recalculés (croissance, équipement,
+effets des compétences), PV et PM remis au maximum, puis envoyés (op 1, champ 7). Un guerrier humain
+passe ainsi de 120 PV et 32 PM au niveau 1 à 456 PV et 108 PM au niveau 25 (le modèle seul donnait 90 et
+46 à tout niveau).
+
 **Riposte des monstres.** Un monstre frappé retient son agresseur (dégâts cumulés, oublié 30 s après son
 dernier coup) et vise, toutes les 500 ms, celui qui lui a fait le plus de dégâts parmi les joueurs
 vivants à moins de 5000 unités. Il le rejoint par AGPMOPTIMIZEDCHARMOVE (champ 0 = CID du monstre),

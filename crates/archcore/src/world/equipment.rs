@@ -107,6 +107,13 @@ pub fn with_equipment(mut f: Factors, worn: &[EquipData]) -> Factors {
 /// et les lui envoie.
 pub fn refresh_factors(ctx: &WorldCtx, st: &mut WorldState, sid: u32) {
     let Some(p) = st.players.get_mut(&sid) else { return };
+    recompute_factors(ctx, p);
+    let c = &schema::CHARACTER;
+    p.send(c, Fields::new(c).with(0, 1).with(1, p.ch.id).with(7, factors_mini(&p.factors)));
+}
+
+/// Comme `refresh_factors`, sans rien envoyer : modèle et croissance au niveau de `p.ch`, équipement, effets.
+pub fn recompute_factors(ctx: &WorldCtx, p: &mut Player) {
     let Some(tpl) = ctx.templates.get(p.ch.template_id) else { return };
     let old = p.factors.clone();
     let mut f = with_equipment(make_factors(tpl, Some(&p.ch)), &worn(&p.inventory, &ctx.catalog));
@@ -117,8 +124,6 @@ pub fn refresh_factors(ctx: &WorldCtx, st: &mut WorldState, sid: u32) {
     f.point[POINT_HP] = f.point[POINT_HP].min(f.point_max[0]);
     f.point[1] = f.point[1].min(f.point_max[1]);
     p.factors = f;
-    let c = &schema::CHARACTER;
-    p.send(c, Fields::new(c).with(0, 1).with(1, p.ch.id).with(7, factors_mini(&p.factors)));
 }
 
 /// Envoie \`plain\` aux joueurs qui voient \`sid\` (pas à lui).

@@ -1400,6 +1400,19 @@ fn factors_attack_speed(bytes: &[u8]) -> Option<i64> {
     decode_mini(&mini::FACTOR_ATTACK, f.bytes(9)?).ok()?.int(2)
 }
 
+/// PV et PM max d'un mini-paquet de facteurs complet (sous-paquet 4).
+fn factors_max_points(bytes: &[u8]) -> Option<(i64, i64)> {
+    let f = decode_mini(&mini::CHAR_FACTORS, bytes).ok()?;
+    let max = decode_mini(&mini::FACTOR_POINTMAX, f.bytes(4)?).ok()?;
+    Some((max.int(0)?, max.int(1)?))
+}
+
+/// Niveau d'un mini-paquet de facteurs complet (sous-paquet 1, valeur 7).
+fn factors_level(bytes: &[u8]) -> Option<i64> {
+    let f = decode_mini(&mini::CHAR_FACTORS, bytes).ok()?;
+    decode_mini(&mini::FACTOR_STATUS, f.bytes(1)?).ok()?.int(7)
+}
+
 /// Effets des compétences d'un guerrier humain : passive, renforcement, zone, affaiblissement.
 async fn skill_effects(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
     const TRAINER: Vec3 = Vec3 { x: -480_700.0, y: 5_070.0, z: -62_100.0 };
@@ -1421,11 +1434,15 @@ async fn skill_effects(user: &str, pass: &str, char_name: &str) -> anyhow::Resul
     step("niveau 25, argent");
     let level = w.level.max(1);
     w.world.send(ch, say(w.cid, "/level 25")).await?;
-    let f = w.world.expect_where(mine, 3000, "facteurs au niveau 25").await?;
+    let at_25 = |q: &Recv| mine(q) && q.fields().bytes(7).and_then(factors_level) == Some(25);
+    let f = w.world.expect_where(at_25, 3000, "facteurs au niveau 25").await?;
     let bytes = f.fields().bytes(7).unwrap_or_default().to_vec();
     let defense0 = factors_combat(&bytes).map(|x| x.1).unwrap_or(0);
     let speed0 = factors_attack_speed(&bytes).unwrap_or(0);
-    println!("  défense {defense0}, vitesse d'attaque {speed0}");
+    let (hp_max, mp_max) = factors_max_points(&bytes).unwrap_or((0, 0));
+    // Guerrier humain au niveau 25 (GrowUpFactor) : 456 PV et 108 PM, plus l'équipement éventuel.
+    anyhow::ensure!(hp_max >= 456 && mp_max >= 108, "PV/PM max {hp_max}/{mp_max} au niveau 25 (attendu au moins 456/108)");
+    println!("  PV/PM max {hp_max}/{mp_max}, défense {defense0}, vitesse d'attaque {speed0}");
     w.world.send(ch, say(w.cid, "/money 100000")).await?;
     w.world.expect_where(|q| q.is(c, Some(1)) && q.int(8) == Some(100_000), 3000, "argent").await?;
 
@@ -1497,7 +1514,7 @@ async fn skill_effects(user: &str, pass: &str, char_name: &str) -> anyhow::Resul
     // Le ver qui a le plus de voisins à moins de 1000 unités.
     let neighbours = |p: Vec3| worms.iter().filter(|(_, q)| (((q.x - p.x) as f64).powi(2) + ((q.z - p.z) as f64).powi(2)).sqrt() <= 1000.0).count();
     let (center, _) = *worms.iter().max_by_key(|(_, p)| neighbours(*p)).unwrap();
-    // Les PM ne croissent pas encore avec le niveau (46 pour un guerrier) : /level les rend.
+    // /level rend les PM dépensés par les lancements précédents.
     w.world.send(ch, say(w.cid, "/level 25")).await?;
     w.world.expect_where(system, 3000, "PM rendus").await?;
     w.world.send(k, cast(ids[&LINEAR_BLOW], center)).await?;

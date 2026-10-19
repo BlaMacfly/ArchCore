@@ -21,7 +21,7 @@
   (level, speeds, HP). Seen and targeted in game during a first test; sending their HP, added since,
   remains to be checked.
 - Melee combat against monsters: approach, hits (hit chance, class-based damage), death, experience and
-  level up, corpse then respawn. Monsters that are hit fight back and chase their attacker; player death
+  level up (stats, HP and MP from GrowUpFactor), corpse then respawn. Monsters that are hit fight back and chase their attacker; player death
   and resurrection in town. Drops: gold and items on the ground, pick-up.
   Equipment: weapons and armour worn (restrictions, two hands), counted in damage and defense, visible
   to other players; moving items in the inventory. Life and mana potions, out-of-combat HP and MP
@@ -46,7 +46,6 @@
 2. Verify player visibility with two real clients.
 3. NPC functions: teleport; bank expansion; quests with interaction objects.
 4. Skills: special states (stun…), damage reflection, criticals, parties; masteries.
-   HP and MP growth with level (GrowUpFactor).
 5. Combat: elemental item damage. Items: refining, conversion.
 6. Chat, parties, guilds.
 7. Automatic reconnection (type 0x63).

@@ -211,6 +211,17 @@ system message; experience is counted per level (`LevelUpExp.txt`), and a level 
 AGPMCHARACTER **op 5**. Only templates whose type has the "attackable" (0x10000) and "targetable"
 (0x20000) bits can be targeted: ambient creatures (type 8: roosters, hens…) cannot.
 
+**Growth with level.** A player's factors follow their level according to `GrowUpFactor.txt` (table
+`growup_factor`): one block per template (header line = TID, then one line per level, 1 to 121), as
+absolute values. The level's line replaces the template's stats (STR, DEX, CON, WIS, INT), maximum HP,
+MP and SP, and physical defense (`AC`); charisma, accuracy, evasion and damage replace it only when they
+are not zero (they are zero throughout the file), and resistances are not read. Beyond the last level,
+the last line applies; a template without a block uses the block of a playable template of the same race
+and class. A new character gets the HP, MP and SP of its level. On every level up and on `/level`, the
+factors are recomputed (growth, equipment, skill effects), HP and MP are refilled, then sent (op 1,
+field 7). A human warrior thus goes from 120 HP and 32 MP at level 1 to 456 HP and 108 MP at level 25
+(the template alone gave 90 and 46 at any level).
+
 **Monster retaliation.** A monster that is hit remembers its attacker (cumulative damage, forgotten 30 s
 after the last hit) and, every 500 ms, targets whoever dealt it the most damage among living players
 within 5000 units. It walks to them with AGPMOPTIMIZEDCHARMOVE (field 0 = the monster's CID), then hits

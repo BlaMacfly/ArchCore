@@ -72,8 +72,8 @@ Le personnage, un compte MJ (`gmtest` / `GmTest` par défaut), part chasser au n
    tout ; le cadavre disparaît puis le monstre réapparaît.
 
 Il remet ensuite `/invincible 0` et ramène le personnage au village. Compter environ 2 min : un
-guerrier de niveau 1 sans arme frappe un Ver vert (136 PV) 2 à 3 PV par coup, et le ver le tue en
-une quinzaine de secondes.
+guerrier de niveau 1 sans arme frappe un Ver vert (136 PV) 2 à 3 PV par coup, et le ver le tue (120 PV)
+en une vingtaine de secondes.
 
 ## Test d'équipement
 
@@ -161,11 +161,10 @@ ARCHCORE_CONF_DIR=config/test archcore sim effects [compte] [mdp] [personnage]
 ```
 
 Le compte MJ, avec un personnage à part (`GmEffets`, créé au besoin, pour ne pas renforcer celui des
-autres tests), passe au niveau 25 et apprend chez Black Speed Attack, Defense Hold, Linear Blow et Blade
-Sting (si besoin). Il vérifie la passive (défense +20), le renforcement (effet annoncé sur lui, vitesse
+autres tests), passe au niveau 25 (au moins 456 PV et 108 PM, d'après GrowUpFactor) et apprend chez
+Black Speed Attack, Defense Hold, Linear Blow et Blade Sting (si besoin). Il vérifie la passive (défense +20), le renforcement (effet annoncé sur lui, vitesse
 d'attaque +18 %), la zone de Linear Blow (cible et voisins touchés) et l'affaiblissement de Blade Sting
-(posé sur le Ver vert, retiré au bout de 6 s). Les PM d'un guerrier ne croissant pas encore avec le
-niveau, `/level` les rend entre deux lancements.
+(posé sur le Ver vert, retiré au bout de 6 s). `/level` rend les PM entre deux lancements.
 
 ## Test des extensions ArchRust
 
