@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/archrust-logo.png" alt="ArchRust" width="320">
+  <img src="docs/assets/archrust-logo.png" alt="Logo officiel d’ArchRust" width="320">
 </p>
 
 <h1 align="center">ArchRust</h1>
@@ -72,7 +72,7 @@ cargo run --release -- patch build patches/mon-patch mon-patch.ahp
 
 ### Installation à côté du client et `realmlist.wtf`
 
-`ArchRust.exe` (avec l'icône d'Archonia si `apps/archrust/res/archrust.ico` est présent en local : extraite du client, elle n'est pas publiée) peut être posé dans le dossier `Game` du client, à la place d'`Archonia.exe`, avec
+`ArchRust.exe` (icône : le logo officiel d'ArchRust, `apps/archrust/res/archrust.ico`) peut être posé dans le dossier `Game` du client, à la place d'`Archonia.exe`, avec
 `addons/`, `free-assets/` et `patches/` : il y reconnaît le client sans option, et un double-clic
 lance le jeu (`play` est la commande par défaut).
 

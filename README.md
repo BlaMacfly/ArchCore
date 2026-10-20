@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/ArchRust.png" alt="Illustration du client ArchRust" width="340">
+  <img src="docs/assets/ArchRust.png" alt="Logo officiel d’ArchRust" width="340">
 </p>
 
 <h1 align="center">ArchLord Client Rust</h1>

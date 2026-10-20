@@ -315,16 +315,13 @@ impl App {
         let mut attrs = Window::default_attributes()
             .with_title(&self.config.title)
             .with_inner_size(winit::dpi::LogicalSize::new(1280.0, 720.0));
-        // Icône de fenêtre : le logo du projet s'il est présent à côté de l'exécutable ou du dépôt.
-        for candidate in ["docs/assets/archrust-logo.png", "archrust-logo.png"] {
-            if let Ok(img) = image::open(candidate) {
-                let img = img
-                    .resize_exact(64, 64, image::imageops::FilterType::Lanczos3)
-                    .to_rgba8();
-                if let Ok(icon) = winit::window::Icon::from_rgba(img.into_raw(), 64, 64) {
-                    attrs = attrs.with_window_icon(Some(icon));
-                    break;
-                }
+        // Icône de fenêtre : le logo officiel d'ArchRust (64×64), intégré à l'exécutable.
+        const WINDOW_ICON_PNG: &[u8] = include_bytes!("../assets/window-icon.png");
+        if let Ok(img) = image::load_from_memory(WINDOW_ICON_PNG) {
+            let img = img.to_rgba8();
+            let (w, h) = img.dimensions();
+            if let Ok(icon) = winit::window::Icon::from_rgba(img.into_raw(), w, h) {
+                attrs = attrs.with_window_icon(Some(icon));
             }
         }
         let window = Arc::new(event_loop.create_window(attrs)?);

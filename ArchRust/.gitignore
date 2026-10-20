@@ -18,5 +18,3 @@
 /patches/interface-hd/
 # Variables sauvegardées locales des AddOns.
 /saved-variables/
-# Icône extraite d'Archonia.exe (donnée du client) : locale, jamais publiée.
-/apps/archrust/res/archrust.ico

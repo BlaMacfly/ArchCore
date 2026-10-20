@@ -1,8 +1,7 @@
 //! Ressources Windows de `ArchRust.exe` : icône et informations de version.
 //!
-//! L'icône `res/archrust.ico` est celle d'Archonia.exe (groupe 135, PNG 256×256) : c'est une donnée
-//! du client, gardée en local et jamais publiée (voir `.gitignore`). Sans elle, l'exécutable est
-//! construit sans icône.
+//! L'icône `res/archrust.ico` est le logo officiel d'ArchRust (7 tailles, de 16 à 256 px, générées
+//! depuis `docs/assets/archrust-logo.png`). Sans elle, l'exécutable est construit sans icône.
 
 fn main() {
     println!("cargo:rerun-if-changed=res/archrust.ico");
