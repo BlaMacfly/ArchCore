@@ -214,6 +214,8 @@ Without a client, anything missing is replaced by a generated placeholder (color
 box, empty table) and the login window works as usual. Free (CC0) asset sources and the mapping
 from client resource names to free files are listed in [docs/ASSETS-LIBRES.md](docs/ASSETS-LIBRES.md)
 (in French).
+Everything the repository does not ship (client, reference exports, HD interface, sounds, `.ahp` patches):
+where to get it, where to put it and how to check it, in [docs/ASSETS-NON-FOURNIS.en.md](docs/ASSETS-NON-FOURNIS.en.md).
 
 ## Disclaimer
 

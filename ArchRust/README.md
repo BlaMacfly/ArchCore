@@ -219,6 +219,8 @@ cargo run --release -- play --no-client            # patchs et substituts seulem
 Sans client, tout ce qui manque est remplacé par un substitut généré (damier coloré, boîte, table
 vide) et la fenêtre de connexion fonctionne normalement. Les sources de packs libres (CC0) et la
 correspondance nom du client → fichier libre sont dans [docs/ASSETS-LIBRES.md](docs/ASSETS-LIBRES.md).
+Tout ce que le dépôt ne fournit pas (client, exports de référence, interface HD, sons, patchs `.ahp`) :
+où le trouver, où le poser et comment le vérifier, dans [docs/ASSETS-NON-FOURNIS.md](docs/ASSETS-NON-FOURNIS.md).
 
 ## Avertissement
 
