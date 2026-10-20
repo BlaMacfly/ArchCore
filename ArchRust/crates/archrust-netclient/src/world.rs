@@ -12,6 +12,7 @@
 //! ```
 
 use crate::connection::{Connection, Incoming, NetError};
+use crate::ext::{self, ExtMessage, Extensions};
 use crate::login::WorldTicket;
 use archrust_protocol::packet::{build_mini, decode_mini, sparse, Value};
 use archrust_protocol::schema::{char_mgr_op, character_op, main, mini, packet_type, view_op};
@@ -33,6 +34,12 @@ pub struct SeenCharacter {
     /// (`FUN_140260d40`) passe les champs 12/13 comme angles X/Y du mini-paquet `CHAR_MOVE`.
     pub turn_y: Option<f32>,
     pub equipment: Vec<EquipmentView>,
+    /// Statut d'action (champ 3 : 2 = mort, cadavre en vue).
+    pub action_status: Option<i8>,
+    /// PV, maximum et niveau lus dans les facteurs de la vue (champ 5).
+    pub stats: Option<CharacterStats>,
+    /// Fonctions d'un PNJ (champ 4 de la vue) : dialogue, boutique, banque, quêtes.
+    pub npc_functions: Vec<crate::npc::NpcFunction>,
 }
 
 /// Objet équipé fourni dans la liste `OPT_VIEW` d'un personnage.
@@ -73,24 +80,69 @@ pub struct ActionFactorPoints {
     pub heroic_damage: Option<i32>,
 }
 
+/// Caractéristiques d'un personnage lues dans ses facteurs complets (`AGPMCHAR_FACTORS`) :
+/// niveau (`FACTOR_STATUS` 7), PV, PM et expérience (`FACTOR_POINT` 0, 1, 3 + 4 << 32),
+/// maxima (`FACTOR_POINTMAX` 0, 1). Indices relevés par ArchCore sur le client x64.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CharacterStats {
+    pub level: Option<i32>,
+    pub hp: Option<i32>,
+    pub mp: Option<i32>,
+    pub max_hp: Option<i32>,
+    pub max_mp: Option<i32>,
+    pub exp: Option<u64>,
+    /// Argent de l'inventaire (paquet CHARACTER, champ 8 ; hors facteurs).
+    pub money: Option<i64>,
+    /// Argent en banque (champ 9).
+    pub bank_money: Option<i64>,
+    /// Pages de banque achetées en plus de la première (champ 23).
+    pub bank_pages: Option<i8>,
+    /// Points de compétence (facteurs, sous-paquet « dirt » indice 5).
+    pub skill_points: Option<i32>,
+}
+
+/// Effet actif d'une compétence sur un personnage (AGPMSKILL op 4).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BuffInfo {
+    /// CID du personnage qui porte l'effet.
+    pub owner: i32,
+    /// Identifiant de la compétence (objet côté serveur).
+    pub skill_id: i32,
+    /// TID de la compétence (SKILLTEMPLATE), qui donne l'icône.
+    pub skill_tid: i32,
+    /// Durée restante annoncée, en millisecondes (0 = inconnue ou permanente).
+    pub duration_ms: u64,
+}
+
 /// Événements remontés au moteur.
 #[derive(Debug, Clone)]
 pub enum WorldEvent {
     Connected,
-    /// Paquet CHARACTER du joueur (op 25 puis 0) : CID, TID, nom, visage et cheveux (champs 20/21).
+    /// Paquet CHARACTER complet (op 25 ou 0) : CID, TID, nom, position (mini déplacement du
+    /// champ 5), visage et cheveux (champs 20/21). Le joueur reçoit le sien (op 25 puis 0) ; un
+    /// op 0 d'un autre CID est un autre joueur qui entre dans la vue (le moteur en fait une entité).
     SelfCharacter {
         cid: i32,
         tid: i32,
         name: String,
+        position: Option<Vec3>,
         face: Option<i32>,
         hair: Option<i32>,
+        stats: Option<CharacterStats>,
     },
     CharacterUpdated {
         cid: i32,
         position: Option<Vec3>,
         destination: Option<Vec3>,
         factors: Option<ActionFactorPoints>,
+        stats: Option<CharacterStats>,
+        /// Statut d'action (champ 11) : 2 = mort, 0 = vivant (résurrection).
+        action_status: Option<i8>,
     },
+    /// Effet de compétence ajouté (AGPMSKILL op 4).
+    BuffAdded(BuffInfo),
+    /// Effet de compétence retiré (AGPMSKILL op 5) : porteur et TID de l'effet.
+    BuffRemoved { owner: i32, skill_tid: i32 },
     CharacterRemoved {
         cid: i32,
         for_view: bool,
@@ -118,7 +170,24 @@ pub enum WorldEvent {
         force_attack: Option<bool>,
         additional_effect: Option<u32>,
         hit_index: Option<u8>,
+        /// Dégâts du coup (sous-paquet « résultat » des facteurs), en positif.
+        damage: Option<i32>,
     },
+    /// Objet posé au sol (AGPMITEM op 0, statut 1), voir `combat`.
+    GroundItem(crate::combat::GroundItem),
+    /// Résultat d'un ramassage (AGPMITEM op 12).
+    PickupResult {
+        iid: i32,
+        success: bool,
+        tid: Option<i32>,
+        count: Option<i32>,
+    },
+    /// Montée de niveau d'un personnage (AGPMCHARACTER op 5).
+    LevelUp { cid: i32 },
+    /// Objet utilisé (AGPMITEM op 4) : modèle, utilisateur, délai de réutilisation en ms.
+    ItemUsed { tid: Option<i32>, user: Option<i32>, cooldown_ms: Option<i32> },
+    /// Retour d'un parchemin aller-retour possible (AGPMITEM op 9) ou fini (op 10).
+    ReturnPoint { enabled: bool },
     Chat {
         from_cid: i32,
         channel: i8,
@@ -133,6 +202,41 @@ pub enum WorldEvent {
         packet_type: u8,
         op: Option<i64>,
     },
+    /// Extensions ArchRust négociées sur la connexion au monde (`HELLO_ACK`).
+    ExtensionsReady(Extensions),
+    /// Message d'AddOn relayé par le serveur (`ADDON_RECV`) ; l'émetteur est renseigné par lui.
+    AddonMessage {
+        prefix: String,
+        /// Portée (`ext::channel`) : 1 murmure, 2 dire…
+        channel: u8,
+        target: Option<String>,
+        sender_cid: i32,
+        sender: String,
+        payload: Vec<u8>,
+    },
+    /// Refus d'un envoi ou d'une demande (`RESULT`) : numéro de la demande et code `ext::result`.
+    AddonMessageFailed { request_id: u32, result: u8 },
+    /// Langue appliquée par le serveur après un `SET_LANGUAGE` (`LANGUAGE_ACK`), et langues proposées.
+    LanguageChanged {
+        request_id: u32,
+        language: String,
+        languages: Vec<String>,
+    },
+    /// Textes localisés rendus par le serveur (`TEXT_REPLY`), dans l'ordre demandé.
+    Texts {
+        request_id: u32,
+        language: String,
+        kind: String,
+        texts: Vec<(u32, String)>,
+    },
+    /// Paquet de groupe (0x08) : groupe, membres, réglages (voir `party`).
+    Party(crate::party::PartyPacket),
+    /// Paquet de gestion de groupe (0x09) : invitation, réponse, exclusion, chef, échecs.
+    PartyManagement(crate::party::PartyManagement),
+    /// Dialogue, boutique, banque, quêtes (voir `npc`).
+    Npc(crate::npc::NpcEvent),
+    /// Compétences : liste, niveau, lancement, instructeur (voir `skills`).
+    Skill(crate::skills::SkillEvent),
     Disconnected(String),
 }
 
@@ -148,6 +252,32 @@ pub enum Command {
         position: Vec3,
     },
     Say(String),
+    /// Message d'AddOn (`ADDON_SEND`) ; ignoré si le serveur n'a pas accordé `addon-msg`.
+    AddonSend {
+        request_id: u32,
+        prefix: String,
+        channel: u8,
+        target: Option<String>,
+        payload: Vec<u8>,
+    },
+    /// Changement de langue (`SET_LANGUAGE`) ; ignoré si le serveur n'a pas accordé `language`.
+    SetLanguage { request_id: u32, language: String },
+    /// Textes localisés (`TEXT_REQUEST`) : sorte (`ext::text_kind`) et identifiants (64 au plus).
+    RequestTexts {
+        request_id: u32,
+        kind: String,
+        ids: Vec<u32>,
+    },
+    /// Demande de groupe (paquets 0x08 / 0x09).
+    Party(crate::party::PartyCommand),
+    /// Attaque, ramassage, résurrection (voir `combat`).
+    Combat(crate::combat::CombatCommand),
+    /// Objets de l'inventaire et équipement (voir `items`).
+    Item(crate::items::ItemCommand),
+    /// Dialogue, boutique, banque, quêtes (voir `npc`).
+    Npc(crate::npc::NpcCommand),
+    /// Lancement et apprentissage des compétences (voir `skills`).
+    Skill(crate::skills::SkillCommand),
     Quit,
 }
 
@@ -183,6 +313,91 @@ fn decode_action_factors(bytes: &[u8]) -> Option<ActionFactorPoints> {
     })
 }
 
+/// Niveau, points et maxima d'un personnage dans ses facteurs complets.
+pub fn decode_character_stats(bytes: &[u8]) -> Option<CharacterStats> {
+    let (_, values) = decode_mini(mini::CHAR_FACTORS, bytes).ok()?;
+    let sub = |index: usize, schema: &'static archrust_protocol::schema::Schema| {
+        values
+            .get(index)
+            .and_then(Option::as_ref)
+            .and_then(Value::as_bytes)
+            .and_then(|b| decode_mini(schema, b).ok())
+            .map(|(_, v)| v)
+    };
+    let int = |v: &Option<Vec<Option<Value>>>, i: usize| {
+        v.as_ref()
+            .and_then(|v| v.get(i))
+            .and_then(Option::as_ref)
+            .and_then(Value::as_i64)
+    };
+    let status = sub(1, mini::FACTOR_STATUS);
+    let point = sub(3, mini::FACTOR_POINT);
+    let max = sub(4, mini::FACTOR_POINTMAX);
+    if status.is_none() && point.is_none() && max.is_none() && values.get(11).and_then(Option::as_ref).is_none() {
+        return None;
+    }
+    let exp = match (int(&point, 3), int(&point, 4)) {
+        (None, None) => None,
+        (lo, hi) => Some((lo.unwrap_or(0) as u32 as u64) | ((hi.unwrap_or(0) as u32 as u64) << 32)),
+    };
+    Some(CharacterStats {
+        level: int(&status, 7).map(|v| v as i32),
+        hp: int(&point, 0).map(|v| v as i32),
+        mp: int(&point, 1).map(|v| v as i32),
+        max_hp: int(&max, 0).map(|v| v as i32),
+        max_mp: int(&max, 1).map(|v| v as i32),
+        exp,
+        skill_points: crate::skills::factors_dirt(bytes, crate::skills::DIRT_SKILL_POINT),
+        ..Default::default()
+    })
+}
+
+/// Caractéristiques d'un paquet CHARACTER : facteurs (champ 7) et argent (champ 8).
+fn character_stats(p: &Incoming) -> Option<CharacterStats> {
+    let mut stats = p.get(7).and_then(Value::as_bytes).and_then(decode_character_stats);
+    if let Some(money) = p.get(8).and_then(Value::as_i64) {
+        stats.get_or_insert_with(CharacterStats::default).money = Some(money);
+    }
+    if let Some(bank) = p.get(9).and_then(Value::as_i64) {
+        stats.get_or_insert_with(CharacterStats::default).bank_money = Some(bank);
+    }
+    if let Some(pages) = p.get(23).and_then(Value::as_i64) {
+        stats.get_or_insert_with(CharacterStats::default).bank_pages = Some(pages as i8);
+    }
+    stats
+}
+
+/// Paquet AGPMSKILL d'effet (op 4 ajout, 5 retrait) en événement, sinon `None`.
+fn decode_skill_buff(p: &Incoming) -> Option<WorldEvent> {
+    let op = p.op()?;
+    if op != 4 && op != 5 {
+        return None;
+    }
+    let skill_id = p.get(1).and_then(Value::as_i64).unwrap_or(0) as i32;
+    let owner = p
+        .get(2)
+        .and_then(Value::as_bytes)
+        .and_then(|b| decode_mini(mini::SKILL_BASE, b).ok())
+        .and_then(|(_, v)| v.get(1).and_then(Option::as_ref).and_then(Value::as_i64))? as i32;
+    let buffs: Vec<Vec<u8>> = match p.get(8) {
+        Some(Value::PacketList(l)) => l.clone(),
+        Some(Value::Packet(b)) => vec![b.clone()],
+        _ => Vec::new(),
+    };
+    let first = buffs.first().and_then(|b| decode_mini(mini::SKILL_BUFF, b).ok()).map(|(_, v)| v);
+    let field = |i: usize| first.as_ref().and_then(|v| v.get(i)).and_then(Option::as_ref);
+    let skill_tid = field(0).and_then(Value::as_i64).unwrap_or(0) as i32;
+    if op == 5 {
+        return Some(WorldEvent::BuffRemoved { owner, skill_tid });
+    }
+    let duration_ms = match field(1) {
+        Some(Value::U64(v)) => *v,
+        Some(v) => v.as_i64().unwrap_or(0).max(0) as u64,
+        None => 0,
+    };
+    Some(WorldEvent::BuffAdded(BuffInfo { owner, skill_id, skill_tid, duration_ms }))
+}
+
 fn decode_character_factors(bytes: &[u8]) -> Option<ActionFactorPoints> {
     let (_, values) = decode_mini(mini::CHAR_FACTORS, bytes).ok()?;
     let point_packet = values
@@ -204,6 +419,9 @@ pub fn decode_view(mini_bytes: &[u8]) -> Option<SeenCharacter> {
         destination: vec3(g(9)).unwrap_or(Vec3::ZERO),
         turn_y: g(13).and_then(Value::as_i64).map(|v| v as f32),
         equipment: Vec::new(),
+        action_status: g(3).and_then(Value::as_i64).map(|v| v as i8),
+        stats: g(5).and_then(Value::as_bytes).and_then(decode_character_stats),
+        npc_functions: Vec::new(),
     })
 }
 
@@ -226,9 +444,43 @@ fn decode_view_with_equipment(mini_bytes: &[u8], items: Option<&Value>) -> Optio
     Some(character)
 }
 
+/// Événements en plus de celui de `translate` : compétences connues, au champ 8 de la vue optimisée
+/// op 2 (l'inventaire du champ 6 donne l'événement principal).
+pub fn extra_events(p: &Incoming) -> Vec<WorldEvent> {
+    if p.packet_type == packet_type::OPT_VIEW && p.op() == Some(view_op::ADD_CHARACTER_ITEMS as i64) {
+        if let Some(b) = p.get(8).and_then(Value::as_bytes) {
+            return crate::skills::decode_skill_block(b);
+        }
+    }
+    Vec::new()
+}
+
 /// Traduit un paquet reçu en événement.
 pub fn translate(p: &Incoming) -> WorldEvent {
+    // Dialogue, boutique, banque, quêtes (voir `npc`).
+    if let Some(ev) = p.packet.as_ref().and_then(|packet| crate::npc::translate(p.packet_type, &packet.values)) {
+        return WorldEvent::Npc(ev);
+    }
+    // Compétences : liste, niveau, lancement, résultat, instructeur (voir `skills`).
+    if let Some(ev) = p.packet.as_ref().and_then(|packet| crate::skills::translate(p.packet_type, &packet.values)) {
+        return ev;
+    }
     match p.packet_type {
+        packet_type::ITEM
+            if p.op() == Some(0)
+                && p.get(1).and_then(Value::as_i64) == Some(archrust_protocol::schema::ITEM_STATUS_FIELD as i64) =>
+        {
+            match p.packet.as_ref().and_then(|packet| crate::combat::decode_ground_item(&packet.values)) {
+                Some(item) => WorldEvent::GroundItem(item),
+                None => WorldEvent::Unhandled { packet_type: p.packet_type, op: p.op() },
+            }
+        }
+        packet_type::ITEM if p.op() == Some(archrust_protocol::schema::item_op::PICKUP_RESULT as i64) => WorldEvent::PickupResult {
+            iid: p.get(2).and_then(Value::as_i64).unwrap_or(0) as i32,
+            success: p.get(1).and_then(Value::as_i64) == Some(0),
+            tid: p.get(3).and_then(Value::as_i64).map(|v| v as i32),
+            count: p.get(5).and_then(Value::as_i64).map(|v| v as i32),
+        },
         packet_type::ITEM if matches!(p.op(), Some(0..=2)) => {
             let operation = p.op().unwrap_or_default() as u8;
             match p
@@ -243,6 +495,14 @@ pub fn translate(p: &Incoming) -> WorldEvent {
                 },
             }
         }
+        packet_type::ITEM if p.op() == Some(crate::items::op::USE_RESULT as i64) => WorldEvent::ItemUsed {
+            tid: p.get(3).and_then(Value::as_i64).map(|v| v as i32),
+            user: p.get(4).or(p.get(12)).and_then(Value::as_i64).map(|v| v as i32),
+            cooldown_ms: p.get(18).and_then(Value::as_i64).map(|v| v as i32),
+        },
+        packet_type::ITEM if matches!(p.op(), Some(9 | 10)) => WorldEvent::ReturnPoint {
+            enabled: p.op() == Some(crate::items::op::RETURN_ENABLED as i64),
+        },
         packet_type::ITEM => WorldEvent::Unhandled {
             packet_type: p.packet_type,
             op: p.op(),
@@ -261,6 +521,10 @@ pub fn translate(p: &Incoming) -> WorldEvent {
                 },
             }
         }
+        packet_type::SKILL => decode_skill_buff(p).unwrap_or(WorldEvent::Unhandled {
+            packet_type: p.packet_type,
+            op: p.op(),
+        }),
         packet_type::CHARACTER
             if p.op() == Some(character_op::ADD as i64) || p.op() == Some(25) =>
         {
@@ -268,8 +532,14 @@ pub fn translate(p: &Incoming) -> WorldEvent {
                 cid: p.get(1).and_then(Value::as_i64).unwrap_or(0) as i32,
                 tid: p.get(2).and_then(Value::as_i64).unwrap_or(0) as i32,
                 name: text(p.get(3)),
+                position: p
+                    .get(5)
+                    .and_then(Value::as_bytes)
+                    .and_then(|bytes| decode_mini(mini::CHAR_MOVE, bytes).ok())
+                    .and_then(|(_, values)| vec3(values.first().and_then(Option::as_ref))),
                 face: p.get(20).and_then(Value::as_i64).map(|v| v as i32),
                 hair: p.get(21).and_then(Value::as_i64).map(|v| v as i32),
+                stats: character_stats(p),
             }
         }
         packet_type::CHARACTER if p.op() == Some(character_op::UPDATE as i64) => {
@@ -292,8 +562,13 @@ pub fn translate(p: &Incoming) -> WorldEvent {
                     .get(7)
                     .and_then(Value::as_bytes)
                     .and_then(decode_character_factors),
+                stats: character_stats(p),
+                action_status: p.get(11).and_then(Value::as_i64).map(|v| v as i8),
             }
         }
+        packet_type::CHARACTER if p.op() == Some(character_op::LEVEL_UP as i64) => WorldEvent::LevelUp {
+            cid: p.get(1).and_then(Value::as_i64).unwrap_or(0) as i32,
+        },
         packet_type::CHARACTER
             if p.op() == Some(character_op::REMOVE as i64)
                 || p.op() == Some(character_op::REMOVE_FOR_VIEW as i64) =>
@@ -318,7 +593,10 @@ pub fn translate(p: &Incoming) -> WorldEvent {
                 .and_then(Value::as_bytes)
                 .and_then(|bytes| decode_view_with_equipment(bytes, p.get(2)))
             {
-                Some(c) => WorldEvent::CharacterSeen(c),
+                Some(mut c) => {
+                    c.npc_functions = p.get(4).and_then(Value::as_bytes).map(crate::npc::decode_functions).unwrap_or_default();
+                    WorldEvent::CharacterSeen(c)
+                }
                 None => WorldEvent::Unhandled {
                     packet_type: p.packet_type,
                     op: p.op(),
@@ -335,6 +613,7 @@ pub fn translate(p: &Incoming) -> WorldEvent {
                 Some(Value::Packet(bytes)) => Some(bytes.clone()),
                 _ => None,
             };
+            let hit = factor_packet.as_deref().and_then(crate::combat::decode_hit_factors);
             WorldEvent::CharacterAction {
                 // Mapping verified against ap_optimized_packet2_on_receive_char_action in the
                 // reconstructed Archonia source: CID, target, result, factor, target HP, combo,
@@ -342,7 +621,8 @@ pub fn translate(p: &Incoming) -> WorldEvent {
                 cid: p.get(0).and_then(Value::as_i64).unwrap_or(0) as i32,
                 target_cid: p.get(1).and_then(Value::as_i64).unwrap_or(0) as i32,
                 result: p.get(2).and_then(Value::as_i64).map(|v| v as i8),
-                factors: factor_packet.as_deref().and_then(decode_action_factors),
+                factors: hit.as_ref().map(|h| h.0.clone()),
+                damage: hit.and_then(|h| h.1),
                 factor_packet,
                 target_hp: p.get(4).and_then(Value::as_i64).map(|v| v as i32),
                 combo: p.get(5).and_then(Value::as_i64).map(|v| v != 0),
@@ -358,6 +638,64 @@ pub fn translate(p: &Incoming) -> WorldEvent {
             message: text(p.get(6)),
         },
         packet_type::SYSTEM_MESSAGE => WorldEvent::SystemMessage(text(p.get(4))),
+        packet_type::PARTY | packet_type::PARTY_MANAGEMENT => {
+            let ev = if p.packet_type == packet_type::PARTY {
+                crate::party::decode_party(p).map(WorldEvent::Party)
+            } else {
+                crate::party::decode_management(p).map(WorldEvent::PartyManagement)
+            };
+            ev.unwrap_or(WorldEvent::Unhandled {
+                packet_type: p.packet_type,
+                op: p.op(),
+            })
+        }
+        ext::PACKET_TYPE => match ext::decode(&p.raw) {
+            Some(ExtMessage::AddonRecv {
+                prefix,
+                channel,
+                target,
+                sender_cid,
+                sender_name,
+                payload,
+            }) => WorldEvent::AddonMessage {
+                prefix,
+                channel,
+                target,
+                sender_cid,
+                sender: sender_name,
+                payload,
+            },
+            Some(ExtMessage::Result { request_id, result }) => {
+                WorldEvent::AddonMessageFailed { request_id, result }
+            }
+            Some(ExtMessage::LanguageAck {
+                request_id,
+                language,
+                languages,
+            }) => WorldEvent::LanguageChanged {
+                request_id,
+                language,
+                languages,
+            },
+            Some(ExtMessage::Texts {
+                request_id,
+                language,
+                kind,
+                texts,
+            }) => WorldEvent::Texts {
+                request_id,
+                language,
+                kind,
+                texts,
+            },
+            other => {
+                log::debug!("extension ignorée : {other:?}");
+                WorldEvent::Unhandled {
+                    packet_type: p.packet_type,
+                    op: None,
+                }
+            }
+        },
         _ => WorldEvent::Unhandled {
             packet_type: p.packet_type,
             op: p.op(),
@@ -366,8 +704,36 @@ pub fn translate(p: &Incoming) -> WorldEvent {
 }
 
 /// Décode la concaténation d'entrées AgpmItem dans le bloc « All Item » d'OPT_VIEW.
-/// Chaque entrée est un mini-paquet préfixé par sa longueur u32 (format client x64).
-fn decode_item_batch(mut bytes: &[u8]) -> Option<Vec<ItemRecord>> {
+///
+/// Deux formes sont acceptées : des paquets AGPMITEM complets mis bout à bout (garde `0xD6`, longueur
+/// totale u32 ; forme envoyée par ArchCore et décrite dans son wiki), ou des mini-paquets préfixés
+/// par leur longueur u32 (forme relevée par Codex sur le client x64). Le premier octet les distingue.
+fn decode_item_batch(bytes: &[u8]) -> Option<Vec<ItemRecord>> {
+    if bytes.first() == Some(&archrust_protocol::packet::GUARD_HEAD) {
+        return decode_item_packets(bytes);
+    }
+    decode_item_minis(bytes)
+}
+
+/// Paquets AGPMITEM complets bout à bout.
+fn decode_item_packets(mut bytes: &[u8]) -> Option<Vec<ItemRecord>> {
+    let mut items = Vec::new();
+    while !bytes.is_empty() {
+        let len = u32::from_le_bytes(bytes.get(1..5)?.try_into().ok()?) as usize;
+        if len < archrust_protocol::packet::HEADER_SIZE || len > bytes.len() {
+            return None;
+        }
+        let (one, rest) = bytes.split_at(len);
+        let packet = archrust_protocol::packet::decode_packet(&main::ITEM, one).ok()?;
+        let operation = packet.op()? as u8;
+        items.push(item_record(&packet.values, operation)?);
+        bytes = rest;
+    }
+    Some(items)
+}
+
+/// Mini-paquets AGPMITEM préfixés par leur longueur u32.
+fn decode_item_minis(mut bytes: &[u8]) -> Option<Vec<ItemRecord>> {
     let mut items = Vec::new();
     while !bytes.is_empty() {
         let header: [u8; 4] = bytes.get(..4)?.try_into().ok()?;
@@ -470,6 +836,7 @@ impl WorldClient {
     /// Se connecte au monde, s'annonce (op 2 + keepalive) et attend la position de chargement.
     pub async fn connect(ticket: WorldTicket) -> Result<Self, NetError> {
         let mut conn = Connection::connect("world", &ticket.host, ticket.port).await?;
+        conn.language = ticket.language.clone();
         conn.handshake().await?;
         let who = format!("{}#{}", ticket.character, ticket.world);
         conn.send(
@@ -541,6 +908,7 @@ impl WorldClient {
             let p = self.conn.expect_where("entrée en jeu", |_| true).await?;
             let ev = translate(&p);
             Self::track_view_event(&mut self.seen, &ev);
+            events.extend(extra_events(&p));
             match &ev {
                 WorldEvent::EnteredWorld => {
                     events.push(ev);
@@ -556,6 +924,10 @@ impl WorldClient {
             self.position,
             self.seen.len()
         );
+        // HELLO_ACK arrive juste après la poignée de main, avant tout le reste.
+        if let Some(e) = self.conn.take_new_extensions() {
+            events.insert(1, WorldEvent::ExtensionsReady(e));
+        }
         Ok(events)
     }
 
@@ -603,6 +975,72 @@ impl WorldClient {
         self.conn.send(main::CHATTING, &values).await
     }
 
+    /// Envoie un message d'AddOn (`ADDON_SEND`) si le serveur a accordé `addon-msg` ; sinon le
+    /// message est abandonné (le serveur l'ignorerait de toute façon).
+    pub async fn send_addon(
+        &mut self,
+        request_id: u32,
+        prefix: &str,
+        channel: u8,
+        target: Option<&str>,
+        payload: &[u8],
+    ) -> Result<(), NetError> {
+        if !self
+            .conn
+            .extensions
+            .as_ref()
+            .is_some_and(|e| e.has(ext::ADDON_MSG))
+        {
+            log::debug!("[world] message d'AddOn {prefix} abandonné : pas de capacité addon-msg");
+            return Ok(());
+        }
+        let raw = ext::addon_send_packet(request_id, prefix, channel, target, payload);
+        self.conn.send_raw(&raw).await
+    }
+
+    /// Accord d'extensions de la connexion au monde, s'il y en a un.
+    pub fn extensions(&self) -> Option<&Extensions> {
+        self.conn.extensions.as_ref()
+    }
+
+    fn has_capability(&self, capability: &str) -> bool {
+        self.conn
+            .extensions
+            .as_ref()
+            .is_some_and(|e| e.has(capability))
+    }
+
+    /// Change la langue des textes du serveur (`SET_LANGUAGE`) ; sans la capacité `language`, ou
+    /// avec un code mal formé, rien n'est envoyé.
+    pub async fn send_set_language(&mut self, request_id: u32, language: &str) -> Result<(), NetError> {
+        if !self.has_capability(ext::LANGUAGE) {
+            log::debug!("[world] langue {language} non envoyée : pas de capacité language");
+            return Ok(());
+        }
+        match ext::set_language_packet(request_id, language) {
+            Some(raw) => self.conn.send_raw(&raw).await,
+            None => {
+                log::warn!("[world] code de langue {language:?} mal formé, non envoyé");
+                Ok(())
+            }
+        }
+    }
+
+    /// Demande des textes localisés (`TEXT_REQUEST`) ; la réponse arrive en `WorldEvent::Texts`.
+    pub async fn request_texts(&mut self, request_id: u32, kind: &str, ids: &[u32]) -> Result<(), NetError> {
+        if !self.has_capability(ext::LANGUAGE) {
+            log::debug!("[world] textes {kind} non demandés : pas de capacité language");
+            return Ok(());
+        }
+        match ext::text_request_packet(request_id, kind, ids) {
+            Some(raw) => self.conn.send_raw(&raw).await,
+            None => {
+                log::warn!("[world] demande de textes {kind:?} ({} identifiant(s)) invalide, non envoyée", ids.len());
+                Ok(())
+            }
+        }
+    }
+
     async fn keepalive(&mut self) -> Result<(), NetError> {
         self.conn
             .send(
@@ -637,6 +1075,31 @@ impl WorldClient {
                         Some(Command::MoveTo { position, destination }) => self.send_move(position, destination).await,
                         Some(Command::Stop { position }) => self.send_stop(position).await,
                         Some(Command::Say(m)) => self.send_say(&m).await,
+                        Some(Command::AddonSend { request_id, prefix, channel, target, payload }) => {
+                            self.send_addon(request_id, &prefix, channel, target.as_deref(), &payload).await
+                        }
+                        Some(Command::SetLanguage { request_id, language }) => self.send_set_language(request_id, &language).await,
+                        Some(Command::RequestTexts { request_id, kind, ids }) => self.request_texts(request_id, &kind, &ids).await,
+                        Some(Command::Party(c)) => {
+                            let (schema, values) = crate::party::command_packet(&c, self.cid);
+                            self.conn.send(schema, &values).await
+                        }
+                        Some(Command::Combat(c)) => {
+                            let (schema, values) = crate::combat::command_packet(&c, self.cid);
+                            self.conn.send(schema, &values).await
+                        }
+                        Some(Command::Item(c)) => {
+                            let (schema, values) = crate::items::command_packet(&c, self.cid);
+                            self.conn.send(schema, &values).await
+                        }
+                        Some(Command::Npc(c)) => {
+                            let (schema, values) = crate::npc::command_packet(&c, self.cid);
+                            self.conn.send(schema, &values).await
+                        }
+                        Some(Command::Skill(c)) => {
+                            let (schema, values) = crate::skills::command_packet(&c, self.cid);
+                            self.conn.send(schema, &values).await
+                        }
                         Some(Command::Quit) | None => { self.conn.close().await; return; }
                     };
                     if let Err(e) = r {
@@ -647,9 +1110,15 @@ impl WorldClient {
                 p = self.conn.next() => {
                     match p {
                         Ok(p) => {
+                            if let Some(e) = self.conn.take_new_extensions() {
+                                if events.send(WorldEvent::ExtensionsReady(e)).await.is_err() { return; }
+                            }
                             let ev = translate(&p);
                             Self::track_view_event(&mut self.seen, &ev);
                             if events.send(ev).await.is_err() { return; }
+                            for extra in extra_events(&p) {
+                                if events.send(extra).await.is_err() { return; }
+                            }
                         }
                         Err(e) => {
                             let _ = events.send(WorldEvent::Disconnected(e.to_string())).await;
@@ -789,6 +1258,7 @@ mod tests {
     #[test]
     fn view_roundtrip() {
         let c = SeenCharacter {
+            npc_functions: Vec::new(),
             cid: 0x4000_0001,
             tid: 584,
             name: "<Merchant> Darryl".into(),
@@ -796,6 +1266,8 @@ mod tests {
             destination: Vec3::ZERO,
             turn_y: Some(135.0),
             equipment: Vec::new(),
+            action_status: None,
+            stats: None,
         };
         let bytes = build_view(&c);
         let back = decode_view(&bytes).unwrap();
@@ -807,6 +1279,7 @@ mod tests {
         use archrust_protocol::packet::{build_mini, build_packet, decode_packet, sparse};
 
         let character = SeenCharacter {
+            npc_functions: Vec::new(),
             cid: 123,
             tid: 96,
             name: "Joueur".into(),
@@ -814,6 +1287,8 @@ mod tests {
             destination: Vec3::ZERO,
             turn_y: Some(0.0),
             equipment: Vec::new(),
+            action_status: None,
+            stats: None,
         };
         let view = build_view(&character);
         let equipped = build_mini(
@@ -864,18 +1339,21 @@ mod tests {
     fn optimized_character_action_decodes_server_fields() {
         use archrust_protocol::packet::{build_mini, build_packet, decode_packet, sparse};
 
-        let factor_packet_bytes = build_mini(
+        // Forme du client x64 : AGPMCHAR_FACTORS complet, sous-paquet 0 « résultat » (dégâts en
+        // négatif), sous-paquet 3 PV et PM restants.
+        let shown = build_mini(
             &mini::FACTOR_POINT,
             &sparse(
                 &mini::FACTOR_POINT,
-                &[
-                    (0, Value::I32(780)),
-                    (1, Value::I32(20)),
-                    (9, Value::I32(7)),
-                    (12, Value::I32(3)),
-                    (19, Value::I32(2)),
-                ],
+                &[(9, Value::I32(-7)), (12, Value::I32(-3)), (19, Value::I32(-2))],
             ),
+        )
+        .unwrap();
+        let result = build_mini(&mini::CHAR_FACTORS, &sparse(&mini::CHAR_FACTORS, &[(3, Value::Packet(shown))])).unwrap();
+        let current = build_mini(&mini::FACTOR_POINT, &sparse(&mini::FACTOR_POINT, &[(0, Value::I32(780)), (1, Value::I32(20))])).unwrap();
+        let factor_packet_bytes = build_mini(
+            &mini::CHAR_FACTORS,
+            &sparse(&mini::CHAR_FACTORS, &[(0, Value::Packet(result)), (3, Value::Packet(current))]),
         )
         .unwrap();
 
@@ -915,6 +1393,7 @@ mod tests {
             force_attack,
             additional_effect,
             hit_index,
+            damage,
         } = event
         else {
             panic!("paquet 0x41 non traduit en action")
@@ -929,12 +1408,13 @@ mod tests {
             Some(ActionFactorPoints {
                 hp: Some(780),
                 mp: Some(20),
-                normal_damage: Some(7),
-                fire_damage: Some(3),
-                heroic_damage: Some(2),
+                normal_damage: Some(-7),
+                fire_damage: Some(-3),
+                heroic_damage: Some(-2),
                 ..Default::default()
             })
         );
+        assert_eq!(damage, Some(12));
         assert_eq!(
             (target_hp, combo, force_attack),
             (Some(789), Some(true), Some(true))
@@ -974,6 +1454,7 @@ mod tests {
     #[test]
     fn removing_character_for_view_updates_world_client_cache() {
         let mut seen = vec![SeenCharacter {
+            npc_functions: Vec::new(),
             cid: 42,
             tid: 96,
             name: "Cible".into(),
@@ -981,6 +1462,8 @@ mod tests {
             destination: Vec3::ZERO,
             turn_y: Some(0.0),
             equipment: Vec::new(),
+            action_status: None,
+            stats: None,
         }];
         WorldClient::track_view_event(
             &mut seen,
@@ -1036,6 +1519,7 @@ mod tests {
             position,
             destination,
             factors,
+            ..
         } = translate(&Incoming {
             packet_type: packet_type::CHARACTER,
             packet: Some(packet),
@@ -1048,5 +1532,118 @@ mod tests {
         assert_eq!(position, Some(Vec3::new(1.0, 2.0, 3.0)));
         assert_eq!(destination, Some(Vec3::new(4.0, 5.0, 6.0)));
         assert_eq!(factors.and_then(|f| f.hp), Some(321));
+    }
+
+    #[test]
+    fn full_character_packet_of_another_player_keeps_position_and_head() {
+        use archrust_protocol::packet::{build_packet, decode_packet};
+
+        // Forme de l'op 0 qu'ArchCore envoie quand un joueur entre dans la vue.
+        let movement = build_mini(
+            &mini::CHAR_MOVE,
+            &sparse(&mini::CHAR_MOVE, &[(0, Value::Vec3([-476_000.0, 4_422.0, -61_000.0]))]),
+        )
+        .unwrap();
+        let point = build_mini(&mini::FACTOR_POINT, &sparse(&mini::FACTOR_POINT, &[(0, Value::I32(96))])).unwrap();
+        let factors = build_mini(&mini::CHAR_FACTORS, &sparse(&mini::CHAR_FACTORS, &[(3, Value::Packet(point))])).unwrap();
+        let c = &main::CHARACTER;
+        let raw = build_packet(
+            c,
+            &sparse(
+                c,
+                &[
+                    (0, Value::I8(character_op::ADD)),
+                    (1, Value::I32(1)),
+                    (2, Value::I32(96)),
+                    (3, Value::Block(b"SimA\0".to_vec())),
+                    (5, Value::Packet(movement)),
+                    (7, Value::Packet(factors)),
+                    (20, Value::I8(2)),
+                    (21, Value::I8(1)),
+                ],
+            ),
+        )
+        .unwrap();
+        let packet = decode_packet(c, &raw).unwrap();
+        let WorldEvent::SelfCharacter { cid, tid, name, position, face, hair, stats } =
+            translate(&Incoming { packet_type: packet_type::CHARACTER, packet: Some(packet), raw })
+        else {
+            panic!("fiche de personnage non traduite")
+        };
+        assert_eq!((cid, tid, name.as_str()), (1, 96, "SimA"));
+        assert_eq!(position, Some(Vec3::new(-476_000.0, 4_422.0, -61_000.0)));
+        assert_eq!((face, hair), (Some(2), Some(1)));
+        assert_eq!(stats.and_then(|s| s.hp), Some(96));
+    }
+
+    #[test]
+    fn item_snapshot_accepts_full_packets_like_archcore() {
+        use archrust_protocol::packet::build_packet;
+        let grid = build_mini(&mini::ITEM_GRID, &sparse(&mini::ITEM_GRID, &[(0, Value::I16(2)), (1, Value::I16(1)), (2, Value::I16(3))])).unwrap();
+        let one = |iid: i32, tid: i32| {
+            build_packet(
+                &main::ITEM,
+                &sparse(
+                    &main::ITEM,
+                    &[(0, Value::I8(0)), (1, Value::I8(2)), (2, Value::I32(iid)), (3, Value::I32(tid)), (5, Value::I32(1)), (7, Value::Packet(grid.clone()))],
+                ),
+            )
+            .unwrap()
+        };
+        let block = [one(10, 4), one(11, 1)].concat();
+        let items = decode_item_batch(&block).unwrap();
+        assert_eq!(items.len(), 2);
+        assert_eq!((items[0].id, items[0].template_id, items[0].grid), (10, Some(4), Some([2, 1, 3])));
+        assert_eq!(items[1].template_id, Some(1));
+    }
+
+    #[test]
+    fn character_stats_from_full_factors() {
+        let status = build_mini(&mini::FACTOR_STATUS, &sparse(&mini::FACTOR_STATUS, &[(7, Value::I32(5))])).unwrap();
+        let point = build_mini(
+            &mini::FACTOR_POINT,
+            &sparse(&mini::FACTOR_POINT, &[(0, Value::I32(80)), (1, Value::I32(30)), (3, Value::I32(1234)), (4, Value::I32(1))]),
+        )
+        .unwrap();
+        let max = build_mini(&mini::FACTOR_POINTMAX, &sparse(&mini::FACTOR_POINTMAX, &[(0, Value::I32(120)), (1, Value::I32(40))])).unwrap();
+        let factors = build_mini(
+            &mini::CHAR_FACTORS,
+            &sparse(&mini::CHAR_FACTORS, &[(1, Value::Packet(status)), (3, Value::Packet(point)), (4, Value::Packet(max))]),
+        )
+        .unwrap();
+        let stats = decode_character_stats(&factors).unwrap();
+        assert_eq!(
+            stats,
+            CharacterStats { level: Some(5), hp: Some(80), mp: Some(30), max_hp: Some(120), max_mp: Some(40), exp: Some(1234 + (1u64 << 32)), ..Default::default() }
+        );
+    }
+
+    #[test]
+    fn skill_buff_add_and_remove() {
+        use archrust_protocol::packet::{build_packet, decode_packet};
+        let base = build_mini(&mini::SKILL_BASE, &sparse(&mini::SKILL_BASE, &[(0, Value::I8(1)), (1, Value::I32(42))])).unwrap();
+        let buff = build_mini(
+            &mini::SKILL_BUFF,
+            &sparse(&mini::SKILL_BUFF, &[(0, Value::I32(1201)), (1, Value::U64(30_000)), (2, Value::I32(96))]),
+        )
+        .unwrap();
+        let skill = &archrust_protocol::schema::main::SKILL;
+        let make = |op: i8| {
+            let raw = build_packet(
+                skill,
+                &sparse(skill, &[(0, Value::I8(op)), (1, Value::I32(7)), (2, Value::Packet(base.clone())), (8, Value::PacketList(vec![buff.clone()]))]),
+            )
+            .unwrap();
+            let packet = decode_packet(skill, &raw).unwrap();
+            translate(&Incoming { packet_type: packet_type::SKILL, packet: Some(packet), raw })
+        };
+        match make(4) {
+            WorldEvent::BuffAdded(b) => assert_eq!(b, BuffInfo { owner: 42, skill_id: 7, skill_tid: 1201, duration_ms: 30_000 }),
+            other => panic!("ajout attendu, reçu {other:?}"),
+        }
+        match make(5) {
+            WorldEvent::BuffRemoved { owner, skill_tid } => assert_eq!((owner, skill_tid), (42, 1201)),
+            other => panic!("retrait attendu, reçu {other:?}"),
+        }
     }
 }

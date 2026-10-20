@@ -47,6 +47,8 @@ pub struct WorldTicket {
     pub auth_key: i32,
     pub host: String,
     pub port: u16,
+    /// Langue souhaitée, reprise au `HELLO` de la connexion au monde.
+    pub language: Option<String>,
 }
 
 pub struct LoginClient {
@@ -104,7 +106,14 @@ pub fn character_summary(p: &Incoming) -> Option<CharacterSummary> {
 impl LoginClient {
     /// Se connecte, fait la poignée de main, récupère la liste des mondes et la clé de hachage.
     pub async fn connect(host: &str, port: u16) -> Result<Self, NetError> {
+        Self::connect_with(host, port, None).await
+    }
+
+    /// Comme `connect`, en annonçant la langue souhaitée au `HELLO` (capacité `language/1` des
+    /// extensions ArchRust) ; elle suit ensuite le billet d'entrée dans le monde.
+    pub async fn connect_with(host: &str, port: u16, language: Option<&str>) -> Result<Self, NetError> {
         let mut conn = Connection::connect("login", host, port).await?;
+        conn.language = language.map(str::to_string);
         conn.handshake().await?;
 
         conn.send(
@@ -398,6 +407,7 @@ impl LoginClient {
             auth_key,
             host,
             port,
+            language: self.conn.language.clone(),
         })
     }
 

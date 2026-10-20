@@ -43,6 +43,8 @@ bytemuck = { version = "1", features = ["derive"] }
 walkdir = "2"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 clap = { version = "4", features = ["derive"] }
+# Protocole d'ArchCore (schéma 0xAC des extensions ArchRust, constantes ext_*), GPL-3.0-or-later.
+archcore-net = { git = "https://github.com/BlaMacfly/ArchCore", branch = "Core" }
 
 [profile.release]
 opt-level = 3

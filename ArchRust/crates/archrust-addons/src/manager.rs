@@ -24,6 +24,16 @@ pub enum AddonError {
     MissingDependency { addon: String, dep: String },
 }
 
+/// Membre du groupe du joueur, connu même hors de vue (`UnitName("party1")`, `UnitHealth`…).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct PartyMember {
+    pub cid: i32,
+    pub name: String,
+    pub level: Option<i64>,
+    pub hp: Option<i64>,
+    pub hp_max: Option<i64>,
+}
+
 /// Une unité (personnage, PNJ, monstre) telle que les AddOns la voient.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct UnitInfo {
@@ -78,6 +88,11 @@ pub struct HostState {
     pub units: Vec<UnitInfo>,
     /// Cible (CID), choisie par `TargetUnit`/`/target`.
     pub target: Option<i32>,
+    /// Groupe du joueur (paquets 0x08 / 0x09) : membres, chef en tête, joueur compris ; vide hors
+    /// groupe. Jetons `party1`… : les membres autres que le joueur, dans cet ordre.
+    pub party: Vec<PartyMember>,
+    /// Noms des joueurs dont une invitation de groupe attend une réponse.
+    pub party_invitations: Vec<String>,
     pub inventory: Vec<ItemInfo>,
     pub camera: CameraInfo,
     /// Matrice vue × projection (colonnes) pour `WorldToScreen`.
@@ -118,6 +133,22 @@ pub enum HostCommand {
     /// Capture d'écran (`Screenshot()`), fichier facultatif.
     Screenshot(Option<String>),
     Quit,
+    /// Message d'AddOn à envoyer au serveur (extension ArchRust `ADDON_SEND`), déjà lissé selon
+    /// les limites de débit annoncées.
+    AddonSend {
+        request_id: u32,
+        prefix: String,
+        channel: u8,
+        target: Option<String>,
+        payload: Vec<u8>,
+    },
+    /// Textes localisés demandés au serveur (`C_ArchCore.RequestTexts`, extension `TEXT_REQUEST`) ;
+    /// la réponse revient par l'événement `ARCHCORE_TEXTS`.
+    RequestTexts {
+        request_id: u32,
+        kind: String,
+        ids: Vec<u32>,
+    },
 }
 
 pub struct Timer {
@@ -179,6 +210,10 @@ pub struct SharedState {
     /// Dernier événement du journal de combat (`CombatLogGetCurrentEventInfo`).
     pub combat_log: Vec<CombatValue>,
     started: std::time::Instant,
+    /// Extensions ArchRust négociées avec le serveur monde (`None` = serveur sans extensions).
+    pub ext: Option<crate::comm::ExtInfo>,
+    /// Canal de messages d'AddOn : préfixes enregistrés, file d'envoi lissée.
+    pub comm: crate::comm::CommState,
 }
 
 /// Valeur simple du journal de combat.
@@ -582,9 +617,12 @@ impl AddonManager {
             press: None,
             combat_log: Vec::new(),
             started: std::time::Instant::now(),
+            ext: None,
+            comm: Default::default(),
         }));
         crate::lua_env::install(&lua, shared.clone())?;
         crate::api::install(&lua, shared.clone())?;
+        crate::comm::install(&lua, shared.clone())?;
         crate::libs::install(&lua)?;
         Ok(Self { lua, shared })
     }
@@ -792,8 +830,9 @@ impl AddonManager {
                 }
             }
         }
-        let mut s = self.shared.borrow_mut();
-        s.timers.retain(|t| !t.cancelled);
+        self.shared.borrow_mut().timers.retain(|t| !t.cancelled);
+        // Messages d'AddOn en attente : envoyés au rythme permis par le serveur.
+        crate::comm::flush(&self.shared);
     }
 
     /// Exécute une commande slash (`/hello args`). Rend `false` si aucune commande ne correspond.
@@ -1245,6 +1284,41 @@ impl AddonManager {
         }
     }
 
+    /// Cible choisie par les AddOns (`TargetUnit`, `/target`), en CID.
+    pub fn target_cid(&self) -> Option<i32> {
+        self.shared.borrow().host.target
+    }
+
+    /// Cible choisie par le moteur (clic sur un personnage, comme dans Archonia) ; émet
+    /// `PLAYER_TARGET_CHANGED` si elle change, comme `TargetUnit`.
+    pub fn set_target(&self, cid: Option<i32>) {
+        let changed = {
+            let mut s = self.shared.borrow_mut();
+            let changed = s.host.target != cid;
+            s.host.target = cid;
+            changed
+        };
+        if changed {
+            self.fire_event("PLAYER_TARGET_CHANGED", &[]);
+        }
+    }
+
+    /// Groupe du joueur et invitations en attente, pour `IsInGroup`, `partyN`, `UnitInParty`… ;
+    /// émet `GROUP_ROSTER_UPDATE` si les membres ont changé.
+    pub fn set_party(&self, members: Vec<PartyMember>, invitations: Vec<String>) {
+        let roster_changed = {
+            let mut s = self.shared.borrow_mut();
+            let ids = |m: &[PartyMember]| m.iter().map(|m| (m.cid, m.name.clone())).collect::<Vec<_>>();
+            let changed = ids(&s.host.party) != ids(&members);
+            s.host.party = members;
+            s.host.party_invitations = invitations;
+            changed
+        };
+        if roster_changed {
+            self.fire_event("GROUP_ROSTER_UPDATE", &[]);
+        }
+    }
+
     /// Action de combat entre deux CID : `UNIT_COMBAT` et `COMBAT_LOG_EVENT_UNFILTERED`
     /// (`CombatLogGetCurrentEventInfo`).
     pub fn combat(&self, source_cid: i32, dest_cid: i32, delta_hp: i64, remaining_hp: Option<i64>) {
@@ -1303,6 +1377,62 @@ impl AddonManager {
             let action = if delta_hp < 0 { "WOUND" } else { "HEAL" };
             self.fire("UNIT_COMBAT", (unit, action, "", amount, 1));
         }
+    }
+
+    /// Extensions ArchRust du serveur monde (`HELLO_ACK`), ou `None` (serveur sans extensions,
+    /// déconnexion). Émet `ARCHCORE_EXTENSIONS_READY(logiciel, majeure, mineure)`.
+    /// Langue appliquée par le serveur et langues proposées (`LANGUAGE_ACK`), pour `C_ArchCore.GetLanguage`.
+    pub fn set_language(&self, language: &str, languages: &[String]) {
+        if let Some(e) = self.shared.borrow_mut().ext.as_mut() {
+            e.language = Some(language.to_string());
+            e.languages = languages.to_vec();
+        }
+    }
+
+    pub fn set_extensions(&self, ext: Option<crate::comm::ExtInfo>) {
+        {
+            let mut s = self.shared.borrow_mut();
+            let now = s.host.time;
+            if let Some(e) = &ext {
+                s.comm.reset(e, now);
+            } else {
+                s.comm.queue.clear();
+            }
+            s.ext = ext.clone();
+        }
+        if let Some(e) = ext {
+            self.fire(
+                "ARCHCORE_EXTENSIONS_READY",
+                (e.software.clone(), e.major, e.minor),
+            );
+        }
+    }
+
+    /// Message d'AddOn reçu du serveur : `CHAT_MSG_ADDON` si le préfixe est enregistré.
+    pub fn addon_message(
+        &self,
+        prefix: &str,
+        channel: u8,
+        target: Option<&str>,
+        sender: &str,
+        sender_cid: i32,
+        payload: &[u8],
+    ) -> bool {
+        crate::comm::receive(
+            &self.lua,
+            &self.shared,
+            prefix,
+            channel,
+            target,
+            sender,
+            sender_cid,
+            payload,
+        )
+    }
+
+    /// Refus d'un message par le serveur : `ARCHCORE_ADDON_MESSAGE_FAILED`.
+    pub fn addon_message_failed(&self, request_id: u32, result: u8) {
+        crate::comm::failed(&self.lua, &self.shared, request_id, result);
     }
 
     /// Passe un message reçu dans les filtres des AddOns (`ChatFrame_AddMessageEventFilter`).
@@ -1579,6 +1709,53 @@ ns.frame = f
         mgr2.save_all().unwrap();
         let saved = std::fs::read_to_string(tmp.path().join("saved/Hello.lua")).unwrap();
         assert!(saved.contains("logins = 2"), "{saved}");
+    }
+
+    #[test]
+    fn party_api_and_roster_event() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = AddonManager::new(tmp.path()).unwrap();
+        mgr.sync_world(Some(player("Moi")), vec![], Some(vec![]));
+        mgr.run_script(
+            r#"
+            Roster = 0
+            local f = CreateFrame("Frame")
+            f:RegisterEvent("GROUP_ROSTER_UPDATE")
+            f:SetScript("OnEvent", function() Roster = Roster + 1 end)
+            assert(not IsInGroup() and GetNumGroupMembers() == 0)
+        "#,
+        )
+        .unwrap();
+        let member = |cid: i32, name: &str, hp: i64| PartyMember {
+            cid,
+            name: name.into(),
+            level: Some(3),
+            hp: Some(hp),
+            hp_max: Some(200),
+        };
+        // Chef hors de vue en tête, puis le joueur.
+        mgr.set_party(vec![member(9, "Chef", 150), member(1, "Moi", 100)], vec![]);
+        mgr.set_party(vec![member(9, "Chef", 120), member(1, "Moi", 100)], vec![]);
+        mgr.run_script(
+            r#"
+            assert(Roster == 1, "un seul GROUP_ROSTER_UPDATE : " .. Roster)
+            assert(IsInGroup() and GetNumGroupMembers() == 2 and GetNumSubgroupMembers() == 1)
+            assert(UnitName("party1") == "Chef" and UnitHealth("party1") == 120)
+            assert(UnitIsGroupLeader("party1") and not UnitIsGroupLeader("player"))
+            assert(UnitInParty("player") and UnitInParty("party1") and not UnitExists("party2"))
+            InviteUnit("Bob"); LeaveParty()
+        "#,
+        )
+        .unwrap();
+        let slashes: Vec<_> = mgr
+            .drain_commands()
+            .into_iter()
+            .filter_map(|c| match c {
+                HostCommand::Slash(s) => Some(s),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(slashes, vec!["/inviter Bob", "/quittergroupe"]);
     }
 
     #[test]

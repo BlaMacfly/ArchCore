@@ -14,6 +14,7 @@
 
 pub mod aplib;
 pub mod ean;
+pub mod effset;
 pub mod ini;
 pub mod magpack;
 pub mod pack;
@@ -21,6 +22,7 @@ pub mod rw;
 pub mod soundpak;
 pub mod tiff;
 
+pub use effset::{EffectSet, EffectSets};
 pub use ini::{decrypt_ini, IniTable};
 pub use magpack::MagPack;
 pub use pack::{PackEntry, PackIndex};

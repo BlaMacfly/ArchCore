@@ -8,10 +8,17 @@
 //!
 //! Le moteur graphique consomme les [`world::WorldEvent`] et envoie des [`world::Command`].
 
+pub mod combat;
 pub mod connection;
+pub mod ext;
+pub mod items;
 pub mod login;
+pub mod npc;
+pub mod party;
+pub mod skills;
 pub mod world;
 
 pub use connection::{Connection, NetError};
+pub use ext::{ExtMessage, Extensions};
 pub use login::{CharacterSummary, LoginClient, WorldTicket};
 pub use world::{Command, WorldClient, WorldEvent};

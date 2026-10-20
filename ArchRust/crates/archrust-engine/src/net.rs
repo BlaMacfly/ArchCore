@@ -18,7 +18,13 @@ pub struct Credentials {
     /// sélection, après la liste des personnages du compte.
     pub character: Option<String>,
     pub create_if_missing: bool,
+    /// Langue des textes du serveur (Options), annoncée au `HELLO` des deux connexions.
+    pub language: Option<String>,
 }
+
+/// Numéro de demande des `SET_LANGUAGE` envoyés depuis les Options ; les AddOns emploient les petits
+/// numéros (file de `archrust-addons`), ce qui évite toute confusion dans les `RESULT`.
+pub const LANGUAGE_REQUEST_ID: u32 = 0x4000_0001;
 
 /// Commandes des écrans de sélection et de création, comme les boutons d'Archonia
 /// (`LG_LoginMainSelectButtonClick`, `…CreateButtonClick`, `…DeleteButtonClick`,
@@ -117,7 +123,7 @@ async fn session(
         let _ = ev.send(NetEvent::Status(s));
     };
     status(format!("connexion à {}:{}…", creds.host, creds.port));
-    let mut login = LoginClient::connect(&creds.host, creds.port).await?;
+    let mut login = LoginClient::connect_with(&creds.host, creds.port, creds.language.as_deref()).await?;
     let _ = ev.send(NetEvent::Worlds(
         login.worlds.iter().map(|w| w.name.clone()).collect(),
     ));

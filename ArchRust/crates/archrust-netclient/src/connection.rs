@@ -7,8 +7,9 @@ use archrust_protocol::packet::{
     build_packet, decode_packet, hex_dump, parse_header, Packet, PacketError, Value,
 };
 use archrust_protocol::schema::{main, packet_type, Schema};
+use crate::ext::{self, ExtMessage, Extensions};
 use std::collections::VecDeque;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
@@ -58,6 +59,15 @@ pub struct Connection {
     queue: VecDeque<Incoming>,
     pub timeout: Duration,
     read_buf: Vec<u8>,
+    /// Négocier les extensions ArchRust (`HELLO` après la poignée de main) ; désactivable par la
+    /// variable d'environnement `ARCHRUST_NO_EXTENSIONS=1`.
+    pub ext_enabled: bool,
+    /// Langue souhaitée, annoncée au `HELLO` (capacité `language/1`) ; à régler avant `handshake`.
+    pub language: Option<String>,
+    /// Accord conclu (`HELLO_ACK`), `None` tant qu'il n'est pas reçu ou si le serveur n'en a pas.
+    pub extensions: Option<Extensions>,
+    ext_deadline: Option<Instant>,
+    ext_fresh: bool,
 }
 
 impl Connection {
@@ -73,6 +83,11 @@ impl Connection {
             queue: VecDeque::new(),
             timeout: Duration::from_secs(8),
             read_buf: vec![0u8; 64 * 1024],
+            ext_enabled: std::env::var_os("ARCHRUST_NO_EXTENSIONS").is_none(),
+            language: None,
+            extensions: None,
+            ext_deadline: None,
+            ext_fresh: false,
         })
     }
 
@@ -137,6 +152,12 @@ impl Connection {
                 );
                 continue;
             };
+            if h.packet_type == ext::PACKET_TYPE {
+                if let Some(ExtMessage::HelloAck(e)) = ext::decode(&plain) {
+                    self.on_hello_ack(e);
+                    continue;
+                }
+            }
             let packet = match main::by_id(h.packet_type) {
                 Some(schema) => match decode_packet(schema, &plain) {
                     Ok(p) => Some(p),
@@ -238,7 +259,59 @@ impl Connection {
             }
         }
         log::info!("[{}] chiffrement Blowfish établi", self.label);
+        if self.ext_enabled {
+            // Extensions ArchRust : HELLO sur chaque connexion, juste après 0x48. On n'attend pas la
+            // réponse : elle est interceptée à la réception (3 s au plus).
+            self.send_raw(&ext::hello_packet(self.language.as_deref())).await?;
+            self.ext_deadline = Some(Instant::now() + ext::HELLO_TIMEOUT);
+            log::debug!(
+                "[{}] extensions : HELLO {} ({}){}",
+                self.label,
+                ext::software(),
+                ext::REQUESTED,
+                self.language.as_deref().map(|l| format!(", langue {l}")).unwrap_or_default()
+            );
+        }
         Ok(())
+    }
+
+    fn on_hello_ack(&mut self, e: Extensions) {
+        let in_time = self.ext_deadline.is_some_and(|d| Instant::now() <= d);
+        if self.extensions.is_some() || !in_time {
+            log::warn!("[{}] HELLO_ACK inattendu ou tardif ignoré ({})", self.label, e.software);
+            return;
+        }
+        log::info!(
+            "[{}] extensions : {} {}.{} → {:?} (charge {} o, {} d'un coup puis {}/s){}",
+            self.label,
+            e.software,
+            e.major,
+            e.minor,
+            e.capabilities,
+            e.max_payload,
+            e.rate_burst,
+            e.rate_per_sec,
+            e.language
+                .as_deref()
+                .map(|l| format!(" ; langue {l} parmi {}", e.languages.join(", ")))
+                .unwrap_or_default()
+        );
+        self.extensions = Some(e);
+        self.ext_fresh = true;
+    }
+
+    /// Accord d'extensions reçu depuis le dernier appel (une seule fois par connexion).
+    pub fn take_new_extensions(&mut self) -> Option<Extensions> {
+        if std::mem::take(&mut self.ext_fresh) {
+            self.extensions.clone()
+        } else {
+            None
+        }
+    }
+
+    /// La négociation est terminée : accord reçu, ou délai de 3 s écoulé.
+    pub fn extensions_settled(&self) -> bool {
+        self.extensions.is_some() || self.ext_deadline.is_none_or(|d| Instant::now() > d)
     }
 
     pub async fn close(mut self) {

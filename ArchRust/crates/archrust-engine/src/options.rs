@@ -12,6 +12,10 @@ pub const FILE_NAME: &str = "options.toml";
 #[serde(default)]
 pub struct ClientOptions {
     pub audio: AudioSettings,
+    /// Langue des textes du serveur (code BCP 47 : `fr`, `de`, `pt-BR`…), annoncée au serveur ArchCore
+    /// à la connexion (capacité `language/1`) et à chaque changement. `None` : automatique, le serveur
+    /// applique la dernière langue enregistrée sur le compte, sinon la sienne.
+    pub language: Option<String>,
 }
 
 pub fn path(saved_dir: &Path) -> PathBuf {
@@ -53,10 +57,16 @@ mod tests {
         let mut o = ClientOptions::default();
         o.audio.music = 0.25;
         o.audio.muted = true;
+        o.language = Some("pt-BR".into());
         save(&tmp, &o).unwrap();
         let text = std::fs::read_to_string(path(&tmp)).unwrap();
         assert!(text.contains("[audio]") && text.contains("music = 0.25"), "{text}");
+        assert!(text.contains("language = \"pt-BR\""), "{text}");
         assert_eq!(load(&tmp), o);
+        // Sans langue : automatique.
+        o.language = None;
+        save(&tmp, &o).unwrap();
+        assert_eq!(load(&tmp).language, None);
         // Clé inconnue ou manquante : valeurs par défaut pour le reste.
         std::fs::write(path(&tmp), "[audio]\neffects = 0.1\nfutur = 3\n").unwrap();
         let o = load(&tmp);

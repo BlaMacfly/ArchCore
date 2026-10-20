@@ -73,6 +73,8 @@ pub struct AddonGlue {
     inventory_sig: Option<u64>,
     /// Dernière valeur appliquée de `uiScale`.
     ui_scale: Option<f32>,
+    /// Extensions ArchRust négociées avec le serveur monde (gardées pour chaque rechargement).
+    pub extensions: Option<archrust_addons::ExtInfo>,
 }
 
 fn unit_of(e: &Entity, moving: bool) -> UnitInfo {
@@ -305,6 +307,8 @@ impl App {
                     .collect::<Vec<_>>()
                     .join(", ")
             );
+            // Extensions ArchRust déjà négociées (HELLO_ACK arrive avant l'entrée en jeu).
+            self.addons.set_extensions(self.addon_glue.extensions.clone());
             self.addons.fire_event("PLAYER_LOGIN", &[]);
         }
         self.addons.fire("PLAYER_ENTERING_WORLD", (first, !first));
@@ -320,6 +324,11 @@ impl App {
             Err(e) => log::error!("{e:#}"),
         }
         self.addon_glue.inventory_sig = None;
+        // Déconnexion (plus de liaison réseau) : l'accord d'extensions ne vaut plus. Un `/reload`
+        // le garde.
+        if self.net.is_none() {
+            self.addon_glue.extensions = None;
+        }
     }
 
     /// `/reload` : comme sous WoW, `PLAYER_LOGOUT` + sauvegarde, puis rechargement complet.
@@ -442,6 +451,36 @@ impl App {
                     }
                 }
                 HostCommand::Quit => self.exit = true,
+                HostCommand::AddonSend {
+                    request_id,
+                    prefix,
+                    channel,
+                    target,
+                    payload,
+                } => {
+                    if let Some(net) = &self.net {
+                        net.send(Command::AddonSend {
+                            request_id,
+                            prefix,
+                            channel,
+                            target,
+                            payload,
+                        });
+                    }
+                }
+                HostCommand::RequestTexts {
+                    request_id,
+                    kind,
+                    ids,
+                } => {
+                    if let Some(net) = &self.net {
+                        net.send(Command::RequestTexts {
+                            request_id,
+                            kind,
+                            ids,
+                        });
+                    }
+                }
             }
         }
     }
@@ -518,5 +557,88 @@ impl App {
         let handled = self.addons.key(&name, down);
         self.apply_addon_commands();
         handled
+    }
+}
+
+impl App {
+    /// Extensions ArchRust (paquet 0xAC) : accord du serveur monde, messages d'AddOn reçus ou
+    /// refusés.
+    pub(super) fn addon_world_event(&mut self, ev: WorldEvent) {
+        match ev {
+            WorldEvent::ExtensionsReady(e) => {
+                if let Some(l) = &e.language {
+                    self.ui.server_language = Some((l.clone(), e.languages.clone()));
+                }
+                let info = archrust_addons::ExtInfo {
+                    software: e.software,
+                    major: e.major,
+                    minor: e.minor,
+                    capabilities: e.capabilities,
+                    max_payload: e.max_payload,
+                    rate_burst: e.rate_burst,
+                    rate_per_sec: e.rate_per_sec,
+                    language: e.language,
+                    languages: e.languages,
+                };
+                self.addon_glue.extensions = Some(info.clone());
+                if self.addons.is_loaded() {
+                    self.addons.set_extensions(Some(info));
+                }
+            }
+            WorldEvent::LanguageChanged {
+                request_id,
+                language,
+                languages,
+            } => {
+                self.ui.server_language = Some((language.clone(), languages.clone()));
+                if request_id == crate::net::LANGUAGE_REQUEST_ID {
+                    self.ui.push_chat(format!("[langue] le serveur applique {language}"));
+                    self.ui.status = format!("langue : {language}");
+                }
+                if let Some(i) = self.addon_glue.extensions.as_mut() {
+                    i.language = Some(language.clone());
+                    i.languages = languages.clone();
+                }
+                if self.addons.is_loaded() {
+                    self.addons.set_language(&language, &languages);
+                    self.addons
+                        .fire("ARCHCORE_LANGUAGE_CHANGED", (language, languages.join(";")));
+                }
+            }
+            WorldEvent::Texts {
+                request_id,
+                language,
+                kind,
+                texts,
+            } => {
+                if self.addons.is_loaded() {
+                    let map: std::collections::HashMap<u32, String> = texts.into_iter().collect();
+                    self.addons
+                        .fire("ARCHCORE_TEXTS", (request_id, language, kind, map));
+                }
+            }
+            WorldEvent::AddonMessage {
+                prefix,
+                channel,
+                target,
+                sender_cid,
+                sender,
+                payload,
+            } => {
+                self.addons.addon_message(
+                    &prefix,
+                    channel,
+                    target.as_deref(),
+                    &sender,
+                    sender_cid,
+                    &payload,
+                );
+            }
+            WorldEvent::AddonMessageFailed { request_id, result } => {
+                self.addons.addon_message_failed(request_id, result);
+            }
+            _ => {}
+        }
+        self.apply_addon_commands();
     }
 }

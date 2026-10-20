@@ -15,7 +15,7 @@ use crate::scene::{
 use crate::options::ClientOptions;
 use crate::ui::{self, UiActions, UiState};
 use crate::world::Terrain;
-use crate::zones::Zones;
+use crate::zones::{GameClock, ZoneAudio, Zones};
 use anyhow::Result;
 use archrust_addons::{AddonManager, HostCommand};
 use archrust_netclient::{Command, WorldEvent};
@@ -32,6 +32,24 @@ use winit::window::{Window, WindowId};
 
 #[path = "app_addons.rs"]
 mod addon_glue;
+
+#[path = "app_party.rs"]
+mod party_glue;
+
+#[path = "app_players.rs"]
+mod players_glue;
+
+#[path = "app_combat.rs"]
+mod combat_glue;
+
+#[path = "app_items.rs"]
+mod items_glue;
+
+#[path = "app_npc.rs"]
+mod npc_glue;
+
+#[path = "app_skills.rs"]
+mod skills_glue;
 
 /// Configuration du client.
 #[derive(Debug, Clone)]
@@ -107,6 +125,12 @@ pub struct App {
     /// `None` = entité sans maillage skinné ou sans animation connue.
     animators: HashMap<i32, (usize, Option<Animator>)>,
     player_animator: Option<(usize, Option<Animator>)>,
+    /// État du HUD Archonia : caractéristiques du joueur, améliorations actives, textures.
+    hud: crate::hud::HudState,
+    /// Cibles prises au Tab récemment (voir [`crate::targeting`]).
+    tab_history: crate::targeting::TabHistory,
+    /// TID des PNJ placés (`ini/npc.ini`), que le Tab ne cible pas ; chargé au premier appui.
+    npc_tids: Option<std::collections::HashSet<i32>>,
     preview: Vec<(Arc<Mesh>, Mat4)>,
     terrain: Terrain,
     /// Objets statiques du monde (`ini/obj%05d.ini`).
@@ -140,15 +164,22 @@ pub struct App {
     /// Musique imposée par un AddOn (`PlayMusic`) : `Some(Some(chemin))` ; `Some(None)` = coupée ;
     /// `None` = musique automatique (écrans ou région).
     music_override: Option<Option<String>>,
-    /// Prochaine recherche de la région du joueur (toutes les secondes) et dernière région trouvée.
+    /// Prochaine recherche de la région du joueur (toutes les secondes) et dernière région trouvée
+    /// (musique et ambiance de l'heure courante).
     zone_check_at: Option<Instant>,
-    zone_region: Option<(u16, Option<String>)>,
-}
-
-/// Résumé visible d'une variation de PV observée entre deux actions réseau.
-fn combat_hp_line(actor: &str, target: &str, previous: i32, current: i32) -> Option<String> {
-    let delta = current as i64 - previous as i64;
-    (delta != 0).then(|| format!("[combat] {actor} → {target} : {delta:+} PV (reste {current})"))
+    zone_region: Option<ZoneAudio>,
+    /// Heure du jeu reçue du serveur (`AGPMTIMER`), heure locale sinon.
+    game_clock: GameClock,
+    /// Groupe du joueur (paquets 0x08 / 0x09), voir `app_party.rs`.
+    party: party_glue::PartyGlue,
+    /// Combat, mort, résurrection et butin, voir `app_combat.rs`.
+    combat: combat_glue::CombatGlue,
+    /// Inventaire actif, équipement, fenêtre du personnage, voir `app_items.rs`.
+    item_ui: items_glue::ItemsGlue,
+    /// Dialogue, boutique, banque, quêtes des PNJ, voir `app_npc.rs`.
+    npc: npc_glue::NpcGlue,
+    /// Compétences : livre, instructeurs, barre de raccourcis, voir `app_skills.rs`.
+    skills: skills_glue::SkillsGlue,
 }
 
 impl App {
@@ -211,6 +242,9 @@ impl App {
             player: None,
             animators: HashMap::new(),
             player_animator: None,
+            hud: crate::hud::HudState::default(),
+            tab_history: Default::default(),
+            npc_tids: None,
             preview: Vec::new(),
             terrain: Terrain::default(),
             objects: WorldObjects::new(3),
@@ -235,6 +269,12 @@ impl App {
             music_override: None,
             zone_check_at: None,
             zone_region: None,
+            game_clock: GameClock::default(),
+            party: Default::default(),
+            combat: Default::default(),
+            item_ui: Default::default(),
+            npc: Default::default(),
+            skills: Default::default(),
         })
     }
 
@@ -246,20 +286,25 @@ impl App {
             let due = self.zone_check_at.map_or(true, |t| Instant::now() >= t);
             if due {
                 self.zone_check_at = Some(Instant::now() + std::time::Duration::from_secs(1));
+                let hour = self.game_clock.hour();
                 let found = self.player.as_ref().and_then(|p| {
-                    self.zones.music_at(
-                        &self.assets,
-                        p.position.x,
-                        p.position.z,
-                        crate::zones::local_hour(),
-                    )
+                    self.zones
+                        .audio_at(&self.assets, p.position.x, p.position.z, hour)
                 });
-                if found.as_ref().map(|f| f.0) != self.zone_region.as_ref().map(|f| f.0) {
-                    if let Some((region, music)) = &found {
+                // Journal au changement de région, de musique ou d'ambiance (donc de tranche).
+                if found != self.zone_region {
+                    if let Some(z) = &found {
                         log::info!(
-                            "région {region} ({}) : musique {}",
-                            Zones::region_name(&self.assets, *region).unwrap_or_default(),
-                            music.as_deref().unwrap_or("aucune dans skyset.ini")
+                            "région {} ({}) à {hour} h ({}) : musique {} ; ambiance {}",
+                            z.region,
+                            Zones::region_name(&self.assets, z.region).unwrap_or_default(),
+                            if self.game_clock.is_set() { "heure du serveur" } else { "heure locale" },
+                            z.music.as_deref().unwrap_or("aucune dans skyset.ini"),
+                            if z.ambience.is_empty() {
+                                "aucune dans skyset.ini".to_string()
+                            } else {
+                                z.ambience.join(" + ")
+                            }
                         );
                     }
                 }
@@ -268,6 +313,7 @@ impl App {
         } else {
             self.zone_check_at = None;
             self.zone_region = None;
+            self.game_clock.clear();
         }
         let cvar = |name: &str| {
             self.addons
@@ -280,11 +326,20 @@ impl App {
             None if in_world => self
                 .zone_region
                 .as_ref()
-                .and_then(|(_, m)| m.clone())
+                .and_then(|z| z.music.clone())
                 .or_else(|| cvar("worldMusic")),
             None => cvar("loginMusic"),
         };
-        let ambience = if in_world { cvar("worldAmbience") } else { None };
+        // Ambiance : la première de la région (Archonia joue toutes celles des `EffectIndex`),
+        // sinon la CVar `worldAmbience`.
+        let ambience = if in_world {
+            self.zone_region
+                .as_ref()
+                .and_then(|z| z.ambience.first().cloned())
+                .or_else(|| cvar("worldAmbience"))
+        } else {
+            None
+        };
         self.audio.play_music(music.as_deref());
         self.audio.play_ambience(ambience.as_deref());
         self.audio.update(dt);
@@ -517,6 +572,7 @@ impl App {
         let distance = 600.0;
         self.camera.target = cam.pos + forward * distance;
         self.camera.distance = distance;
+        self.camera.collision = f32::INFINITY;
         self.camera.pitch = back.y.clamp(-1.0, 1.0).asin();
         self.camera.yaw = back.z.atan2(back.x);
         let aspect = self
@@ -864,6 +920,23 @@ impl App {
     }
 
     /// Lance la connexion ; `character` = entrée directe, `None` = écran de sélection.
+    /// Langue choisie dans les Options : envoyée tout de suite au serveur monde (`SET_LANGUAGE`) en
+    /// jeu, sinon annoncée au `HELLO` de la prochaine connexion. Fonction libre (pas de `&mut self`)
+    /// pour être appelée depuis la fermeture egui, qui n'emprunte que certains champs.
+    fn apply_language_option(net: Option<&NetLink>, language: Option<&str>, ui: &mut UiState, in_world: bool) {
+        match (net, language) {
+            (Some(net), Some(lang)) if in_world => {
+                net.send(Command::SetLanguage {
+                    request_id: crate::net::LANGUAGE_REQUEST_ID,
+                    language: lang.to_string(),
+                });
+                ui.push_chat(format!("[langue] {lang} demandée au serveur"));
+            }
+            (_, Some(lang)) => ui.status = format!("langue {lang} : appliquée à la prochaine connexion"),
+            (_, None) => ui.status = "langue automatique : appliquée à la prochaine connexion".into(),
+        }
+    }
+
     fn start_connection(&mut self, character: Option<String>) {
         let port = self.ui.port.trim().parse().unwrap_or(11002);
         self.choosing_character = character.is_none();
@@ -876,7 +949,9 @@ impl App {
             password: self.ui.password.clone(),
             character,
             create_if_missing: self.ui.create_if_missing,
+            language: self.options.language.clone(),
         };
+        self.ui.server_language = None;
         self.ui.status = "connexion…".into();
         self.net = Some(NetLink::start(creds));
         self.phase = Phase::Connecting;
@@ -985,15 +1060,46 @@ impl App {
     }
 
     fn on_world_event(&mut self, ev: WorldEvent) {
+        // Noms et PV des membres de groupe possibles (voir `app_party.rs`).
+        self.party_observe(&ev);
+        // Morts, vues des monstres, objets retirés du sol (voir `app_combat.rs`).
+        self.combat_observe(&ev);
+        // Fonctions des PNJ en vue (voir `app_npc.rs`).
+        self.npc_observe(&ev);
         match ev {
-            WorldEvent::Connected => {}
+            WorldEvent::Connected => {
+                // Nouvelle connexion au monde : les instantanés d'objets qui suivent repartent de zéro.
+                self.items.clear();
+                self.hud.buffs.clear();
+            }
             WorldEvent::SelfCharacter {
                 cid,
                 tid,
                 name,
+                position,
                 face,
                 hair,
+                stats,
             } => {
+                // Fiche d'un autre joueur qui entre dans la vue : une entité (voir `app_players.rs`).
+                if self.is_other_player(cid) {
+                    self.other_player_seen(players_glue::OtherPlayer {
+                        cid,
+                        tid,
+                        name,
+                        position,
+                        face,
+                        hair,
+                        stats,
+                    });
+                    return;
+                }
+                // Caractéristiques du joueur pour le HUD (avant les retours anticipés ci-dessous).
+                if let Some(stats) = &stats {
+                    if self.player.as_ref().is_none_or(|p| p.cid == 0 || p.cid == cid) {
+                        self.hud.merge_stats(stats);
+                    }
+                }
                 // Les paquets CHARACTER ultérieurs (mises à jour partielles) n'ont pas toujours le TID :
                 // on garde le modèle déjà chargé, et on ignore ceux d'un autre CID.
                 // Le personnage local du mode sans client (cid 0) est remplacé par le vrai.
@@ -1068,8 +1174,14 @@ impl App {
                 position,
                 destination,
                 factors,
+                stats,
+                ..
             } => {
-                let hp = factors.and_then(|f| f.hp);
+                let is_player = self.player.as_ref().is_some_and(|p| p.cid == cid);
+                if let (Some(stats), true) = (&stats, is_player) {
+                    self.hud.merge_stats(stats);
+                }
+                let hp = factors.and_then(|f| f.hp).or(stats.as_ref().and_then(|s| s.hp));
                 if let Some(player) = self.player.as_mut().filter(|p| p.cid == cid) {
                     if let Some(position) = position {
                         player.position = position;
@@ -1103,6 +1215,10 @@ impl App {
                 }
             }
             WorldEvent::ItemChanged(item) => {
+                // Objet porté par un autre joueur : son équipement, pas l'inventaire.
+                if self.other_player_item(&item) {
+                    return;
+                }
                 if item.operation == 1
                     || item
                         .status
@@ -1130,11 +1246,15 @@ impl App {
                 }
             }
             WorldEvent::ItemsSnapshot(items) => {
-                self.items = items
-                    .into_iter()
-                    .filter(|item| matches!(item.status, Some(2 | 3 | 100)))
-                    .map(|item| (item.id, item))
-                    .collect();
+                // Les objets de chaque OPT_VIEW op 2 s'ajoutent à ceux déjà reçus : ArchCore (comme
+                // le serveur d'origine) envoie un premier paquet plein puis un second au champ vide,
+                // qui ne doit pas vider l'inventaire.
+                self.items.extend(
+                    items
+                        .into_iter()
+                        .filter(|item| matches!(item.status, Some(2 | 3 | 100)))
+                        .map(|item| (item.id, item)),
+                );
             }
             WorldEvent::LoadingPosition(p) => {
                 if let Some(pl) = &mut self.player {
@@ -1143,7 +1263,16 @@ impl App {
                 }
                 self.camera.target = p + Vec3::new(0.0, 100.0, 0.0);
             }
-            WorldEvent::GameTime(t) => log::debug!("heure du jeu {t}"),
+            WorldEvent::GameTime(t) => {
+                self.game_clock.set(t);
+                log::info!(
+                    "heure du jeu : {t} ms du serveur, soit {} h (tranche skyset « {} »)",
+                    crate::zones::hour_of_ms(t),
+                    crate::zones::SKY_SLOTS[crate::zones::sky_slot(crate::zones::hour_of_ms(t))]
+                );
+                // Musique et ambiance à revoir tout de suite avec l'heure du serveur.
+                self.zone_check_at = None;
+            }
             WorldEvent::CharacterSeen(c) => {
                 if let Some(index) = self.entities.iter().position(|e| e.cid == c.cid) {
                     if self.entities[index].equipment != c.equipment {
@@ -1166,9 +1295,13 @@ impl App {
                     return;
                 }
                 let fallback = self.gpu.as_ref().map(|g| g.marker.clone());
+                // Chaque entité en vue reçoit son modèle (plus de limite : au-delà de 64, les
+                // créatures étaient remplacées par la boîte de repère). La boîte ne reste qu'en
+                // cas d'échec du chargement.
                 let meshes = match (&mut self.gpu, fallback) {
-                    (Some(g), Some(fb)) if self.entities.len() < 64 => {
-                        entity_meshes_with_equipment(
+                    (Some(g), Some(fb)) => {
+                        let started = Instant::now();
+                        let meshes = entity_meshes_with_equipment(
                             &mut g.renderer,
                             &self.assets,
                             c.tid,
@@ -1176,7 +1309,17 @@ impl App {
                             &c.equipment,
                             &fb,
                         )
-                        .unwrap_or_default()
+                        .unwrap_or_else(|e| {
+                            log::warn!("TID {} : {e:#}", c.tid);
+                            vec![(fb.clone(), Mat4::IDENTITY)]
+                        });
+                        log::debug!(
+                            "modèle de {} (TID {}) en {:.1} ms",
+                            c.name,
+                            c.tid,
+                            started.elapsed().as_secs_f32() * 1000.0
+                        );
+                        meshes
                     }
                     (_, Some(fb)) => vec![(fb, Mat4::IDENTITY)],
                     _ => Vec::new(),
@@ -1214,71 +1357,18 @@ impl App {
                     }
                 }
             }
-            WorldEvent::CharacterAction {
-                cid,
-                target_cid,
-                result,
-                factor_packet,
-                factors,
-                target_hp,
-                combo,
-                force_attack,
-                additional_effect,
-                hit_index,
-            } => {
-                let target_hp = factors.as_ref().and_then(|f| f.hp).or(target_hp);
-                let actor = self
-                    .player
-                    .as_ref()
-                    .filter(|p| p.cid == cid)
-                    .map(|p| p.name.clone())
-                    .or_else(|| {
-                        self.entities
-                            .iter()
-                            .find(|e| e.cid == cid)
-                            .map(|e| e.name.clone())
-                    })
-                    .unwrap_or_else(|| format!("CID {cid}"));
-                let (target, previous_hp) = self
-                    .player
-                    .as_ref()
-                    .filter(|p| p.cid == target_cid)
-                    .map(|p| (p.name.clone(), p.hp))
-                    .or_else(|| {
-                        self.entities
-                            .iter()
-                            .find(|e| e.cid == target_cid)
-                            .map(|e| (e.name.clone(), e.hp))
-                    })
-                    .unwrap_or_else(|| (format!("CID {target_cid}"), None));
-                if let Some(hp) = target_hp {
-                    if let Some(player) = self.player.as_mut().filter(|p| p.cid == target_cid) {
-                        player.hp = Some(hp);
-                    } else if let Some(target_entity) =
-                        self.entities.iter_mut().find(|e| e.cid == target_cid)
-                    {
-                        target_entity.hp = Some(hp);
-                    }
-                    if let Some(previous) = previous_hp {
-                        if let Some(line) = combat_hp_line(&actor, &target, previous, hp) {
-                            self.ui.push_chat(line);
-                        }
-                        if previous != hp {
-                            self.addons.combat(
-                                cid,
-                                target_cid,
-                                hp as i64 - previous as i64,
-                                Some(hp as i64),
-                            );
-                        }
-                    }
-                }
-                log::debug!(
-                    "action 0x41 : {actor} ({cid}) → {target_cid}, résultat={result:?}, hp cible={target_hp:?}, dégâts normaux/magiques/eau/feu/terre/air/poison/foudre/glace/héroïques={:?}, combo={combo:?}, attaque forcée={force_attack:?}, effet={additional_effect:?}, hit={hit_index:?}, facteurs={} octets",
-                    factors.as_ref().map(|f| [f.normal_damage, f.magic_damage, f.water_damage, f.fire_damage, f.earth_damage, f.air_damage, f.poison_damage, f.lightning_damage, f.ice_damage, f.heroic_damage]),
-                    factor_packet.as_ref().map_or(0, Vec::len)
-                );
+            // Coups (0x41) : PV, messages, chiffres, animations, voir `app_combat.rs`.
+            ev @ WorldEvent::CharacterAction { .. } => self.on_combat_action(ev),
+            // Butin au sol, ramassage, montée de niveau.
+            ev @ (WorldEvent::GroundItem(_) | WorldEvent::PickupResult { .. } | WorldEvent::LevelUp { .. }) => {
+                self.on_combat_event(ev)
             }
+            // Objet utilisé, point de retour d'un parchemin (voir `app_items.rs`).
+            ev @ (WorldEvent::ItemUsed { .. } | WorldEvent::ReturnPoint { .. }) => self.on_item_event(ev),
+            // Dialogue, boutique, banque, quêtes (voir `app_npc.rs`).
+            WorldEvent::Npc(ev) => self.on_npc_event(ev),
+            // Compétences : liste, niveau, lancement, instructeur (voir `app_skills.rs`).
+            WorldEvent::Skill(ev) => self.on_skill_event(ev),
             WorldEvent::Chat {
                 from,
                 message,
@@ -1293,7 +1383,10 @@ impl App {
                 // Filtres des AddOns, fenêtre de discussion, puis événement CHAT_MSG_*.
                 self.addon_chat_received(event, &message, &from);
             }
-            WorldEvent::SystemMessage(m) => self.addon_chat_received("CHAT_MSG_SYSTEM", &m, ""),
+            WorldEvent::SystemMessage(m) => {
+                self.hud.push_system(&m);
+                self.addon_chat_received("CHAT_MSG_SYSTEM", &m, "");
+            }
             WorldEvent::EnteredWorld => {
                 self.leave_login_scene();
                 self.phase = Phase::InWorld;
@@ -1306,10 +1399,30 @@ impl App {
                     self.exec_at = Some(Instant::now() + std::time::Duration::from_millis(1500));
                 }
             }
+            WorldEvent::BuffAdded(buff) => {
+                if self.player.as_ref().is_some_and(|p| p.cid == buff.owner) {
+                    log::info!("amélioration ajoutée : compétence TID {} ({} ms)", buff.skill_tid, buff.duration_ms);
+                    self.hud.add_buff(buff.skill_tid, buff.duration_ms);
+                }
+            }
+            WorldEvent::BuffRemoved { owner, skill_tid } => {
+                if self.player.as_ref().is_some_and(|p| p.cid == owner) {
+                    self.hud.remove_buff(skill_tid);
+                }
+            }
             WorldEvent::Unhandled { packet_type, op } => {
                 log::debug!("paquet non géré 0x{packet_type:02x} op {op:?}")
             }
+            // Extensions ArchRust (0xAC) : accord et messages d'AddOn, voir `app_addons.rs`.
+            ev @ (WorldEvent::ExtensionsReady(_)
+            | WorldEvent::AddonMessage { .. }
+            | WorldEvent::AddonMessageFailed { .. }
+            | WorldEvent::LanguageChanged { .. }
+            | WorldEvent::Texts { .. }) => self.addon_world_event(ev),
+            // Groupes (0x08 / 0x09), voir `app_party.rs`.
+            ev @ (WorldEvent::Party(_) | WorldEvent::PartyManagement(_)) => self.on_party_event(ev),
             WorldEvent::Disconnected(why) => {
+                self.party_reset();
                 self.ui.push_chat(format!("[système] déconnecté : {why}"));
                 self.ui.status = format!("déconnecté : {why}");
                 self.phase = Phase::Login;
@@ -1424,9 +1537,11 @@ impl App {
                 let arg = arg.trim();
                 let line = match arg {
                     "" => format!(
-                        "[système] musique : {} ; ambiance : {} ; usage : /music <chemin>|off|auto",
+                        "[système] musique : {} ; ambiance : {} ; heure du jeu : {} h ({}) ; usage : /music <chemin>|off|auto",
                         self.audio.current_music().unwrap_or("aucune"),
-                        self.audio.current_ambience().unwrap_or("aucune")
+                        self.audio.current_ambience().unwrap_or("aucune"),
+                        self.game_clock.hour(),
+                        if self.game_clock.is_set() { "serveur" } else { "locale" }
                     ),
                     "auto" => {
                         self.music_override = None;
@@ -1483,6 +1598,30 @@ impl App {
                         .push_chat("[système] usage : /goto x y z".to_string());
                 }
             }
+            // /sac [1-5] : ouvre ou ferme l’inventaire, sur le sac donné.
+            "/sac" => match arg.trim().parse::<i16>() {
+                Ok(n) if (1..=5).contains(&n) => {
+                    self.hud.set_inventory_layer(n - 1);
+                    self.ui.show_inventory = true;
+                }
+                _ => self.ui.show_inventory = !self.ui.show_inventory,
+            },
+            "/buff" => {
+                // /buff <TID de compétence> [secondes] : amélioration locale, pour essayer le HUD
+                // (les vraies arrivent du serveur par AGPMSKILL op 4). /buff sans argument : efface.
+                let parts: Vec<u64> = arg.split_whitespace().filter_map(|s| s.parse().ok()).collect();
+                match parts.as_slice() {
+                    [tid, rest @ ..] => {
+                        let secs = rest.first().copied().unwrap_or(60);
+                        self.hud.add_buff(*tid as i32, secs * 1000);
+                        self.ui.push_chat(format!("[système] amélioration locale : compétence {tid}, {secs} s"));
+                    }
+                    [] => {
+                        self.hud.buffs.clear();
+                        self.ui.push_chat("[système] améliorations locales effacées".to_string());
+                    }
+                }
+            }
             "/cam" => {
                 // /cam distance [lacet°] [tangage°] : cadre la caméra orbitale (tests et captures).
                 let parts: Vec<f32> = arg
@@ -1511,6 +1650,23 @@ impl App {
                 }
             }
             "/quit" => self.exit = true,
+            // Combat : /attaquer, /ramasser, /ressusciter (voir `app_combat.rs`).
+            _ if self.combat_slash(cmd, arg) => {}
+            // Objets : /perso, /utiliser, /porter, /ranger, /detruire, /retour (voir `app_items.rs`).
+            _ if self.items_slash(cmd, arg) => {}
+            // PNJ : /parler, /quetes, /prendrequete, /abandonner (voir `app_npc.rs`).
+            _ if self.npc_slash(cmd, arg) => {}
+            // Compétences : /competences, /lancer (voir `app_skills.rs`).
+            _ if self.skills_slash(cmd, arg) => {}
+            // Groupes : /inviter, /accepter, /refuser, /quittergroupe, /exclure, /chef, /groupe.
+            _ if self.party_slash(cmd, arg) => {}
+            // Comme Archonia : une commande inconnue du client part au serveur dans la discussion,
+            // qui traite les commandes MJ (`/create`, `/money`, `/move`… d'ArchCore) ou répond.
+            _ if self.net.is_some() => {
+                if let Some(net) = &self.net {
+                    net.send(Command::Say(text.to_string()));
+                }
+            }
             _ => self
                 .ui
                 .push_chat(format!("[système] commande inconnue : {cmd}")),
@@ -1566,6 +1722,8 @@ impl App {
             if before != p.position {
                 self.camera.target = p.position + Vec3::new(0.0, 100.0, 0.0);
             }
+            let terrain = &self.terrain;
+            self.camera.collide(dt, |x, z| terrain.height_at(x, z));
             let arrived = (p.destination.x - p.position.x).abs() <= 1.0
                 && (p.destination.z - p.position.z).abs() <= 1.0;
             if self.walking && arrived {
@@ -1639,7 +1797,84 @@ impl App {
     }
 
     /// Clic gauche au sol : rayon caméra → terrain, destination du joueur et paquet 0x40.
+    /// Personnage sous le curseur (le plus proche de la caméra), d'après sa silhouette projetée :
+    /// des pieds à environ 1,8 m au-dessus, sur une largeur de la moitié de cette hauteur.
+    /// Tab / Maj+Tab : monstre suivant ou précédent (voir [`crate::targeting`]). Sont exclus
+    /// les joueurs, les PNJ de `npc.ini`, les morts (PV connus à 0) et ce qui est au-delà de
+    /// [`crate::targeting::TAB_RANGE`].
+    fn tab_target(&mut self, reverse: bool) {
+        let (Some(gpu), Some(player)) = (&self.gpu, &self.player) else {
+            return;
+        };
+        let assets = &self.assets;
+        let npcs = self.npc_tids.get_or_insert_with(|| {
+            let Ok(t) = assets.table("ini", "npc.ini") else {
+                return Default::default();
+            };
+            t.sections
+                .iter()
+                .filter_map(|s| s.get("TID")?.trim().parse().ok())
+                .collect()
+        });
+        let (w, h) = (gpu.renderer.config.width as f32, gpu.renderer.config.height as f32);
+        let vp = self.camera.view_proj(gpu.renderer.aspect());
+        let to_screen = |p: Vec3| {
+            let c = vp * p.extend(1.0);
+            (c.w > 1e-3).then(|| (((c.x / c.w) + 1.0) * 0.5 * w, (1.0 - c.y / c.w) * 0.5 * h))
+        };
+        let cands: Vec<_> = self
+            .entities
+            .iter()
+            .filter(|e| !e.is_player && e.cid != player.cid && !npcs.contains(&e.tid))
+            .filter(|e| e.hp.is_none_or(|hp| hp > 0))
+            .filter_map(|e| {
+                let dist = (e.position - player.position).length();
+                (dist <= crate::targeting::TAB_RANGE).then(|| {
+                    // Le serveur ne dit pas encore qui attaque le joueur : pas de bonus « m'attaque ».
+                    crate::targeting::Candidate::new(e.cid, to_screen(e.position + Vec3::new(0.0, 100.0, 0.0)), (w, h), dist, false)
+                })
+            })
+            .collect();
+        let current = self.addons.target_cid();
+        if let Some(cid) = self.tab_history.cycle(cands, current, reverse, std::time::Instant::now()) {
+            self.addons.set_target(Some(cid));
+        }
+    }
+
+    fn entity_under_cursor(&self) -> Option<i32> {
+        let (Some(gpu), Some((cx, cy))) = (&self.gpu, self.last_cursor) else {
+            return None;
+        };
+        let (w, h) = (gpu.renderer.config.width as f32, gpu.renderer.config.height as f32);
+        let vp = self.camera.view_proj(gpu.renderer.aspect());
+        let to_screen = |p: Vec3| {
+            let c = vp * p.extend(1.0);
+            (c.w > 1e-3).then(|| (((c.x / c.w) + 1.0) * 0.5 * w, (1.0 - c.y / c.w) * 0.5 * h, c.w))
+        };
+        let (cx, cy) = (cx as f32, cy as f32);
+        self.entities
+            .iter()
+            .filter_map(|e| {
+                let (fx, fy, depth) = to_screen(e.position)?;
+                let (_, hy, _) = to_screen(e.position + Vec3::new(0.0, 180.0, 0.0))?;
+                let height = (fy - hy).abs().max(24.0);
+                let inside = (cx - fx).abs() <= (height * 0.3).max(14.0) && cy <= fy + 4.0 && cy >= fy - height;
+                inside.then_some((e.cid, depth))
+            })
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(cid, _)| cid)
+    }
+
     fn click_ground(&mut self) {
+        // Mort, objet au sol, attaque de la cible déjà choisie (voir `app_combat.rs`).
+        if self.combat_left_click() {
+            return;
+        }
+        // Clic sur un personnage : il devient la cible, comme dans Archonia, sans déplacement.
+        if let Some(cid) = self.entity_under_cursor() {
+            self.addons.set_target(Some(cid));
+            return;
+        }
         let (Some(gpu), Some((cx, cy)), Some(player)) =
             (&self.gpu, self.last_cursor, self.player.as_ref())
         else {
@@ -1665,6 +1900,8 @@ impl App {
         if let Some(p) = &mut self.player {
             p.destination = hit;
         }
+        // Le joueur se déplace : l'attaque en cours s'arrête.
+        self.combat_interrupt();
         self.walking = true;
         log::debug!("destination {:?} → {:?}", from, hit);
         if let Some(net) = &self.net {
@@ -1685,6 +1922,14 @@ impl App {
             self.fps
         };
         self.poll_net();
+        // Combat : PV des vues, morts, marche vers un objet à ramasser.
+        self.combat_frame();
+        // Équipement porté affiché sur le modèle du joueur (voir `app_items.rs`).
+        self.items_frame();
+        // Approche d'un PNJ, fenêtres fermées en s'éloignant (voir `app_npc.rs`).
+        self.npc_frame();
+        // Demandes des fenêtres de compétences, barre du personnage (voir `app_skills.rs`).
+        self.skills_frame();
 
         // Déplacement clavier (ZQSD / WASD) de la caméra.
         let speed = (self.camera.distance * 0.8 * dt as f32).max(1.0);
@@ -1713,6 +1958,18 @@ impl App {
         let object_distance = self.object_draw_distance();
         self.update_audio(dt as f32);
         self.save_options_if_needed(false);
+        // Fenêtre du groupe (`app_party.rs`) : membres, PV, cible.
+        let party_view = self.party_view();
+        // Combat : chiffres de dégâts, objets au sol, fenêtre de résurrection.
+        let combat_view = self.combat_view();
+        let loot_items = self.combat_draw_items();
+        // Objets portés (fenêtre du personnage, voir `app_items.rs`).
+        let equipped = self.items_equipped();
+        let player_name = self.player.as_ref().map(|p| p.name.clone()).unwrap_or_default();
+        // Fenêtres des PNJ (voir `app_npc.rs`).
+        let npc_views = self.npc_views();
+        // Compétences et barre de raccourcis (voir `app_skills.rs`).
+        let skill_views = self.skills_views();
 
         let Some(gpu) = &mut self.gpu else {
             return Ok(());
@@ -1756,6 +2013,7 @@ impl App {
             .login_screen
             .get_or_insert_with(|| ui::load_login_screen(&ctx))
             .clone();
+        let mut item_requests = Vec::new();
         let full_output = ctx.run(raw_input, |ctx| {
             if phase != Phase::InWorld {
                 // Écran de connexion : image plein écran, panneau de connexion ou de sélection
@@ -1776,10 +2034,28 @@ impl App {
                     ui::login_panel(ctx, &mut self.ui, busy, &mut actions);
                 }
             } else {
+                // HUD d'Archonia (barre du bas, minicarte, améliorations), sous les panneaux.
+                let target = self.addons.target_cid().and_then(|cid| {
+                    self.entities
+                        .iter()
+                        .find(|e| e.cid == cid)
+                        .or(self.player.as_ref().filter(|p| p.cid == cid))
+                        .map(|e| crate::hud::HudTarget { cid, name: e.name.clone(), hp: e.hp, is_player_character: e.is_player })
+                });
+                let hud_scene = crate::hud::HudScene {
+                    target,
+                    player: self.player.as_ref().map(|p| p.position),
+                    camera_forward: {
+                        let f = self.camera.target - self.camera.eye();
+                        Vec3::new(f.x, 0.0, f.z).normalize_or_zero()
+                    },
+                };
+                crate::hud::draw(ctx, &mut self.hud, &self.assets, &hud_scene);
                 // Les panneaux natifs sont des frames pilotables par les AddOns
                 // (`ChatFrame1:Hide()`, `ArchRustInfoFrame:Hide()`…).
                 if self.addons.builtin_frame("ChatFrame1").0 {
-                    ui::chat_panel(ctx, &mut self.ui, &mut actions);
+                    let bar = crate::hud::chat_bar(ctx, &mut self.hud, &self.assets);
+                    ui::chat_panel(ctx, &mut self.ui, &mut actions, bar);
                 }
                 if self.addons.builtin_frame("ArchRustInfoFrame").0 {
                     ui::info_panel(
@@ -1795,6 +2071,17 @@ impl App {
                 if self.addons.builtin_frame("ArchRustInventoryButton").0 {
                     ui::inventory_panel(ctx, &mut self.ui, &inventory);
                 }
+                // Fenêtre d'inventaire d'Archonia (UI_Inventory).
+                crate::hud::draw_inventory(ctx, &mut self.hud, &self.assets, &mut self.ui.show_inventory, &inventory, &mut item_requests);
+                // Fenêtre du personnage d'Archonia (Character_Status) et demandes sur les objets.
+                crate::hud::draw_character(ctx, &mut self.hud, &self.assets, &mut self.item_ui.show_character, &player_name, &equipped, &mut item_requests);
+                // Barre de raccourcis avant les fenêtres d'objets : un objet lâché dessus y reste.
+                skills_glue::panel(ctx, &mut self.skills, &skill_views, &mut self.hud, &self.assets);
+                npc_glue::panel(ctx, &mut self.npc, &npc_views, &mut item_requests, &self.items, &mut self.hud, &self.assets, self.net.as_ref(), &mut self.ui);
+                items_glue::panel(ctx, &mut self.item_ui, std::mem::take(&mut item_requests), &self.items, &mut self.hud, &self.assets, self.net.as_ref(), &mut self.ui);
+                // Groupe : bouton, fenêtre des membres, invitations reçues.
+                party_glue::panel(ctx, &mut self.party, &party_view, self.net.as_ref(), &mut self.ui);
+                combat_glue::panel(ctx, &mut self.combat, &combat_view, &mut self.hud, &self.assets, self.net.as_ref(), &mut self.ui);
                 // Comme dans WoW, l'interface des AddOns n'apparaît qu'en jeu.
                 self.addon_glue
                     .ui
@@ -1805,16 +2092,31 @@ impl App {
                 active: self.audio.is_active(),
                 music: self.audio.current_music().map(str::to_string),
                 ambience: self.audio.current_ambience().map(str::to_string),
-                region: self.zone_region.as_ref().map(|(r, _)| {
+                region: self.zone_region.as_ref().map(|z| {
                     (
-                        *r,
-                        Zones::region_name(&self.assets, *r).unwrap_or_default(),
+                        z.region,
+                        Zones::region_name(&self.assets, z.region).unwrap_or_default(),
                     )
                 }),
             };
-            if ui::options_panel(ctx, &mut self.ui, &mut self.options.audio, &status) {
+            let language_before = self.options.language.clone();
+            if ui::options_panel(
+                ctx,
+                &mut self.ui,
+                &mut self.options.audio,
+                &status,
+                &mut self.options.language,
+            ) {
                 self.audio.set_settings(&self.options.audio);
                 self.options_dirty = true;
+                if self.options.language != language_before {
+                    Self::apply_language_option(
+                        self.net.as_ref(),
+                        self.options.language.as_deref(),
+                        &mut self.ui,
+                        phase == Phase::InWorld,
+                    );
+                }
             }
         });
         gpu.egui_state
@@ -1885,6 +2187,7 @@ impl App {
                 });
             }
         }
+        items.extend(loot_items);
         let view_proj = self.camera.view_proj(gpu.renderer.aspect());
         let eye = self.camera.eye();
         if let Some((_, after)) = &self.config.screenshot {
@@ -1997,7 +2300,11 @@ impl ApplicationHandler for App {
                 let on_addon = self.addon_glue.pointer_captured;
                 match button {
                     MouseButton::Right => {
-                        self.right_drag = state == ElementState::Pressed && !on_addon
+                        self.right_drag = state == ElementState::Pressed && !on_addon;
+                        // Clic droit sans glisser : attaque ou ramassage (voir `app_combat.rs`).
+                        if self.phase == Phase::InWorld && (!on_addon || state == ElementState::Released) {
+                            self.combat_right_button(state == ElementState::Pressed);
+                        }
                     }
                     MouseButton::Middle => {
                         self.middle_drag = state == ElementState::Pressed && !on_addon
@@ -2055,10 +2362,59 @@ impl ApplicationHandler for App {
                     PhysicalKey::Code(KeyCode::KeyS) => self.keys[1] = down,
                     PhysicalKey::Code(KeyCode::KeyA) => self.keys[2] = down,
                     PhysicalKey::Code(KeyCode::KeyD) => self.keys[3] = down,
+                    // I : inventaire (touche par défaut d'ArchLord, non relevée dans UI_Hotkey.ini).
+                    PhysicalKey::Code(KeyCode::KeyI) if down && !event.repeat && self.phase == Phase::InWorld => {
+                        self.ui.show_inventory = !self.ui.show_inventory
+                    }
+                    // C : fenêtre du personnage et de l'équipement (voir `app_items.rs`).
+                    PhysicalKey::Code(KeyCode::KeyC) if down && !event.repeat && self.phase == Phase::InWorld => {
+                        self.item_ui.show_character = !self.item_ui.show_character
+                    }
+                    // K : livre des compétences ; 1 à = : barre de raccourcis (voir `app_skills.rs`).
+                    PhysicalKey::Code(KeyCode::KeyK) if down && !event.repeat && self.phase == Phase::InWorld => {
+                        self.skills.show_book = !self.skills.show_book
+                    }
+                    PhysicalKey::Code(
+                        code @ (KeyCode::Digit1
+                        | KeyCode::Digit2
+                        | KeyCode::Digit3
+                        | KeyCode::Digit4
+                        | KeyCode::Digit5
+                        | KeyCode::Digit6
+                        | KeyCode::Digit7
+                        | KeyCode::Digit8
+                        | KeyCode::Digit9
+                        | KeyCode::Digit0
+                        | KeyCode::Minus
+                        | KeyCode::Equal),
+                    ) if down && !event.repeat && self.phase == Phase::InWorld => {
+                        self.skills_key(code);
+                    }
+                    // L : journal des quêtes (voir `app_npc.rs`).
+                    PhysicalKey::Code(KeyCode::KeyL) if down && !event.repeat && self.phase == Phase::InWorld => {
+                        self.npc_slash("/quetes", "");
+                    }
+                    // Tab / Maj+Tab : « Target Nearest » d'Archonia (`Hotkey=0:15` / `1:15`).
+                    PhysicalKey::Code(KeyCode::Tab) if down && self.phase == Phase::InWorld => {
+                        self.tab_target(self.addon_glue.modifiers.shift_key())
+                    }
+                    // Entrée : saisie de discussion (Archonia). Quand elle a déjà le focus, egui
+                    // consomme la touche et l'événement n'arrive pas ici.
+                    PhysicalKey::Code(KeyCode::Enter | KeyCode::NumpadEnter)
+                        if down && !event.repeat && self.phase == Phase::InWorld =>
+                    {
+                        self.ui.chat_focus = true
+                    }
                     PhysicalKey::Code(KeyCode::Backquote) if down && event.repeat == false => {
                         self.ui.console_open = !self.ui.console_open
                     }
                     // Échap : ferme la console ou les options, sinon ouvre les options.
+                    // F : attaquer la cible ; Espace : ramasser (« Collect item », DIK 57) — `app_combat.rs`.
+                    PhysicalKey::Code(code @ (KeyCode::KeyF | KeyCode::Space))
+                        if down && !event.repeat && self.phase == Phase::InWorld =>
+                    {
+                        self.combat_key(code);
+                    }
                     PhysicalKey::Code(KeyCode::Escape) if down && !event.repeat => {
                         if self.ui.console_open {
                             self.ui.console_open = false;
@@ -2089,20 +2445,3 @@ pub fn run(config: Config) -> Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::combat_hp_line;
-
-    #[test]
-    fn combat_log_reports_hp_loss_heal_and_ignores_unchanged_values() {
-        assert_eq!(
-            combat_hp_line("A", "B", 100, 73).as_deref(),
-            Some("[combat] A → B : -27 PV (reste 73)")
-        );
-        assert_eq!(
-            combat_hp_line("A", "B", 73, 100).as_deref(),
-            Some("[combat] A → B : +27 PV (reste 100)")
-        );
-        assert_eq!(combat_hp_line("A", "B", 100, 100), None);
-    }
-}

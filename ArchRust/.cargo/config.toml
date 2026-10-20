@@ -4,3 +4,8 @@ target = "x86_64-pc-windows-msvc"
 
 [target.x86_64-pc-windows-msvc]
 rustflags = ["-C", "target-cpu=x86-64-v2"]
+
+# rustc déborde de sa pile (STATUS_ACCESS_VIOLATION) en optimisant le binaire release : pile de
+# 256 Mo pour ses fils de compilation (constaté le 2026-10-20).
+[env]
+RUST_MIN_STACK = "268435456"

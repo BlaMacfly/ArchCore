@@ -35,6 +35,9 @@ pub enum AnimType {
     Wait = 0,
     Walk = 1,
     Run = 2,
+    Attack = 3,
+    Hit = 4,
+    Death = 5,
 }
 
 /// Géométrie skinnée d'un clump du client, liée à son maillage GPU.
@@ -250,6 +253,11 @@ pub struct Animator {
     time: f32,
     since_update: f32,
     seed: u32,
+    /// Clip ponctuel en cours (attaque, coup reçu) : joué une fois, puis retour à l'attente ou à la
+    /// course.
+    action: bool,
+    /// Mort : le clip de mort est joué une fois puis sa dernière pose est gardée.
+    dead: bool,
     /// Identité des maillages animés, pour reconstruire l'animateur s'ils changent.
     pub signature: usize,
 }
@@ -282,6 +290,8 @@ impl Animator {
             time: 0.0,
             since_update: f32::MAX,
             seed: seed.max(1),
+            action: false,
+            dead: false,
             signature,
         };
         a.switch(assets, AnimType::Wait as u32);
@@ -337,11 +347,25 @@ impl Animator {
         } else {
             AnimType::Wait
         } as u32;
-        self.switch(assets, wanted);
+        // Un clip ponctuel se termine à sa fin, ou dès que le personnage se remet en marche.
+        if self.action
+            && !self.dead
+            && (moving || self.clip.as_ref().is_none_or(|c| self.time >= c.duration - 2e-3))
+        {
+            self.action = false;
+            self.kind = u32::MAX;
+        }
+        if !self.action && !self.dead {
+            self.switch(assets, wanted);
+        }
         let Some(clip) = self.clip.clone() else {
             return;
         };
         self.time += dt;
+        if self.dead || self.action {
+            // Pose finale gardée (mort) ou clip joué une seule fois (attaque, coup reçu).
+            self.time = self.time.min(clip.duration - 1e-3).max(0.0);
+        }
         if self.time >= clip.duration && self.kind == AnimType::Wait as u32 {
             // Fin d'un cycle d'attente : nouveau tirage parmi les variantes, comme les taux le prévoient.
             self.time -= clip.duration;
@@ -368,6 +392,63 @@ impl Animator {
                 renderer.write_vertices(mesh, &vertices);
             }
         }
+    }
+
+    /// Joue une fois un clip du type `kind` (3 attaque, 4 coup reçu), s'il existe pour ce modèle.
+    /// Un coup reçu n'interrompt pas une attaque en cours ; rien ne se joue sur un mort.
+    pub fn play_once(&mut self, assets: &Assets, kind: AnimType) -> bool {
+        let kind = kind as u32;
+        if self.dead || !self.set.by_type.contains_key(&kind) {
+            return false;
+        }
+        if kind == AnimType::Hit as u32 && self.action && self.kind == AnimType::Attack as u32 {
+            return false;
+        }
+        let roll = self.roll();
+        let Some(clip) = self.set.pick(kind, roll).and_then(|v| load_clip(assets, &v.file)) else {
+            return false;
+        };
+        // Plusieurs variantes d'attaque sans taux : on les alterne d'un coup à l'autre.
+        let clip = match self.set.by_type.get(&kind) {
+            Some(list) if list.len() > 1 && list.iter().all(|v| v.rate == 0) => list
+                .get((roll * list.len() as f32) as usize % list.len())
+                .and_then(|v| load_clip(assets, &v.file))
+                .unwrap_or(clip),
+            _ => clip,
+        };
+        self.kind = kind;
+        self.clip = Some(clip);
+        self.time = 0.0;
+        self.since_update = f32::MAX;
+        self.action = true;
+        true
+    }
+
+    /// Mort (clip de type 5 joué une fois, dernière pose gardée) ou retour à la vie. `at_end` pose
+    /// directement la fin du clip (cadavre déjà à terre quand il entre dans la vue).
+    pub fn set_dead(&mut self, assets: &Assets, dead: bool, at_end: bool) {
+        if dead == self.dead {
+            return;
+        }
+        self.dead = dead;
+        self.action = false;
+        self.since_update = f32::MAX;
+        if dead {
+            let kind = AnimType::Death as u32;
+            let roll = self.roll();
+            if let Some(clip) = self.set.pick(kind, roll).and_then(|v| load_clip(assets, &v.file)) {
+                self.time = if at_end { clip.duration } else { 0.0 };
+                self.clip = Some(clip);
+                self.kind = kind;
+            }
+        } else {
+            self.kind = u32::MAX;
+            self.switch(assets, AnimType::Wait as u32);
+        }
+    }
+
+    pub fn is_dead(&self) -> bool {
+        self.dead
     }
 
     pub fn clip_name(&self) -> Option<&str> {

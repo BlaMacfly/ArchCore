@@ -203,6 +203,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "archcore-net"
+version = "0.2.0"
+source = "git+https://github.com/BlaMacfly/ArchCore?branch=Core#ba4750d0ef55f0a2abeb0e9dfb2e7fd788b7b445"
+dependencies = [
+ "encoding_rs",
+ "md-5",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "archrust"
 version = "0.1.0"
 dependencies = [
@@ -292,6 +302,7 @@ name = "archrust-netclient"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "archcore-net",
  "archrust-crypto",
  "archrust-protocol",
  "env_logger",

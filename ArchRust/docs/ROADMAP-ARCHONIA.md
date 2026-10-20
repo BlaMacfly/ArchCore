@@ -17,7 +17,7 @@ points qui restent à examiner.
 | Rendu | Terrain multi-couches (base + couches fondues par masque, mipmaps), objets du monde (`obj%05d.ini`), modèles RenderWare, PNJ, joueur, personnages animés (attente, course) et tournés vers leur marche, caméra et interface de base | Effets, éclairage, eau, herbe, LOD et animations des objets, fidélité des interfaces |
 | Personnages | Résolution des modèles par `charactertemplateclient.ini`, corps, armure par défaut, visage et cheveux par défaut (`charactertemplatecustomize.ini`), clumps d'équipement de `ItemTemplateAll.ini` | Attachement des pièces au squelette, visage/coiffure des autres joueurs, statistiques et états du personnage |
 | Systèmes de jeu | AddOns Lua, commandes de développement et inventaire AgpmItem nommé | Icônes/options d'objets, compétences, combat, quêtes, groupes, guildes et interactions PNJ |
-| Audio et présentation | Musique de région (`.amf` → `RegionTemplate.ini` → `skyset.ini`), ambiance, effets des packs `.pk`/`sound/ui`, volumes persistés, `PlaySound`/`PlayMusic` des AddOns | Table des ambiances et sons 3D, heure du jeu, kits sonores, vidéos, options graphiques et écrans secondaires |
+| Audio et présentation | Musique et ambiance de région (`.amf` → `RegionTemplate.ini` → `skyset.ini` → jeux d'effets `efffile_set.eff`) à l'heure du jeu (`AGPMTIMER`), effets des packs `.pk`/`sound/ui`, volumes persistés, `PlaySound`/`PlayMusic` des AddOns | Sons 3D des objets, plusieurs ambiances simultanées, zones `AgpmEventNature`, kits sonores, vidéos, options graphiques et écrans secondaires |
 
 Les schémas réseau des 86 modules extraits sont référencés dans
 `../ArchCore/data/re/packet-schemas.json`. ArchRust ne décode actuellement que les paquets utilisés

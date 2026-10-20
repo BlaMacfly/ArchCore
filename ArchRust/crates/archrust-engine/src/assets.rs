@@ -220,6 +220,8 @@ pub struct Assets {
     animations: Mutex<HashMap<String, Arc<EanFile>>>,
     tables: Mutex<HashMap<String, Arc<IniTable>>>,
     models: Mutex<HashMap<String, Arc<PatchedModel>>>,
+    /// Jeux d'effets (`effect/ini/new/efffile_*.eff`), lus à la première demande.
+    effect_sets: Mutex<Option<Arc<archrust_data::EffectSets>>>,
 }
 
 impl Assets {
@@ -282,7 +284,35 @@ impl Assets {
             animations: Mutex::new(HashMap::new()),
             tables: Mutex::new(HashMap::new()),
             models: Mutex::new(HashMap::new()),
+            effect_sets: Mutex::new(None),
         }
+    }
+
+    /// Jeux d'effets du client (`effect/ini/new/efffile_set.eff` + `efffile_var.eff`), en cache.
+    /// Sans client ou sans ces fichiers : table vide (un message de débogage).
+    pub fn effect_sets(&self) -> Arc<archrust_data::EffectSets> {
+        let mut slot = self.effect_sets.lock().unwrap();
+        if let Some(s) = &*slot {
+            return s.clone();
+        }
+        let loaded = (|| -> Result<archrust_data::EffectSets> {
+            let set = self.read_file("effect/ini/new/efffile_set.eff")?;
+            let var = self.read_file("effect/ini/new/efffile_var.eff")?;
+            Ok(archrust_data::EffectSets::parse(&set, &var))
+        })();
+        let sets = match loaded {
+            Ok(s) => {
+                log::debug!("jeux d'effets : {} fiches", s.len());
+                s
+            }
+            Err(e) => {
+                log::debug!("jeux d'effets indisponibles ({e:#}) : table vide");
+                archrust_data::EffectSets::default()
+            }
+        };
+        let sets = Arc::new(sets);
+        *slot = Some(sets.clone());
+        sets
     }
 
     /// Raccourci : client + dossiers `free-assets/` et `patches/` du dépôt.

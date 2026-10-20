@@ -22,8 +22,9 @@ partie du code et des habitudes de WoW se transposent.
 6. [API du jeu](#api-du-jeu)
 7. [Espace `ArchRust` : modifier le client](#espace-archrust--modifier-le-client)
 8. [CVars](#cvars)
-9. [Commandes slash fournies](#commandes-slash-fournies)
-10. [Différences avec WoW](#différences-avec-wow)
+9. [Messages entre joueurs (extensions ArchRust)](#messages-entre-joueurs-extensions-archrust)
+10. [Commandes slash fournies](#commandes-slash-fournies)
+11. [Différences avec WoW](#différences-avec-wow)
 
 ## Structure d'un AddOn
 
@@ -91,11 +92,24 @@ L'interface des AddOns n'apparaît qu'en jeu (pas sur l'écran de connexion).
 | `UNIT_COMBAT` | unité, `"WOUND"`/`"HEAL"`, "", montant, 1 |
 | `COMBAT_LOG_EVENT_UNFILTERED` | — (lire `CombatLogGetCurrentEventInfo()`) |
 | `PLAYER_TARGET_CHANGED` | — |
+| `GROUP_ROSTER_UPDATE`, `GROUP_JOINED`, `GROUP_LEFT`, `PARTY_LEADER_CHANGED`, `PARTY_LOOT_METHOD_CHANGED` | — |
+| `PARTY_INVITE_REQUEST` | nom de l'inviteur |
+| `PLAYER_DEAD`, `PLAYER_ALIVE`, `PLAYER_UNGHOST` | — (mort du joueur, retour à la vie au village) |
+| `PLAYER_REGEN_DISABLED`, `PLAYER_REGEN_ENABLED` | — (début et fin d'une attaque du joueur) |
+| `PLAYER_LEVEL_UP` | nouveau niveau |
+| `PLAYER_XP_UPDATE` | `player` |
+| `PLAYER_MONEY` | — |
+| `CHAT_MSG_LOOT`, `CHAT_MSG_MONEY` | texte (objet ou or ramassé) |
+| `ARCHRUST_LOOT_SPAWNED` | IID, TID, quantité (objet posé au sol) |
+| `ARCHRUST_LOOT_REMOVED` | IID (objet ramassé ou disparu) |
 | `NAME_PLATE_UNIT_ADDED`, `NAME_PLATE_UNIT_REMOVED` | jeton `nameplateN`, GUID |
 | `PLAYER_STARTED_MOVING`, `PLAYER_STOPPED_MOVING` | — |
 | `BAG_UPDATE`, `BAG_UPDATE_DELAYED`, `PLAYER_EQUIPMENT_CHANGED`, `UNIT_INVENTORY_CHANGED` | 0 / — / — / `player` |
 | `CVAR_UPDATE` | nom, valeur |
 | `ARCHRUST_KEY_DOWN` | nom de touche (`F5`, `SHIFT-A`, `ESCAPE`…) |
+| `CHAT_MSG_ADDON` | préfixe, texte, portée, émetteur, destinataire, 0, 0, "", 0, CID de l'émetteur |
+| `ARCHCORE_EXTENSIONS_READY` | logiciel du serveur, version majeure, mineure |
+| `ARCHCORE_ADDON_MESSAGE_FAILED` | préfixe, code, nom du code, numéro de demande |
 
 Un AddOn peut émettre ses propres événements avec `ArchRust.Fire("MON_EVENEMENT", ...)`, ou des
 messages avec AceEvent (`SendMessage`).
@@ -160,11 +174,14 @@ Le client fournit ces bibliothèques ; un AddOn les obtient par LibStub sans les
 | `AceSerializer-3.0` | `Serialize(...)`, `Deserialize(chaîne)` |
 | `LibDataBroker-1.1` | `NewDataObject`, `DataObjectIterator`, rappels `LibDataBroker_AttributeChanged_*` |
 | `LibSharedMedia-3.0` | `Register`, `Fetch`, `List`, `HashTable`, `SetDefault`… (types `font statusbar background border sound`) |
+| `AceComm-3.0` | `RegisterComm(préfixe [, méthode])`, `SendCommMessage(préfixe, texte, portée, cible, prio, rappel, arg)` ; messages longs découpés et recomposés (voir plus bas) |
+| `ChatThrottleLib` (globale) | `ChatThrottleLib:SendAddonMessage(prio, préfixe, texte, portée, cible, file, rappel, arg)`, `:SendChatMessage(…)` ; priorités `ALERT`, `NORMAL`, `BULK` |
 
 Ce sont des implémentations propres à ArchRust qui suivent l'API publique des bibliothèques
 d'origine, chargées à la première demande. Leur version mineure est **0** : si un AddOn livre une
 copie d'origine dans son dossier `libs/` (chargée par son `.toc` ou son `embeds.xml`), c'est elle
-que LibStub garde. AceGUI, AceConfig et AceComm ne sont pas fournis (pas de canal réseau d'AddOns).
+que LibStub garde (ChatThrottleLib est en version 1 : une copie d'origine la remplace). AceGUI et
+AceConfig ne sont pas fournis.
 
 Exemple :
 
@@ -266,13 +283,15 @@ masque la discussion, `ArchRustInfoFrame:Hide()` le panneau d'informations,
 
 ## API du jeu
 
-Jetons d'unité : `player`, `target`, `nameplate1`…`nameplateN` (unités en vue), ou un GUID
+Jetons d'unité : `player`, `target`, `nameplate1`…`nameplateN` (unités en vue), `party1`…`party4`
+(membres du groupe autres que le joueur, connus même hors de vue : nom, niveau, PV), ou un GUID
 (`Player-<cid>`, `Unit-<tid>-<cid>`).
 
 | Domaine | Fonctions |
 |---|---|
 | Unités | `UnitExists`, `UnitName`, `GetUnitName`, `UnitGUID`, `UnitIsPlayer`, `UnitIsUnit`, `UnitIsDead`, `UnitHealth`, `UnitHealthMax` (plus haut observé si le serveur ne le donne pas), `UnitPower`, `UnitPowerMax`, `UnitPowerType`, `UnitLevel`, `UnitClass`, `UnitRace`, `UnitFactionGroup`, `UnitPosition` (x, y, z ArchLord), `UnitDistanceSquared`, `CheckInteractDistance`, `UnitCanAttack`, `UnitIsFriend`, `UnitReaction`, `GetPlayerFacing`, `IsPlayerMoving`, `GetPlayerMapPosition` |
 | Cible (côté client) | `TargetUnit(unité ou nom)`, `TargetNearest`, `ClearTarget` |
+| Groupe (5 membres au plus) | `IsInGroup`, `GetNumGroupMembers` (joueur compris), `GetNumSubgroupMembers`, `UnitInParty`, `UnitIsGroupLeader`, `GetPartyInvitations()` (noms des inviteurs en attente), `InviteUnit(nom ou unité)`, `UninviteUnit`, `PromoteToLeader`, `AcceptGroup`, `DeclineGroup`, `LeaveParty`, `C_PartyInfo.InviteUnit`, `C_PartyInfo.LeaveParty` ; ces demandes passent par les commandes `/inviter`… du client |
 | Discussion | `print`, `SendChatMessage(texte, type)` (les messages tapés passent aussi par elle : accrochable), `DEFAULT_CHAT_FRAME:AddMessage`, `ChatFrame_AddMessageEventFilter(event, filtre)` (masquer ou réécrire les messages reçus), `RunMacroText("/goto …")` |
 | Inventaire | `GetItemInfo(tid ou nom)`, `GetItemCount`, `C_Container.GetContainerNumSlots`, `C_Container.GetContainerItemInfo`, `ArchRust.GetInventory()` |
 | Combat | `CombatLogGetCurrentEventInfo()` → horodatage, `"SWING_DAMAGE"`/`"SPELL_HEAL"`, false, GUID source, nom source, 0, 0, GUID cible, nom cible, 0, 0, montant, PV restants |
@@ -327,9 +346,76 @@ les liste.
 | `nameplateDistance` | `6000` | distance indicative pour les plaques de nom (lue par les AddOns) |
 | `loginMusic` | `sound/bgm/htt_001.mp3` | musique des écrans de connexion, de sélection et de création (vide = silence) |
 | `worldMusic` | `sound/bgm/hft_001.mp3` | musique en jeu quand la région du joueur n'en indique pas (`RegionTemplate.ini` → `skyset.ini`) |
-| `worldAmbience` | `sound/stream/a_cid_d.mp3` | ambiance en jeu (vide = aucune) |
+| `worldAmbience` | `sound/stream/a_cid_d.mp3` | ambiance en jeu quand la région du joueur n'en indique pas (`skyset.ini` `HH_EffectIndex_NN` → jeux d'effets `efffile_set.eff`, selon l'heure du jeu reçue du serveur) ; vide = aucune |
 
 Un AddOn peut aussi créer ses propres CVars (`RegisterCVar`).
+
+## Messages entre joueurs (extensions ArchRust)
+
+Les **extensions ArchRust** sont un protocole défini avec le serveur ArchCore (paquet `0xAC`,
+version 1.0 ; la page « Extensions ArchRust » du wiki d'ArchCore fait foi). Sur chaque connexion (login et monde),
+juste après la poignée de main `0x48`, le client envoie `HELLO` (`ArchRust x.y.z`, capacité
+`addon-msg/1`). Le serveur répond `HELLO_ACK` avec les capacités accordées et ses limites (charge de
+**255 octets**, **20 messages d'un coup puis 10 par seconde**). Le client n'attend pas la réponse ; sans
+`HELLO_ACK` dans les 3 secondes, le serveur est considéré sans extensions et tout fonctionne comme
+avant (seuls les messages d'AddOn sont indisponibles). `ARCHRUST_NO_EXTENSIONS=1` désactive la
+négociation.
+
+```lua
+C_ChatInfo.RegisterAddonMessagePrefix("MonPfx")   -- true, code (Enum.RegisterAddonMessagePrefixResult)
+C_ChatInfo.SendAddonMessage("MonPfx", "texte", "WHISPER", "Nom")  -- 0 = mis en file
+C_ChatInfo.SendAddonMessage("MonPfx", "texte", "SAY")             -- joueurs à portée, soi compris
+
+local f = CreateFrame("Frame")
+f:RegisterEvent("CHAT_MSG_ADDON")
+f:SetScript("OnEvent", function(_, _, prefix, text, channel, sender, target)
+  if prefix == "MonPfx" then print(sender, channel, text) end
+end)
+```
+
+| Fonction | Rôle |
+|---|---|
+| `C_ChatInfo.RegisterAddonMessagePrefix(préfixe)` | n'est remis à l'AddOn que ce qui porte un préfixe enregistré (128 au plus) ; rend `true, code` |
+| `C_ChatInfo.IsAddonMessagePrefixRegistered`, `GetRegisteredAddonMessagePrefixes` | état des préfixes |
+| `C_ChatInfo.SendAddonMessage(préfixe, texte, portée, cible)` | rend un code `Enum.SendAddonMessageResult` (0 = mis en file) ; aussi `SendAddonMessageLogged` et les anciens noms globaux `SendAddonMessage`, `RegisterAddonMessagePrefix` |
+| `C_ArchCore.IsAvailable()` | extensions négociées avec ce serveur ? |
+| `C_ArchCore.GetCapabilities()`, `HasCapability(nom)` | `{ ["addon-msg"] = 1 }` |
+| `C_ArchCore.GetLimits()` | `{ maxPayload = 255, burst = 20, perSecond = 10 }` (ou `nil`) |
+| `C_ArchCore.GetServerSoftware()` | logiciel, version majeure, mineure |
+| `C_ArchCore.GetPendingMessages()`, `GetSentMessages()` | messages en attente d'envoi / envoyés |
+
+- **Préfixe** : 1 à 16 octets ASCII de `!` à `~`, sans espace ; les préfixes `AC.` sont réservés au
+  serveur. **Charge** : 0 à 255 octets, binaire compris. **Portées** : `WHISPER` (cible obligatoire),
+  `SAY` (le rayon de la discussion, l'émetteur reçoit aussi son message) ; `PARTY`, `GUILD`, `RAID`,
+  `CHANNEL` sont transmises mais le serveur répond `NOT_AVAILABLE` pour l'instant.
+- **Codes rendus par `SendAddonMessage`** (valeurs de WoW) : `Success` 0, `InvalidPrefix` 1,
+  `InvalidMessage` 2 (trop long), `AddonMessageThrottle` 3 (file pleine : 256 messages),
+  `InvalidChatType` 4, `TargetRequired` 6, `InvalidChannel` 7, `GeneralError` 9 (serveur sans
+  extensions).
+- **Lissage** : le client envoie au rythme permis par le serveur (seau à jetons, avec une marge) ;
+  les messages en trop attendent dans la file au lieu d'être refusés.
+- **Refus du serveur** : `ARCHCORE_ADDON_MESSAGE_FAILED(préfixe, code, nom)` avec les codes
+  `Enum.ArchCoreResult` : `INVALID_PREFIX`, `MESSAGE_TOO_LONG`, `THROTTLED`, `TARGET_OFFLINE`,
+  `NOT_AVAILABLE`, `NOT_IN_GROUP`, `NOT_ALLOWED` (préfixe `AC.` ou `/chatban`),
+  `TARGET_NO_EXTENSION` (destinataire sur le client d'origine). Un envoi réussi n'est pas confirmé.
+- L'émetteur (`sender`, et son CID en 10ᵉ argument) est renseigné par le serveur : on peut s'y fier.
+
+**AceComm-3.0** s'appuie dessus : `SendCommMessage` découpe les messages de plus de 255 octets
+(marqueurs `` premier morceau, `` suivant, `` dernier, `` échappement, comme la
+bibliothèque d'origine) et `RegisterComm` les recompose. Avec AceSerializer, on échange des tables :
+
+```lua
+local A = LibStub("AceAddon-3.0"):NewAddon("MonAddOn", "AceComm-3.0", "AceSerializer-3.0")
+function A:OnCommReceived(prefix, message, distribution, sender)
+  local ok, data = self:Deserialize(message)
+  if ok then print(sender, data.niveau) end
+end
+A:RegisterComm("MonAddOn")
+A:SendCommMessage("MonAddOn", A:Serialize({ niveau = 12 }), "WHISPER", "Ami")
+```
+
+Exemple complet : `/archace ping [nom]` (AddOn `ArchAce`) envoie un ping en `SAY` ou en murmure ;
+les autres clients ArchRust répondent `PONG` et le délai aller-retour s'affiche.
 
 ## Commandes slash fournies
 
@@ -346,6 +432,9 @@ Un AddOn peut aussi créer ses propres CVars (`RegisterCVar`).
 
 Commandes du client : `/goto x y z`, `/cam distance [lacet°] [tangage°]`, `/music <chemin>|off|auto`
 (musique forcée, coupée ou automatique), `/sound <chemin>` (joue un effet), `/quit`.
+Groupes : `/inviter [nom]` (`/invite` ; sans nom, la cible), `/accepter` et `/refuser` [nom]
+(`/accept`, `/decline` ; sans nom, la dernière invitation), `/quittergroupe` (`/leave`), `/exclure nom`
+(`/kick`) et `/chef nom` (`/promote`) pour le chef, `/groupe` (`/party`) : fenêtre du groupe.
 La console Lua (touche `` ` ``) exécute aussi du code dans l'état des AddOns.
 
 ## Différences avec WoW
@@ -367,4 +456,7 @@ La console Lua (touche `` ` ``) exécute aussi du code dans l'état des AddOns.
 `cargo test -p archrust-addons` charge du Lua : bibliothèques standard et alias, `require` borné,
 cycle de vie Ace3 complet (AceDB, profils, minuteurs, crochets, locales), sérialiseur, LibDataBroker,
 LibSharedMedia, `embeds.xml`, souris (clic, glisser, curseur), événements du monde, et une session
-avec les AddOns d'exemple du dépôt (`tests/sample_addons.rs`).
+avec les AddOns d'exemple du dépôt (`tests/sample_addons.rs`). `tests/addon_messages.rs` simule deux clients
+relayés par un serveur : validation, préfixes, lissage du débit, refus, AceComm en plusieurs morceaux.
+`cargo test -p archrust-netclient` vérifie le paquet `0xAC` et la négociation contre un faux serveur,
+avec et sans extensions.

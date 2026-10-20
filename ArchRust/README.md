@@ -42,13 +42,18 @@ Licence : [GPL-3.0-or-later](LICENSE.md).
 | Patchs HD (`patch.toml`, dossier ou `.ahp`, priorités, motifs) | ✅ textures/modèles/fichiers |
 | Déplacement (clic au sol, `/goto`), hauteur du terrain, paquet 0x40 et arrêt à l'arrivée | ✅ validé avec deux clients sur ArchCore ([capture](docs/captures/deplacement.png)) |
 | Cycle d'entités `CHARACTER` (opérations update/remove/remove-for-view) | ✅ schéma et événements vérifiés sur le code Archonia/ArchCore |
-| Action optimisée 0x41 | 🟡 facteurs et PV affichés ; variation connue au journal ; barres/animations à faire |
-| Inventaire et équipement | 🟡 paquets 0x04 et vues équipées décodés, noms résolus, modèles `d…` chargés ; rendu sur les os à valider |
-| Animations `.ean` (attente, course) | ✅ validées en jeu sur ArchCore (TID 96) ; animations de combat à faire |
+| Action optimisée 0x41 | ✅ demande d'attaque, coups reçus (résultat, dégâts, PV restants), voir « Combat » |
+| Inventaire et équipement (paquets 0x04 : porter, ranger, déplacer, réunir et séparer les piles, utiliser potions et parchemins, détruire, retour d'un aller-retour ; fenêtre du personnage `Character_Status` et ses emplacements, `C` ou `/perso` ; glisser-déposer, clic droit, Maj + clic ; `/utiliser`, `/porter`, `/ranger`, `/detruire`, `/retour`) | ✅ validé sur ArchCore (`examples/items.rs`, client graphique : [capture](docs/captures/personnage.png)) ; glisser-déposer pas encore essayé à la souris ; armes et boucliers pas encore rattachés aux os de la main, donc non affichés sur le joueur |
+| Animations `.ean` (attente, course, attaque, coup reçu, mort) | ✅ validées en jeu sur ArchCore (TID 96 et Ver vert) |
+| HUD d’Archonia (`UI_1024X768.ini`) : PV, PM, expérience, niveau, barre de raccourcis, menus, minicarte, améliorations | ✅ affiché en jeu sur ArchCore ([capture](docs/captures/hud.png)) ; contenu des raccourcis (UI_STATUS) à faire |
+| Fenêtre d’inventaire d’Archonia (`UI_Inventory`) : 5 sacs, icônes `l%07x`, quantités, argent | ✅ affichée en jeu sur ArchCore ([capture](docs/captures/inventaire.png)) ; déplacer et détruire faits (voir « Inventaire et équipement »), vente aux PNJ faite (voir « PNJ ») |
 | Sélection et création de personnage (scène d'origine `LoginSettings.txt` : salle du trône, temples par race, caméras, zoom) | ✅ liste, création race/classe/visage/coiffure/nom, suppression, entrée en jeu, validés sur ArchCore |
 | Orientation et têtes par défaut | ✅ personnages tournés vers leur marche, visage et cheveux skinnés (`character\defaulthead`), validés en jeu (TID 96) |
-| Son (musique de région `RegionTemplate.ini` → `skyset.ini`, ambiance, effets des packs `.pk` et de `sound/ui`, volumes, `PlaySound` des AddOns) | ✅ rodio ; musique de connexion et d'Anchorville, effets validés sur ArchCore ; table des ambiances à identifier |
-| Combat, compétences | ⏳ à faire |
+| Son (musique de région `RegionTemplate.ini` → `skyset.ini`, ambiance, effets des packs `.pk` et de `sound/ui`, volumes, `PlaySound` des AddOns) | ✅ rodio ; musique, ambiance (jeux d'effets `efffile_set.eff`) et heure du jeu validées à Anchorville sur ArchCore, effets des packs aussi |
+| Groupes (paquets 0x08 / 0x09 : invitation, acceptation, refus, départ, exclusion, passage de chef, réglages ; fenêtre du groupe avec PV, `/inviter`…, API de groupe des AddOns) | ✅ validés sur ArchCore avec deux joueurs (client graphique + `examples/party.rs`) |
+| Combat (attaque par clic droit, clic sur la cible, `F` ou `/attaquer` ; barre de PV de la cible, chiffres de dégâts et message par coup ; animations d'attaque, de coup reçu et de mort ; mort et fenêtre `UI_Resurrection` « Ressusciter au village » ; objets au sol avec leur modèle, ramassage par clic, `Espace` ou `/ramasser`, or crédité ; expérience et niveau au HUD ; événements des AddOns `PLAYER_DEAD`, `PLAYER_ALIVE`, `PLAYER_LEVEL_UP`, `CHAT_MSG_LOOT`…) | ✅ validé sur ArchCore contre un Ver vert : victoire, butin ramassé, mort et résurrection au village (client graphique + `examples/combat.rs` ; captures [butin](docs/captures/combat-butin.png), [mort](docs/captures/combat-mort.png)) |
+| PNJ (fonctions du champ 4 de leur vue ; dialogue `UI_NPCDialog` avec `npcdialog.txt` ; boutique `UI_NPCTrade` : achat, quantité, vente après accord ; banque `UI_Bank` : 4 pages, objets et argent ; quêtes `QuestAccept_UI` et journal `QuestMain_UI` (`L`) d'après `questgroup.ini` et `questtemplate.ini` : prise, fin, abandon, progression ; clic sur un PNJ ou `/parler`, `/boutique`, `/banque`, `/quetespnj`, `/quetes`) | ✅ validé sur ArchCore (`examples/npc.rs`, client graphique : captures [boutique](docs/captures/boutique.png), [quêtes](docs/captures/quetes.png)) ; boutons et glisser-déposer pas encore essayés à la souris ; le client français ne décrit qu'une soixantaine de quêtes (les autres s'affichent par leur numéro) |
+| Compétences (liste à l'entrée en jeu, points ; livre `UI_Skill` (`K`, `/competences`) ; instructeur `UI_SkillBuy` d'après la classe enseignée et `SKILL_CONST.txt` : apprendre, améliorer ; lancement sur la cible ou sur soi, délai de relance affiché ; barre de raccourcis de `UI_CharInfo` (touches 1 à =, potions sur 1 et 2) remplie par glisser-déposer, enregistrée par personnage ; `/lancer`, `/instructeur`) | ✅ validé sur ArchCore (`examples/skills.rs`, client graphique : captures [instructeur](docs/captures/instructeur.png), [livre et barre](docs/captures/competences.png)) ; glisser-déposer et clics pas encore essayés à la souris ; compétences héroïques et onglets du livre à faire |
 
 ## Démarrage rapide
 
@@ -89,7 +94,9 @@ dans le dossier `Game` ; il préremplit l'écran de connexion. `--connect utilis
 (sans hôte) se connecte à ce serveur ; un hôte donné à `--connect` reste prioritaire.
 
 L'écran de connexion affiche `crates/archrust-engine/assets/login-screen.png` (« ArchRust — Awakening of the
-Eternal Storm »), intégré à l'exécutable ; comme dans WoW, l'interface des AddOns n'apparaît qu'en jeu.
+Eternal Storm ») et, par-dessus, le panneau illustré `crates/archrust-engine/assets/login-panel.png` : les champs,
+la case « Enregistrer le compte » et les boutons sont posés sur leur dessin. Les deux images sont intégrées à
+l'exécutable ; comme dans WoW, l'interface des AddOns n'apparaît qu'en jeu.
 
 Après la connexion, l'écran de sélection reprend la scène d'Archonia (personnages du compte dans
 la salle du trône, clic pour choisir) ; « Créer un personnage » ouvre la scène de création de la
@@ -119,6 +126,7 @@ addons/HelloArch      AddOn d'exemple (API de base)
 addons/ArchAce        AddOn d'exemple LibStub/Ace3 (cadres d'unité, plaques de nom, thème, options)
 docs/FORMATS.md       formats de fichiers reconstruits
 docs/ROADMAP-ARCHONIA.md jalons de reconstitution du comportement d'Archonia
+docs/REFERENCE-BENILLA.md logiques reprises de benilla (client WoW 1.12.1 en Rust, MIT/Apache), après Archonia
 ```
 
 ## AddOns
@@ -144,6 +152,11 @@ intégrées. L'espace `ArchRust` permet de modifier le client : caméra, couleur
 teinte des modèles, couleurs des fenêtres natives, raccourcis clavier, plaques de nom
 (`ArchRust.WorldToScreen`). Les AddOns se chargent à l'entrée en jeu, comme sous WoW. Pas d'accès
 disque hors des fichiers des AddOns et de leurs SavedVariables.
+
+Avec un serveur ArchCore qui gère les extensions ArchRust (paquet `0xAC`, négocié à chaque connexion), les
+AddOns s'échangent des messages entre joueurs : `C_ChatInfo.SendAddonMessage`, `CHAT_MSG_ADDON`,
+AceComm-3.0 (messages longs découpés) et ChatThrottleLib, avec un débit lissé selon les limites du
+serveur. Sans extensions, le client fonctionne comme avant.
 
 Référence complète : **[docs/ADDONS.md](docs/ADDONS.md)**. Exemple : `addons/ArchAce` (`/archace`).
 
@@ -185,8 +198,11 @@ Le moteur audio (`rodio`, décodage MP3/WAV par Symphonia) joue trois pistes :
   (CVar `loginMusic`) ; en jeu, la musique de la région du joueur d'après les tables du client
   (grille `.amf` du secteur → `RegionTemplate.ini` → `skyset.ini`, par tranche horaire, voir
   [docs/FORMATS.md](docs/FORMATS.md)), sinon `worldMusic` ;
-* **ambiance** : `sound/stream/*.mp3` en boucle (CVar `worldAmbience`, cité de jour par défaut : la
-  table des ambiances n'est pas encore identifiée) ;
+* **ambiance** : `sound/stream/*.mp3` en boucle, d'après les jeux d'effets de la région
+  (`skyset.ini` `HH_EffectIndex_NN` → `effect/ini/new/efffile_set.eff`, par exemple `a_grn_d.mp3`
+  dans la plaine d'Anchorville de jour), sinon la CVar `worldAmbience`. L'heure des tranches est
+  celle du jeu, reçue du serveur (paquet `AGPMTIMER`, heure UTC avec ArchCore), locale sans
+  serveur ; `/music` l'affiche ;
 * **effets** : WAV ponctuels, `sound/ui/<nom>.wav` (pack), `sound/effect/sd0000.wav` (entrée d'un
   `.pk` par `soundpak.info`, ou balayage RIFF pour `effect/mono/`), fichier d'un AddOn.
 

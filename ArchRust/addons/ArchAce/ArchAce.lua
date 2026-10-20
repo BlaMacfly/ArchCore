@@ -8,7 +8,7 @@
 --   * API ArchRust : couleurs de l'interface, CVars de rendu, teinte des modèles, raccourcis.
 local addonName, ns = ...
 
-local ArchAce = LibStub("AceAddon-3.0"):NewAddon(ns, "ArchAce", "AceConsole-3.0", "AceEvent-3.0", "AceTimer-3.0", "AceHook-3.0")
+local ArchAce = LibStub("AceAddon-3.0"):NewAddon(ns, "ArchAce", "AceConsole-3.0", "AceEvent-3.0", "AceTimer-3.0", "AceHook-3.0", "AceComm-3.0", "AceSerializer-3.0")
 local L = LibStub("AceLocale-3.0"):GetLocale("ArchAce")
 _G.ArchAce = ArchAce
 
@@ -74,9 +74,18 @@ function ArchAce:OnEnable()
   end)
   self:CreateUnitFrames()
   self:CreateNameplates()
+  -- Messages entre joueurs (extensions ArchRust) : AceComm + AceSerializer.
+  self:RegisterComm("ArchAce")
+  self:RegisterEvent("ARCHCORE_ADDON_MESSAGE_FAILED")
   self:CreateOptions()
   self:ApplySettings()
   self:Print(L["LOADED"])
+  if C_ArchCore.IsAvailable() then
+    local software = C_ArchCore.GetServerSoftware()
+    self:Print(format(L["EXT_READY"], software))
+  else
+    self:Print(L["EXT_NONE"])
+  end
 end
 
 function ArchAce:PLAYER_ENTERING_WORLD(_, isLogin, isReload)
@@ -158,6 +167,8 @@ function ArchAce:SlashCommand(input)
   elseif cmd == "profile" then
     if args ~= "" then self.db:SetProfile(args) end
     self:Print(format(L["PROFILE"], self.db:GetCurrentProfile()))
+  elseif cmd == "ping" then
+    self:Ping(args)
   elseif cmd == "options" then
     self:OpenOptions()
   elseif cmd == "reset" then
@@ -167,4 +178,36 @@ function ArchAce:SlashCommand(input)
     self:Print(L["HELP"])
   end
   self:SendMessage("ARCHACE_COMMAND", cmd)
+end
+
+-- Ping entre joueurs ArchRust : SAY (tout le monde à portée, soi compris) ou murmure à un nom.
+-- La réponse PONG revient en murmure ; le délai aller-retour est affiché.
+function ArchAce:Ping(target)
+  if not C_ArchCore.IsAvailable() then
+    self:Print(L["EXT_NONE"])
+    return
+  end
+  local payload = self:Serialize({ cmd = "PING", t = GetTimePreciseSec(), from = UnitName("player") })
+  if target ~= "" then
+    self:SendCommMessage("ArchAce", payload, "WHISPER", target)
+  else
+    self:SendCommMessage("ArchAce", payload, "SAY")
+  end
+end
+
+function ArchAce:OnCommReceived(prefix, message, distribution, sender)
+  local ok, data = self:Deserialize(message)
+  if not ok or type(data) ~= "table" then return end
+  if data.cmd == "PING" then
+    self:Print(format(L["PING"], sender, distribution, #message))
+    if sender ~= UnitName("player") then
+      self:SendCommMessage("ArchAce", self:Serialize({ cmd = "PONG", t = data.t }), "WHISPER", sender)
+    end
+  elseif data.cmd == "PONG" and data.t then
+    self:Print(format(L["PONG"], sender, (GetTimePreciseSec() - data.t) * 1000))
+  end
+end
+
+function ArchAce:ARCHCORE_ADDON_MESSAGE_FAILED(_, prefix, result, name)
+  if prefix == "ArchAce" then self:Print(format(L["FAILED"], name or tostring(result))) end
 end

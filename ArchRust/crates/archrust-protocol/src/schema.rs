@@ -76,6 +76,7 @@ pub mod packet_type {
     pub const ITEM: u8 = 0x04;
     pub const SKILL: u8 = 0x05;
     pub const PARTY: u8 = 0x08;
+    pub const PARTY_MANAGEMENT: u8 = 0x09;
     pub const LOGIN: u8 = 0x0d;
     pub const CHATTING: u8 = 0x0f;
     pub const TIMER: u8 = 0x11;
@@ -85,7 +86,12 @@ pub mod packet_type {
     pub const GUILD: u8 = 0x15;
     pub const WORLD: u8 = 0x18;
     pub const RETURN_TO_LOGIN: u8 = 0x2f;
+    pub const EVENT_NPC_TRADE: u8 = 0x32;
+    pub const EVENT_BANK: u8 = 0x36;
+    pub const EVENT_NPC_DIALOG: u8 = 0x37;
+    pub const EVENT_SKILL_MASTER: u8 = 0x3b;
     pub const EVENT_MANAGER: u8 = 0x3c;
+    pub const EVENT_QUEST: u8 = 0x3e;
     pub const OPT_CHAR_MOVE: u8 = 0x40;
     pub const OPT_CHAR_ACTION: u8 = 0x41;
     pub const OPT_VIEW: u8 = 0x42;
@@ -232,9 +238,109 @@ pub mod main {
     // AgpmStartupEncryption — drapeaux 1
     schema!(pub STARTUP_ENCRYPTION = "AGPMSTARTUPENCRYPTION", T::STARTUP_ENCRYPTION, 1, [f!(Int8), f!(MemoryBlock)]);
 
+    // AgpmSkill (0x05) — drapeaux 2 : compétences, lancement, effets actifs (op 4 ajout, 5 retrait).
+    schema!(pub SKILL = "AGPMSKILL", T::SKILL, 2, [
+        f!(Int8),           // 0 opération
+        f!(Int32),          // 1 identifiant de la compétence
+        f!(Packet),         // 2 propriétaire (mini SKILL_BASE)
+        f!(Packet),         // 3 facteurs
+        f!(Int32),          // 4 TID
+        f!(Int8),           // 5 statut
+        f!(Packet),         // 6 action (mini SKILL_ACTION)
+        f!(UInt8),          // 7 points de compétence
+        f!(Packet, 96),     // 8 effets actifs (mini SKILL_BUFF)
+        f!(MemoryBlock),    // 9
+    ]);
+
+    // AgpmParty (0x08) — drapeaux 2 : le groupe (création, membres, réglages du chef).
+    schema!(pub PARTY = "AGPMPARTY", T::PARTY, 2, [
+        f!(Int8),           // 0 opération
+        f!(Int32),          // 1 identifiant du groupe
+        f!(Int8),           // 2 membres au plus
+        f!(Int8),           // 3 nombre de membres
+        f!(Int32),          // 4 CID du membre ajouté ou retiré
+        f!(MemoryBlock),    // 5 liste des CID (u32, chef en tête)
+        f!(Packet),         // 6 facteurs
+        f!(Packet),         // 7 zone d'effet
+        f!(Int8),           // 8 répartition de l'expérience (0 dégâts, 1 niveau)
+        f!(Packet),         // 9 bonus
+        f!(Int8),           // 10 répartition des objets
+    ]);
+
+    // AgpmParty, gestion (0x09) — drapeaux 1 : invitation, réponse, départ, exclusion, chef.
+    schema!(pub PARTY_MANAGEMENT = "AGPMPARTYMANAGEMENT", T::PARTY_MANAGEMENT, 1, [
+        f!(Int8),           // 0 opération
+        f!(Int32),          // 1 CID de l'auteur
+        f!(Int32),          // 2 CID de la cible
+        f!(Char, 49),       // 3 nom
+    ]);
+
+    // ApmEventManager (0x3C) — drapeaux 1 : désignation (mini EVENT_BASE), données de la fonction.
+    // Les fonctions d'un PNJ arrivent ainsi, paquets complets mis bout à bout, au champ 4 de sa vue.
+    schema!(pub EVENT_MANAGER = "APMEVENTMANAGER", T::EVENT_MANAGER, 1, [f!(Packet), f!(Packet)]);
+
+    // AgpmEventNPCDialog (0x37) — drapeaux 1 : op (0 demande, 1 accord), événement, CID du joueur.
+    schema!(pub EVENT_NPC_DIALOG = "AGPMEVENTNPCDIALOG", T::EVENT_NPC_DIALOG, 1, [f!(Int8), f!(Packet), f!(Int32)]);
+
+    // AgcmEventNPCTrade (0x32) — drapeaux 2 : boutique d'un PNJ.
+    schema!(pub EVENT_NPC_TRADE = "AGCMEVENTNPCTRADE", T::EVENT_NPC_TRADE, 2, [
+        f!(Packet),         // 0 événement (EVENT_BASE)
+        f!(Int8),           // 1 opération (0 liste, 1 fin de liste, 2 achat, 3 vente)
+        f!(Int32),          // 2 CID du joueur
+        f!(Int32),          // 3 IID
+        f!(Packet),         // 4 détail (mini NPC_TRADE_DETAIL)
+        f!(Int64),          // 5 horodatage
+        f!(Int32),          // 6 résultat
+        f!(Int8),           // 7 sac visé
+        f!(Int8),           // 8 ligne visée
+        f!(Int8),           // 9 colonne visée
+    ]);
+
+    // AgpmEventBank (0x36) — drapeaux 1 : op (0 demande, 1 accord), événement, CID du joueur.
+    schema!(pub EVENT_BANK = "AGPMEVENTBANK", T::EVENT_BANK, 1, [f!(Int8), f!(Packet), f!(Int32)]);
+
+    // AgpmEventQuest (0x3E) — drapeaux 1 : op, événement, CID, entier.
+    schema!(pub EVENT_QUEST = "AGPMEVENTQUEST", T::EVENT_QUEST, 1, [f!(Int8), f!(Packet), f!(Int32), f!(Int32)]);
+
+    // AgpmQuest (0x13) — drapeaux 2 : quêtes (prise, fin, abandon, journal, progression).
+    schema!(pub QUEST = "AGPMQUEST", T::QUEST, 2, [
+        f!(Int8),           // 0 opération
+        f!(Int32),          // 1 CID
+        f!(Packet),         // 2 événement (EVENT_BASE) du PNJ
+        f!(Packet),         // 3 quête (mini QUEST_INFO)
+        f!(Int32),          // 4 TID de la quête
+        f!(Int32),          // 5
+        f!(Int32),          // 6 résultat (0 refus, 1 réussi)
+        f!(Int32),          // 7 récompense choisie
+        f!(MemoryBlock),    // 8 quêtes terminées (bits, TID 0 à 16 383)
+        f!(MemoryBlock),    // 9 (TID 16 384 à 32 767)
+        f!(MemoryBlock),    // 10 (TID 32 768 à 49 151)
+    ]);
+
+    // AgpmEventSkillMaster (0x3B) — drapeaux 1 : instructeur (ouverture, apprentissage, amélioration).
+    schema!(pub EVENT_SKILL_MASTER = "AGPMEVENTSKILLMASTER", T::EVENT_SKILL_MASTER, 1, [
+        f!(Int8),           // 0 opération (4 ouvrir → 5 ; 1 apprendre → 6 ; 2 améliorer → 3)
+        f!(Packet),         // 1 événement (EVENT_BASE)
+        f!(Int32),          // 2 CID du joueur
+        f!(Int32),          // 3 identifiant de compétence
+        f!(Int32),          // 4 TID de compétence
+        f!(Int8),           // 5 résultat
+        f!(Int8),           // 6 points de compétence
+        f!(Int8),           // 7 réinitialisation consommée
+    ]);
+
     /// Schéma principal d'un type de paquet, s'il est connu.
     pub fn by_id(id: u8) -> Option<&'static Schema> {
         Some(match id {
+            T::EVENT_SKILL_MASTER => EVENT_SKILL_MASTER,
+            T::EVENT_MANAGER => EVENT_MANAGER,
+            T::EVENT_NPC_DIALOG => EVENT_NPC_DIALOG,
+            T::EVENT_NPC_TRADE => EVENT_NPC_TRADE,
+            T::EVENT_BANK => EVENT_BANK,
+            T::EVENT_QUEST => EVENT_QUEST,
+            T::QUEST => QUEST,
+            T::PARTY => PARTY,
+            T::PARTY_MANAGEMENT => PARTY_MANAGEMENT,
             T::CONFIG => CONFIG,
             T::ITEM => ITEM,
             T::CHARACTER => CHARACTER,
@@ -249,6 +355,7 @@ pub mod main {
             T::OPT_CHAR_ACTION => OPT_CHAR_ACTION,
             T::OPT_VIEW => OPT_VIEW,
             T::STARTUP_ENCRYPTION => STARTUP_ENCRYPTION,
+            T::SKILL => SKILL,
             _ => return None,
         })
     }
@@ -259,6 +366,21 @@ pub mod mini {
     use super::*;
 
     schema!(pub LOGIN_SERVER_ADDR = "AGPMLOGIN_SERVER_ADDR", 100, 1, [f!(Char, 23), f!(Char, 23), f!(Char, 23)]);
+
+    // Désignation dans AGPMSKILL (type d'objet, identifiant) — drapeaux 1.
+    schema!(pub SKILL_BASE = "AGPMSKILL_BASE", 150, 1, [f!(Int8), f!(Int32)]);
+    // Action d'une compétence — drapeaux 2 : type (0 demande, 1 lancement, 2 résultat), cible
+    // (SKILL_BASE), facteurs du résultat, position visée, attaque forcée, incantation, durée et relance
+    // (ms), niveau, facteurs à mettre en file, effet supplémentaire, CID des cibles.
+    schema!(pub SKILL_ACTION = "AGPMSKILL_ACTION", 151, 2, [
+        f!(Int8), f!(Packet), f!(Packet), f!(Vec3F), f!(Int8), f!(UInt32), f!(UInt32), f!(UInt32), f!(UInt8), f!(UInt8), f!(UInt32), f!(MemoryBlock),
+    ]);
+    // Données d'un maître des compétences (fonction 25 d'un PNJ) : race et classe enseignées.
+    schema!(pub SKILL_MASTER_DATA = "AGPMEVENTSKILLMASTER_DATA", 153, 1, [f!(Int8), f!(Int8)]);
+    // Effet actif d'une compétence — drapeaux 2 : TID, durée (ms), TID du lanceur, …
+    schema!(pub SKILL_BUFF = "AGPMSKILL_BUFF", 152, 2, [
+        f!(Int32), f!(UInt64), f!(Int32), f!(UInt8), f!(UInt64), f!(MemoryBlock),
+    ]);
 
     schema!(pub LOGIN_CHAR_INFO = "AGPMLOGIN_CHAR_INFO", 101, 2, [
         f!(Int32),          // 0 TID
@@ -342,6 +464,25 @@ pub mod mini {
 
     // Position dans l'inventaire / banque : trois INT16 (ap_item.c).
     schema!(pub ITEM_GRID = "AGPMITEM_INVENTORY", 123, 1, [f!(Int16), f!(Int16), f!(Int16)]);
+
+    // Objet au sol (statut 1) : position, un seul VEC3F (champ 6 d'AGPMITEM).
+    schema!(pub ITEM_FIELD = "AGPMITEM_FIELD", 124, 1, [f!(Vec3F)]);
+
+    // Désignation d'un événement : type de la source (3 personnage), CID du PNJ, identifiant
+    // d'événement, fonction (21 dialogue, 9 boutique, 20 banque, 25 compétences, 27 quêtes).
+    schema!(pub EVENT_BASE = "APMEVENTMANAGER_BASE", 60, 1, [f!(Int8), f!(Int32), f!(Int32), f!(Int32)]);
+
+    // Données d'une fonction réduites à un entier (modèle de dialogue, de boutique, groupe de quêtes).
+    schema!(pub EVENT_DATA_INT32 = "APMEVENT_DATA_INT32", 61, 1, [f!(Int32)]);
+
+    // Détail d'un objet de boutique — drapeaux 2 : TID, prix, quantité, statut, sac, ligne,
+    // colonne, puis trois entiers.
+    schema!(pub NPC_TRADE_DETAIL = "AGCMEVENTNPCTRADE_DETAIL", 125, 2, [
+        f!(Int32), f!(Int32), f!(Int32), f!(Int16), f!(Int16), f!(Int16), f!(Int16), f!(Int32), f!(Int32), f!(Int32),
+    ]);
+
+    // Quête du journal — drapeaux 1 : TID, monstres A et B tués, objectifs remplis, valeur, texte.
+    schema!(pub QUEST_INFO = "AGPMQUEST_INFO", 154, 1, [f!(Int32), f!(Int32), f!(Int32), f!(Int32), f!(Int32), f!(Char, 49)]);
 }
 
 /// Opérations (champ 0) du paquet de connexion (AgpmLogin).
@@ -412,4 +553,28 @@ pub mod character_op {
     pub const UPDATE: i8 = 1;
     pub const REMOVE: i8 = 2;
     pub const REMOVE_FOR_VIEW: i8 = 3;
+    /// Montée de niveau (serveur → clients).
+    pub const LEVEL_UP: i8 = 5;
+    /// Demande de résurrection au village (client → serveur).
+    pub const RESURRECT_TOWN: i8 = 9;
+}
+
+/// Opérations d'AgpmItem utiles au butin.
+pub mod item_op {
+    pub const ADD: u8 = 0;
+    pub const REMOVE: u8 = 1;
+    pub const UPDATE: u8 = 2;
+    /// Demande de ramassage d'un objet au sol (client → serveur, IID au champ 2).
+    pub const PICKUP: u8 = 11;
+    /// Résultat du ramassage (champ 1 : 0 réussi, 1 échec).
+    pub const PICKUP_RESULT: u8 = 12;
+}
+
+/// Statut AgpmItem d'un objet posé au sol.
+pub const ITEM_STATUS_FIELD: i8 = 1;
+
+/// Statut d'action d'un personnage (AGPMCHARACTER champ 11, vue champ 3).
+pub mod action_status {
+    pub const NORMAL: i8 = 0;
+    pub const DEAD: i8 = 2;
 }

@@ -76,6 +76,12 @@ enum Cmd {
     Login {
         #[arg(long, default_value = "127.0.0.1")]
         host: String,
+        /// Port du serveur de connexion.
+        #[arg(long, default_value_t = 11002)]
+        port: u16,
+        /// Langue des textes du serveur (capacité `language/1` des extensions ArchCore : `fr`, `de`…).
+        #[arg(long)]
+        lang: Option<String>,
         #[arg(default_value = "test")]
         user: String,
         #[arg(default_value = "test")]
@@ -217,10 +223,19 @@ fn main() -> Result<()> {
         }),
         Cmd::Login {
             host,
+            port,
+            lang,
             user,
             password,
             character,
-        } => tokio::runtime::Runtime::new()?.block_on(login(&host, &user, &password, &character)),
+        } => tokio::runtime::Runtime::new()?.block_on(login(
+            &host,
+            port,
+            lang.as_deref(),
+            &user,
+            &password,
+            &character,
+        )),
         Cmd::Inspect {
             what: Inspect::Gltf { file },
         } => inspect_gltf(&file),
@@ -311,9 +326,16 @@ fn main() -> Result<()> {
     }
 }
 
-async fn login(host: &str, user: &str, password: &str, character: &str) -> Result<()> {
+async fn login(
+    host: &str,
+    port: u16,
+    lang: Option<&str>,
+    user: &str,
+    password: &str,
+    character: &str,
+) -> Result<()> {
     use archrust_netclient::{LoginClient, WorldClient, WorldEvent};
-    let mut login = LoginClient::connect(host, 11002).await?;
+    let mut login = LoginClient::connect_with(host, port, lang).await?;
     println!(
         "mondes : {}",
         login
@@ -345,14 +367,45 @@ async fn login(host: &str, user: &str, password: &str, character: &str) -> Resul
     login.close().await;
     let mut wc = WorldClient::connect(ticket).await?;
     let events = wc.enter().await?;
-    let seen = events
+    let names: Vec<&str> = events
         .iter()
-        .filter(|e| matches!(e, WorldEvent::CharacterSeen(_)))
-        .count();
+        .filter_map(|e| match e {
+            WorldEvent::CharacterSeen(c) => Some(c.name.as_str()),
+            _ => None,
+        })
+        .collect();
+    if let Some(e) = wc.extensions() {
+        println!(
+            "extensions : {} {}.{} {:?}{}",
+            e.software,
+            e.major,
+            e.minor,
+            e.capabilities,
+            e.language
+                .as_deref()
+                .map(|l| format!(" ; langue {l} parmi {}", e.languages.join(", ")))
+                .unwrap_or_default()
+        );
+    } else {
+        println!("extensions : aucune (serveur sans extensions ArchCore)");
+    }
+    for e in &events {
+        if let WorldEvent::LanguageChanged { language, .. } = e {
+            println!("langue appliquée à l'entrée (langue du compte) : {language}");
+        }
+    }
     println!(
-        "en jeu : cid {}, position {:?}, {seen} entités en vue — flux complet OK",
-        wc.cid, wc.position
+        "en jeu : cid {}, position {:?}, {} entités en vue — flux complet OK",
+        wc.cid,
+        wc.position,
+        names.len()
     );
+    if !names.is_empty() {
+        println!(
+            "  premières entités : {}",
+            names.iter().take(6).cloned().collect::<Vec<_>>().join(", ")
+        );
+    }
     Ok(())
 }
 

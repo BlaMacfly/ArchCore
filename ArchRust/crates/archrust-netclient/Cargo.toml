@@ -8,6 +8,7 @@ description = "Client réseau ArchLord sans affichage : poignée de main, connex
 [dependencies]
 archrust-crypto = { path = "../archrust-crypto" }
 archrust-protocol = { path = "../archrust-protocol" }
+archcore-net = { workspace = true }
 tokio = { workspace = true }
 thiserror = { workspace = true }
 log = { workspace = true }

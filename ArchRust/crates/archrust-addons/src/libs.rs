@@ -21,6 +21,7 @@ pub const BUILTIN: &[(&str, &str)] = &[
     ("AceConsole-3.0", include_str!("lua/libs/AceConsole-3.0.lua")),
     ("AceDB-3.0", include_str!("lua/libs/AceDB-3.0.lua")),
     ("AceHook-3.0", include_str!("lua/libs/AceHook-3.0.lua")),
+    ("AceComm-3.0", include_str!("lua/libs/AceComm-3.0.lua")),
     ("AceLocale-3.0", include_str!("lua/libs/AceLocale-3.0.lua")),
     (
         "AceSerializer-3.0",
@@ -37,6 +38,8 @@ pub const BUILTIN: &[(&str, &str)] = &[
 ];
 
 pub const LIBSTUB: &str = include_str!("lua/libs/LibStub.lua");
+/// ChatThrottleLib : bibliothèque globale (pas LibStub), chargée d'office.
+pub const CHAT_THROTTLE_LIB: &str = include_str!("lua/libs/ChatThrottleLib.lua");
 
 /// Installe LibStub, les chargeurs paresseux (`ArchRust.BuiltinLibraries`) et `package.preload`.
 pub fn install(lua: &Lua) -> mlua::Result<()> {
@@ -62,6 +65,10 @@ pub fn install(lua: &Lua) -> mlua::Result<()> {
         .set_name("=builtin/LibStub")
         .set_mode(ChunkMode::Text)
         .exec()?;
+    lua.load(CHAT_THROTTLE_LIB)
+        .set_name("=builtin/ChatThrottleLib")
+        .set_mode(ChunkMode::Text)
+        .exec()?;
     // require("AceAddon-3.0") → LibStub("AceAddon-3.0") ; require("LibStub") → LibStub.
     let package: Table = g.get("package")?;
     let preload: Table = package.get("preload")?;
@@ -75,6 +82,10 @@ pub fn install(lua: &Lua) -> mlua::Result<()> {
             })?,
         )?;
     }
+    preload.set(
+        "ChatThrottleLib",
+        lua.create_function(|lua, _: Value| lua.globals().get::<Value>("ChatThrottleLib"))?,
+    )?;
     preload.set(
         "LibStub",
         lua.create_function(|lua, _: Value| lua.globals().get::<Value>("LibStub"))?,

@@ -18,6 +18,7 @@
 //! touche qu'au jeu, à ses fichiers et à ses SavedVariables.
 
 pub mod api;
+pub mod comm;
 pub mod frame;
 pub mod libs;
 pub mod lua_env;
@@ -28,8 +29,9 @@ pub mod ui;
 
 pub use manager::{
     AddonError, AddonManager, CameraInfo, EditEvent, HostCommand, HostState, ItemInfo,
-    LoadedAddon, PointerInput, UnitInfo,
+    LoadedAddon, PartyMember, PointerInput, UnitInfo,
 };
+pub use comm::ExtInfo;
 pub use manifest::Manifest;
 pub use ui::{Anchor, FrameKind, FrameNode, TextureSource, UiTree};
 

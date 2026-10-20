@@ -289,6 +289,88 @@ Exemples vérifiés : TID 96 (joueur humain) → `a0000060.ecl` (87 frames, 0 at
 textures suivent la même numérotation (`A00096AA` pour le fichier `a0000096`, c'est-à-dire le
 TID 0x96 = 150). Le chargeur générique du client assemble `"%s%s.%s"` (dossier, nom, extension).
 
+## HUD en jeu (interface Archonia)
+
+Implémenté dans `crates/archrust-engine/src/hud.rs` d'après les fichiers du client et Archonia.exe.
+
+**Fenêtres** — `ini/UI_1024X768.ini` décrit 278 fenêtres AgcmUIManager2. Une section `[Fenêtre]`
+donne `Pos`, `Size`, `Texture=i:nom` et `UIPos=n:x,y`, puis ses contrôles. Chaque contrôle commence
+par `CtrlParent=<nom>` (facultatif) et `CtrlType=<type>:…`, et se place relativement à son parent.
+Types utilisés : 1 image ou texte (`CtrlDisplay`), 3 bouton (textures `…a/b/c/d.png`), 8 grille
+(`Grid=…:écart x:écart y:largeur:hauteur:…:nom`), 9 jauge (`Bar=…:<source> <max> <courant>`),
+16 minicarte. Les images de `texture/ui` sont dessinées au pixel près depuis leur coin haut-gauche,
+sans étirement (jauge PV : image 512 × 16 pour un contrôle de 372 × 11). Positions en 1920 × 1080 :
+`ini/UIPosition_1920x1080.ini`, index 1 (`UI_CharInfo` 448,789 ; `MiniMap` 1746,0).
+
+| Élément | Fenêtre / contrôle | Donnée |
+|---|---|---|
+| PV, PM | `UI_CharInfo` · `CONTROL_HPBar`, `CONTROL_18458` (`CharInfo_HP/MP_Bar.png`) | `FACTOR_POINT` 0/1 sur `FACTOR_POINTMAX` 0/1 |
+| Expérience | `CONTROL_10445` (`CharInfo_EXP_Bar.png`), texte `Exp_현단계_백분율` | `FACTOR_POINT` 3 + 4 << 32 sur `LevelUpExp.txt` |
+| Niveau | `CONTROL_25173` (`현재_레벨`) | `FACTOR_STATUS` 7 |
+| Raccourcis | `CONTROL_GRID_LEFT_0` / `RIGHT_0`, 2 × 5 cases de 50 px, touches 3…7, 8, 9, 0, -, + ; potions 1 et 2 | contenu : module UI_STATUS (0x14), pas encore envoyé par ArchCore |
+| Menus | `MainBtnCharacter`… `MainBtnOption` | — |
+| Minicarte | `MiniMap` · `CONTROL_MINIMAP1` (148 px), `Main_Minimap_Base.png` | voir ci-dessous |
+| Améliorations | rangée sous la minicarte (choix d'ArchRust) | AGPMSKILL op 4/5 |
+
+**Minicarte** — `texture/minimap/map%04d%c.png` (FUN_140702310), une image de 193 px par quart
+`a`…`d` d'une tuile de 16 × 16 secteurs, à 0,0037695 px par unité. Origine d'un quart
+(FUN_140703bf0 et FUN_140703c30) : x0 = (tuile / 100 − 25) × 16 × 6400, plus 51 200 si le bit 0 du
+quart vaut 1 ; z0 = (tuile % 100 − 25) × 16 × 6400, plus 51 200 si quart / 2 ≠ 0. Archonia compose un
+raster de 237 px centré sur le joueur (FUN_1408d5220), affiché dans le contrôle de 148 px et masqué
+par `Main_Minimap_Alpha.png`. Le fond `Main_Minimap_Base.png` a un disque intérieur opaque : il se
+dessine avant la carte. Vérifié en jeu : « Haunted Inn » apparaît au même endroit que dans Archonia.
+
+**Inventaire** — fenêtre `UI_Inventory` (288 × 402, `UIPos=1:810,350`) : fond `INV_BASE.png`, cinq
+sacs `CONTROL_Inven_Layer0…4` (« Bag 1 »…« Bag 5 », `INV_TAB.png` / `INV_TAB_SEL.png`), grille
+`CONTROL_Inventory_Grid` de 258 × 258 (`Grid=0:0:2:2:50:50` : 5 × 5 cases de 50 px, écart 2), argent
+`InventoryMoney` (paquet CHARACTER, champ 8), titre, corbeille, cadenas, boutons « Sell All », « Sell »,
+« Expanded Inventory », « Chantra Bag ». Un objet du sac a le statut 2 et sa case `[sac, ligne,
+colonne]` dans le mini `ITEM_GRID` (champ 7 d'AGPMITEM) ; ArchCore n'utilise que 4 × 4 cases de 4 sacs.
+Icône : colonne `TEXTURE` d'`ItemTemplateAll.ini`, fichier `l%07x` de `texture/item` en hexadécimal
+(vérifié : au-delà de 255, seuls les noms hexadécimaux existent). À l'entrée en jeu, les objets
+arrivent dans le champ 6 de `OPT_VIEW` op 2 sous forme de paquets AGPMITEM complets mis bout à bout
+(forme d'ArchCore, garde `0xD6`) ; le client accepte aussi des mini-paquets préfixés de leur longueur
+u32. ArchCore envoie un second op 2 au champ vide : les objets de chaque op 2 s'**ajoutent** à ceux
+déjà reçus. Ouverture : touche I (défaut d'ArchLord, non relevé dans `UI_Hotkey.ini`), bouton
+« Inventaire » ou `/sac [1-5]`. Fenêtre déplaçable ; seuls la fermeture et les onglets agissent.
+
+**Améliorations** — paquet AGPMSKILL (0x05, drapeaux 2) : 0 opération (4 ajout, 5 retrait),
+1 identifiant de la compétence, 2 porteur (mini `AGPMSKILL_BASE` : type, CID), 8 liste de
+`AGPMSKILL_BUFF` (TID, durée en ms en `u64`, TID du lanceur…). Icône : colonne `SMALL_SKILL_TEXTURE`
+(`Q…`) de `SKILLTEMPLATE.ini`, sinon `SKILL_TEXTURE` (`P…`), dans `texture/skill`. La commande de
+développement `/buff <TID> [secondes]` ajoute une amélioration locale pour essayer l'affichage.
+
+**Cible** — fenêtre `UI_TargetInfo` (339 × 264, haut centre) : cadre `TargetInfo_HP_Bar_Off`, jauge
+`TargetInfo_HP_Bar_On` (contrôle de type 9), icône `TargetInfo_On`, nom `CONTROL_TargetName`. Un clic
+sur un personnage (silhouette projetée : des pieds à 180 unités au-dessus) le cible sans déplacer le
+joueur et déclenche `PLAYER_TARGET_CHANGED` pour les AddOns. Le serveur n'envoie pas le maximum de PV
+des monstres : la jauge rapporte les PV au plus haut PV vu pour ce CID.
+
+**Tab** — dans `UI_1024X768.ini`, la section `[EventMap]` déclare des raccourcis `Hotkey=<mod>:<DIK>`.
+Le premier nombre est le modificateur (0 aucun, 1 Maj), le second un code DirectInput. Ces entrées
+sont reprises dans `UI_Hotkey.ini` (`CustomHotkey42` = 0:15, `CustomHotkey43` = 1:15).
+`Hotkey=0:15` « Target Nearest » appelle `Targeting_FuncAutoTargetingF`, et `Hotkey=1:15` appelle
+`Targeting_FuncAutoTargetingB`. Dans Archonia.exe, ces deux fonctions ne font rien : F rend seulement
+`UIManager != NULL`, B rend 0. ArchRust leur donne la logique de ciblage de benilla
+(`targeting.rs`, voir `REFERENCE-BENILLA.md`) :
+- seuls les monstres à moins de 3 750 unités sont candidats ;
+- ceux visibles à l'écran passent d'abord ;
+- le meilleur score combine l'écart au centre de l'écran et la distance ;
+- les cibles prises dans les 4 dernières secondes sont sautées ;
+- Maj+Tab revient à la cible précédente.
+
+**Messages système** — AGPMSYSTEMMESSAGE : texte orange « [Système] … » aligné à droite vers
+y = 800/1080, dessiné par le code du client comme dans Archonia (pas de fenêtre du fichier
+d'interface) ; 10 s puis 1 s de fondu, huit au plus.
+
+**Discussion** — barre `Chat_Input_Normal` (395 × 25, `UIPosition_1920x1080` : 0, 961) : texture
+`Chat_Input_Normal.png`, saisie posée sans cadre sur le contrôle `Input_Message` (type 16,
+ChattingEdit, 334 × 16 en 53, 5). Les lignes ne sont pas une fenêtre du fichier d'interface :
+ArchRust les dessine au-dessus de la barre (neuf lignes, 520 px de large, ombre portée, voile
+sombre au survol ou pendant la saisie, molette pour remonter). Entrée ouvre la saisie, Entrée
+envoie, Échap la quitte. `Chat_Input_Private` (chuchotement) et `UI_ChatTab_Option` (onglets) ne
+sont pas encore repris.
+
 ## Animations des personnages
 
 Établi sur Archonia.exe (sha256 e9c7609b…) et sur les données réelles du client ; implémenté dans
@@ -394,7 +476,7 @@ Dossier `sound/` du client (lecteur : `crates/archrust-data/src/soundpak.rs`, mo
 | Sous-dossier | Contenu | Format |
 |---|---|---|
 | `bgm/*.mp3` | 64 musiques (`hft_` humains, `oft_` orcs, `eft_` elfes, `nft_`, villes `htt_`/`ott_`/`ett_`/`ntt_`, batailles `bt_`, `cem_`, `ice_`…) | MP3 |
-| `stream/*.mp3` | 65 ambiances par zone et moment (`a_cid_d` cité jour, `_e` soir, `_m` matin, `_n` nuit ; `water_*`, `lightning_*`) | MP3 |
+| `stream/*.mp3` | 65 ambiances par lieu et moment (`a_grn_d` plaine humaine de jour, `_e` aube, `_n` soir, `_m` nuit ; `water_*`, `lightning_*`), choisies par les jeux d'effets de `skyset.ini` (voir « Musique et ambiance de région ») | MP3 |
 | `ui/` | pack `Reference.Dat` + `Data.Dat` : 137 sons d'interface (`block.wav`, `alarm2.wav`…) | WAV PCM |
 | `effect/*.pk`, `effect/mono/*.pk` | WAV mis bout à bout, sans en-tête de pack | WAV PCM 16 bits, 22,05 kHz |
 | `effect/*.wav` | 59 WAV en clair (`mo*`) | WAV PCM |
@@ -422,28 +504,92 @@ de l'index (`effect/mono/*.pk`, 33 packs) se découpent en balayant les en-tête
 `archrust extract sound <son> <sortie.wav>` lisent tout cela ; le `.pk` d'un son s'obtient par
 l'index (nom d'entrée) ou, pour le repli, par le préfixe du nom.
 
-### Musique de région
+### Musique et ambiance de région
 
 `RegionTemplate.ini` (331 régions : `Name`, `ParentIndex`, `Type`, `WorldMap`, `SkySet`,
-`VisibleDistance`…) ne nomme pas de musique ; c'est `skyset.ini` (159 jeux de ciel, section
-`[SkySet]`) qui porte, par tranche horaire, les couleurs du ciel, le brouillard, les effets et
-`HH_BackGroundMusic` (tranches propres à chaque jeu, par exemple `00`, `05`, `07`, `13`, `19`,
-`21` pour le `SkySet` 13 : nom d'un MP3 de `sound/bgm/`, vide = la tranche précédente continue). Chaîne : position → secteur → cellule de la grille `.amf` → région
-(16 bits hauts) → `SkySet` → `HH_BackGroundMusic` de l'heure courante. Vérifié : Anchorville
-(`C325,389`, région 9) → `SkySet` 13 → `HFT_001`/`HFT_006`/`HFT_008.mp3` selon l'heure ; la salle du
-trône de la scène de connexion est la région 22 (`SkySet` 103). L'heure utilisée est l'heure locale
-de la machine ; l'heure du jeu et la table des ambiances (`stream/`) restent à établir (les `SkySet`
-« 엠비언스 » n'ont pas de musique et pointent sans doute vers d'autres champs).
+`VisibleDistance`…) ne nomme ni musique ni ambiance ; c'est `skyset.ini` (159 jeux de ciel,
+section `[SkySet]`, 23 clés par tranche, toutes lues par Archonia avec le format `%02d_…`) qui
+porte, par tranche horaire, les couleurs du ciel, le brouillard, les nuages, la météo et :
+
+* `HH_BackGroundMusic` : nom d'un MP3 de `sound/bgm/` (vide = la tranche précédente continue) ;
+* `HH_EffectIndex_01..05`, `HH_EffectRate_01..05`, `HH_EffectInterval` : jusqu'à cinq **jeux
+  d'effets** (`effect/ini/new/efffile_set.eff`, voir ci-dessous). Au changement de tranche ou de
+  ciel, Archonia (`AgcmSkySet`, fonction `FUN_140581fd0`) arrête les flux en cours puis joue en
+  boucle, depuis `SOUND\STREAM\`, le fichier de chaque effet de type 6 (son) de ces cinq jeux ; les
+  `EffectRate` ne servent qu'au tirage de l'effet visuel (`rand % 100` contre les taux cumulés).
+
+Les six tranches sont les mêmes pour tous les jeux et fixes dans le code : `00` (0–4 h), `05`
+(5–6 h), `07` (7–12 h), `13` (13–17 h), `19` (18–20 h), `21` (21–23 h) ; l'heure vient du temps du
+jeu `(ms / 3 600 000) % 24` entretenu par `AgpmEventNature` à partir du paquet `AGPMTIMER` (champ 1,
+millisecondes, avancé localement), sans correction de fuseau. ArchCore envoie par défaut l'époque Unix
+décalée du fuseau local du serveur (`world.timeZone = "local"` ; `"utc"` pour l'époque UTC brute) :
+l'heure du jeu est donc l'heure locale du serveur, comme sur le serveur coréen d'origine ; sans
+serveur (`play` seul), ArchRust prend l'heure locale de la machine.
+
+Chaîne : position → secteur → cellule de la grille `.amf` → région (16 bits hauts) → `SkySet` →
+tranche de l'heure du jeu → `HH_BackGroundMusic` et `HH_EffectIndex_NN` → sons des jeux d'effets.
+Vérifié : Anchorville (`C325,389`, région 9) → `SkySet` 13 → musique `HFT_001`/`HFT_006`/`HFT_008.mp3`
+et ambiance 3828 « 휴먼-심야 » `A_GRN_M.mp3` (0–6 h), 3825 « 휴먼-새벽 » `A_GRN_E.mp3` (7–12 h),
+3826 « 휴먼-낮 » `A_GRN_D.mp3` (13–17 h), 3827 « 휴먼-저녁 » `A_GRN_N.mp3` (18–23 h) ; vérifié en
+jeu sur ArchCore (région 0 « 라임라이트 북쪽 », même `SkySet` 13) à 7 h en jeu (alors heure UTC) : `hft_008.mp3` et
+`a_grn_e.mp3`. La salle du trône de la scène de connexion est la région 22 (`SkySet` 103). Les `SkySet` « 엠비언스 » (17, 21,
+25, 28) et « Water_* » (29–34, 45) ne sont référencés par aucune région de `RegionTemplate.ini` :
+ils ne portent que des `EffectIndex` et servent sans doute à `AgpmEventNature` (zones d'ambiance
+locales), non traité.
+
+Table des ambiances de `sound/stream/` (jeux 3821–3873, nommés par lieu et moment ; les suffixes
+sont ceux des fichiers : 새벽 aube → `_E`, 낮 jour → `_D`, 저녁 soir → `_N`, 심야 nuit → `_M`) :
+
+| Lieu (jeux) | Fichiers |
+|---|---|
+| 오크 orcs (3821–3824) | `A_CID_E/D/N/M` |
+| 휴먼 humains (3825–3828) | `A_GRN_E/D/N/M` |
+| 고원 plateau (3829–3830) | `A_CLB_D`, `A_CLB_M` |
+| 유적지 ruines (3831–3832) | `A_TOM_D`, `A_TOM_N` |
+| 벼랑지대 falaises (3833–3834) | `A_HIG_D`, `A_HIG_N` |
+| 해안 côte (3835–3838) | `A_WAT_E/D/N/M` |
+| 던전 donjon (3839–3842) | `A_DUN_E/D/N/M` |
+| 엘프1 / 엘프2 elfes (3843–3846, 3851–3854) | `A_EFN_*`, `A_ETN_*` |
+| 광산 mine (3856–3859), 동굴 grotte (3860–3863) | `A_MIN_*`, `A_CAV_D/N/M` (+ `A_CID_E` à l'aube) |
+| météo, foudre (3864–3869) | `AMB_Rain` (absent du client), `A_SNW_M`, `Lightning_00..03` |
+| eau (3806–3807, 3816–3820, 3870) | `OE0000..OE0006`, `WATER_FALL` |
+| zones épiques (3871–3873) | `A_EPIC_00..02` |
+
+`archrust-data/examples/eff_probe.rs <Game> [id]` liste les jeux ayant un son et le bloc d'un jeu.
+
+### Jeux d'effets (`effect/ini/new/*.eff`)
+
+Lecteur : `crates/archrust-data/src/effset.rs`. Deux fichiers en clair, petit-boutistes
+(chargeur `AgcdEffSetMng`, `FUN_1408db350` lit `efffile_set.eff` fiche par fiche) :
+
+```text
+efffile_set.eff : u32 nombre (3 428), puis fiches de 124 octets :
+  u32 id ; char[32] nom (CP949) ; u32, u32, u32 ; 16 octets ; 16 octets ; 24 octets ;
+  u32 nb_bases ; u32 nb_effets ; u32 ; u32 décalage ; u32 taille (bloc dans efffile_var.eff)
+efffile_var.eff : blocs mis bout à bout (bases puis effets, chacun écrit par la méthode virtuelle
+  de son type ; taille propre au type).
+effet son (type 6, 196 octets) : u32 type = 6 ; 52 octets (1 en 0x2c, 1 en 0x32, 2 en 0x38) ;
+  char[128] fichier (`A_GRN_M.mp3`, `OE0000.mp3`, `EA0055.WAV`) ; f32 volume (1,1)
+```
+
+Seuls les effets son sont décodés ; un bloc mêlé à d'autres types est balayé à la recherche de
+noms `*.mp3` (un seul cas : le jeu 49 « WaterFall_Big »). Les autres types d'effets (particules,
+lumières, animations de `effect/clump/` et `effect/animation/`) restent à décoder.
 
 ## Inconnues
 
 * association des équipements `d%07x` aux objets portés ;
-* sons : table des ambiances `sound/stream/` et des sons 3D (quel champ de `skyset.ini` ou de la
-  grille `.amf`) ; sens des 16 bits bas des cellules `.amf` ; rôle des champs `id` et `drapeau` de
-  `soundpak.info` ; `socialsound.ini`, `charactertemplateskillsound.ini`, `ee_move_sound.txt` ;
+* sons : sons 3D des objets et PNJ (jeux d'effets des tables d'objets, `SOUND\EFFECT\`) ;
+  `AgpmEventNature` (zones d'ambiance locales : `SkySet` « 엠비언스 » et « Water_* ») ; lecture
+  simultanée de plusieurs ambiances (ArchRust ne joue que la première des `EffectIndex`) ;
+  `EffectInterval` (toujours 0 dans `skyset.ini`) ; sens des 16 bits bas des cellules `.amf` ;
+  rôle des champs `id` et `drapeau` de `soundpak.info` ; `socialsound.ini`,
+  `charactertemplateskillsound.ini`, `ee_move_sound.txt` ;
+* jeux d'effets : champs non nommés des fiches de `efffile_set.eff` et enregistrements des effets
+  autres que le son dans `efffile_var.eff` ;
 * `.ean` : rôle des blocs `0x29`, `0x2a`, `0x10` et `0x0c` ; animations selon l'arme (`FUN_1404addf0`) ; 74 clés atypiques dans `a058f302.ean` et `a0800500.ean` ;
 * têtes : visage et coiffure des autres joueurs (aucun champ identifié dans la vue optimisée), rôle de `DEFAULT_RENDER_TYPE_*` et de `CUSTOMIZE_REVIEW` ;
 * orientation : angles X/Y du mini-paquet `CHAR_MOVE` de `CHARACTER` (op 1) à l'arrêt, non appliqués ; rotation progressive éventuelle entre deux angles ;
 * texture `R` du secteur (128 × 128, non référencée par les matériaux) et jeu d'UV 5 ; mode de mélange exact des couches dans le pipeline D3D d'Archonia (le mélange par l'alpha du masque est déduit des données) ; secteurs à plus de deux couches ;
-* `world/octree`, `grass`, `water` ; `images/*.bm1` (BMP) ; fichiers `.syj`, `.grp`, `.eff`.
+* `world/octree`, `grass`, `water` ; `images/*.bm1` (BMP) ; fichiers `.syj`, `.grp`.
 * objets du monde : sens de chaque bit des drapeaux AgcmObject (seul `0x10000` = repère est établi, et seulement par les données), niveaux de détail `DFF` au-delà de 0, animations `ANIMATION`/`ANIM_SPEED` ;

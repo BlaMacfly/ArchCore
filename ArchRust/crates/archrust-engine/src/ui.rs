@@ -28,13 +28,42 @@ pub struct UiState {
     pub status: String,
     pub chat_lines: Vec<String>,
     pub chat_input: String,
+    /// Lignes remontées à la molette dans la discussion (0 : les plus récentes).
+    pub chat_scroll: usize,
+    /// Donner le focus à la saisie de discussion à la prochaine image (touche Entrée).
+    pub chat_focus: bool,
     pub console_open: bool,
     pub console_input: String,
     pub show_addons: bool,
     pub show_entities: bool,
     pub show_inventory: bool,
-    /// Fenêtre Options (volumes), ouverte par le bouton « Options » ou la touche Échap.
+    /// Fenêtre Options (volumes, langue), ouverte par le bouton « Options » ou la touche Échap.
     pub show_options: bool,
+    /// Langue appliquée par le serveur et langues qu'il propose (`HELLO_ACK`, `LANGUAGE_ACK`).
+    pub server_language: Option<(String, Vec<String>)>,
+}
+
+/// Langues proposées dans les Options : versions officielles d'ArchLord (Corée 2005, Codemasters
+/// 2006, NHN Japan 2007, Shanda 2006) et client multilingue Webzen de 2010 (allemand, français,
+/// espagnol, portugais). Code BCP 47 et libellé ; voir la page « Traduction » du wiki d'ArchCore.
+pub const LANGUAGES: &[(&str, &str)] = &[
+    ("en", "English"),
+    ("fr", "Français"),
+    ("de", "Deutsch"),
+    ("es", "Español"),
+    ("pt-BR", "Português (Brasil)"),
+    ("ko", "Coréen"),
+    ("ja", "Japonais"),
+    ("zh-CN", "Chinois simplifié"),
+];
+
+/// Libellé d'un code de langue (le code lui-même s'il n'est pas dans la liste).
+pub fn language_label(code: &str) -> String {
+    LANGUAGES
+        .iter()
+        .find(|(c, _)| c.eq_ignore_ascii_case(code))
+        .map(|(c, n)| format!("{n} ({c})"))
+        .unwrap_or_else(|| code.to_string())
 }
 
 impl Default for UiState {
@@ -54,12 +83,15 @@ impl Default for UiState {
             status: String::new(),
             chat_lines: Vec::new(),
             chat_input: String::new(),
+            chat_scroll: 0,
+            chat_focus: false,
             console_open: false,
             console_input: String::new(),
             show_addons: false,
             show_entities: true,
             show_inventory: false,
             show_options: false,
+            server_language: None,
         }
     }
 }
@@ -75,13 +107,14 @@ pub struct AudioStatus {
     pub region: Option<(u16, String)>,
 }
 
-/// Fenêtre Options : volumes de la musique, de l'ambiance et des effets, coupure du son. Rend
-/// `true` si un réglage a changé (l'appelant l'applique et l'enregistre).
+/// Fenêtre Options : volumes de la musique, de l'ambiance et des effets, coupure du son, langue des
+/// textes du serveur. Rend `true` si un réglage a changé (l'appelant l'applique et l'enregistre).
 pub fn options_panel(
     ctx: &egui::Context,
     st: &mut UiState,
     audio: &mut crate::audio::AudioSettings,
     status: &AudioStatus,
+    language: &mut Option<String>,
 ) -> bool {
     if !st.show_options {
         return false;
@@ -137,6 +170,40 @@ pub fn options_panel(
             if let Some((id, name)) = &status.region {
                 ui.small(format!("Région : {name} ({id})"));
             }
+            ui.add_space(8.0);
+            ui.heading("Langue");
+            let selected_label = match language.as_deref() {
+                None => "Automatique".to_string(),
+                Some(code) => language_label(code),
+            };
+            egui::ComboBox::from_id_salt("options-language")
+                .selected_text(selected_label)
+                .show_ui(ui, |ui| {
+                    if ui.selectable_label(language.is_none(), "Automatique").clicked() && language.is_some() {
+                        *language = None;
+                        changed = true;
+                    }
+                    for (code, name) in LANGUAGES {
+                        let selected = language.as_deref() == Some(*code);
+                        if ui.selectable_label(selected, format!("{name} ({code})")).clicked() && !selected {
+                            *language = Some(code.to_string());
+                            changed = true;
+                        }
+                    }
+                });
+            ui.small(
+                "Langue des textes envoyés par le serveur (PNJ, monstres, quêtes…), annoncée à la \
+                 connexion et à chaque changement. Automatique : dernière langue du compte, sinon \
+                 celle du serveur.",
+            );
+            match &st.server_language {
+                Some((applied, list)) => ui.small(format!(
+                    "Serveur : {} ; proposées : {}",
+                    language_label(applied),
+                    list.join(", ")
+                )),
+                None => ui.small("Serveur : inconnu (extensions ArchCore non négociées)"),
+            };
             ui.add_space(4.0);
             ui.small("Enregistré dans saved-variables/options.toml. Échap pour fermer.");
         });
@@ -146,10 +213,12 @@ pub fn options_panel(
     changed
 }
 
-/// Fenêtre d'inventaire alimentée par les paquets AgpmItem reçus du serveur.
+/// Bouton d'inventaire (nombre d'objets du sac) ; il ouvre la fenêtre d'Archonia dessinée par le HUD.
 pub fn inventory_panel(ctx: &egui::Context, st: &mut UiState, items: &[(ItemRecord, String)]) {
+    // À gauche de la minicarte du HUD, sous la ligne du bouton « Groupe ».
+    let (minimap_w, _) = crate::hud::reserved(ctx);
     egui::Area::new(egui::Id::new("inventory-toggle"))
-        .anchor(Align2::RIGHT_TOP, [-10.0, 10.0])
+        .anchor(Align2::RIGHT_TOP, [-10.0 - minimap_w, 40.0])
         .show(ctx, |ui| {
             if ui
                 .button(format!(
@@ -161,45 +230,7 @@ pub fn inventory_panel(ctx: &egui::Context, st: &mut UiState, items: &[(ItemReco
                 st.show_inventory = !st.show_inventory;
             }
         });
-    if !st.show_inventory {
-        return;
-    }
-    egui::Window::new("Inventaire")
-        .open(&mut st.show_inventory)
-        .default_width(300.0)
-        .show(ctx, |ui| {
-            let inventory: Vec<_> = items
-                .iter()
-                .filter(|(i, _)| matches!(i.status, Some(2 | 3)))
-                .collect();
-            if inventory.is_empty() {
-                ui.label("Aucun objet reçu du serveur.");
-            }
-            egui::Grid::new("inventory-grid")
-                .striped(true)
-                .show(ui, |ui| {
-                    ui.strong("Objet");
-                    ui.strong("Qté");
-                    ui.strong("Emplacement");
-                    ui.end_row();
-                    for (item, name) in inventory {
-                        ui.label(format!("{name} (ID {})", item.id));
-                        ui.label(
-                            item.count
-                                .map(|n| n.to_string())
-                                .unwrap_or_else(|| "—".into()),
-                        );
-                        ui.label(match item.status {
-                            Some(3) => "Équipé".into(),
-                            _ => item
-                                .grid
-                                .map(|[tab, row, col]| format!("{tab} / {row} / {col}"))
-                                .unwrap_or_else(|| "—".into()),
-                        });
-                        ui.end_row();
-                    }
-                });
-        });
+    // La fenêtre elle-même est celle d'Archonia (`hud::draw_inventory`).
 }
 
 impl UiState {
@@ -231,7 +262,16 @@ pub struct UiActions {
 /// Ligne de discussion avec les codes couleur WoW (`|cffRRGGBB…|r`) rendus en couleur.
 pub fn colored_job(ui: &egui::Ui, line: &str) -> egui::text::LayoutJob {
     let font = egui::TextStyle::Body.resolve(ui.style());
-    let base = ui.visuals().text_color();
+    colored_job_with(font, ui.visuals().text_color(), ui.available_width(), line)
+}
+
+/// Comme `colored_job`, avec police, couleur par défaut et largeur données.
+pub fn colored_job_with(
+    font: egui::FontId,
+    base: Color32,
+    max_width: f32,
+    line: &str,
+) -> egui::text::LayoutJob {
     let mut job = egui::text::LayoutJob::default();
     for (seg, c) in color_segments(line) {
         let color = c.map_or(base, |c| {
@@ -251,7 +291,7 @@ pub fn colored_job(ui: &egui::Ui, line: &str) -> egui::text::LayoutJob {
             },
         );
     }
-    job.wrap.max_width = ui.available_width();
+    job.wrap.max_width = max_width;
     job
 }
 
@@ -314,8 +354,178 @@ pub fn login_background(ctx: &egui::Context, tex: &egui::TextureHandle) {
         .image(tex.id(), screen, uv, Color32::WHITE);
 }
 
-/// Écran de connexion.
+/// Panneau de connexion illustré (cadre, titre, libellés, champs, case et boutons dessinés),
+/// intégré à l'exécutable. 1710 × 919 px, fond transparent (version rouge et or).
+pub const LOGIN_PANEL_PNG: &[u8] = include_bytes!("../assets/login-panel.png");
+
+/// Zones de l'image du panneau, en pixels de l'image (intérieur des champs et des boutons).
+mod login_layout {
+    pub const SIZE: [f32; 2] = [1710.0, 919.0];
+    pub const HOST: [f32; 4] = [472.0, 272.0, 1110.0, 339.0];
+    pub const PORT: [f32; 4] = [1162.0, 272.0, 1408.0, 339.0];
+    pub const USER: [f32; 4] = [472.0, 377.0, 1600.0, 443.0];
+    pub const PASSWORD: [f32; 4] = [472.0, 480.0, 1600.0, 549.0];
+    pub const REMEMBER: [f32; 4] = [467.0, 588.0, 525.0, 647.0];
+    pub const REMEMBER_LABEL: [f32; 4] = [545.0, 588.0, 1000.0, 647.0];
+    pub const CONNECT: [f32; 4] = [94.0, 694.0, 420.0, 786.0];
+    pub const OPTIONS: [f32; 4] = [467.0, 694.0, 760.0, 786.0];
+    pub const STATUS: [f32; 4] = [800.0, 700.0, 1630.0, 792.0];
+}
+
+/// Texture du panneau de connexion, décodée une fois puis gardée dans la mémoire d'egui.
+fn login_panel_texture(ctx: &egui::Context) -> Option<egui::TextureHandle> {
+    let id = egui::Id::new("archrust-login-panel");
+    if let Some(tex) = ctx.data(|d| d.get_temp::<Option<egui::TextureHandle>>(id)) {
+        return tex;
+    }
+    let tex = match image::load_from_memory(LOGIN_PANEL_PNG) {
+        Ok(img) => {
+            let img = img.to_rgba8();
+            let size = [img.width() as usize, img.height() as usize];
+            let color = egui::ColorImage::from_rgba_unmultiplied(size, img.as_raw());
+            Some(ctx.load_texture("login-panel", color, egui::TextureOptions::LINEAR))
+        }
+        Err(e) => {
+            log::warn!("panneau de connexion : {e}");
+            None
+        }
+    };
+    ctx.data_mut(|d| d.insert_temp(id, tex.clone()));
+    tex
+}
+
+/// Écran de connexion : panneau illustré, ou panneau egui simple si l'image est illisible.
 pub fn login_panel(ctx: &egui::Context, st: &mut UiState, busy: bool, actions: &mut UiActions) {
+    let Some(tex) = login_panel_texture(ctx) else {
+        return login_panel_plain(ctx, st, busy, actions);
+    };
+    let screen = ctx.screen_rect();
+    let [iw, ih] = login_layout::SIZE;
+    // Largeur à l'écran : environ 45 % de la fenêtre, entre 520 et 860 px, en gardant le
+    // panneau sous le logo de l'image de fond.
+    let width = (screen.width() * 0.45).clamp(520.0, 860.0).min(screen.width() - 16.0);
+    let scale = width / iw;
+    let size = egui::vec2(width, ih * scale);
+    let top_left = Pos2::new(
+        screen.center().x - size.x / 2.0,
+        (screen.bottom() - size.y - 40.0).max(screen.top() + 8.0),
+    );
+    let at = |r: [f32; 4]| {
+        egui::Rect::from_min_max(
+            top_left + egui::vec2(r[0], r[1]) * scale,
+            top_left + egui::vec2(r[2], r[3]) * scale,
+        )
+    };
+    egui::Area::new(egui::Id::new("login-panel-area"))
+        .fixed_pos(top_left)
+        .order(egui::Order::Middle)
+        .show(ctx, |ui| {
+            ui.set_min_size(size);
+            let painter = ui.painter();
+            painter.image(
+                tex.id(),
+                egui::Rect::from_min_size(top_left, size),
+                egui::Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+                Color32::WHITE,
+            );
+            let font = egui::FontId::proportional((at(login_layout::USER).height() * 0.62).max(13.0));
+            let field = |ui: &mut egui::Ui, rect: egui::Rect, text: &mut String, password: bool| {
+                let margin = egui::vec2(rect.height() * 0.25, (rect.height() - font.size * 1.25) / 2.0);
+                ui.put(
+                    rect,
+                    egui::TextEdit::singleline(text)
+                        .frame(false)
+                        .password(password)
+                        .font(font.clone())
+                        .text_color(Color32::from_rgb(235, 240, 250))
+                        .margin(margin.max(egui::Vec2::ZERO))
+                        .desired_width(rect.width()),
+                )
+            };
+            field(ui, at(login_layout::HOST), &mut st.host, false);
+            field(ui, at(login_layout::PORT), &mut st.port, false);
+            field(ui, at(login_layout::USER), &mut st.user, false);
+            let pw = field(ui, at(login_layout::PASSWORD), &mut st.password, true);
+            if pw.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) && !busy {
+                actions.connect = true;
+            }
+
+            // Case « Enregistrer le compte » : la case et son libellé dessinés sont cliquables.
+            let check = at(login_layout::REMEMBER);
+            let check_zone = check.union(at(login_layout::REMEMBER_LABEL));
+            let r = ui
+                .interact(check_zone, egui::Id::new("login-remember"), egui::Sense::click())
+                .on_hover_text(
+                    "Mémorise identifiant, mot de passe et personnage, chiffrés pour votre session \
+                     Windows (saved-variables/compte.dat). Décocher pour les oublier.",
+                );
+            if r.clicked() {
+                st.remember = !st.remember;
+            }
+            if st.remember {
+                ui.painter().text(
+                    check.center(),
+                    Align2::CENTER_CENTER,
+                    "✔",
+                    egui::FontId::proportional(check.height() * 0.8),
+                    Color32::from_rgb(120, 200, 255),
+                );
+            }
+            if r.hovered() {
+                ui.painter().rect_filled(check, 3.0, Color32::from_white_alpha(18));
+            }
+
+            // Boutons dessinés : zone cliquable, reflet au survol, voile quand indisponible.
+            let button = |ui: &mut egui::Ui, rect: egui::Rect, id: &str, enabled: bool| -> bool {
+                let sense = if enabled { egui::Sense::click() } else { egui::Sense::hover() };
+                let r = ui.interact(rect, egui::Id::new(id), sense);
+                let rounding = rect.height() * 0.12;
+                if !enabled {
+                    ui.painter().rect_filled(rect, rounding, Color32::from_black_alpha(110));
+                } else if r.is_pointer_button_down_on() {
+                    ui.painter().rect_filled(rect, rounding, Color32::from_black_alpha(50));
+                } else if r.hovered() {
+                    ui.painter().rect_filled(rect, rounding, Color32::from_white_alpha(28));
+                }
+                enabled && r.clicked()
+            };
+            if button(ui, at(login_layout::CONNECT), "login-connect", !busy) {
+                actions.connect = true;
+            }
+            if button(ui, at(login_layout::OPTIONS), "login-options", true) {
+                st.show_options = !st.show_options;
+            }
+
+            // État de la connexion, à droite des boutons.
+            let status_rect = at(login_layout::STATUS);
+            let status_font = egui::FontId::proportional((font.size * 0.8).max(11.0));
+            if busy {
+                let spin = egui::Rect::from_center_size(
+                    Pos2::new(status_rect.left() + status_rect.height() * 0.4, status_rect.center().y),
+                    egui::vec2(status_rect.height() * 0.45, status_rect.height() * 0.45),
+                );
+                ui.put(spin, egui::Spinner::new());
+            }
+            if !st.status.is_empty() {
+                let color = if st.status.starts_with("erreur") {
+                    Color32::from_rgb(255, 140, 120)
+                } else {
+                    Color32::from_rgb(210, 220, 235)
+                };
+                let left = if busy { status_rect.left() + status_rect.height() * 0.8 } else { status_rect.left() };
+                ui.painter().text(
+                    Pos2::new(left, status_rect.center().y),
+                    Align2::LEFT_CENTER,
+                    &st.status,
+                    status_font,
+                    color,
+                );
+            }
+        });
+}
+
+/// Panneau de connexion egui simple (secours si l'image du panneau est illisible).
+fn login_panel_plain(ctx: &egui::Context, st: &mut UiState, busy: bool, actions: &mut UiActions) {
     let frame = egui::Frame::window(&ctx.style())
         .fill(Color32::from_rgba_unmultiplied(12, 8, 6, 225))
         .stroke(Stroke::new(1.5_f32, Color32::from_rgb(200, 90, 30)))
@@ -668,9 +878,26 @@ pub fn character_create_panel(
 }
 
 /// Fenêtre de discussion + saisie (commandes `/` incluses).
-pub fn chat_panel(ctx: &egui::Context, st: &mut UiState, actions: &mut UiActions) {
+///
+/// Avec la barre `Chat_Input_Normal` d'Archonia (`bar`), la saisie se pose sans cadre sur son
+/// contrôle `Input_Message` et les lignes sont dessinées au-dessus, sans fenêtre, avec une ombre ;
+/// un voile sombre apparaît quand la souris les survole ou qu'on écrit. Entrée ouvre la saisie,
+/// Entrée envoie, Échap la quitte, la molette remonte l'historique. Sans données d'interface,
+/// une fenêtre egui la remplace.
+pub fn chat_panel(
+    ctx: &egui::Context,
+    st: &mut UiState,
+    actions: &mut UiActions,
+    bar: Option<crate::hud::ChatBar>,
+) {
+    if let Some(bar) = bar {
+        archonia_chat(ctx, st, actions, &bar);
+        return;
+    }
+    // Au-dessus de la barre du bas du HUD.
+    let (_, bar_h) = crate::hud::reserved(ctx);
     egui::Window::new("Discussion")
-        .anchor(Align2::LEFT_BOTTOM, [10.0, -10.0])
+        .anchor(Align2::LEFT_BOTTOM, [10.0, -10.0 - bar_h])
         .default_width(420.0)
         .default_height(180.0)
         .resizable(true)
@@ -694,6 +921,98 @@ pub fn chat_panel(ctx: &egui::Context, st: &mut UiState, actions: &mut UiActions
             {
                 actions.chat = Some(std::mem::take(&mut st.chat_input));
                 resp.request_focus();
+            }
+        });
+}
+
+fn archonia_chat(
+    ctx: &egui::Context,
+    st: &mut UiState,
+    actions: &mut UiActions,
+    bar: &crate::hud::ChatBar,
+) {
+    const VISIBLE_LINES: f32 = 9.0;
+    let s = bar.scale;
+    let font = egui::FontId::proportional((12.0 * s).max(10.0));
+    let line_h = font.size + 3.0;
+    let bottom = bar.window.top() - 4.0 * s;
+    let lines_rect = egui::Rect::from_min_max(
+        egui::Pos2::new(bar.window.left() + 4.0 * s, bottom - VISIBLE_LINES * line_h - 4.0),
+        egui::Pos2::new(bar.window.left() + (520.0 * s).max(bar.window.width()), bottom),
+    );
+    let edit_id = egui::Id::new("archonia-chat-edit");
+    let typing = ctx.memory(|m| m.has_focus(edit_id));
+    let hovered = ctx
+        .pointer_hover_pos()
+        .is_some_and(|p| lines_rect.contains(p));
+    if hovered {
+        let dy = ctx.input(|i| i.raw_scroll_delta.y);
+        if dy != 0.0 {
+            let steps = ((dy.abs() / 16.0).round() as isize).max(1) * dy.signum() as isize;
+            let max = st.chat_lines.len().saturating_sub(1) as isize;
+            st.chat_scroll = (st.chat_scroll as isize + steps).clamp(0, max) as usize;
+        }
+    }
+    st.chat_scroll = st.chat_scroll.min(st.chat_lines.len().saturating_sub(1));
+    let painter = ctx.layer_painter(egui::LayerId::new(
+        egui::Order::Background,
+        egui::Id::new("archonia-chat-lines"),
+    ));
+    if hovered || typing {
+        painter.rect_filled(lines_rect.expand(2.0), 3.0, Color32::from_black_alpha(110));
+    }
+    let end = st.chat_lines.len() - st.chat_scroll.min(st.chat_lines.len());
+    let mut y = bottom - 2.0;
+    for l in st.chat_lines[..end].iter().rev() {
+        let job = colored_job_with(
+            font.clone(),
+            Color32::from_rgb(235, 235, 235),
+            lines_rect.width() - 6.0,
+            l,
+        );
+        let galley = ctx.fonts(|f| f.layout_job(job));
+        y -= galley.size().y + 1.0;
+        if y < lines_rect.top() {
+            break;
+        }
+        let pos = egui::Pos2::new(lines_rect.left() + 3.0, y);
+        painter.galley_with_override_text_color(
+            pos + egui::Vec2::splat(1.0),
+            galley.clone(),
+            Color32::from_black_alpha(210),
+        );
+        painter.galley(pos, galley, Color32::WHITE);
+    }
+    if st.chat_scroll > 0 {
+        painter.text(
+            egui::Pos2::new(lines_rect.right() - 4.0, bottom - 2.0),
+            Align2::RIGHT_BOTTOM,
+            format!("▼ {}", st.chat_scroll),
+            egui::FontId::proportional(font.size * 0.9),
+            Color32::from_rgb(255, 210, 120),
+        );
+    }
+    egui::Area::new(egui::Id::new("archonia-chat-input"))
+        .fixed_pos(bar.input.min)
+        .order(egui::Order::Middle)
+        .show(ctx, |ui| {
+            let resp = ui.add_sized(
+                bar.input.size(),
+                egui::TextEdit::singleline(&mut st.chat_input)
+                    .id(edit_id)
+                    .frame(false)
+                    .font(font.clone())
+                    .text_color(Color32::WHITE)
+                    .hint_text(if typing { "" } else { "Entrée pour écrire" }),
+            );
+            if std::mem::take(&mut st.chat_focus) {
+                resp.request_focus();
+            }
+            if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                if !st.chat_input.trim().is_empty() {
+                    actions.chat = Some(std::mem::take(&mut st.chat_input));
+                }
+                st.chat_scroll = 0;
             }
         });
 }

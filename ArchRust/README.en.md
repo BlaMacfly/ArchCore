@@ -39,13 +39,18 @@ and the [ArchCore](https://github.com/BlaMacfly/ArchCore) server emulator. This 
 | Lua AddOns (`.toc`, frames, events, slash commands, timers, SavedVariables, LibStub + Ace3, extended API) | ✅ see [docs/ADDONS.en.md](docs/ADDONS.en.md) |
 | HD patches (`patch.toml`, folder or `.ahp`, priorities, patterns) | ✅ textures/models/files |
 | Movement (click to walk, `/goto`), terrain height, packet 0x40 and stop on arrival | ✅ verified with two clients on ArchCore ([screenshot](docs/captures/deplacement.png)) |
-| Optimized action 0x41 | 🟡 factors/HP decoded; known HP changes appear in combat log; bars/animations remain |
-| Inventory and equipment | 🟡 0x04 and equipped views decoded, names resolved, `d…` models loaded; rig attachment remains unverified |
-| `.ean` animations (idle, run) | ✅ verified in game on ArchCore (TID 96); combat animations remain |
+| Optimized action 0x41 | ✅ attack request, received hits (result, damage, remaining HP), see “Combat” |
+| Inventory and equipment (0x04 packets: wear, take off, move, merge and split stacks, use potions and scrolls, destroy, round-trip return; Archonia character window `Character_Status` and its slots, `C` or `/perso`; drag and drop, right click, Shift + click; `/utiliser`, `/porter`, `/ranger`, `/detruire`, `/retour`) | ✅ verified on ArchCore (`examples/items.rs`, graphical client: [screenshot](docs/captures/personnage.png)); drag and drop not yet tried with the mouse; weapons and shields are not yet attached to the hand bones, so they are not drawn on the player |
+| `.ean` animations (idle, run, attack, hit, death) | ✅ verified in game on ArchCore (TID 96 and Green Worm) |
+| Archonia HUD (`UI_1024X768.ini`): HP, MP, experience, level, quick bar, menus, minimap, buffs | ✅ shown in game on ArchCore ([screenshot](docs/captures/hud.png)); quick bar contents (UI_STATUS) remain |
+| Archonia inventory window (`UI_Inventory`): 5 bags, `l%07x` icons, stack counts, money | ✅ shown in game on ArchCore ([screenshot](docs/captures/inventaire.png)); moving and destroying done (see “Inventory and equipment”), selling to NPCs done (see “NPCs”) |
 | Character selection and creation (original `LoginSettings.txt` scene: throne room, race temples, cameras, zoom) | ✅ list, race/class/face/hair/name creation, deletion, entering the world, verified on ArchCore |
 | Facing and default heads | ✅ characters face their walking direction, skinned face and hair (`character\defaulthead`), verified in game (TID 96) |
-| Sound (region music `RegionTemplate.ini` → `skyset.ini`, ambience, effects from `.pk` packs and `sound/ui`, volumes, AddOn `PlaySound`) | ✅ rodio; login and Anchorville music, effects verified on ArchCore; ambience table still to identify |
-| Combat, skills | ⏳ to do |
+| Sound (region music `RegionTemplate.ini` → `skyset.ini`, ambience, effects from `.pk` packs and `sound/ui`, volumes, AddOn `PlaySound`) | ✅ rodio; music, ambience (`efffile_set.eff` effect sets) and game hour verified at Anchorville on ArchCore, pack effects too |
+| Parties (packets 0x08 / 0x09: invite, accept, decline, leave, kick, leader hand-over, settings; party window with HP, `/invite`…, AddOn party API) | ✅ verified on ArchCore with two players (graphical client + `examples/party.rs`) |
+| Combat (attack with right click, click on the current target, `F` or `/attack`; target HP bar, damage numbers and a message per hit; attack, hit and death animations; death and `UI_Resurrection` “Revive in town” window; ground items with their model, pick-up by click, `Space` or `/loot`, gold credited; experience and level in the HUD; AddOn events `PLAYER_DEAD`, `PLAYER_ALIVE`, `PLAYER_LEVEL_UP`, `CHAT_MSG_LOOT`…) | ✅ verified on ArchCore against a Green Worm: kill, loot picked up, death and town resurrection (graphical client + `examples/combat.rs`; screenshots [loot](docs/captures/combat-butin.png), [death](docs/captures/combat-mort.png)) |
+| NPCs (functions from field 4 of their view; `UI_NPCDialog` dialog with `npcdialog.txt`; `UI_NPCTrade` shop: buying, quantity, selling after confirmation; `UI_Bank` bank: 4 pages, items and money; NPC quests `QuestAccept_UI` and `QuestMain_UI` journal (`L`) from `questgroup.ini` and `questtemplate.ini`: accept, complete, abandon, progress; click an NPC or `/parler`, `/boutique`, `/banque`, `/quetespnj`, `/quetes`) | ✅ verified on ArchCore (`examples/npc.rs`, graphical client: [shop](docs/captures/boutique.png), [quests](docs/captures/quetes.png) screenshots); buttons and drag and drop not yet tried with the mouse; the French client only describes about sixty quests (the others show their number) |
+| Skills (list on entering the world, points; `UI_Skill` book (`K`, `/competences`); `UI_SkillBuy` trainer from the taught class and `SKILL_CONST.txt`: learn, upgrade; casting on the target or on oneself, cooldown shown; `UI_CharInfo` shortcut bar (keys 1 to =, potions on 1 and 2) filled by drag and drop, saved per character; `/lancer`, `/instructeur`) | ✅ verified on ArchCore (`examples/skills.rs`, graphical client: [trainer](docs/captures/instructeur.png), [book and bar](docs/captures/competences.png) screenshots); drag and drop and clicks not yet tried with the mouse; heroic skills and book tabs remain |
 
 ## Quick start
 
@@ -86,7 +91,9 @@ folder; it pre-fills the login screen. `--connect user:pass@/character` (no host
 server; a host given to `--connect` still takes precedence.
 
 The login screen shows `crates/archrust-engine/assets/login-screen.png` ("ArchRust — Awakening of the
-Eternal Storm"), embedded in the executable; as in WoW, AddOn UI only appears in game.
+Eternal Storm") with the illustrated panel `crates/archrust-engine/assets/login-panel.png` on top: the fields,
+the "Remember account" box and the buttons sit on their artwork. Both images are embedded in the executable;
+as in WoW, AddOn UI only appears in game.
 
 After login, the selection screen uses Archonia's scene (account characters in the throne room,
 click to pick); "Créer un personnage" opens the chosen race's creation scene. For tests:
@@ -140,6 +147,11 @@ client: camera, sky colour and lighting, model tints, native window colours, key
 nameplates (`ArchRust.WorldToScreen`). AddOns load when entering the world, as in WoW. No disk access
 beyond the AddOns' own files and SavedVariables.
 
+With an ArchCore server that supports the ArchRust extensions (packet `0xAC`, negotiated on each connection),
+AddOns exchange messages between players: `C_ChatInfo.SendAddonMessage`, `CHAT_MSG_ADDON`, AceComm-3.0
+(long messages split) and ChatThrottleLib, with sending paced to the server's limits. Without
+extensions the client works as before.
+
 Full reference: **[docs/ADDONS.en.md](docs/ADDONS.en.md)**. Sample: `addons/ArchAce` (`/archace`).
 
 ## HD patches
@@ -180,8 +192,10 @@ The audio engine (`rodio`, MP3/WAV decoding by Symphonia) plays three tracks:
   `loginMusic`); in game, the music of the player's region from the client tables (sector `.amf`
   grid → `RegionTemplate.ini` → `skyset.ini`, per time slot, see [docs/FORMATS.md](docs/FORMATS.md),
   in French), else `worldMusic`;
-* **ambience**: looped `sound/stream/*.mp3` (CVar `worldAmbience`, city by day as default: the
-  ambience table has not been identified yet);
+* **ambience**: looped `sound/stream/*.mp3` from the region's effect sets (`skyset.ini`
+  `HH_EffectIndex_NN` → `effect/ini/new/efffile_set.eff`, e.g. `a_grn_d.mp3` on the Anchorville
+  plain by day), else the `worldAmbience` CVar. Time slots use the game hour sent by the server
+  (`AGPMTIMER` packet, UTC with ArchCore), the local hour without a server; `/music` shows it;
 * **effects**: one-shot WAVs, `sound/ui/<name>.wav` (pack), `sound/effect/sd0000.wav` (entry of a
   `.pk` through `soundpak.info`, or RIFF scan for `effect/mono/`), or an AddOn file.
 

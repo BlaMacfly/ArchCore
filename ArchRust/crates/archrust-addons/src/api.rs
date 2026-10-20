@@ -63,6 +63,17 @@ pub fn resolve_unit(s: &SharedState, token: &str) -> Option<(UnitInfo, bool)> {
             .iter()
             .find(|u| u.cid == cid)
             .cloned()
+            .or_else(|| {
+                // Membre du groupe hors de vue : nom, niveau et PV connus par le groupe.
+                s.host.party.iter().find(|m| m.cid == cid).map(|m| UnitInfo {
+                    cid: m.cid,
+                    name: m.name.clone(),
+                    level: m.level.unwrap_or(0),
+                    hp: m.hp,
+                    hp_max: m.hp_max,
+                    ..Default::default()
+                })
+            })
             .map(|u| (u, false))
     };
     match t.as_str() {
@@ -70,6 +81,18 @@ pub fn resolve_unit(s: &SharedState, token: &str) -> Option<(UnitInfo, bool)> {
         "target" => s.host.target.and_then(by_cid),
         "" | "none" => None,
         _ => {
+            // partyN : N-ième membre du groupe autre que le joueur.
+            if let Some(n) = t.strip_prefix("party") {
+                let i: usize = n.parse().ok()?;
+                let cid = s
+                    .host
+                    .party
+                    .iter()
+                    .filter(|m| Some(m.cid) != player_cid)
+                    .nth(i.checked_sub(1)?)?
+                    .cid;
+                return by_cid(cid);
+            }
             if let Some(n) = t.strip_prefix("nameplate") {
                 let i: usize = n.parse().ok()?;
                 return s.host.units.get(i.checked_sub(1)?).cloned().map(|u| (u, false));
@@ -380,10 +403,52 @@ pub fn install(lua: &Lua, shared: Shared) -> mlua::Result<()> {
     g.set("GetSubZoneText", lua.create_function(|_, ()| Ok(""))?)?;
     g.set("GetMinimapZoneText", lua.create_function(|_, ()| Ok("ArchLord"))?)?;
     g.set("GetMoney", lua.create_function(|_, ()| Ok(0))?)?;
-    g.set("IsInGroup", lua.create_function(|_, _: MultiValue| Ok(false))?)?;
+    // Groupe (paquets 0x08 / 0x09 d'ArchLord) : cinq membres au plus, pas de raid.
+    func!("IsInGroup", s, move |_, _: MultiValue| Ok(!s.borrow().host.party.is_empty()));
     g.set("IsInRaid", lua.create_function(|_, _: MultiValue| Ok(false))?)?;
     g.set("IsInGuild", lua.create_function(|_, ()| Ok(false))?)?;
-    g.set("GetNumGroupMembers", lua.create_function(|_, _: MultiValue| Ok(0))?)?;
+    func!("GetNumGroupMembers", s, move |_, _: MultiValue| Ok(s.borrow().host.party.len()));
+    func!("GetNumSubgroupMembers", s, move |_, _: MultiValue| {
+        Ok(s.borrow().host.party.len().saturating_sub(1))
+    });
+    func!("UnitIsGroupLeader", s, move |_, u: Value| {
+        let st = s.borrow();
+        let leader = st.host.party.first().map(|m| m.cid);
+        Ok(leader.is_some() && resolve_unit(&st, &unit_arg(&u)).map(|(u, _)| u.cid) == leader)
+    });
+    func!("UnitInParty", s, move |_, u: Value| {
+        let st = s.borrow();
+        Ok(resolve_unit(&st, &unit_arg(&u)).is_some_and(|(u, _)| st.host.party.iter().any(|m| m.cid == u.cid)))
+    });
+    g.set("UnitIsGroupAssistant", lua.create_function(|_, _: MultiValue| Ok(false))?)?;
+    // Demandes envoyées par les commandes du client (`/inviter`…), qui vérifient chef et membres.
+    let party_slash = |s: &Shared, cmd: &'static str| {
+        let s = s.clone();
+        move |_: &Lua, who: Option<Value>| {
+            let who = who.map(|v| unit_arg(&v)).unwrap_or_default();
+            // Un jeton d'unité (`target`, `party1`) devient le nom de l'unité.
+            let name = resolve_unit(&s.borrow(), &who).map(|(u, _)| u.name).unwrap_or(who);
+            s.borrow_mut()
+                .commands
+                .push(HostCommand::Slash(format!("{cmd} {name}").trim_end().to_string()));
+            Ok(())
+        }
+    };
+    g.set("InviteUnit", lua.create_function(party_slash(&shared, "/inviter"))?)?;
+    g.set("InviteToGroup", lua.create_function(party_slash(&shared, "/inviter"))?)?;
+    g.set("UninviteUnit", lua.create_function(party_slash(&shared, "/exclure"))?)?;
+    g.set("PromoteToLeader", lua.create_function(party_slash(&shared, "/chef"))?)?;
+    g.set("AcceptGroup", lua.create_function(party_slash(&shared, "/accepter"))?)?;
+    g.set("DeclineGroup", lua.create_function(party_slash(&shared, "/refuser"))?)?;
+    g.set("LeaveParty", lua.create_function(party_slash(&shared, "/quittergroupe"))?)?;
+    let party_info = lua.create_table()?;
+    party_info.set("InviteUnit", g.get::<Function>("InviteUnit")?)?;
+    party_info.set("LeaveParty", g.get::<Function>("LeaveParty")?)?;
+    party_info.set("ConfirmLeaveParty", g.get::<Function>("LeaveParty")?)?;
+    g.set("C_PartyInfo", party_info)?;
+    func!("GetPartyInvitations", s, move |_, ()| {
+        Ok(s.borrow().host.party_invitations.clone())
+    });
     g.set("IsInInstance", lua.create_function(|_, ()| Ok((false, "none")))?)?;
 
     // Unités
@@ -470,10 +535,8 @@ pub fn install(lua: &Lua, shared: Shared) -> mlua::Result<()> {
         "UnitIsDND",
         "UnitIsGhost",
         "UnitIsPVP",
-        "UnitInParty",
         "UnitInRaid",
         "UnitIsTapDenied",
-        "UnitIsGroupLeader",
     ] {
         g.set(name, lua.create_function(|_, _: MultiValue| Ok(false))?)?;
     }
