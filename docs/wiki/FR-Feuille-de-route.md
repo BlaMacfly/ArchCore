@@ -40,6 +40,10 @@
   [[Extensions ArchRust|FR-Extensions-ArchRust]] et [[Traduction|FR-Traduction]] ; côté ArchRust, sélecteur
   de langue dans les Options.
 - Revente d'un objet à un PNJ.
+- Client ArchRust (branche `client`) : combat (attaque, coups, mort, résurrection, butin), groupes, autres
+  joueurs, inventaire et équipement, PNJ (dialogue, boutique, banque, quêtes), compétences (instructeurs,
+  lancement, barre de raccourcis) ; validés contre ArchCore par des essais sans affichage et des captures du
+  client graphique, à confirmer en jeu.
 
 - Visibilité entre joueurs : déplacement relayé aux joueurs proches, apparition et disparition
   selon la distance.
@@ -65,5 +69,13 @@
 - **PlayerBots** : module serveur de personnages joueurs contrôlés par le serveur, sur le modèle des
   PlayerBots des serveurs World of Warcraft, adapté à ArchLord (déplacement, combat, groupes, commerce).
   À commencer une fois les monstres, le combat et les groupes en place.
+- **AddOns intégrés au client** : livrer avec ArchRust des AddOns prêts à l'emploi, intégrés au client et
+  activables depuis le jeu, en s'appuyant sur le système d'AddOns Lua déjà en place.
+- **Éditeur de la base de données** : un outil graphique libre, pour Windows, Linux et macOS, qui crée et
+  modifie le contenu du monde sans écrire de SQL : créatures et leurs apparitions, marchands, instructeurs,
+  quêtes, objets, tables de butin, dialogues, conditions et comportements des monstres. Chaque champ est
+  expliqué, des sélecteurs aident à choisir les valeurs et les drapeaux, et la requête SQL produite est
+  affichée (les seuls changements, ou l'entrée complète pour une sauvegarde), à copier ou à exécuter
+  directement sur la base.
 
 Les contributions sont bienvenues : ouvrir une *issue* pour proposer ou signaler quelque chose.
