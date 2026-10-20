@@ -2,7 +2,7 @@
 
 use crate::config::DatabaseConfig;
 use mysql_async::prelude::*;
-use mysql_async::{OptsBuilder, Params, PoolConstraints, PoolOpts, Row};
+use mysql_async::{OptsBuilder, Params, PoolConstraints, PoolOpts, Row, TxOpts};
 
 #[derive(Clone)]
 pub struct Pool(mysql_async::Pool);
@@ -39,11 +39,21 @@ impl Pool {
         Ok(conn.last_insert_id().unwrap_or(0))
     }
 
-    /// Même requête pour chaque jeu de paramètres (insertions en masse).
-    pub async fn batch<P: Into<Params> + Send>(&self, sql: &str, rows: Vec<P>) -> anyhow::Result<()> {
-        let mut conn = self.0.get_conn().await?;
-        conn.exec_batch(sql, rows).await?;
-        Ok(())
+    /// Ouvre une transaction : sans `commit`, elle est annulée quand elle est abandonnée.
+    pub async fn begin(&self) -> anyhow::Result<mysql_async::Transaction<'static>> {
+        Ok(self.0.start_transaction(TxOpts::default()).await?)
+    }
+
+    /// Plusieurs requêtes dans une seule transaction : toutes passent ou aucune. Rend l'identifiant inséré
+    /// par la dernière (0 s'il n'y en a pas).
+    pub async fn atomic(&self, stmts: Vec<(&str, Params)>) -> anyhow::Result<u64> {
+        let mut tx = self.begin().await?;
+        for (sql, params) in stmts {
+            tx.exec_drop(sql, params).await?;
+        }
+        let id = tx.last_insert_id().unwrap_or(0);
+        tx.commit().await?;
+        Ok(id)
     }
 
     pub async fn close(self) {

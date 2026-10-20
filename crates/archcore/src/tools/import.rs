@@ -5,6 +5,7 @@
 //! (`world/node_data`) et le butin (`itemdroptable.txt`, `groupdroprate.txt`, `droprankrate.txt`).
 
 use crate::db::Databases;
+use mysql_async::prelude::Queryable;
 use mysql_async::Value;
 use serde_json::{json, Map};
 use std::collections::HashMap;
@@ -216,12 +217,16 @@ fn v<T: Into<Value>>(x: T) -> Value {
     x.into()
 }
 
+/// Remplace le contenu d'une table en une transaction : interrompu, l'import laisse la table telle qu'elle
+/// était.
 async fn replace(db: &Databases, table: &str, sql: &str, rows: Vec<Vec<Value>>) -> anyhow::Result<usize> {
     let n = rows.len();
-    db.world.exec(&format!("DELETE FROM {table}"), ()).await?;
+    let mut tx = db.world.begin().await?;
+    tx.query_drop(format!("DELETE FROM {table}")).await?;
     for chunk in rows.chunks(500) {
-        db.world.batch(sql, chunk.to_vec()).await?;
+        tx.exec_batch(sql, chunk.to_vec()).await?;
     }
+    tx.commit().await?;
     Ok(n)
 }
 

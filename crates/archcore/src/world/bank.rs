@@ -181,8 +181,14 @@ async fn deposit(ctx: &WorldCtx, st: &mut WorldState, sid: u32, iid: u32, wanted
             return Ok(());
         }
         let total = target.count + item.count;
-        ctx.db.characters.exec("UPDATE character_items SET count = ? WHERE id = ?", (total, target.iid)).await?;
-        p.inventory.remove(&ctx.db, iid).await?;
+        ctx.db
+            .characters
+            .atomic(vec![
+                ("UPDATE character_items SET count = ? WHERE id = ?", (total, target.iid).into()),
+                ("DELETE FROM character_items WHERE id = ? AND character_id = ?", (iid, cid).into()),
+            ])
+            .await?;
+        p.inventory.items.remove(&iid);
         let merged = p.bank.items.get_mut(&target.iid).unwrap();
         merged.count = total;
         let merged = merged.clone();
@@ -231,8 +237,13 @@ async fn withdraw(ctx: &WorldCtx, st: &mut WorldState, sid: u32, iid: u32, wante
             return Ok(());
         }
         let total = target.count + item.count;
-        ctx.db.characters.exec("UPDATE character_items SET count = ? WHERE id = ?", (total, target.iid)).await?;
-        ctx.db.characters.exec("DELETE FROM character_items WHERE id = ?", (iid,)).await?;
+        ctx.db
+            .characters
+            .atomic(vec![
+                ("UPDATE character_items SET count = ? WHERE id = ?", (total, target.iid).into()),
+                ("DELETE FROM character_items WHERE id = ?", (iid,).into()),
+            ])
+            .await?;
         p.bank.items.remove(&iid);
         let merged = p.inventory.items.get_mut(&target.iid).unwrap();
         merged.count = total;
@@ -273,11 +284,16 @@ pub async fn move_money(ctx: &WorldCtx, st: &mut WorldState, sid: u32, amount: i
     if amount == 0 || !(0..=super::npc_trade::MAX_MONEY).contains(&money) || !(0..=MAX_BANK_MONEY).contains(&bank) {
         return Ok(());
     }
+    ctx.db
+        .characters
+        .atomic(vec![
+            (super::SAVE_MONEY, (money, p.ch.id).into()),
+            ("UPDATE account_bank SET money = ? WHERE account_id = ?", (bank, p.bank.account_id).into()),
+        ])
+        .await?;
     p.ch.money = money as u64;
     p.bank.money = bank as u64;
     p.ch.bank_money = bank as u64;
-    ctx.db.characters.exec("UPDATE characters SET money = ? WHERE id = ?", (money, p.ch.id)).await?;
-    ctx.db.characters.exec("UPDATE account_bank SET money = ? WHERE account_id = ?", (bank, p.bank.account_id)).await?;
     let c = &schema::CHARACTER;
     p.send(c, Fields::new(c).with(0, 1).with(1, p.ch.id).with(8, money).with(9, bank));
     info!("[banque] {} {} {} pièce(s) : {money} sur lui, {bank} en banque", p.ch.name, if amount > 0 { "dépose" } else { "retire" }, amount.abs());

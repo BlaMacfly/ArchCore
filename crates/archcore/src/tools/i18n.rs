@@ -63,6 +63,7 @@ pub fn localized_rows(lang: &str, translator: &crate::world::npcs::Translator, g
 async fn db(lang: Option<&String>) -> anyhow::Result<()> {
     use crate::db::{col, Databases};
     use crate::locale::kind;
+    use mysql_async::prelude::Queryable;
     let cfg = crate::config::load()?;
     let lang = archcore_net::ext_text::normalize_language(lang.map(String::as_str).unwrap_or(&cfg.world.language)).ok_or_else(|| anyhow::anyhow!("langue invalide"))?;
     let root = cfg.root.clone();
@@ -86,7 +87,8 @@ async fn db(lang: Option<&String>) -> anyhow::Result<()> {
         (kind::SKILL_NAME, "SELECT tid AS ref_id, name FROM skill_template"),
         (kind::REGION_NAME, "SELECT id AS ref_id, name FROM region_template"),
     ] {
-        let rows = db.world.rows(sql, ()).await.unwrap_or_default();
+        // Une table illisible arrête tout : sinon ses textes seraient effacés plus bas.
+        let rows = db.world.rows(sql, ()).await.map_err(|e| anyhow::anyhow!("{k} : {e:#}"))?;
         originals.push((k, rows.iter().map(|r| (col::<u32>(r, "ref_id"), col::<String>(r, "name"))).collect()));
     }
     let rows = localized_rows(&lang, &translator, &global, &originals);
@@ -94,14 +96,17 @@ async fn db(lang: Option<&String>) -> anyhow::Result<()> {
     for (k, _, _) in &rows {
         *counts.entry(k.clone()).or_default() += 1;
     }
+    // Anciens textes remplacés en une transaction : interrompu, rien n'est perdu.
+    let mut tx = db.world.begin().await?;
     for (k, _) in &originals {
-        db.world.exec("DELETE FROM localized_text WHERE lang = ? AND kind = ?", (lang.clone(), k.to_string())).await?;
+        tx.exec_drop("DELETE FROM localized_text WHERE lang = ? AND kind = ?", (lang.clone(), k.to_string())).await?;
     }
     let params: Vec<(String, u32, String, String)> = rows.into_iter().map(|(k, id, t)| (k, id, lang.clone(), t)).collect();
     let total = params.len();
     if total > 0 {
-        db.world.batch("INSERT INTO localized_text (kind, ref_id, lang, text) VALUES (?,?,?,?)", params).await?;
+        tx.exec_batch("INSERT INTO localized_text (kind, ref_id, lang, text) VALUES (?,?,?,?)", params).await?;
     }
+    tx.commit().await?;
     for (k, n) in &counts {
         println!("{k:<16}{n:>7} ligne(s)");
     }

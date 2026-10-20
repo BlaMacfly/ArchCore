@@ -299,40 +299,65 @@ async fn execute(ctx: &WorldCtx, st: &mut WorldState, a: u32, b: u32) -> anyhow:
         cancel(st, a);
         return Ok(());
     }
-    let (ta, tb) = (st.players.get_mut(&a).unwrap().trade.take().unwrap(), st.players.get_mut(&b).unwrap().trade.take().unwrap());
+    let (ta, tb) = (st.players[&a].trade.clone().unwrap(), st.players[&b].trade.clone().unwrap());
+    let (cid_a, cid_b) = (st.players[&a].ch.id, st.players[&b].ch.id);
+    // L'échange est préparé sur des copies des deux inventaires, enregistré en une transaction, puis reporté
+    // en mémoire : une erreur de la base n'en laisse rien, ni en base ni en jeu.
+    let mut inv = [st.players[&a].inventory.clone(), st.players[&b].inventory.clone()];
     // Les objets quittent d'abord les deux inventaires, pour libérer leurs cases.
-    let mut outgoing: Vec<(u32, u32, super::items::InventoryItem)> = Vec::new();
-    for (from, to, trade) in [(a, b, &ta), (b, a, &tb)] {
-        let p = st.players.get_mut(&from).unwrap();
+    let mut outgoing: Vec<(usize, super::items::InventoryItem)> = Vec::new();
+    for (from, trade) in [(0, &ta), (1, &tb)] {
         for iid in trade.items.keys() {
-            if let Some(item) = p.inventory.items.remove(iid) {
-                outgoing.push((from, to, item));
+            if let Some(item) = inv[from].items.remove(iid) {
+                outgoing.push((from, item));
             }
         }
     }
-    for (from, to, item) in outgoing {
-        let from_cid = st.players[&from].ch.id;
-        let receiver = st.players.get_mut(&to).unwrap();
-        let grid = receiver.inventory.free_slot().unwrap_or([0, 0, 0]);
-        let to_cid = receiver.ch.id;
-        ctx.db
-            .characters
-            .exec(
-                "UPDATE character_items SET character_id = ?, status = ?, layer = ?, row_idx = ?, col_idx = ? WHERE id = ?",
-                (to_cid, stored_status::INVENTORY, grid[0], grid[1], grid[2], item.iid),
-            )
-            .await?;
-        let moved = super::items::InventoryItem { grid, ..item };
-        receiver.inventory.items.insert(moved.iid, moved.clone());
-        receiver.send_raw(item_remove(moved.iid, Some(from_cid)));
-        receiver.send_raw(item_add(moved.iid, moved.tid, Some(to_cid), moved.count, item_status::INVENTORY, Some(moved.grid)));
-        st.players[&from].send_raw(item_remove(moved.iid, Some(from_cid)));
+    let cids = [cid_a, cid_b];
+    let mut stmts: Vec<(&str, mysql_async::Params)> = Vec::new();
+    let mut moved: Vec<(usize, super::items::InventoryItem)> = Vec::new();
+    for (from, item) in outgoing {
+        let to = 1 - from;
+        let grid = inv[to].free_slot().unwrap_or([0, 0, 0]);
+        stmts.push((
+            "UPDATE character_items SET character_id = ?, status = ?, layer = ?, row_idx = ?, col_idx = ? WHERE id = ?",
+            (cids[to], stored_status::INVENTORY, grid[0], grid[1], grid[2], item.iid).into(),
+        ));
+        let item = super::items::InventoryItem { grid, ..item };
+        inv[to].items.insert(item.iid, item.clone());
+        moved.push((from, item));
     }
-    for (me, mine, theirs) in [(a, &ta, &tb), (b, &tb, &ta)] {
+    let money = [
+        st.players[&a].ch.money as i64 - ta.gold + tb.gold,
+        st.players[&b].ch.money as i64 - tb.gold + ta.gold,
+    ];
+    for i in 0..2 {
+        stmts.push((super::SAVE_MONEY, (money[i], cids[i]).into()));
+    }
+    if let Err(e) = ctx.db.characters.atomic(stmts).await {
+        send_system(st, a, "Échange annulé : erreur du serveur.");
+        send_system(st, b, "Échange annulé : erreur du serveur.");
+        cancel(st, a);
+        return Err(e);
+    }
+    let sids = [a, b];
+    let [inv_a, inv_b] = inv;
+    for (sid, inventory) in [(a, inv_a), (b, inv_b)] {
+        let p = st.players.get_mut(&sid).unwrap();
+        p.trade = None;
+        p.inventory = inventory;
+    }
+    for (from, item) in moved {
+        let to = 1 - from;
+        let receiver = &st.players[&sids[to]];
+        receiver.send_raw(item_remove(item.iid, Some(cids[from])));
+        receiver.send_raw(item_add(item.iid, item.tid, Some(cids[to]), item.count, item_status::INVENTORY, Some(item.grid)));
+        st.players[&sids[from]].send_raw(item_remove(item.iid, Some(cids[from])));
+    }
+    for (i, me) in sids.into_iter().enumerate() {
         let p = st.players.get_mut(&me).unwrap();
-        let money = p.ch.money as i64 - mine.gold + theirs.gold;
+        let money = money[i];
         p.ch.money = money as u64;
-        ctx.db.characters.exec("UPDATE characters SET money = ? WHERE id = ?", (money, p.ch.id)).await?;
         let c = &schema::CHARACTER;
         p.send(c, Fields::new(c).with(0, 1).with(1, p.ch.id).with(8, money));
         let s = &schema::PRIVATE_TRADE;

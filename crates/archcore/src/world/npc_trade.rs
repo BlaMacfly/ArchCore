@@ -12,7 +12,7 @@
 use super::items::{alloc_shop_iid, item_add, item_count, item_remove, item_status, SHOP_GRID};
 use super::npc_events::{npc_distance, resolve, MAX_NPC_DISTANCE};
 use super::npcs::event_function;
-use super::{set_money, OpenShop, ShopItem, WorldCtx, WorldState};
+use super::{clamp_money, show_money, OpenShop, ShopItem, WorldCtx, WorldState, SAVE_MONEY};
 use crate::{info, warn};
 use archcore_net::schema::{self, mini};
 use archcore_net::{build_mini, decode_mini, Fields, Packet};
@@ -160,18 +160,22 @@ async fn buy(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> anyho
         _ => None,
     };
     let player = st.players.get_mut(&sid).unwrap();
-    let Some((item, created)) = player.inventory.add(&ctx.db, entry.tid, count, data.stack, wanted).await? else {
+    let Some(place) = player.inventory.placement(entry.tid, count, data.stack, wanted) else {
         result(st, sid, trade_op::BUY, trade_result::BUY_FULL_INVENTORY);
         return Ok(());
     };
     let cid = player.ch.id;
+    // L'objet et le paiement sont enregistrés ensemble.
+    let left = clamp_money(money - price);
+    let new_iid = ctx.db.characters.atomic(vec![(SAVE_MONEY, (left, cid).into()), player.inventory.placement_sql(entry.tid, count, place)]).await? as u32;
+    let (item, created) = player.inventory.apply_placement(entry.tid, count, place, new_iid);
     player.send_raw(if created {
         item_add(item.iid, item.tid, Some(cid), item.count, item_status::INVENTORY, Some(item.grid))
     } else {
         item_count(&item, cid)
     });
+    show_money(player, left);
     let name = player.ch.name.clone();
-    set_money(ctx, st, sid, money - price).await?;
     result(st, sid, trade_op::BUY, trade_result::BUY_SUCCEEDED);
     info!("[boutique] {name} achète {count} × {} (TID {}) pour {price} à {npc_name}", data.name, data.tid);
     Ok(())
@@ -195,11 +199,17 @@ async fn sell(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> anyh
         return Ok(());
     }
     let player = st.players.get_mut(&sid).unwrap();
-    player.inventory.remove(&ctx.db, item.iid).await?;
     let cid = player.ch.id;
+    // L'objet part et le paiement arrive ensemble.
+    let total = clamp_money(money + price);
+    ctx.db
+        .characters
+        .atomic(vec![("DELETE FROM character_items WHERE id = ? AND character_id = ?", (item.iid, cid).into()), (SAVE_MONEY, (total, cid).into())])
+        .await?;
+    player.inventory.items.remove(&item.iid);
     player.send_raw(item_remove(item.iid, Some(cid)));
+    show_money(player, total);
     let name = player.ch.name.clone();
-    set_money(ctx, st, sid, money + price).await?;
     result(st, sid, trade_op::SELL, trade_result::SELL_SUCCEEDED);
     info!("[boutique] {name} vend {} × {} (TID {}) pour {price} à {npc_name}", item.count, data.name, data.tid);
     Ok(())

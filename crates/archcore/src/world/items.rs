@@ -8,6 +8,7 @@
 
 use crate::db::{col, Databases};
 use crate::info;
+use mysql_async::Params;
 use archcore_net::schema::{self, mini};
 use archcore_net::{build_mini, build_packet, Fields};
 use std::collections::{BTreeMap, HashMap};
@@ -51,6 +52,19 @@ pub fn alloc_shop_iid() -> u32 {
 }
 
 pub type Grid = [i64; 3];
+
+/// Insertion d'un exemplaire d'objet : personnage, modèle, statut, case (sac, ligne, colonne), quantité.
+pub const INSERT_ITEM: &str =
+    "INSERT INTO character_items (character_id, template_id, status, layer, row_idx, col_idx, count) VALUES (?, ?, ?, ?, ?, ?, ?)";
+
+/// Place prévue pour des objets ajoutés à l'inventaire.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Placement {
+    /// Pile existante (IID) et sa nouvelle quantité.
+    Stack(u32, i64),
+    /// Nouvelle pile dans cette case.
+    Slot(Grid),
+}
 
 fn grid_mini(g: Grid) -> Vec<u8> {
     let s = &mini::ITEM_GRID;
@@ -280,23 +294,45 @@ impl Inventory {
     /// Ajoute `count` objets : sur une pile existante si possible, sinon dans la case voulue (si libre)
     /// ou la première case libre. Rend (objet, créé ?) ou `None` si l'inventaire est plein.
     pub async fn add(&mut self, db: &Databases, tid: u32, count: i64, max_stack: i64, wanted: Option<Grid>) -> anyhow::Result<Option<(InventoryItem, bool)>> {
+        let Some(place) = self.placement(tid, count, max_stack, wanted) else { return Ok(None) };
+        let (sql, params) = self.placement_sql(tid, count, place);
+        let iid = db.characters.exec(sql, params).await? as u32;
+        Ok(Some(self.apply_placement(tid, count, place, iid)))
+    }
+
+    /// Place de `count` objets ajoutés : pile existante si possible, sinon case voulue (si libre) ou première
+    /// case libre ; `None` si l'inventaire est plein. Rien n'est encore changé.
+    pub fn placement(&self, tid: u32, count: i64, max_stack: i64, wanted: Option<Grid>) -> Option<Placement> {
         if let Some(iid) = self.stack_for(tid, count, max_stack) {
-            let item = self.items.get_mut(&iid).unwrap();
-            item.count += count;
-            db.characters.exec("UPDATE character_items SET count = ? WHERE id = ?", (item.count, iid)).await?;
-            return Ok(Some((item.clone(), false)));
+            return Some(Placement::Stack(iid, self.items[&iid].count + count));
         }
-        let Some(grid) = wanted.filter(|g| self.is_free(*g)).or_else(|| self.free_slot()) else { return Ok(None) };
-        let iid = db
-            .characters
-            .exec(
-                "INSERT INTO character_items (character_id, template_id, status, layer, row_idx, col_idx, count) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (self.character_id, tid, stored_status::INVENTORY, grid[0], grid[1], grid[2], count),
-            )
-            .await? as u32;
-        let item = InventoryItem { iid, tid, count, grid };
-        self.items.insert(iid, item.clone());
-        Ok(Some((item, true)))
+        wanted.filter(|g| self.is_free(*g)).or_else(|| self.free_slot()).map(Placement::Slot)
+    }
+
+    /// Requête qui enregistre une place ; pour une nouvelle case, c'est une insertion (à mettre en dernier
+    /// dans une transaction pour en avoir l'identifiant).
+    pub fn placement_sql(&self, tid: u32, count: i64, place: Placement) -> (&'static str, Params) {
+        match place {
+            Placement::Stack(iid, total) => ("UPDATE character_items SET count = ? WHERE id = ?", (total, iid).into()),
+            Placement::Slot(g) => (INSERT_ITEM, (self.character_id, tid, stored_status::INVENTORY, g[0], g[1], g[2], count).into()),
+        }
+    }
+
+    /// Reporte en mémoire une place enregistrée (`new_iid` : identifiant inséré, pour une nouvelle case).
+    /// Rend (objet, créé ?).
+    pub fn apply_placement(&mut self, tid: u32, count: i64, place: Placement, new_iid: u32) -> (InventoryItem, bool) {
+        match place {
+            Placement::Stack(iid, total) => {
+                let item = self.items.get_mut(&iid).unwrap();
+                item.count = total;
+                (item.clone(), false)
+            }
+            Placement::Slot(grid) => {
+                let item = InventoryItem { iid: new_iid, tid, count, grid };
+                self.items.insert(new_iid, item.clone());
+                (item, true)
+            }
+        }
     }
 
     pub async fn remove(&mut self, db: &Databases, iid: u32) -> anyhow::Result<()> {
@@ -384,10 +420,15 @@ impl Inventory {
             return Ok(None);
         }
         let total = a.count + b.count;
-        self.remove(db, from).await?;
+        db.characters
+            .atomic(vec![
+                ("DELETE FROM character_items WHERE id = ? AND character_id = ?", (from, self.character_id).into()),
+                ("UPDATE character_items SET count = ? WHERE id = ?", (total, into).into()),
+            ])
+            .await?;
+        self.items.remove(&from);
         let target = self.items.get_mut(&into).unwrap();
         target.count = total;
-        db.characters.exec("UPDATE character_items SET count = ? WHERE id = ?", (total, into)).await?;
         Ok(Some(target.clone()))
     }
 
@@ -398,13 +439,12 @@ impl Inventory {
             return Ok(None);
         }
         let (tid, left) = (item.tid, item.count - n);
-        db.characters.exec("UPDATE character_items SET count = ? WHERE id = ?", (left, iid)).await?;
         let new_iid = db
             .characters
-            .exec(
-                "INSERT INTO character_items (character_id, template_id, status, layer, row_idx, col_idx, count) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (self.character_id, tid, stored_status::INVENTORY, grid[0], grid[1], grid[2], n),
-            )
+            .atomic(vec![
+                ("UPDATE character_items SET count = ? WHERE id = ?", (left, iid).into()),
+                (INSERT_ITEM, (self.character_id, tid, stored_status::INVENTORY, grid[0], grid[1], grid[2], n).into()),
+            ])
             .await? as u32;
         let part = InventoryItem { iid: new_iid, tid, count: n, grid };
         self.items.insert(new_iid, part.clone());
@@ -438,6 +478,21 @@ mod tests {
         assert_eq!(inv.stack_for(190, 10, 9999), Some(3));
         assert_eq!(inv.stack_for(190, 10, 1), None);
         assert!(!inv.is_free([4, 0, 0]));
+    }
+
+    #[test]
+    fn place_des_objets_ajoutes() {
+        let mut inv = Inventory { character_id: 1, ..Default::default() };
+        inv.items.insert(3, InventoryItem { iid: 3, tid: 190, count: 5, grid: [0, 0, 0] });
+        assert_eq!(inv.placement(190, 10, 9999, None), Some(Placement::Stack(3, 15)));
+        assert_eq!(inv.placement(190, 10, 1, Some([0, 2, 2])), Some(Placement::Slot([0, 2, 2])));
+        assert_eq!(inv.placement(191, 1, 1, Some([0, 0, 0])), Some(Placement::Slot([0, 0, 1])), "case voulue occupée");
+        assert_eq!(inv.items[&3].count, 5, "rien n'est changé avant l'enregistrement");
+        let (item, created) = inv.apply_placement(190, 10, Placement::Stack(3, 15), 0);
+        assert_eq!((item.count, created), (15, false));
+        let (item, created) = inv.apply_placement(191, 1, Placement::Slot([0, 0, 1]), 42);
+        assert_eq!((item.iid, item.grid, created), (42, [0, 0, 1], true));
+        assert_eq!(inv.items.len(), 2);
     }
 
     #[test]

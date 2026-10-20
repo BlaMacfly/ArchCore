@@ -192,6 +192,9 @@ pub struct WorldState {
     pub next_skill_id: u32,
     /// Groupes de joueurs.
     pub parties: party::Parties,
+    /// Sessions écartées par une nouvelle entrée du même compte, en attente de fermeture : leurs paquets
+    /// sont ignorés.
+    pub evicted: HashSet<u32>,
 }
 
 impl WorldState {
@@ -253,6 +256,9 @@ impl Connection for WorldConn {
     async fn on_packet(&mut self, s: &SessionHandle, p: Packet) -> anyhow::Result<()> {
         let world = self.world.clone();
         let mut st = world.state.lock().await;
+        if st.evicted.contains(&self.sid) {
+            return Ok(());
+        }
         let ctx = &world.ctx;
         match p.header.ptype {
             ptype::CHAR_MANAGER => {
@@ -297,19 +303,25 @@ impl Connection for WorldConn {
     async fn on_close(&mut self, _s: &SessionHandle) {
         let world = self.world.clone();
         let mut st = world.state.lock().await;
-        // Un échange en cours est annulé : les objets n'ont pas quitté les inventaires.
-        trade::cancel(&mut st, self.sid);
-        // Le groupe perd ce membre (et se dissout s'il ne reste qu'un joueur).
-        if let Some(cid) = st.players.get(&self.sid).map(|p| p.ch.id) {
-            party::on_leave_world(&mut st, cid);
-        }
-        if let Err(e) = presence::leave(&world.ctx, &mut st, self.sid).await {
-            warn!("[world] départ de #{} : {e:#}", self.sid);
-        }
-        if let Some(p) = st.players.remove(&self.sid) {
-            if st.by_cid.get(&p.ch.id) == Some(&self.sid) {
-                st.by_cid.remove(&p.ch.id);
-            }
+        st.evicted.remove(&self.sid);
+        remove_player(&world.ctx, &mut st, self.sid).await;
+    }
+}
+
+/// Retire un joueur du monde : échange annulé, groupe quitté, position enregistrée.
+async fn remove_player(ctx: &WorldCtx, st: &mut WorldState, sid: u32) {
+    // Un échange en cours est annulé : les objets n'ont pas quitté les inventaires.
+    trade::cancel(st, sid);
+    // Le groupe perd ce membre (et se dissout s'il ne reste qu'un joueur).
+    if let Some(cid) = st.players.get(&sid).map(|p| p.ch.id) {
+        party::on_leave_world(st, cid);
+    }
+    if let Err(e) = presence::leave(ctx, st, sid).await {
+        warn!("[world] départ de #{sid} : {e:#}");
+    }
+    if let Some(p) = st.players.remove(&sid) {
+        if st.by_cid.get(&p.ch.id) == Some(&sid) {
+            st.by_cid.remove(&p.ch.id);
         }
     }
 }
@@ -324,6 +336,19 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
         return Ok(());
     };
     let account = Account { id: col(&acc, "id"), username: col(&acc, "username") };
+    // La clé d'entrée ne sert qu'une fois.
+    ctx.db.auth.exec("UPDATE account SET auth_token = NULL WHERE id = ? AND auth_token = ?", (account.id, auth_key)).await?;
+    // Une seule session en jeu par compte : la précédente quitte le monde (et sa position est enregistrée)
+    // avant la lecture de la base. Sinon deux copies de la banque du compte, ou du même personnage,
+    // s'écraseraient l'une l'autre.
+    let previous: Vec<u32> = st.players.iter().filter(|(sid, p)| **sid != s.id() && p.account.id == account.id).map(|(sid, _)| *sid).collect();
+    for old in previous {
+        warn!("[world] #{} {} entre de nouveau : la session #{old} est fermée", s.id(), account.username);
+        let sess = st.players[&old].sess.clone();
+        remove_player(ctx, st, old).await;
+        st.evicted.insert(old);
+        sess.close();
+    }
     let Some(row) = ctx
         .db
         .characters
@@ -552,14 +577,28 @@ pub fn broadcast_notice(st: &WorldState, text: &str) {
     info!("[annonce] {text}");
 }
 
+/// Enregistre l'argent de l'inventaire d'un personnage : (argent, CID).
+pub const SAVE_MONEY: &str = "UPDATE characters SET money = ? WHERE id = ?";
+
+/// Argent de l'inventaire borné à ce que le client accepte.
+pub fn clamp_money(money: i64) -> u64 {
+    money.clamp(0, npc_trade::MAX_MONEY) as u64
+}
+
 /// Argent de l'inventaire d'un joueur en jeu : enregistré puis envoyé au client (AGPMCHARACTER champ 8).
 pub async fn set_money(ctx: &WorldCtx, st: &mut WorldState, sid: u32, money: i64) -> anyhow::Result<()> {
     let Some(p) = st.players.get_mut(&sid) else { return Ok(()) };
-    p.ch.money = money.clamp(0, npc_trade::MAX_MONEY) as u64;
-    ctx.db.characters.exec("UPDATE characters SET money = ? WHERE id = ?", (p.ch.money, p.ch.id)).await?;
+    let money = clamp_money(money);
+    ctx.db.characters.exec(SAVE_MONEY, (money, p.ch.id)).await?;
+    show_money(p, money);
+    Ok(())
+}
+
+/// Argent déjà enregistré : reporté en mémoire et envoyé au client.
+pub fn show_money(p: &mut Player, money: u64) {
+    p.ch.money = money;
     let c = &schema::CHARACTER;
     p.send(c, Fields::new(c).with(0, 1).with(1, p.ch.id).with(8, p.ch.money));
-    Ok(())
 }
 
 pub fn kill_character(st: &mut WorldState, sid: u32) {
