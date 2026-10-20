@@ -226,7 +226,12 @@ impl LoginConn {
             .db
             .auth
             .first(
-                "SELECT id, username, password_hash, (banned_until IS NOT NULL AND banned_until > NOW()) AS banned FROM account WHERE username = ?",
+                // Bannissement en cours : table account_banned, ou ancienne colonne banned_until (lue encore une version).
+                "SELECT id, username, password_hash, \
+                 ((banned_until IS NOT NULL AND banned_until > NOW()) \
+                  OR EXISTS (SELECT 1 FROM account_banned b WHERE b.account_id = account.id AND b.active = 1 \
+                             AND (b.banned_until IS NULL OR b.banned_until > NOW()))) AS banned \
+                 FROM account WHERE username = ?",
                 (username.clone(),),
             )
             .await?;
@@ -436,9 +441,17 @@ impl LoginConn {
             crate::error!("[login] aucune adresse de monde pour {:?}", self.world);
             return Ok(());
         };
-        let auth_key: i32 = rand::thread_rng().gen_range(1..i32::MAX);
         let (account_id, username) = self.account.clone().unwrap();
-        self.svc.db.auth.exec("UPDATE account SET auth_token = ? WHERE id = ?", (auth_key, account_id)).await?;
+        // Clé d'entrée unique (index uq_account_auth_token) : nouveau tirage si elle est déjà prise.
+        let mut tries = 0;
+        let auth_key = loop {
+            let key: i32 = rand::thread_rng().gen_range(1..i32::MAX);
+            match self.svc.db.auth.exec("UPDATE account SET auth_token = ? WHERE id = ?", (key, account_id)).await {
+                Ok(_) => break key,
+                Err(e) if tries < 5 && e.to_string().contains("1062") => tries += 1,
+                Err(e) => return Err(e),
+            }
+        };
         let full_name = format!("{}#{}", ch.name, self.world);
         let cm = &schema::CHAR_MANAGER;
         s.send(cm, Fields::new(cm).with(0, char_mgr_op::AUTH_KEY).with(3, full_name.as_str()).with(6, auth_key));

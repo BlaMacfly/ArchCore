@@ -3,11 +3,12 @@
 ArchCore uses three MariaDB databases, created and updated by `archcore db-init` from `sql/` (baseline and
 migrations, see below). All use `utf8mb4`.
 
-## `archcore_auth` — accounts and worlds (`sql/001_auth.sql`)
+## `archcore_auth` — accounts and worlds (`sql/001_auth.sql`, `sql/migrations/auth/`)
 
 | Table | Content |
 |---|---|
-| `account` | Accounts: name, SHA-256 password hash, GM level, ban, last login, world entry key, language (last choice of an ArchRust client, see [[Translation|EN-Translation]]) |
+| `account` | Accounts: name, SHA-256 password hash, GM level, former ban end date (`banned_until`, still read for one version), last login, world entry key (unique, cleared once used), language (last choice of an ArchRust client, see [[Translation|EN-Translation]]) |
+| `account_banned` | Bans, with their history: account, date, end (`NULL`: no end), author, reason, `active` (0: lifted early). An account is refused while an active ban has not expired |
 | `server_group` | Server groups shown in the list |
 | `world` | Worlds: name, group, `ip:port` address (23 characters max), status |
 

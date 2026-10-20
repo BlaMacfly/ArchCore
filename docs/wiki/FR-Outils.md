@@ -46,6 +46,12 @@ ARCHCORE_CONF_DIR=config/test archcore all      # autres ports, autres bases
 ARCHCORE_CONF_DIR=config/test archcore sim move
 ```
 
+Le serveur de test a ses trois bases à lui, monde compris : sinon `archcore db-init` lancé pour lui
+appliquerait aussi les migrations du monde au serveur principal. Pour créer sa base monde, copier celle du
+serveur principal (`CREATE DATABASE archcore_test_world`, puis
+`mariadb-dump archcore_world | mariadb archcore_test_world`), la déclarer dans `Database.World`, et lancer
+`ARCHCORE_CONF_DIR=config/test archcore db-init`.
+
 ## Test de boutique
 
 ```bash

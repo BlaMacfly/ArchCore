@@ -489,7 +489,10 @@ destructive.
 **Suivi.** Étape 1 (R1 à R3) faite le 2026-10-21 (effaec1). Étape 2 (R4) faite le 2026-10-21 : table
 `schema_migrations`, scripts embarqués, `sql/migrations/<base>/`, contrôle de version au démarrage
 (`crates/archcore/src/migrations.rs`), validée sur des copies des bases de test (non initialisée, à jour, en
-retard, en avance) et par les 17 scénarios `archcore sim`.
+retard, en avance) et par les 17 scénarios `archcore sim`. Étape 3 (R5, R6) faite le 2026-10-21 :
+migrations `202610210100_index_auth_token` (index unique, clés en double effacées, nouveau tirage côté
+connexion) et `202610210110_account_banned` (table additive, lecture des deux sources) ; base
+`archcore_test_world` pour l'instance de test. Validée sur copies (cinq cas de bannissement, 17 scénarios).
 
 | Étape | Rec. | Quoi | Raison | Bénéfice | Coût | Risque |
 |---|---|---|---|---|---|---|
