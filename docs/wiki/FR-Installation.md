@@ -161,6 +161,7 @@ finished ») : c'est normal.
 | Chargement infini à l'entrée en jeu | Lancer avec `ARCHCORE_TRACE=1` et lire le journal |
 | Le serveur s'arrête au démarrage sur une erreur de base | MariaDB n'est pas lancé, ou ses accès (`Database.*`) sont faux |
 | Aucun monstre dans le monde | Les tables du serveur n'ont pas été importées (`archcore import --server …`) |
+| Des créatures disparaissent quand on se déplace ou qu'on approche | Réglage d'affichage du client : dans `Game/ini/COption.ini` (client fermé), `CharView` multiplie la distance d'affichage des personnages (0 : 0,25 ; 1 : 0,45 ; 2 : 0,875 ; 3 : sans limite) et `MapView` celle de la carte (0,5 à 1,8). Mettre les deux à `3`, ou au maximum dans les options graphiques du jeu |
 | Un autre joueur reste bloqué après le choix du personnage | `WorldServer.PublicAddress` vaut encore `127.0.0.1`, ou le port 11008 est fermé |
 | Message « colonne inconnue » dans le journal | Code mis à jour sans relancer `archcore db-init` |
 | Inventaire ou boutique vides | Le dossier de langue du client (`ini_fr`…) doit contenir `ItemTemplateAll.ini` (voir [[Traduction|FR-Traduction]]) |

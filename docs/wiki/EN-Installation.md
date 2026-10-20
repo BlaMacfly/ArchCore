@@ -157,6 +157,7 @@ finished"): this is normal.
 | Endless loading when entering the world | Run with `ARCHCORE_TRACE=1` and read the log |
 | The server stops at start-up on a database error | MariaDB is not running, or its credentials (`Database.*`) are wrong |
 | No monsters in the world | The server tables were not imported (`archcore import --server …`) |
+| Creatures vanish when moving or coming closer | Client display setting: in `Game/ini/COption.ini` (client closed), `CharView` multiplies the character draw distance (0: 0.25; 1: 0.45; 2: 0.875; 3: unlimited) and `MapView` the map's (0.5 to 1.8). Set both to `3`, or to the maximum in the game's graphics options |
 | Another player is stuck after choosing a character | `WorldServer.PublicAddress` is still `127.0.0.1`, or port 11008 is closed |
 | "Unknown column" message in the log | Code updated without running `archcore db-init` again |
 | Empty inventory or shop | The client's language folder (`ini_fr`…) must hold `ItemTemplateAll.ini` (see [[Translation|EN-Translation]]) |
