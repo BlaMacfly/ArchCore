@@ -496,7 +496,10 @@ connexion) et `202610210110_account_banned` (table additive, lecture des deux so
 Étape 4 (R7) faite le 2026-10-21 : migration `202610210200_stable_keys` (colonne `stable_key` unique et sensible
 à la casse, remplie par la migration pour les apparitions et le butin, par l'import pour les points de
 résurrection) ; clés identiques après deux réimports sur une copie (12 802 apparitions, 4 653 butins, 62 points),
-17 scénarios.
+17 scénarios. Étape 5 (R8) faite le 2026-10-21 : `archcore db-check` et contrôle au démarrage
+(`crates/archcore/src/check.rs`) ; aucune anomalie sur les bases principales et de test, et sur une copie
+fautive (TID retiré d'`item_data`, compétence et langue inconnues) les trois anomalies sont trouvées, `db-check`
+sort en erreur et le serveur démarre en les signalant.
 
 | Étape | Rec. | Quoi | Raison | Bénéfice | Coût | Risque |
 |---|---|---|---|---|---|---|

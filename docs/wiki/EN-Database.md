@@ -85,6 +85,26 @@ sql/migrations/<base>/<YYYYMMDDHHMM>_<topic>.sql      <base> = auth, characters 
 - Migrations are additive by default; a rename or a removal takes two versions (add and read both, then
   remove). Never a destructive migration without a backup first (`mariadb-dump`).
 
+## Database consistency (`archcore db-check`)
+
+References from one database to another cannot be foreign keys (they would tie the databases together and
+block the world reimport). `archcore db-check` checks them, read-only, and the server does the same at
+start-up:
+
+| Check | Severity |
+|---|---|
+| character without an account (`characters.account_id` → `account`) | serious |
+| character with an unknown template (`characters.template_id` → `character_template`) | serious |
+| item without a definition (`character_items.template_id` → `item_data`), for example after a reimport | serious |
+| unknown skill (`character_skills.skill_tid` → `skill_template`) | serious |
+| quest missing from `quest_template` | warning |
+| bank without an account, unknown account language | warning |
+| character id in the NPC range (≥ 0x40000000), item id in the shop range (≥ 0x20000000) | serious |
+
+`db-check` also shows the schema versions and how full the identifier ranges are, and exits with an error
+when it finds a serious anomaly or a database that is not up to date. At start-up, each anomaly goes to the
+log with a few examples, and the server starts anyway.
+
 After updating ArchCore, run `archcore db-init` before the server (without `--account`, it touches no account).
 
 ## Add an account

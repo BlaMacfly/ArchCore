@@ -88,6 +88,26 @@ sql/migrations/<base>/<AAAAMMJJHHMM>_<sujet>.sql      <base> = auth, characters 
 - Une migration est additive par défaut ; un renommage ou une suppression se fait en deux versions (ajout et
   double lecture, puis retrait). Jamais de migration destructive sans sauvegarde préalable (`mariadb-dump`).
 
+## Cohérence des bases (`archcore db-check`)
+
+Les références d'une base à l'autre ne peuvent pas être des clés étrangères (elles lieraient les bases entre
+elles et bloqueraient le réimport du monde). `archcore db-check` les vérifie, en lecture seule, et le serveur
+fait de même au démarrage :
+
+| Contrôle | Gravité |
+|---|---|
+| personnage sans compte (`characters.account_id` → `account`) | grave |
+| personnage au modèle inconnu (`characters.template_id` → `character_template`) | grave |
+| objet sans définition (`character_items.template_id` → `item_data`), par exemple après un réimport | grave |
+| compétence inconnue (`character_skills.skill_tid` → `skill_template`) | grave |
+| quête absente de `quest_template` | avertissement |
+| banque sans compte, langue de compte inconnue | avertissement |
+| identifiant de personnage dans la plage des PNJ (≥ 0x40000000), d'objet dans celle des boutiques (≥ 0x20000000) | grave |
+
+`db-check` affiche aussi les versions du schéma et l'occupation des plages d'identifiants, et se termine en
+erreur s'il trouve une anomalie grave ou une base pas à jour. Au démarrage, chaque anomalie est écrite dans le
+journal avec quelques exemples, et le serveur démarre quand même.
+
 Après une mise à jour d'ArchCore, lancer `archcore db-init` avant le serveur (sans `--account`, la commande ne
 touche à aucun compte).
 

@@ -7,7 +7,8 @@ dossier désigné par `ARCHCORE_CONF_DIR` (voir [[Configuration|FR-Configuration
 | Commande | Rôle |
 |---|---|
 | `archcore config migrate <archcore.json> [dossier] [--force]` | Convertit une ancienne configuration JSON en `auth.conf` et `world.conf` |
-| `archcore db-init [--account nom mdp [mj]]` | Crée les bases et applique `sql/` ; avec `--account`, crée ou met à jour un compte |
+| `archcore db-init [--account nom mdp [mj]]` | Crée les bases, rejoue la base de référence et applique les migrations manquantes ; avec `--account`, crée ou met à jour un compte |
+| `archcore db-check` | Contrôle de cohérence, en lecture seule : versions du schéma, références entre bases, plages d'identifiants ; se termine en erreur sur une anomalie grave (voir [[Base de données\|FR-Base-de-donnees]]) |
 | `archcore decrypt [source] [destination]` | Déchiffre `Game/ini` (RC4, MD5(« 1111 »)) vers `data/client-ini` |
 | `archcore import [dossier] [--server dossier]` | Importe `data/client-ini` dans `archcore_world` (CP949 → UTF-8) et la hauteur du sol depuis `world/b*x.ma2` du dossier Game (`map_height`, quelques minutes) ; avec les tables du serveur d'origine (`--server`, ou `data/server-ini` s'il existe), importe aussi les apparitions de monstres et la carte serveur |
 | `archcore sim client\|move\|shop\|addon\|lang\|combat\|equip\|potion\|scroll\|patrol\|bag\|skill\|effects\|bank\|trade\|quest …` | Clients simulés (voir plus bas) |

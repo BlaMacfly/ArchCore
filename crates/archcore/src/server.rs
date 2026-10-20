@@ -11,6 +11,9 @@ pub async fn run(mode: &str) -> anyhow::Result<()> {
     db.check().await?;
     // Contrôle de version : refuse une base en retard ou en avance sur cet exécutable.
     crate::migrations::verify(&db, [config.database.auth.as_str(), config.database.characters.as_str(), config.database.world.as_str()]).await?;
+    // Cohérence des bases (références entre bases, plages d'identifiants) : signalée, pas bloquante.
+    let d = &config.database;
+    crate::check::at_startup(&db, &crate::check::Names { auth: &d.auth, characters: &d.characters, world: &d.world }).await;
     let templates = Arc::new(crate::character::Templates::load(&db).await?);
     // Langues proposées et textes localisés ; le résumé sert au HELLO_ACK des deux serveurs.
     let locale = crate::locale::Catalog::load(&db, &config.root, &config.world.language).await;

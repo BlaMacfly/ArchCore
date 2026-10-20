@@ -7,7 +7,8 @@ named by `ARCHCORE_CONF_DIR` (see [[Configuration|EN-Configuration]]).
 | Command | Role |
 |---|---|
 | `archcore config migrate <archcore.json> [folder] [--force]` | Converts a former JSON configuration into `auth.conf` and `world.conf` |
-| `archcore db-init [--account name pass [gm]]` | Creates the databases and applies `sql/`; with `--account`, creates or updates an account |
+| `archcore db-init [--account name pass [gm]]` | Creates the databases, replays the baseline and applies the missing migrations; with `--account`, creates or updates an account |
+| `archcore db-check` | Read-only consistency check: schema versions, references between databases, identifier ranges; exits with an error on a serious anomaly (see [[Database\|EN-Database]]) |
 | `archcore decrypt [source] [destination]` | Decrypts `Game/ini` (RC4, MD5("1111")) into `data/client-ini` |
 | `archcore import [folder] [--server folder]` | Imports `data/client-ini` into `archcore_world` (CP949 → UTF-8) and the ground height from the Game folder's `world/b*x.ma2` (`map_height`, a few minutes); with the original server tables (`--server`, or `data/server-ini` if it exists), also imports monster spawns and the server map |
 | `archcore sim client\|move\|shop\|addon\|lang\|combat\|equip\|potion\|scroll\|patrol\|bag\|skill\|effects\|bank\|trade\|quest …` | Simulated clients (see below) |
