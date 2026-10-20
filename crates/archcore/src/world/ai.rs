@@ -146,13 +146,12 @@ pub fn walk_step(map: &WorldMap, st: &mut WorldState, now: Instant) {
         let mv = &schema::OPT_CHAR_MOVE;
         let fields = Fields::new(mv).with(0, cid).with(1, next).with(2, w.dest).with(5, if arrived { 0x04 } else { combat::MOVE_FAST }).with(6, 0);
         for p in st.players.values_mut().filter(|p| p.in_game) {
-            let sees = super::sector::sees(p.view_pos, next);
-            if sees && p.seen_monsters.insert(cid) {
+            if super::sector::sees(p.view_pos, next) && p.seen_monsters.insert(cid) {
                 p.send_raw(view.clone());
                 if !arrived {
                     p.send(mv, fields.clone());
                 }
-            } else if !sees && p.seen_monsters.remove(&cid) {
+            } else if !super::sector::keeps(p.view_pos, next) && p.seen_monsters.remove(&cid) {
                 p.send_raw(super::character_remove_packet(cid));
             }
         }

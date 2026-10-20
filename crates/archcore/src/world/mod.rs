@@ -468,7 +468,7 @@ pub fn send_nearby_npcs(ctx: &WorldCtx, st: &mut WorldState, sid: u32, pos: Vec3
     let Some(p) = st.players.get_mut(&sid) else { return 0 };
     p.view_pos = pos;
     let mut sent = 0;
-    let gone: Vec<u32> = p.seen_npcs.iter().copied().filter(|cid| ctx.npcs.get(*cid).is_none_or(|n| !sector::sees(pos, n.pos))).collect();
+    let gone: Vec<u32> = p.seen_npcs.iter().copied().filter(|cid| ctx.npcs.get(*cid).is_none_or(|n| !sector::keeps(pos, n.pos))).collect();
     for cid in gone {
         p.seen_npcs.remove(&cid);
         p.sess.send_raw(character_remove_packet(cid));
@@ -498,7 +498,7 @@ pub fn sync_monsters(ctx: &WorldCtx, st: &mut WorldState, sid: u32, pos: Vec3) -
             added += 1;
         }
     }
-    let gone: Vec<u32> = p.seen_monsters.iter().copied().filter(|cid| st.monsters.get(*cid).is_none_or(|m| !m.is_visible() || !sector::sees(pos, m.pos))).collect();
+    let gone: Vec<u32> = p.seen_monsters.iter().copied().filter(|cid| st.monsters.get(*cid).is_none_or(|m| !m.is_visible() || !sector::keeps(pos, m.pos))).collect();
     for cid in &gone {
         p.seen_monsters.remove(cid);
         p.sess.send_raw(character_remove_packet(*cid));

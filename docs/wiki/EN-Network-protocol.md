@@ -97,8 +97,10 @@ the client's ground (`map_height`, read from `world/b*x.ma2`) and makes them fol
 walk.
 
 **Sector visibility.** The world is cut into 800 × 800 sectors of 6400 units, starting at
-(-2,560,000, -2,560,000) in X and Z. A player sees everything in the 3 × 3 sectors centred on their own:
-NPCs, monsters, other players and ground items appear (optimized view op 1, character packet op 0, item
+(-2,560,000, -2,560,000) in X and Z. As on the original server, NPCs, monsters, other players and ground
+items appear to a player as soon as they enter the 3 × 3 sectors centred on theirs. ArchCore only removes
+them beyond the 5 × 5 sectors (at least 12,800 units): the client draws characters up to about 10,000
+units, and a removal on leaving the 3 × 3 sectors could happen at 6,400 units, in plain sight. They appear (optimized view op 1, character packet op 0, item
 op 0) or disappear (AGPMCHARACTER op 3 "remove from view", item op 1) when the player or they change sector. The server
 follows the player's walk between two movement packets, from their speed (tenths of a unit per second:
 2000 walking, 5000 running for a human). Removals use op 3 ("remove from view"), like the original server: op 2 deletes the character at once, while op 3 first goes through the client's view functions, which can delay the deletion.

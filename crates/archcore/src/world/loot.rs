@@ -313,10 +313,9 @@ pub fn drop_loot(_ctx: &WorldCtx, st: &mut WorldState, killer: u32, center: Vec3
 pub fn sync_ground(_ctx: &WorldCtx, st: &mut WorldState, sid: u32, pos: Vec3) {
     let Some(p) = st.players.get_mut(&sid) else { return };
     for item in st.ground.items.values() {
-        let seen = super::sector::sees(pos, item.pos);
-        if seen && p.seen_items.insert(item.iid) {
+        if super::sector::sees(pos, item.pos) && p.seen_items.insert(item.iid) {
             p.send_raw(ground_packet(item));
-        } else if !seen && p.seen_items.remove(&item.iid) {
+        } else if !super::sector::keeps(pos, item.pos) && p.seen_items.remove(&item.iid) {
             p.send_raw(item_remove(item.iid, Some(item.owner)));
         }
     }

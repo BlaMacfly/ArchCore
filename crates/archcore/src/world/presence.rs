@@ -196,9 +196,13 @@ pub fn refresh(st: &mut WorldState, sid: u32) {
         if !o.in_game {
             continue;
         }
-        let near = sector::sees(me, o.view_pos);
-        set_visible(st, sid, other, near);
-        set_visible(st, other, sid, near);
+        // Apparition dans les 3 × 3 secteurs, retrait au-delà des 5 × 5 (voir `sector.rs`).
+        let (see, keep) = (sector::sees(me, o.view_pos), sector::keeps(me, o.view_pos));
+        let (me_cid, o_cid) = (st.players[&sid].ch.id, o.ch.id);
+        let mine = if st.players[&sid].seen_players.contains(&o_cid) { keep } else { see };
+        let theirs = if st.players[&other].seen_players.contains(&me_cid) { keep } else { see };
+        set_visible(st, sid, other, mine);
+        set_visible(st, other, sid, theirs);
     }
 }
 

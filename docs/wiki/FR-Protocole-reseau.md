@@ -98,8 +98,11 @@ joueur s'approchait. ArchCore pose donc ces créatures sur le sol du client (`ma
 `world/b*x.ma2`) et leur fait suivre le terrain quand elles marchent.
 
 **Visibilité par secteurs.** Le monde est découpé en 800 × 800 secteurs de 6400 unités, à partir de
-(-2 560 000, -2 560 000) en X et Z. Un joueur voit tout ce qui se trouve dans les 3 × 3 secteurs centrés
-sur le sien : PNJ, monstres, autres joueurs et objets au sol y apparaissent (vue optimisée op 1, paquet
+(-2 560 000, -2 560 000) en X et Z. Comme sur le serveur d'origine, PNJ, monstres, autres joueurs et objets
+au sol apparaissent à un joueur dès qu'ils entrent dans les 3 × 3 secteurs centrés sur le sien. ArchCore ne
+les retire qu'au-delà des 5 × 5 secteurs (au moins 12 800 unités) : le client dessine les personnages
+jusqu'à 10 000 unités environ, et un retrait à la sortie des 3 × 3 secteurs pouvait tomber à 6400 unités,
+sous ses yeux. Ils y apparaissent (vue optimisée op 1, paquet
 personnage op 0, objet op 0) ou en disparaissent (AGPMCHARACTER op 3 « retrait de la vue », objet op 1) quand lui ou eux
 changent de secteur. Le serveur suit la marche du joueur entre deux paquets de déplacement, d'après sa
 vitesse (dixièmes d'unité par seconde : 2000 en marche, 5000 en course pour un humain). Les retraits passent par l'op 3 (« retrait de la vue »), comme le serveur d'origine : l'op 2 supprime le personnage aussitôt, tandis que l'op 3 passe d'abord par les fonctions de vue du client, qui peuvent différer la suppression.
