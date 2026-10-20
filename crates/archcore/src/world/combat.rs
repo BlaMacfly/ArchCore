@@ -296,6 +296,8 @@ async fn attack_step(ctx: &WorldCtx, st: &mut WorldState, sid: u32, now: Instant
     let (cid, name) = (p.ch.id, p.ch.name.clone());
     let me = st.players.get_mut(&sid).unwrap();
     me.attack = Some(Attack { target: m.cid, ready_at: now + Duration::from_millis(60_000 / speed) });
+    // Qui frappe s'arrête, comme le client au début de l'animation du coup.
+    me.dest = None;
     super::recovery::in_combat(&mut me.timers, now);
 
     let target = st.monsters.get_mut(m.cid).unwrap();

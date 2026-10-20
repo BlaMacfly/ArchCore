@@ -78,7 +78,7 @@ pub fn choose_target(st: &WorldState, m: &Monster) -> Option<u32> {
                 p.in_game
                     && !p.dead
                     && p.skills.status_sent & status::UNTOUCHABLE == 0
-                    && combat::dist2d(p.dest.unwrap_or_else(|| p.ch.pos()), m.pos) <= CHASE_LIMIT
+                    && combat::dist2d(p.ch.pos(), m.pos) <= CHASE_LIMIT
             })
         })
         .max_by_key(|a| a.damage)
@@ -262,7 +262,9 @@ fn monster_step(map: &WorldMap, st: &mut WorldState, cid: u32, now: Instant) {
     let Some(tcid) = target else { return };
     let sid = st.by_cid[&tcid];
     let p = &st.players[&sid];
-    let ppos = p.dest.unwrap_or_else(|| p.ch.pos());
+    // Position actuelle de la cible (suivie par le serveur), pas sa destination : le monstre vise le joueur, pas
+    // l'endroit où il va.
+    let ppos = p.ch.pos();
     let reach = stats.range.max(50) as f64 + PLAYER_HIT_RANGE;
     let distance = combat::dist2d(m.pos, ppos);
     if distance > reach + REACH_TOLERANCE {
@@ -290,6 +292,8 @@ fn monster_step(map: &WorldMap, st: &mut WorldState, cid: u32, now: Instant) {
     let (mut outcome, mut damage) = combat::strike_at(&mut rng, combat::monster_hit_chance(&attacker, &defender), &attacker, &defender);
     let speed = super::effects::speed(stats.attack_speed, mods.atk_speed_pct).max(1) as u64;
     st.monsters.get_mut(cid).unwrap().ready_at = now + Duration::from_millis(60_000 / speed);
+    // Qui frappe s'arrête (le client arrête aussi le monstre au début de son coup).
+    st.monsters.walking.remove(&cid);
     if outcome == combat::result::SUCCESS {
         let p = st.players.get_mut(&sid).unwrap();
         let guard = effects::guard(&mut rng, &effects::total(&p.skills.effects), p.skills.status_sent, damage);

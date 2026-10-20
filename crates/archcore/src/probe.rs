@@ -11,6 +11,7 @@
 //!   OUT #sid ACT attaquant -> cible r=…        coup (vue optimisée de l'action)
 //!   IN  #sid MOVE (pos?) -> (dest) fl=…        déplacement demandé par le client
 //!   IN  #sid ACT cible op=…                    attaque demandée
+//!   IN  #sid CHAT texte                        message de discussion (repère tapé par le joueur)
 //!   POS #sid nom (x, y, z) secteur vus=N       position suivie par le serveur, chaque seconde
 //! ```
 
@@ -139,6 +140,8 @@ pub fn incoming(sid: u32, ptype: u8, p: &Packet) {
         format!("MOVE {} -> {} fl={:#x}", v(p.vec3(1)), v(p.vec3(2)), p.int(5).unwrap_or(0))
     } else if ptype == schema::OPT_CHAR_ACTION.id {
         format!("ACT {} op={}", cid(p, 1), p.int(6).unwrap_or(-1))
+    } else if ptype == schema::CHATTING.id {
+        format!("CHAT {}", p.text(6).unwrap_or_default())
     } else {
         return;
     };
