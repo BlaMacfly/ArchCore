@@ -16,6 +16,7 @@
 //!   archcore sim bag [compte] [mdp] [perso]                   séparer, réunir et détruire une pile ; ressusciter au point de la région ; compte MJ
 //!   archcore sim skill [compte] [mdp] [perso]                 maître des compétences : apprendre, refus, amélioration ; Dual Slash sur un Ver vert ; compte MJ
 //!   archcore sim bank [compte] [mdp] [perso]                  banque chez Holly : dépôt d'objet et d'argent, reconnexion, retrait ; compte MJ
+//!   archcore sim party [A… B…]                                groupe SimA + SimB : invitation (nom inconnu, puis CID), acceptation, liste, réglage, chef, exclusion
 //!   archcore sim trade [A… B…]                                échange GmTest ↔ SimA : objet et argent, verrou, échange ; refus ; A compte MJ
 //!   archcore sim quest [compte] [mdp] [perso]                 quêtes : prendre, refus, terminer (objets rapportés, récompense), abandonner ; compte MJ
 //!   archcore sim status [compte] [mdp] [perso]                état spécial : Shield Bash étourdit un Ver vert (champ 17), puis l'état retombe ; compte MJ, personnage GmEffets
@@ -58,6 +59,7 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         }
         Some("lang") => Box::pin(lang::run(&a(1, "sima"), &a(2, "sima"), &a(3, "SimA"))).await,
         Some("bank") => Box::pin(bank(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
+        Some("party") => Box::pin(party(&a(1, "sima"), &a(2, "sima"), &a(3, "SimA"), &a(4, "simb"), &a(5, "simb"), &a(6, "SimB"))).await,
         Some("trade") => Box::pin(private_trade(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("quest") => Box::pin(quest(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("status") => Box::pin(skill_status(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmEffets"))).await,
@@ -69,7 +71,7 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         Some("potion") => Box::pin(potion(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("equip") => Box::pin(equip(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("combat") => Box::pin(combat(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "Green Worm"))).await,
-        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol|bag|skill|effects|status|bank|trade|quest [arguments]"),
+        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol|bag|skill|effects|status|bank|trade|party|quest [arguments]"),
     }
 }
 
@@ -1357,6 +1359,78 @@ async fn bank(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
 }
 
 /// Échange entre deux joueurs : A (compte MJ) propose une pile et de l'argent, B de l'argent.
+/// Groupe de deux joueurs : invitation d'un nom inconnu (refusée), invitation par CID, acceptation (liste des
+/// membres), réglage de l'expérience par le chef, passage de chef, exclusion (groupe dissous).
+async fn party(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> anyhow::Result<()> {
+    const SPOT: Vec3 = Vec3 { x: -476_000.0, y: 4_422.0, z: -61_000.0 };
+    const STOP: i64 = 0x04;
+    let cfg = crate::config::load()?;
+    let (mv, pt, pm) = (&schema::OPT_CHAR_MOVE, &schema::PARTY, &schema::PARTY_MANAGEMENT);
+    let m = |op: i64| Fields::new(pm).with(0, op);
+    let is_m = |op: i64| move |q: &Recv| q.is(pm, Some(op));
+    let is_p = |op: i64| move |q: &Recv| q.is(pt, Some(op));
+
+    step(&format!("{ca} et {cb} entrent en jeu"));
+    let mut a = enter_world(&cfg, ua, pa, ca, "A-").await?;
+    let mut b = enter_world(&cfg, ub, pb, cb, "B-").await?;
+    for w in [&mut a, &mut b] {
+        let cid = w.cid;
+        w.world.send(mv, Fields::new(mv).with(0, cid).with(1, SPOT).with(2, SPOT).with(5, STOP).with(6, 0)).await?;
+    }
+    let (acid, bcid) = (a.cid as i64, b.cid as i64);
+
+    step("invitation d'un nom inconnu");
+    a.world.send(pm, m(0).with(1, acid).with(3, "PersonneIci")).await?;
+    a.world.expect_where(is_m(10), 3000, "refus : joueur absent").await?;
+    println!("  ✓ op 10 (joueur absent)");
+
+    step(&format!("{ca} invite {cb}, qui accepte"));
+    a.world.send(pm, m(0).with(1, acid).with(2, bcid)).await?;
+    let inv = b.world.expect_where(is_m(0), 3000, "invitation reçue").await?;
+    anyhow::ensure!(inv.int(1) == Some(acid), "auteur de l'invitation {:?}", inv.int(1));
+    println!("  ✓ {cb} reçoit l'invitation de {}", inv.fields().text(3).unwrap_or_default());
+    b.world.send(pm, m(2).with(1, bcid).with(2, acid)).await?;
+    // Comme le serveur d'origine : le groupe est annoncé à chacun avant la confirmation d'acceptation (op 2).
+    for (w, who) in [(&mut a, ca), (&mut b, cb)] {
+        let add = w.world.expect_where(is_p(0), 3000, "groupe formé").await?;
+        let list: Vec<i64> = add.fields().bytes(5).unwrap_or_default().chunks_exact(4).map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]) as i64).collect();
+        anyhow::ensure!(list == vec![acid, bcid], "liste des membres chez {who} : {list:?}");
+        w.world.expect_where(is_p(3), 3000, "membre annoncé").await?;
+        println!("  ✓ {who} : groupe {} formé, membres {list:?} (chef en tête)", add.int(1).unwrap_or(0));
+    }
+    a.world.expect_where(is_m(2), 3000, "acceptation annoncée").await?;
+    println!("  ✓ {ca} reçoit la confirmation (op 2)");
+
+    step("le chef règle l'expérience selon le niveau");
+    a.world.send(pt, Fields::new(pt).with(0, 5).with(8, 1)).await?;
+    for (w, who) in [(&mut a, ca), (&mut b, cb)] {
+        let up = w.world.expect_where(is_p(5), 3000, "réglage reçu").await?;
+        anyhow::ensure!(up.int(8) == Some(1), "répartition {:?} chez {who}", up.int(8));
+    }
+    println!("  ✓ répartition « selon le niveau » annoncée aux deux");
+    b.world.send(pt, Fields::new(pt).with(0, 5).with(8, 0)).await?;
+    anyhow::ensure!(a.world.expect_where(is_p(5), 800, "réglage d'un non-chef").await.is_err(), "un non-chef a changé le réglage");
+    println!("  ✓ réglage refusé à un non-chef");
+
+    step(&format!("{ca} passe la main à {cb}"));
+    a.world.send(pm, m(11).with(1, acid).with(2, bcid)).await?;
+    for (w, who) in [(&mut a, ca), (&mut b, cb)] {
+        let d = w.world.expect_where(is_m(11), 3000, "passage de chef").await?;
+        anyhow::ensure!(d.int(1) == Some(bcid), "nouveau chef {:?} chez {who}", d.int(1));
+    }
+    println!("  ✓ {cb} est chef");
+
+    step(&format!("{cb} exclut {ca} : groupe dissous"));
+    b.world.send(pm, m(4).with(1, bcid).with(2, acid)).await?;
+    // Le retrait du groupe précède l'avis d'exclusion (op 4), comme sur le serveur d'origine.
+    a.world.expect_where(is_p(1), 3000, "groupe retiré chez A").await?;
+    a.world.expect_where(is_m(4), 3000, "exclusion reçue").await?;
+    b.world.expect_where(is_p(1), 3000, "groupe dissous chez B").await?;
+    println!("  ✓ {ca} exclu ; groupe dissous chez {cb} (un seul membre)");
+    println!("\ngroupe à deux joueurs : OK");
+    Ok(())
+}
+
 async fn private_trade(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> anyhow::Result<()> {
     const SPOT: Vec3 = Vec3 { x: -476_000.0, y: 4_422.0, z: -61_000.0 };
     const POTION: i64 = 190;

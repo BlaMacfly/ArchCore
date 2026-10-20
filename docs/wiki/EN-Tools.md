@@ -123,13 +123,17 @@ must come back at Anchorville's resurrection point (-476000, -61000).
 ```bash
 ARCHCORE_CONF_DIR=config/test archcore sim bank [user] [pass] [character]
 ARCHCORE_CONF_DIR=config/test archcore sim trade [userA passA charA userB passB charB]
+ARCHCORE_CONF_DIR=config/test archcore sim party [userA passA charA userB passB charB]
 ```
 
 `sim bank` (GM account `gmtest`) checks that depositing without a keeper is refused, opens the bank at
 Holly (south of Anchorville), deposits a potion stack and 1000 coins, reconnects and finds them, then
 withdraws them and destroys the stack. `sim trade` puts GmTest (GM) and SimA at the same spot: GmTest offers
 a potion stack and 500 coins, SimA 100 coins; the offered item cannot be destroyed; locks, exchange (SimA
-receives the stack, money is adjusted on both sides), then a second request refused.
+receives the stack, money is adjusted on both sides), then a second request refused. `sim party` (SimA and
+SimB) checks that inviting an unknown name is refused, the invitation and acceptance (party and member list
+on both sides), the leader setting experience sharing (refused to the other), the leader handover, then the
+kick, which disbands the party.
 
 ## Quests test
 

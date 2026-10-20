@@ -125,13 +125,17 @@ il doit revenir au point de résurrection d'Anchorville (-476000, -61000).
 ```bash
 ARCHCORE_CONF_DIR=config/test archcore sim bank [compte] [mdp] [personnage]
 ARCHCORE_CONF_DIR=config/test archcore sim trade [compteA mdpA persoA compteB mdpB persoB]
+ARCHCORE_CONF_DIR=config/test archcore sim party [compteA mdpA persoA compteB mdpB persoB]
 ```
 
 `sim bank` (compte MJ `gmtest`) vérifie le refus d'un dépôt sans gardien, ouvre la banque chez Holly (au
 sud d'Anchorville), y dépose une pile de potions et 1000 pièces, se reconnecte et les retrouve, puis les
 retire et détruit la pile. `sim trade` place GmTest (MJ) et SimA au même endroit : GmTest propose une pile
 de potions et 500 pièces, SimA 100 pièces ; l'objet proposé ne peut pas être détruit ; verrous, échange
-(SimA reçoit la pile, l'argent est ajusté des deux côtés), puis une seconde demande refusée.
+(SimA reçoit la pile, l'argent est ajusté des deux côtés), puis une seconde demande refusée. `sim party`
+(SimA et SimB) vérifie le refus d'une invitation à un nom inconnu, l'invitation et l'acceptation (groupe et
+liste des membres chez les deux), le réglage de l'expérience par le chef (refusé à l'autre), le passage de
+chef puis l'exclusion, qui dissout le groupe.
 
 ## Test des quêtes
 

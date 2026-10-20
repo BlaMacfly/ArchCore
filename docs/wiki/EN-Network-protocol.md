@@ -424,6 +424,34 @@ server answers op 1 with the money carried (field 8) and banked (field 9). In th
 keeps the account's money and pages; items stay in `character_items` (status 2), attached to the
 character who deposited them and handed to the one who withdraws them.
 
+## Parties (types 0x08 and 0x09, AgpmParty)
+
+Two packet types: **0x09** (management, flags 1: operation, author CID, target CID, 49-byte name) and
+**0x08** (the party, flags 2: operation, ID, maximum members, member count, one member's CID, CID list as
+u32, factors, effect area, experience sharing, bonus, item sharing).
+
+| Management (0x09) | Meaning |
+|---|---|
+| 0 | invitation: the client sends the target (CID or name); the invitee gets op 0 (author, author's name) |
+| 1 | refusal by the invitee; the author gets op 1 (invitee's name) |
+| 2 | acceptance; the author gets op 2 (invitee's name) |
+| 3 | leaving |
+| 4 | kick by the leader; the kicked player gets op 4 |
+| 11 | leader handover; the party gets op 11 (author = new leader) |
+| 5, 6, 7, 8, 10 | failures: already in another party, already a member, party full, not leader, player absent |
+
+A party has at most five members, leader first; a player keeps at most sixteen pending invitations. On
+acceptance the party is formed (two members) or grows. The new member gets every other member's character
+packet, **op 0** of type 0x08 (the party and its list), then one **op 3** per member; the others get their
+character packet and an op 3 (them). On leaving, the party and the leaver get **op 4** (the leaver), the
+leaver **op 1** (party removed); a party down to one member is disbanded. The leader sets experience sharing
+(**op 5**, field 8: 0 by damage, 1 by level) and item sharing (**op 6**, field 10).
+
+Party members see each other at any distance; a disconnected member leaves the party. A killed monster's
+experience is shared between the living members close enough (5 × 5 sectors around the monster), by damage
+dealt or by level: this sharing is an ArchCore addition, the original server does not describe it. Gold and
+items still drop on the ground for the killer.
+
 ## Trading between players (type 0x07, AgpmPrivateTrade)
 
 2 flag bytes: op, CID, other player's CID, IID, TID, money (INT64), origin and destination slots, argument.

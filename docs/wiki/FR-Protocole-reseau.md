@@ -437,6 +437,35 @@ serveur renvoie op 1 avec l'argent sur soi (champ 8) et en banque (champ 9). En 
 garde l'argent et les pages du compte ; les objets restent dans `character_items` (statut 2), rattachés
 au personnage qui les a déposés et passés à celui qui les retire.
 
+## Groupes (types 0x08 et 0x09, AgpmParty)
+
+Deux types de paquets : **0x09** (gestion, drapeaux 1 : opération, CID de l'auteur, CID de la cible, nom
+sur 49 octets) et **0x08** (le groupe, drapeaux 2 : opération, identifiant, membres au plus, nombre de
+membres, CID d'un membre, liste des CID en u32, facteurs, zone d'effet, répartition de l'expérience,
+bonus, répartition des objets).
+
+| Gestion (0x09) | Sens |
+|---|---|
+| 0 | invitation : le client envoie la cible (CID ou nom) ; l'invité reçoit l'op 0 (auteur, nom de l'auteur) |
+| 1 | refus de l'invité ; l'auteur reçoit l'op 1 (nom de l'invité) |
+| 2 | acceptation ; l'auteur reçoit l'op 2 (nom de l'invité) |
+| 3 | départ |
+| 4 | exclusion par le chef ; l'exclu reçoit l'op 4 |
+| 11 | passage de chef ; le groupe reçoit l'op 11 (auteur = nouveau chef) |
+| 5, 6, 7, 8, 10 | échecs : déjà dans un autre groupe, déjà membre, groupe plein, pas chef, joueur absent |
+
+Un groupe compte cinq membres au plus, chef en tête ; un joueur garde seize invitations en attente au plus.
+À l'acceptation, le groupe est formé (deux membres) ou agrandi. Le nouveau membre reçoit la fiche de chaque
+autre membre, l'**op 0** du type 0x08 (le groupe et sa liste) puis un **op 3** par membre ; les autres
+reçoivent sa fiche et un op 3 (lui). Au départ, le groupe et lui reçoivent l'**op 4** (lui), lui l'**op 1**
+(groupe retiré) ; un groupe réduit à un membre est dissous. Le chef règle la répartition de l'expérience
+(**op 5**, champ 8 : 0 selon les dégâts, 1 selon le niveau) et celle des objets (**op 6**, champ 10).
+
+Les membres d'un groupe se voient à toute distance ; un membre déconnecté quitte le groupe. L'expérience
+d'un monstre tué se partage entre les membres vivants assez proches (5 × 5 secteurs autour du monstre),
+selon les dégâts infligés ou selon le niveau : cette répartition est un ajout d'ArchCore, le serveur
+d'origine ne la décrit pas. L'or et les objets tombent encore au sol pour le tueur.
+
 ## Échange entre joueurs (type 0x07, AgpmPrivateTrade)
 
 Drapeaux 2 : op, CID, CID de l'autre joueur, IID, TID, argent (INT64), cases d'origine et de destination,

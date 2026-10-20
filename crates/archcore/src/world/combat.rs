@@ -351,6 +351,9 @@ pub(super) fn approach(st: &mut WorldState, sid: u32, m: &Monster, hit_range: f6
 /// Mort d'un monstre : statut « mort » chez ceux qui le voient, expérience au tueur, cadavre programmé.
 pub(super) async fn kill(ctx: &WorldCtx, st: &mut WorldState, killer_sid: u32, cid: u32, now: Instant) -> anyhow::Result<()> {
     let target = st.monsters.get_mut(cid).unwrap();
+    // Dégâts de chaque agresseur, pour la répartition de l'expérience d'un groupe.
+    let damage: std::collections::HashMap<u32, u64> = target.aggro.iter().map(|a| (a.cid, a.damage)).collect();
+    let pos = target.pos;
     target.life = Life::Dead { remove_at: now + CORPSE_TIME };
     target.aggro.clear();
     target.target = None;
@@ -368,7 +371,9 @@ pub(super) async fn kill(ctx: &WorldCtx, st: &mut WorldState, killer_sid: u32, c
     let Some(p) = st.players.get_mut(&killer_sid) else { return Ok(()) };
     p.attack = None;
     info!("[combat] {} tue {name} ({cid:#x}) : +{gain} d'expérience", p.ch.name);
-    reward(ctx, st, killer_sid, gain).await?;
+    for (sid, part) in super::party::share_exp(st, killer_sid, gain, pos, &damage) {
+        reward(ctx, st, sid, part).await?;
+    }
     super::loot::on_kill(ctx, st, killer_sid, cid, now);
     super::quests::on_kill(ctx, st, killer_sid, tid).await?;
     Ok(())

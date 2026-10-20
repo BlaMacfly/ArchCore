@@ -30,6 +30,7 @@ pub mod ptype {
     pub const SKILL: u8 = 0x05;
     pub const PRIVATE_TRADE: u8 = 0x07;
     pub const PARTY: u8 = 0x08;
+    pub const PARTY_MANAGEMENT: u8 = 0x09;
     pub const LOGIN: u8 = 0x0d;
     pub const CHATTING: u8 = 0x0f;
     pub const TIMER: u8 = 0x11;
@@ -281,6 +282,39 @@ pub static EVENT_QUEST: Schema = Schema { name: "AGPMEVENTQUEST", id: ptype::EVE
 pub static EVENT_BANK: Schema = Schema { name: "AGPMEVENTBANK", id: ptype::EVENT_BANK, flag_len: 1, fields: &[f(I8), f(Packet), f(I32)] };
 
 /// AgpmPrivateTrade (0x07) — drapeaux 2 : échange entre joueurs.
+/// AgpmParty — drapeaux 2.
+pub static PARTY: Schema = Schema {
+    name: "AGPMPARTY",
+    id: ptype::PARTY,
+    flag_len: 2,
+    fields: &[
+        f(I8),       // 0 opération
+        f(I32),      // 1 identifiant du groupe
+        f(I8),       // 2 membres au plus
+        f(I8),       // 3 membres
+        f(I32),      // 4 CID du membre ajouté ou retiré
+        f(MemBlock), // 5 liste des CID (u32)
+        f(Packet),   // 6 facteurs
+        f(Packet),   // 7 zone d'effet
+        f(I8),       // 8 répartition de l'expérience
+        f(Packet),   // 9 bonus
+        f(I8),       // 10 répartition des objets
+    ],
+};
+
+/// AgpmParty (gestion) — drapeaux 1.
+pub static PARTY_MANAGEMENT: Schema = Schema {
+    name: "AGPMPARTYMANAGEMENT",
+    id: ptype::PARTY_MANAGEMENT,
+    flag_len: 1,
+    fields: &[
+        f(I8),        // 0 opération
+        f(I32),       // 1 CID de l'auteur
+        f(I32),       // 2 CID de la cible
+        fs(Char, 49), // 3 nom
+    ],
+};
+
 pub static PRIVATE_TRADE: Schema = Schema {
     name: "AGPMPRIVATETRADE",
     id: ptype::PRIVATE_TRADE,
@@ -425,7 +459,7 @@ pub static ARCHCORE_EXT: Schema = Schema {
 /// Tous les schémas principaux, pour l'aiguillage par type.
 pub static MAIN: &[&Schema] = &[
     &CONFIG, &CHARACTER, &CHAR_MANAGER, &LOGIN, &TIMER, &WORLD, &CHATTING, &ADMIN, &ITEM, &EVENT_NPC_TRADE,
-    &EVENT_NPC_DIALOG, &EVENT_MANAGER, &SKILL, &EVENT_SKILL_MASTER, &EVENT_BANK, &PRIVATE_TRADE, &QUEST, &EVENT_QUEST, &SYSTEM_MESSAGE, &RETURN_TO_LOGIN, &OPT_CHAR_MOVE, &OPT_CHAR_ACTION, &OPT_VIEW,
+    &EVENT_NPC_DIALOG, &EVENT_MANAGER, &SKILL, &EVENT_SKILL_MASTER, &EVENT_BANK, &PRIVATE_TRADE, &PARTY, &PARTY_MANAGEMENT, &QUEST, &EVENT_QUEST, &SYSTEM_MESSAGE, &RETURN_TO_LOGIN, &OPT_CHAR_MOVE, &OPT_CHAR_ACTION, &OPT_VIEW,
     &STARTUP_ENCRYPTION, &ARCHCORE_EXT,
 ];
 

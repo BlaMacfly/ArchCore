@@ -42,6 +42,7 @@ crates/archcore/           server and tools
     effects.rs             lasting effects: modifiers, damage over time, heals, passives, special states, criticals, block
     bank.rs                account bank: keepers, items, money
     trade.rs               trading between players
+    party.rs               parties: invitations, members, leader, experience sharing
     quests.rs              quests: catalogue, journal, accepting, progress, rewards
     map.rs                 server map (map_segment): blocked ground, regions
     items.rs               item catalog, inventory, AGPMITEM packets

@@ -29,7 +29,7 @@
   the last safe region crossed; item stacks split, merged, destroyed. Skills: learning and upgrading at
   trainers, skill points, casting; damage, areas, buffs and debuffs, damage over time, heals, passives;
   special states (stun, sleep, slow…), critical hits, block, damage turned into HP or MP.
-  Account bank (items, money) and trading between players. Quests: taking, progress (monsters, quest
+  Parties (invitation, members, leader, kick, experience sharing). Account bank (items, money) and trading between players. Quests: taking, progress (monsters, quest
   items), completion and rewards, abandoning. See
   [[Network protocol|EN-Network-protocol]].
 - ArchRust extensions: capability negotiation, AddOn messages (whisper, `SAY`), and the client language
@@ -49,9 +49,9 @@
 1. Verify full character creation in game.
 2. Verify player visibility with two real clients.
 3. NPC functions: teleport; bank expansion; quests with interaction objects.
-4. Skills: reflecting damage to the attacker, monster skills, parties; masteries.
+4. Skills: reflecting damage to the attacker, monster skills, party skills; masteries.
 5. Combat: elemental item damage. Items: refining, conversion.
-6. Chat, parties, guilds.
+6. Party chat, guilds.
 7. Automatic reconnection (type 0x63).
 8. Remaining GM commands on the [[Administration|EN-Administration]] page (arena, events, rifts…).
 9. Finish the translation: about 54,000 texts left.

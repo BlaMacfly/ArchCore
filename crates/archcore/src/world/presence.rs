@@ -213,15 +213,17 @@ pub fn refresh(st: &mut WorldState, sid: u32) {
         // Apparition dans les 3 × 3 secteurs, retrait au-delà des 5 × 5 (voir `sector.rs`).
         let (see, keep) = (sector::sees(me, o.view_pos), sector::keeps(me, o.view_pos));
         let (me_cid, o_cid) = (st.players[&sid].ch.id, o.ch.id);
-        let mine = if st.players[&sid].seen_players.contains(&o_cid) { keep } else { see };
-        let theirs = if st.players[&other].seen_players.contains(&me_cid) { keep } else { see };
+        // Les membres d'un même groupe se voient à toute distance.
+        let grouped = st.parties.same(me_cid, o_cid);
+        let mine = grouped || if st.players[&sid].seen_players.contains(&o_cid) { keep } else { see };
+        let theirs = grouped || if st.players[&other].seen_players.contains(&me_cid) { keep } else { see };
         set_visible(st, sid, other, mine);
         set_visible(st, other, sid, theirs);
     }
 }
 
 /// Rend `target` visible (ou non) pour `viewer`.
-fn set_visible(st: &mut WorldState, viewer: u32, target: u32, visible: bool) {
+pub(super) fn set_visible(st: &mut WorldState, viewer: u32, target: u32, visible: bool) {
     let t = &st.players[&target];
     let tid = t.ch.id;
     let add = character_add_packet(t);

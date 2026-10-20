@@ -42,6 +42,7 @@ crates/archcore/           serveur et outils
     effects.rs             effets durables : modificateurs, dégâts sur la durée, soins, passives, états spéciaux, critiques, blocage
     bank.rs                banque du compte : gardiens, objets, argent
     trade.rs               échange entre joueurs
+    party.rs               groupes : invitations, membres, chef, partage de l'expérience
     quests.rs              quêtes : catalogue, journal, acceptation, progression, récompenses
     map.rs                 carte serveur (map_segment) : sol infranchissable, régions
     items.rs               catalogue d'objets, inventaire, paquets AGPMITEM

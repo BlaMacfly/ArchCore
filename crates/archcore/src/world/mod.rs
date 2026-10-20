@@ -32,6 +32,7 @@ pub mod monsters;
 pub mod npc_events;
 pub mod npc_trade;
 pub mod npcs;
+pub mod party;
 pub mod presence;
 pub mod quests;
 pub mod recovery;
@@ -189,6 +190,8 @@ pub struct WorldState {
     pub ground: loot::Ground,
     /// Dernier identifiant de compétence attribué.
     pub next_skill_id: u32,
+    /// Groupes de joueurs.
+    pub parties: party::Parties,
 }
 
 impl WorldState {
@@ -228,6 +231,8 @@ impl Service for WorldService {
                 | ptype::EVENT_SKILL_MASTER
                 | ptype::EVENT_BANK
                 | ptype::PRIVATE_TRADE
+                | ptype::PARTY
+                | ptype::PARTY_MANAGEMENT
                 | ptype::QUEST
                 | ptype::EVENT_QUEST
                 | ptype::ARCHCORE_EXT
@@ -280,6 +285,8 @@ impl Connection for WorldConn {
             ptype::EVENT_SKILL_MASTER => skills::on_master_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::EVENT_BANK => bank::on_packet(ctx, &mut st, self.sid, &p),
             ptype::PRIVATE_TRADE => trade::on_packet(ctx, &mut st, self.sid, &p).await?,
+            ptype::PARTY => party::on_party(&mut st, self.sid, &p),
+            ptype::PARTY_MANAGEMENT => party::on_management(&mut st, self.sid, &p),
             ptype::QUEST => quests::on_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::EVENT_QUEST => quests::on_event(ctx, &mut st, self.sid, &p),
             _ => {}
@@ -292,6 +299,10 @@ impl Connection for WorldConn {
         let mut st = world.state.lock().await;
         // Un échange en cours est annulé : les objets n'ont pas quitté les inventaires.
         trade::cancel(&mut st, self.sid);
+        // Le groupe perd ce membre (et se dissout s'il ne reste qu'un joueur).
+        if let Some(cid) = st.players.get(&self.sid).map(|p| p.ch.id) {
+            party::on_leave_world(&mut st, cid);
+        }
         if let Err(e) = presence::leave(&world.ctx, &mut st, self.sid).await {
             warn!("[world] départ de #{} : {e:#}", self.sid);
         }
