@@ -596,8 +596,8 @@ async fn movement(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) ->
 
     let far = Vec3::new(start.x + 50_000.0, start.y, start.z);
     a.world.send(mv, Fields::new(mv).with(0, a.cid).with(1, far).with(2, far).with(5, STOP).with(6, 0)).await?;
-    b.world.expect_where(is_char(2, a.cid), 3000, &format!("{cb} retire {ca}")).await?;
-    a.world.expect_where(is_char(2, b.cid), 3000, &format!("{ca} retire {cb}")).await?;
+    b.world.expect_where(is_char(3, a.cid), 3000, &format!("{cb} retire {ca}")).await?;
+    a.world.expect_where(is_char(3, b.cid), 3000, &format!("{ca} retire {cb}")).await?;
     println!("  ✓ hors de portée : chacun retire l'autre");
 
     a.world.send(mv, Fields::new(mv).with(0, a.cid).with(1, start).with(2, start).with(5, STOP).with(6, 0)).await?;
@@ -607,7 +607,7 @@ async fn movement(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) ->
     let cm = &schema::CHAR_MANAGER;
     a.world.send(cm, Fields::new(cm).with(0, char_mgr_op::KEEPALIVE).with(2, 0)).await?;
     drop(a);
-    b.world.expect_where(is_char(2, acid as u32), 3000, &format!("{cb} retire {ca} déconnecté")).await?;
+    b.world.expect_where(is_char(3, acid as u32), 3000, &format!("{cb} retire {ca} déconnecté")).await?;
     println!("  ✓ déconnexion : le personnage disparaît chez l'autre joueur");
     println!("\ndéplacement à deux joueurs : OK");
     Ok(())
@@ -886,7 +886,7 @@ async fn combat(user: &str, pass: &str, char_name: &str, prey: &str) -> anyhow::
     }
 
     step("cadavre et réapparition");
-    w.world.expect_where(|q| q.is(c, Some(2)) && q.int(1) == Some(tcid), 30_000, "retrait du cadavre").await?;
+    w.world.expect_where(|q| q.is(c, Some(3)) && q.int(1) == Some(tcid), 30_000, "retrait du cadavre").await?;
     println!("  ✓ cadavre retiré");
     let back = w
         .world

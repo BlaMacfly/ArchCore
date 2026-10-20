@@ -95,9 +95,9 @@ envoyée est celle des tables (souvent 0) : le client pose la créature sur le t
 **Visibilité par secteurs.** Le monde est découpé en 800 × 800 secteurs de 6400 unités, à partir de
 (-2 560 000, -2 560 000) en X et Z. Un joueur voit tout ce qui se trouve dans les 3 × 3 secteurs centrés
 sur le sien : PNJ, monstres, autres joueurs et objets au sol y apparaissent (vue optimisée op 1, paquet
-personnage op 0, objet op 0) ou en disparaissent (AGPMCHARACTER op 2, objet op 1) quand lui ou eux
+personnage op 0, objet op 0) ou en disparaissent (AGPMCHARACTER op 3 « retrait de la vue », objet op 1) quand lui ou eux
 changent de secteur. Le serveur suit la marche du joueur entre deux paquets de déplacement, d'après sa
-vitesse (dixièmes d'unité par seconde : 2000 en marche, 5000 en course pour un humain).
+vitesse (dixièmes d'unité par seconde : 2000 en marche, 5000 en course pour un humain). Les retraits passent par l'op 3 (« retrait de la vue »), comme le serveur d'origine : l'op 2 supprime le personnage aussitôt, tandis que l'op 3 passe d'abord par les fonctions de vue du client, qui peuvent différer la suppression.
 
 ## Fonctions des PNJ (types 0x3C et 0x37)
 
@@ -180,7 +180,7 @@ d'en-tête sur 1 octet :
 
 ArchCore met à jour la position du personnage, relaie le même paquet aux joueurs qui le voient, puis
 recalcule la visibilité par secteurs (voir plus haut) : un paquet personnage **op 0** ajoute un joueur
-entré dans les secteurs voisins, l'**op 2** (CID au champ 1) retire un joueur qui en est sorti ou s'est
+entré dans les secteurs voisins, l'**op 3** (retrait de la vue, CID au champ 1) retire un joueur qui en est sorti ou s'est
 déconnecté. La position est
 sauvegardée à la déconnexion et toutes les minutes.
 
@@ -214,7 +214,7 @@ joueur jusqu'à la cible avec un AGPMOPTIMIZEDCHARMOVE ; un déplacement demand�
 l'attaque. Les coups suivent la vitesse d'attaque (60 000 / vitesse ms).
 
 À la mort d'un monstre, AGPMCHARACTER op 1 avec le champ 11 (statut d'action) à 2 ; le cadavre est
-retiré 20 s plus tard (op 2), puis le monstre réapparaît à sa place avec tous ses PV. Le tueur reçoit
+retiré 20 s plus tard (op 3), puis le monstre réapparaît à sa place avec tous ses PV. Le tueur reçoit
 l'expérience du modèle (`Exp` de CharacterDataTable.txt × taux `exp`) dans ses facteurs (op 1, champ 7)
 et un message système ; l'expérience se compte par niveau (`LevelUpExp.txt`), et une montée de niveau
 est signalée par AGPMCHARACTER **op 5**. Seuls les modèles dont le type porte les bits « attaquable »

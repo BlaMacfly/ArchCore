@@ -94,9 +94,9 @@ tables (often 0): the client puts the creature on the ground.
 **Sector visibility.** The world is cut into 800 × 800 sectors of 6400 units, starting at
 (-2,560,000, -2,560,000) in X and Z. A player sees everything in the 3 × 3 sectors centred on their own:
 NPCs, monsters, other players and ground items appear (optimized view op 1, character packet op 0, item
-op 0) or disappear (AGPMCHARACTER op 2, item op 1) when the player or they change sector. The server
+op 0) or disappear (AGPMCHARACTER op 3 "remove from view", item op 1) when the player or they change sector. The server
 follows the player's walk between two movement packets, from their speed (tenths of a unit per second:
-2000 walking, 5000 running for a human).
+2000 walking, 5000 running for a human). Removals use op 3 ("remove from view"), like the original server: op 2 deletes the character at once, while op 3 first goes through the client's view functions, which can delay the deletion.
 
 ## NPC functions (types 0x3C and 0x37)
 
@@ -178,7 +178,7 @@ The client sends a 0x40 packet on every movement click (`FUN_140264010`), with 1
 
 ArchCore updates the character's position, relays the same packet to the players who see it, then
 recomputes visibility by sector (see above): a character packet **op 0** adds a player who entered the
-neighbouring sectors, **op 2** (CID in field 1) removes a player who left them or disconnected. The position is saved on disconnect
+neighbouring sectors, **op 3** (remove from view, CID in field 1) removes a player who left them or disconnected. The position is saved on disconnect
 and every minute.
 
 ## Chat (type 0x0F, AgpmChatting)
@@ -211,7 +211,7 @@ with an AGPMOPTIMIZEDCHARMOVE; a movement requested by the client cancels the at
 attack speed (60,000 / speed ms).
 
 When a monster dies, AGPMCHARACTER op 1 with field 11 (action status) set to 2; the corpse is removed
-20 s later (op 2), then the monster respawns in place with full HP. The killer gets the template's
+20 s later (op 3), then the monster respawns in place with full HP. The killer gets the template's
 experience (`Exp` from CharacterDataTable.txt × the `exp` rate) in its factors (op 1, field 7) and a
 system message; experience is counted per level (`LevelUpExp.txt`), and a level up is announced with
 AGPMCHARACTER **op 5**. Only templates whose type has the "attackable" (0x10000) and "targetable"

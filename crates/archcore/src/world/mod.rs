@@ -655,8 +655,10 @@ pub fn character_add_packet(p: &Player) -> Vec<u8> {
     character_packet(&p.view(), &p.factors, 0)
 }
 
-/// Paquet AGPMCHARACTER op 2 : retire un personnage chez le client.
+/// Paquet AGPMCHARACTER op 3 (retrait de la vue) : le personnage sort de la vue du client. Contrairement à
+/// l'op 2, qui le supprime aussitôt, le client consulte d'abord ses propres fonctions de vue, qui peuvent
+/// différer la suppression (un monstre encore à l'écran reste affiché).
 pub fn character_remove_packet(cid: u32) -> Vec<u8> {
     let c = &schema::CHARACTER;
-    build_packet(c, &Fields::new(c).with(0, 2).with(1, cid))
+    build_packet(c, &Fields::new(c).with(0, 3).with(1, cid))
 }
