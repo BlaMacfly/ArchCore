@@ -493,6 +493,10 @@ retard, en avance) et par les 17 scénarios `archcore sim`. Étape 3 (R5, R6) fa
 migrations `202610210100_index_auth_token` (index unique, clés en double effacées, nouveau tirage côté
 connexion) et `202610210110_account_banned` (table additive, lecture des deux sources) ; base
 `archcore_test_world` pour l'instance de test. Validée sur copies (cinq cas de bannissement, 17 scénarios).
+Étape 4 (R7) faite le 2026-10-21 : migration `202610210200_stable_keys` (colonne `stable_key` unique et sensible
+à la casse, remplie par la migration pour les apparitions et le butin, par l'import pour les points de
+résurrection) ; clés identiques après deux réimports sur une copie (12 802 apparitions, 4 653 butins, 62 points),
+17 scénarios.
 
 | Étape | Rec. | Quoi | Raison | Bénéfice | Coût | Risque |
 |---|---|---|---|---|---|---|

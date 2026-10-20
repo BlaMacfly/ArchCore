@@ -50,6 +50,13 @@ Filled by `archcore import` from the client tables.
 | `region_template` | `RegionTemplate.ini` | 331 regions: name, parent region, Type field, safety (33 safe) |
 | `resurrection_point` | `obj*.ini` (event 19, type 1) | 62 resurrection points: region, position, allowed race and class |
 
+**Stable identifiers.** In `monster_spawn`, `monster_drop` and `resurrection_point`, the `id` column is only an
+import order number. The `stable_key` column (unique, case-sensitive) names the same row from one import to the
+next as long as the sources do not change, for a tool that must target a given row (editor, content layer):
+`point#rank` for a spawn (rank among the rows of the same point), `monster:item#rank` for a drop,
+`file#object#rank` for a resurrection point (`obj*.ini` file, object section). The resurrection points' key is
+filled by `archcore import`.
+
 ### Languages (`sql/004_locale.sql`, same database)
 
 | Table | Content |

@@ -51,6 +51,13 @@ Remplie par `archcore import` à partir des tables du client.
 | `region_template` | `RegionTemplate.ini` | 331 régions : nom, région parente, champ Type, sûreté (33 sûres) |
 | `resurrection_point` | `obj*.ini` (événement 19, type 1) | 62 points de résurrection : région, position, race et classe admises |
 
+**Identifiants stables.** Dans `monster_spawn`, `monster_drop` et `resurrection_point`, la colonne `id` n'est qu'un
+numéro d'ordre d'import. La colonne `stable_key` (unique, sensible à la casse) désigne la même ligne d'un import
+à l'autre tant que les sources ne changent pas, pour un outil qui doit viser une ligne précise (éditeur, couche
+de contenu) : `point#rang` pour une apparition (rang parmi les lignes du même point), `monstre:objet#rang` pour
+un butin, `fichier#objet#rang` pour un point de résurrection (fichier `obj*.ini`, section de l'objet). Celle des
+points de résurrection est remplie par `archcore import`.
+
 ### Langues (`sql/004_locale.sql`, même base)
 
 | Table | Contenu |

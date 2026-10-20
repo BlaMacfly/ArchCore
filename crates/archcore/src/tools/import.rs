@@ -264,6 +264,8 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
 #[derive(Debug, Clone, PartialEq)]
 pub struct SpawnRow {
     pub id: u32,
+    /// Clé stable : « point#rang », rang de la ligne parmi celles du même point, dans l'ordre des tables.
+    pub key: String,
     pub group: String,
     pub name: String,
     pub tid: u32,
@@ -303,6 +305,7 @@ pub fn join_spawns(data: &str, instances: &str) -> (Vec<SpawnRow>, usize) {
     let dcol = |n: &str| dh.iter().position(|h| h == n);
     let c = ["GroupName", "Name", "TotalMobCount", "Spawntime", "MobTID", "MobLV", "Rate", "MaxMobCount", "MobAITID", "SiegeWarType", "IsBoss"].map(dcol);
     let (mut out, mut missing) = (Vec::new(), 0);
+    let mut ranks: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
     for r in &drows {
         let n = |i: usize| js_number(&cell(r, c[i]), 0.0) as i64;
         let name = cell(r, c[1]);
@@ -315,8 +318,11 @@ pub fn join_spawns(data: &str, instances: &str) -> (Vec<SpawnRow>, usize) {
             continue;
         };
         for &(pos, degree, radius) in at {
+            let rank = ranks.entry(name.clone()).or_insert(0);
+            *rank += 1;
             out.push(SpawnRow {
                 id: out.len() as u32 + 1,
+                key: format!("{name}#{rank}"),
                 group: cell(r, c[0]),
                 name: name.clone(),
                 tid: tid as u32,
@@ -391,6 +397,8 @@ pub fn parse_regions(text: &str) -> Vec<(u32, String, i64, i64)> {
 /// Événement « binding » (fonction 19) d'un objet d'obj*.ini.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Binding {
+    /// Section de l'objet dans son fichier obj*.ini.
+    pub object: String,
     pub name: String,
     pub town: String,
     pub binding_type: i64,
@@ -418,7 +426,7 @@ pub fn parse_bindings(text: &str) -> Vec<Binding> {
                 "Function" => {
                     out.extend(current.take());
                     if val.trim() == "19" {
-                        current = Some(Binding { name: String::new(), town: String::new(), binding_type: 0, race: 0, class: 0, pos });
+                        current = Some(Binding { object: s.id.clone(), name: String::new(), town: String::new(), binding_type: 0, race: 0, class: 0, pos });
                     }
                 }
                 "BindingEnd" => out.extend(current.take()),
@@ -455,11 +463,24 @@ pub fn parse_monster_drops(text: &str) -> Vec<(u32, u32, i64, i64, i64)> {
         .collect()
 }
 
+/// Clés stables du butin : « monstre:objet#rang », rang parmi les lignes du même couple.
+pub fn drop_keys(rows: &[(u32, u32, i64, i64, i64)]) -> Vec<String> {
+    let mut ranks: std::collections::HashMap<(u32, u32), u32> = std::collections::HashMap::new();
+    rows.iter()
+        .map(|r| {
+            let rank = ranks.entry((r.0, r.1)).or_insert(0);
+            *rank += 1;
+            format!("{}:{}#{rank}", r.0, r.1)
+        })
+        .collect()
+}
+
 async fn import_loot(db: &Databases, server: &Source) -> anyhow::Result<()> {
     if server.exists("itemdroptable.txt") {
         let rows = parse_monster_drops(&server.read("itemdroptable.txt")?);
-        let out: Vec<Vec<Value>> = rows.iter().enumerate().map(|(i, r)| vec![v(i as u32 + 1), v(r.0), v(r.1), v(r.2), v(r.3), v(r.4)]).collect();
-        let n = replace(db, "monster_drop", "INSERT INTO monster_drop (id,monster_tid,item_tid,min_count,max_count,rate) VALUES (?,?,?,?,?,?)", out).await?;
+        let keys = drop_keys(&rows);
+        let out: Vec<Vec<Value>> = rows.iter().zip(keys).enumerate().map(|(i, (r, k))| vec![v(i as u32 + 1), v(k), v(r.0), v(r.1), v(r.2), v(r.3), v(r.4)]).collect();
+        let n = replace(db, "monster_drop", "INSERT INTO monster_drop (id,stable_key,monster_tid,item_tid,min_count,max_count,rate) VALUES (?,?,?,?,?,?,?)", out).await?;
         println!("✓ monster_drop : {n}");
     }
     if server.exists("groupdroprate.txt") {
@@ -517,7 +538,7 @@ async fn import_spawns(db: &Databases, client: &Source, server: &Source) -> anyh
         .map(|r| {
             let display: String = public.get(&r.tid).cloned().unwrap_or_default().chars().take(96).collect();
             vec![
-                v(r.id), v(r.group.clone()), v(r.name.clone()), v(r.tid), v(display), v(r.level), v(r.count), v(r.max_count),
+                v(r.id), v(r.key.clone()), v(r.group.clone()), v(r.name.clone()), v(r.tid), v(display), v(r.level), v(r.count), v(r.max_count),
                 v(r.respawn_sec), v(r.rate), v(r.ai_tid), v(r.siege_war), v(r.is_boss),
                 v(r.pos[0]), v(r.pos[1]), v(r.pos[2]), v(r.degree[0]), v(r.degree[1]), v(r.radius),
             ]
@@ -526,7 +547,7 @@ async fn import_spawns(db: &Databases, client: &Source, server: &Source) -> anyh
     let n = replace(
         db,
         "monster_spawn",
-        "INSERT INTO monster_spawn (id,group_name,name,tid,display_name,level,count,max_count,respawn_sec,rate,ai_tid,siege_war,is_boss,pos_x,pos_y,pos_z,degree_x,degree_y,radius) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO monster_spawn (id,stable_key,group_name,name,tid,display_name,level,count,max_count,respawn_sec,rate,ai_tid,siege_war,is_boss,pos_x,pos_y,pos_z,degree_x,degree_y,radius) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         out,
     )
     .await?;
@@ -718,10 +739,16 @@ async fn import_all(db: &Databases, src: &Source) -> anyhow::Result<()> {
             .collect();
         files.sort();
         for f in &files {
-            let text = src.read(f.file_name().unwrap().to_str().unwrap())?;
+            let file = f.file_name().unwrap().to_str().unwrap();
+            let text = src.read(file)?;
+            let mut ranks: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
             for b in parse_bindings(&text).into_iter().filter(|b| b.binding_type == 1) {
+                // Clé stable : fichier, objet et rang de l'événement dans l'objet.
+                let rank = ranks.entry(b.object.clone()).or_insert(0);
+                *rank += 1;
+                let key = format!("{file}#{}#{rank}", b.object);
                 if let Some(&region) = by_name.get(b.town.as_str()) {
-                    points.push((region, b));
+                    points.push((region, key, b));
                 }
             }
         }
@@ -730,9 +757,9 @@ async fn import_all(db: &Databases, src: &Source) -> anyhow::Result<()> {
         let out: Vec<Vec<Value>> = points
             .iter()
             .enumerate()
-            .map(|(i, (region, b))| vec![v(i as u32 + 1), v(*region), v(b.name.clone()), v(b.pos[0]), v(b.pos[1]), v(b.pos[2]), v(b.race), v(b.class)])
+            .map(|(i, (region, key, b))| vec![v(i as u32 + 1), v(key.clone()), v(*region), v(b.name.clone()), v(b.pos[0]), v(b.pos[1]), v(b.pos[2]), v(b.race), v(b.class)])
             .collect();
-        let m = replace(db, "resurrection_point", "INSERT INTO resurrection_point (id,region_id,name,pos_x,pos_y,pos_z,race,class) VALUES (?,?,?,?,?,?,?,?)", out).await?;
+        let m = replace(db, "resurrection_point", "INSERT INTO resurrection_point (id,stable_key,region_id,name,pos_x,pos_y,pos_z,race,class) VALUES (?,?,?,?,?,?,?,?,?)", out).await?;
         println!("✓ region_template : {n} ; resurrection_point : {m} (sur {} fichier(s) obj*.ini)", files.len());
     }
 
@@ -840,6 +867,7 @@ mod tests {
         let b = parse_bindings(obj);
         assert_eq!(b.len(), 1);
         assert_eq!((b[0].town.as_str(), b[0].binding_type, b[0].race, b[0].class, b[0].pos[0]), ("Delfaras", 1, 2, 0, -579188.8));
+        assert_eq!(b[0].object, "1");
     }
 
     #[test]
@@ -849,6 +877,8 @@ mod tests {
                  Taravan\t15\t2\t\t1856\t0\t0\t500\r\n\
                  Vide\t0\t1\t\t99\t1\t1\t5\r\n";
         assert_eq!(parse_monster_drops(t), vec![(15, 5018, 1, 3, 10), (15, 1856, 1, 1, 500)]);
+        let rows = [(15, 5018, 1, 3, 10), (15, 1856, 1, 1, 500), (15, 5018, 2, 2, 5)];
+        assert_eq!(drop_keys(&rows), vec!["15:5018#1", "15:1856#1", "15:5018#2"]);
     }
 
     #[test]
@@ -869,5 +899,7 @@ mod tests {
         assert_eq!((a.pos, a.degree, a.radius), ([-100.0, 0.0, 200.5], [0.0, 90.0], 2500.0));
         assert_eq!((rows[1].id, rows[1].name.as_str(), rows[1].pos), (2, "g1_1", [9.0, 9.0, 9.0]));
         assert_eq!((rows[2].id, rows[2].siege_war), (3, 10));
+        // Clés stables : rang de la ligne parmi celles du même point.
+        assert_eq!(rows.iter().map(|r| r.key.as_str()).collect::<Vec<_>>(), vec!["g1_1#1", "g1_1#2", "g2_1#1"]);
     }
 }
