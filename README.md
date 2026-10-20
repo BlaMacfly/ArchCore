@@ -13,11 +13,11 @@
   <a href="#-english">🇬🇧 English</a> ·
   <a href="#-français">🇫🇷 Français</a> ·
   <a href="https://github.com/BlaMacfly/ArchCore/wiki">📖 Wiki</a> ·
-  <a href="https://discord.gg/T3jfR6ftak">💬 Discord</a>
+  <a href="https://discord.gg/JCyrsTm7fR">💬 Discord</a>
 </p>
 
 <p align="center">
-  <a href="https://discord.gg/T3jfR6ftak"><img src="https://img.shields.io/badge/Discord-ArchCore-5865F2?logo=discord&logoColor=white" alt="Discord ArchCore"></a>
+  <a href="https://discord.gg/JCyrsTm7fR"><img src="https://img.shields.io/badge/Discord-ArchCore-5865F2?logo=discord&logoColor=white" alt="Discord ArchCore"></a>
 </p>
 
 ---
@@ -79,7 +79,7 @@ are in [`docs/wiki`](docs/wiki).
 ### Community
 
 Join the official Discord to follow the project, ask questions and offer help:
-https://discord.gg/T3jfR6ftak
+https://discord.gg/JCyrsTm7fR
 
 ### How to contribute
 
@@ -104,7 +104,7 @@ You don't need to be an expert in Rust to help with the project.
 2. Check the open [GitHub issues](https://github.com/BlaMacfly/ArchCore/issues) for known bugs and
    planned features.
 3. If you have an idea or want to work on a specific system, open an issue or start a discussion
-   (on GitHub or on the [Discord](https://discord.gg/T3jfR6ftak)) before making major changes.
+   (on GitHub or on the [Discord](https://discord.gg/JCyrsTm7fR)) before making major changes.
 4. For code contributions, create a dedicated branch and submit a pull request describing your
    changes and testing.
 
@@ -186,7 +186,7 @@ Les mêmes pages sont dans [`docs/wiki`](docs/wiki).
 ### Communauté
 
 Rejoignez le Discord officiel pour suivre le projet, poser vos questions et proposer votre aide :
-https://discord.gg/T3jfR6ftak
+https://discord.gg/JCyrsTm7fR
 
 ### Contribuer
 
@@ -213,7 +213,7 @@ bienvenues ! Pas besoin d'être expert en Rust pour aider le projet.
 2. Consultez les [*issues* GitHub](https://github.com/BlaMacfly/ArchCore/issues) ouvertes pour les
    bugs connus et les fonctions prévues.
 3. Si vous avez une idée ou voulez travailler sur un système précis, ouvrez une *issue* ou lancez la
-   discussion (sur GitHub ou sur le [Discord](https://discord.gg/T3jfR6ftak)) avant tout changement
+   discussion (sur GitHub ou sur le [Discord](https://discord.gg/JCyrsTm7fR)) avant tout changement
    majeur.
 4. Pour une contribution de code, créez une branche dédiée et proposez une *pull request* décrivant
    vos changements et vos tests.
