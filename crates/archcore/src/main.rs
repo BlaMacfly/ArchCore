@@ -22,6 +22,7 @@ mod ext;
 mod locale;
 mod log;
 mod login;
+mod migrations;
 mod net;
 mod probe;
 mod server;

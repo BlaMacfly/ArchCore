@@ -1,6 +1,7 @@
 # Base de données
 
-ArchCore utilise trois bases MariaDB, créées par `archcore db-init` à partir de `sql/`.
+ArchCore utilise trois bases MariaDB, créées et mises à jour par `archcore db-init` à partir de `sql/` (base de
+référence et migrations, voir plus bas).
 Toutes sont en `utf8mb4`.
 
 ## `archcore_auth` — comptes et mondes (`sql/001_auth.sql`)
@@ -57,6 +58,30 @@ Remplie par `archcore import` à partir des tables du client.
 | `localized_text` | Textes localisés : `kind` (`npc_name`, `monster_name`, `item_name`, `item_desc`, `quest_name`, `quest_desc`, `skill_name`, `region_name`, `npc_dialog`), `ref_id` (identifiant de la table d'origine), `lang`, `text` ; remplie par `archcore i18n db <langue>` et à la main |
 
 Voir [[Traduction|FR-Traduction]] pour le repli et [[Extensions ArchRust|FR-Extensions-ArchRust]] pour le protocole.
+
+## Versions du schéma (migrations)
+
+Les fichiers `sql/001…004` forment la **base de référence** : `archcore db-init` les rejoue à chaque fois (ils
+sont idempotents) et ne les modifie plus. Tout changement suivant va dans une **migration** :
+
+```
+sql/migrations/<base>/<AAAAMMJJHHMM>_<sujet>.sql      <base> = auth, characters ou world
+```
+
+- `archcore db-init` applique chaque migration une seule fois, dans l'ordre des identifiants, et la note dans la
+  table `schema_migrations` de sa base (identifiant, date, empreinte SHA-256 du texte). La base de référence y
+  figure sous `0000_reference`.
+- Les scripts sont embarqués dans l'exécutable à la compilation : `archcore` n'a plus besoin du dossier `sql/`
+  pour créer les bases.
+- **Au démarrage, le serveur refuse de partir** si une base n'a jamais été suivie, est en retard (migrations à
+  appliquer : lancer `archcore db-init`) ou en avance (migrations inconnues de l'exécutable : le mettre à
+  jour). Une migration modifiée après son application, ou une base de référence changée, donne un
+  avertissement.
+- Une migration est additive par défaut ; un renommage ou une suppression se fait en deux versions (ajout et
+  double lecture, puis retrait). Jamais de migration destructive sans sauvegarde préalable (`mariadb-dump`).
+
+Après une mise à jour d'ArchCore, lancer `archcore db-init` avant le serveur (sans `--account`, la commande ne
+touche à aucun compte).
 
 ## Ajouter un compte
 

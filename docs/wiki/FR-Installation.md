@@ -165,5 +165,6 @@ finished ») : c'est normal.
 | Des créatures disparaissent quand on se déplace ou qu'on approche | Réglage d'affichage du client : dans `Game/ini/COption.ini` (client fermé), `CharView` multiplie la distance d'affichage des personnages (0 : 0,25 ; 1 : 0,45 ; 2 : 0,875 ; 3 : sans limite) et `MapView` celle de la carte (0,5 à 1,8). Mettre les deux à `3`, ou au maximum dans les options graphiques du jeu |
 | Un autre joueur reste bloqué après le choix du personnage | `WorldServer.PublicAddress` vaut encore `127.0.0.1`, ou le port 11008 est fermé |
 | Message « colonne inconnue » dans le journal | Code mis à jour sans relancer `archcore db-init` |
+| Le serveur refuse de démarrer : « schéma des bases à mettre à jour » | Base pas encore suivie ou en retard : lancer `archcore db-init` ; base en avance : mettre à jour l'exécutable (voir [[Base de données\|FR-Base-de-donnees]]) |
 | Inventaire ou boutique vides | Le dossier de langue du client (`ini_fr`…) doit contenir `ItemTemplateAll.ini` (voir [[Traduction|FR-Traduction]]) |
 | Pas de son | Vérifier `[Sound_Option]` dans `Game/ini/COption.ini` ; le jeu réécrit ce fichier en quittant |

@@ -157,6 +157,7 @@ finished"): this is normal.
 | "Cannot access the login server" | ArchCore is not listening on 11002, or `<ClientName>Test.ini` is missing |
 | Endless loading when entering the world | Run with `ARCHCORE_TRACE=1` and read the log |
 | The server stops at start-up on a database error | MariaDB is not running, or its credentials (`Database.*`) are wrong |
+| The server refuses to start: "schema of the databases to update" (`schéma des bases à mettre à jour`) | Database not tracked yet or behind: run `archcore db-init`; ahead: update the executable (see [[Database\|EN-Database]]) |
 | No monsters in the world | The server tables were not imported (`archcore import --server …`) |
 | Creatures vanish when moving or coming closer | Client display setting: in `Game/ini/COption.ini` (client closed), `CharView` multiplies the character draw distance (0: 0.25; 1: 0.45; 2: 0.875; 3: unlimited) and `MapView` the map's (0.5 to 1.8). Set both to `3`, or to the maximum in the game's graphics options |
 | Another player is stuck after choosing a character | `WorldServer.PublicAddress` is still `127.0.0.1`, or port 11008 is closed |

@@ -486,6 +486,11 @@ Exigences de compatibilité ascendante proposées :
 Les étapes vont de la moins risquée à la plus structurante. Aucune n'oblige à une migration
 destructive.
 
+**Suivi.** Étape 1 (R1 à R3) faite le 2026-10-21 (effaec1). Étape 2 (R4) faite le 2026-10-21 : table
+`schema_migrations`, scripts embarqués, `sql/migrations/<base>/`, contrôle de version au démarrage
+(`crates/archcore/src/migrations.rs`), validée sur des copies des bases de test (non initialisée, à jour, en
+retard, en avance) et par les 17 scénarios `archcore sim`.
+
 | Étape | Rec. | Quoi | Raison | Bénéfice | Coût | Risque |
 |---|---|---|---|---|---|---|
 | 0 | R0 | Script de sauvegarde (`mariadb-dump` des trois bases) et procédure de copie vers `archcore_audit_*` pour les essais | prérequis de tout le reste | retour en arrière garanti | très faible | nul |

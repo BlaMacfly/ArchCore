@@ -1,6 +1,7 @@
 # Database
 
-ArchCore uses three MariaDB databases, created by `archcore db-init` from `sql/`. All use `utf8mb4`.
+ArchCore uses three MariaDB databases, created and updated by `archcore db-init` from `sql/` (baseline and
+migrations, see below). All use `utf8mb4`.
 
 ## `archcore_auth` — accounts and worlds (`sql/001_auth.sql`)
 
@@ -56,6 +57,27 @@ Filled by `archcore import` from the client tables.
 | `localized_text` | Localized texts: `kind` (`npc_name`, `monster_name`, `item_name`, `item_desc`, `quest_name`, `quest_desc`, `skill_name`, `region_name`, `npc_dialog`), `ref_id` (identifier in the source table), `lang`, `text`; filled by `archcore i18n db <language>` and by hand |
 
 See [[Translation|EN-Translation]] for the fallback and [[ArchRust extensions|EN-ArchRust-extensions]] for the protocol.
+
+## Schema versions (migrations)
+
+The `sql/001…004` files are the **baseline**: `archcore db-init` replays them every time (they are idempotent)
+and they are no longer edited. Every later change goes into a **migration**:
+
+```
+sql/migrations/<base>/<YYYYMMDDHHMM>_<topic>.sql      <base> = auth, characters or world
+```
+
+- `archcore db-init` applies each migration once, in id order, and records it in the `schema_migrations` table of
+  its database (id, date, SHA-256 of the text). The baseline is recorded as `0000_reference`.
+- Scripts are embedded in the executable at build time: `archcore` no longer needs the `sql/` folder to create
+  the databases.
+- **At start-up the server refuses to run** when a database was never tracked, is behind (migrations to apply:
+  run `archcore db-init`) or ahead (migrations unknown to the executable: update it). A migration edited after
+  being applied, or a changed baseline, gives a warning.
+- Migrations are additive by default; a rename or a removal takes two versions (add and read both, then
+  remove). Never a destructive migration without a backup first (`mariadb-dump`).
+
+After updating ArchCore, run `archcore db-init` before the server (without `--account`, it touches no account).
 
 ## Add an account
 
