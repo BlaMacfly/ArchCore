@@ -54,7 +54,8 @@ archcore import      # data/client-ini → archcore_world
 
 Les tables du client sont chiffrées en RC4, avec une clé dérivée de MD5(« 1111 »), et écrites en CP949.
 L'import les convertit en UTF-8 : modèles de personnages, expérience, PNJ, objets, boutiques, compétences,
-quêtes.
+quêtes. Il lit aussi la hauteur du sol dans la géométrie du monde (`world/` du client), ce qui prend
+quelques minutes.
 
 **Monstres, butin et carte.** Ils ne sont pas dans le client : ils viennent des tables du serveur
 d'origine d'ArchLord (`spawndatatable.txt`, `spawninstancetable.txt`, `itemdroptable.txt`,

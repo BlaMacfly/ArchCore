@@ -7,6 +7,7 @@ pub mod i18n;
 pub mod import;
 pub mod re;
 pub mod sim;
+pub mod terrain;
 
 use std::path::{Path, PathBuf};
 

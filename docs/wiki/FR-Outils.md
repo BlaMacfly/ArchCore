@@ -9,7 +9,7 @@ dossier désigné par `ARCHCORE_CONF_DIR` (voir [[Configuration|FR-Configuration
 | `archcore config migrate <archcore.json> [dossier] [--force]` | Convertit une ancienne configuration JSON en `auth.conf` et `world.conf` |
 | `archcore db-init [--account nom mdp [mj]]` | Crée les bases et applique `sql/` ; avec `--account`, crée ou met à jour un compte |
 | `archcore decrypt [source] [destination]` | Déchiffre `Game/ini` (RC4, MD5(« 1111 »)) vers `data/client-ini` |
-| `archcore import [dossier] [--server dossier]` | Importe `data/client-ini` dans `archcore_world` (CP949 → UTF-8) ; avec les tables du serveur d'origine (`--server`, ou `data/server-ini` s'il existe), importe aussi les apparitions de monstres et la carte serveur |
+| `archcore import [dossier] [--server dossier]` | Importe `data/client-ini` dans `archcore_world` (CP949 → UTF-8) et la hauteur du sol depuis `world/b*x.ma2` du dossier Game (`map_height`, quelques minutes) ; avec les tables du serveur d'origine (`--server`, ou `data/server-ini` s'il existe), importe aussi les apparitions de monstres et la carte serveur |
 | `archcore sim client\|move\|shop\|addon\|lang\|combat\|equip\|potion\|scroll\|patrol\|bag\|skill\|effects\|bank\|trade\|quest …` | Clients simulés (voir plus bas) |
 | `archcore i18n strings [Game]` | Liste les textes encore en anglais dans `data/i18n/pending-en.json` |
 | `archcore i18n coverage [Game]` | Mesure la part déjà traduite de `ini_fr` |

@@ -225,6 +225,8 @@ pub struct MonsterRegistry {
     pub status_sent: HashMap<u32, u64>,
     /// Marches en cours, avancées à chaque tour (`ai::walk_step`).
     pub walking: HashMap<u32, Walk>,
+    /// Monstres posés sur le sol (point d'apparition sans hauteur) : leur hauteur suit le terrain.
+    pub grounded: std::collections::HashSet<u32>,
     by_cid: HashMap<u32, usize>,
     grid: HashMap<(i64, i64), Vec<usize>>,
 }
@@ -335,7 +337,16 @@ impl MonsterRegistry {
         let without = points.iter().filter(|p| !stats.contains_key(&p.tid)).count();
         let mut reg = Self::from_points(&points, &|x, z| map.is_blocked(x, z));
         reg.stats = stats;
-        info!("{} monstre(s) chargé(s) sur {} point(s) d'apparition ({without} point(s) sans caractéristiques, densité × {density})", reg.monsters.len(), points.len());
+        // Points sans hauteur (la plupart) : chaque monstre est posé sur le sol du client.
+        let flat: std::collections::HashSet<u32> = points.iter().filter(|p| p.pos.y == 0.0).map(|p| p.id).collect();
+        for m in reg.monsters.iter_mut().filter(|m| flat.contains(&m.spawn_id)) {
+            if let Some(y) = map.height(m.pos.x as f64, m.pos.z as f64) {
+                m.pos.y = y;
+                m.home.y = y;
+                reg.grounded.insert(m.cid);
+            }
+        }
+        info!("{} monstre(s) chargé(s) sur {} point(s) d'apparition ({without} point(s) sans caractéristiques, densité × {density}, {} posé(s) sur le sol)", reg.monsters.len(), points.len(), reg.grounded.len());
         Ok(reg)
     }
 

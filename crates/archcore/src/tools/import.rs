@@ -242,6 +242,7 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
     let src = Source(dir);
     let db = Databases::new(&cfg.database);
     import_all(&db, &src).await?;
+    import_terrain(&db, &cfg.root.join(&cfg.client.data_dir)).await?;
     match server_dir {
         Some(d) => {
             import_spawns(&db, &src, &Source(d.clone())).await?;
@@ -357,6 +358,19 @@ async fn import_map(db: &Databases, server_dir: &std::path::Path) -> anyhow::Res
     let out: Vec<Vec<Value>> = parse_node_data(&bytes).into_iter().map(|(x, z, segs)| vec![v(x), v(z), v(segs)]).collect();
     let n = replace(db, "map_segment", "INSERT INTO map_segment (sector_x,sector_z,segments) VALUES (?,?,?)", out).await?;
     println!("✓ map_segment : {n} secteur(s)");
+    Ok(())
+}
+
+/// Hauteurs du sol, lues dans la géométrie du client (`world/b*x.ma2` du dossier Game).
+async fn import_terrain(db: &Databases, game_dir: &std::path::Path) -> anyhow::Result<()> {
+    if !game_dir.join("world").is_dir() {
+        println!("· map_height : pas de dossier world/ dans {}, ignoré", game_dir.display());
+        return Ok(());
+    }
+    let (sectors, bad) = super::terrain::read_world(game_dir)?;
+    let out: Vec<Vec<Value>> = sectors.into_iter().map(|(x, z, h)| vec![v(x), v(z), v(h)]).collect();
+    let n = replace(db, "map_height", "INSERT INTO map_height (sector_x,sector_z,heights) VALUES (?,?,?)", out).await?;
+    println!("✓ map_height : {n} secteur(s){}", if bad > 0 { format!(", {bad} illisible(s)") } else { String::new() });
     Ok(())
 }
 

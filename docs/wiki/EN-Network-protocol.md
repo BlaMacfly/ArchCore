@@ -88,8 +88,13 @@ destination, orientation, and so on. ArchCore gives NPCs CIDs starting at `0x400
 
 Monsters use the same packet, with CIDs starting at `0x50000000`. They also need field 5 (factors: level
 and speeds, type, current and maximum HP/MP/SP, attack), otherwise the client believes they have 0 HP;
-field 6 is `0x04` (stopped) and field 9 (destination) is absent. The height sent is the one from the
-tables (often 0): the client puts the creature on the ground.
+field 6 is `0x04` (stopped) and field 9 (destination) is absent.
+
+**Height.** Most spawn points in the server tables have no height (0). Sent as is, a creature sat several
+thousand units below the ground: the client lifted it while the distant terrain was coarse, then it
+vanished under the detailed relief as the player came closer. ArchCore therefore puts these creatures on
+the client's ground (`map_height`, read from `world/b*x.ma2`) and makes them follow the terrain as they
+walk.
 
 **Sector visibility.** The world is cut into 800 × 800 sectors of 6400 units, starting at
 (-2,560,000, -2,560,000) in X and Z. A player sees everything in the 3 × 3 sectors centred on their own:

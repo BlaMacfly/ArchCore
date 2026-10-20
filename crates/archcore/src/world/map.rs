@@ -4,6 +4,8 @@
 //! 16 × 16 segments de 400 unités. Un segment tient sur 4 octets : type de case, blocage (bit 0 : sol
 //! infranchissable, bit 1 : ciel) et numéro de région (RegionTemplate.ini). Un secteur absent n'est pas
 //! bloquant.
+//!
+//! Hauteur du sol (`map_height`, tirée de la géométrie du client) : 17 × 17 coins par secteur, interpolés.
 
 use crate::db::{col, Databases};
 use crate::info;
@@ -20,7 +22,11 @@ pub const BLOCK_GROUND: u32 = 1;
 #[derive(Default)]
 pub struct WorldMap {
     sectors: HashMap<(u16, u16), Box<[u32; SEGMENTS * SEGMENTS]>>,
+    heights: HashMap<(u16, u16), Box<[i16; CORNERS * CORNERS]>>,
 }
+
+/// Coins de cellule par côté de secteur (16 cellules de 400 unités).
+pub const CORNERS: usize = SEGMENTS + 1;
 
 /// Secteur et segment d'une position X/Z, hors du monde → `None`.
 pub fn locate(x: f64, z: f64) -> Option<((u16, u16), usize)> {
@@ -47,8 +53,39 @@ impl WorldMap {
         for r in &rows {
             map.insert(col::<u16>(r, "sector_x"), col::<u16>(r, "sector_z"), &col::<Vec<u8>>(r, "segments"));
         }
-        info!("carte du monde : {} secteur(s)", map.sectors.len());
+        match db.world.rows("SELECT sector_x, sector_z, heights FROM map_height", ()).await {
+            Ok(rows) => {
+                for r in &rows {
+                    map.insert_heights(col::<u16>(r, "sector_x"), col::<u16>(r, "sector_z"), &col::<Vec<u8>>(r, "heights"));
+                }
+            }
+            Err(e) => crate::warn!("hauteurs du sol non chargées ({e:#}) : lancer `archcore db-init` puis `archcore import`"),
+        }
+        info!("carte du monde : {} secteur(s), {} avec la hauteur du sol", map.sectors.len(), map.heights.len());
         Ok(map)
+    }
+
+    /// Ajoute les hauteurs d'un secteur (17 × 17 i16 LE, ligne Z puis colonne X).
+    pub fn insert_heights(&mut self, sx: u16, sz: u16, bytes: &[u8]) {
+        let mut h = Box::new([0i16; CORNERS * CORNERS]);
+        for (i, c) in bytes.chunks_exact(2).take(CORNERS * CORNERS).enumerate() {
+            h[i] = i16::from_le_bytes([c[0], c[1]]);
+        }
+        self.heights.insert((sx, sz), h);
+    }
+
+    /// Hauteur du sol en (x, z), interpolée entre les coins de la cellule ; `None` sans données.
+    pub fn height(&self, x: f64, z: f64) -> Option<f32> {
+        let (sector, _) = locate(x, z)?;
+        let h = self.heights.get(&sector)?;
+        let fx = (((x - WORLD_START) - sector.0 as f64 * SECTOR_SIZE) / SEGMENT_SIZE).clamp(0.0, SEGMENTS as f64 - 0.0001);
+        let fz = (((z - WORLD_START) - sector.1 as f64 * SECTOR_SIZE) / SEGMENT_SIZE).clamp(0.0, SEGMENTS as f64 - 0.0001);
+        let (i, j) = (fx.floor() as usize, fz.floor() as usize);
+        let (tx, tz) = (fx - i as f64, fz - j as f64);
+        let c = |a: usize, b: usize| h[b * CORNERS + a] as f64;
+        let top = c(i, j) + (c(i + 1, j) - c(i, j)) * tx;
+        let bottom = c(i, j + 1) + (c(i + 1, j + 1) - c(i, j + 1)) * tx;
+        Some((top + (bottom - top) * tz) as f32)
     }
 
     /// Ajoute un secteur à partir de ses 1024 octets (256 segments u32 LE, ligne Z puis colonne X).

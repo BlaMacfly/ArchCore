@@ -51,7 +51,8 @@ archcore import      # data/client-ini → archcore_world
 ```
 
 The client tables are RC4-encrypted, with a key derived from MD5("1111"), and written in CP949. The
-import converts them to UTF-8: character templates, experience, NPCs, items, shops, skills, quests.
+import converts them to UTF-8: character templates, experience, NPCs, items, shops, skills, quests. It
+also reads the ground height from the world geometry (the client's `world/`), which takes a few minutes.
 
 **Monsters, drops and map.** They are not in the client: they come from the original ArchLord server
 tables (`spawndatatable.txt`, `spawninstancetable.txt`, `itemdroptable.txt`, `groupdroprate.txt`,

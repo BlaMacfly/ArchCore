@@ -197,6 +197,13 @@ CREATE TABLE IF NOT EXISTS monster_spawn (
   KEY ix_ms_xz (pos_x, pos_z)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='apparitions des monstres (tables du serveur d''origine)';
 
+CREATE TABLE IF NOT EXISTS map_height (
+  sector_x  SMALLINT UNSIGNED NOT NULL COMMENT 'secteur de 6400 unités, 0..799 depuis X = -2 560 000',
+  sector_z  SMALLINT UNSIGNED NOT NULL COMMENT 'secteur de 6400 unités, 0..799 depuis Z = -2 560 000',
+  heights   BLOB NOT NULL COMMENT '17 × 17 coins de cellule de 400 unités, i16 LE, ligne Z puis colonne X',
+  PRIMARY KEY (sector_x, sector_z)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='hauteur du sol (géométrie du client, world/b*x.ma2)';
+
 CREATE TABLE IF NOT EXISTS map_segment (
   sector_x  SMALLINT UNSIGNED NOT NULL COMMENT 'secteur de 6400 unités, 0..799 depuis X = -2 560 000',
   sector_z  SMALLINT UNSIGNED NOT NULL COMMENT 'secteur de 6400 unités, 0..799 depuis Z = -2 560 000',

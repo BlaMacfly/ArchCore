@@ -89,8 +89,13 @@ position, destination, orientation, etc. ArchCore donne aux PNJ des CID à parti
 
 Les monstres passent par le même paquet, avec des CID à partir de `0x50000000`. Il leur faut en plus le
 champ 5 (facteurs : niveau et vitesses, type, PV/PM/PE actuels et maximum, attaque), sans quoi le client
-les croit à 0 PV ; le champ 6 vaut `0x04` (arrêté) et le champ 9 (destination) est absent. La hauteur
-envoyée est celle des tables (souvent 0) : le client pose la créature sur le terrain.
+les croit à 0 PV ; le champ 6 vaut `0x04` (arrêté) et le champ 9 (destination) est absent.
+
+**Hauteur.** La plupart des points d'apparition des tables du serveur n'ont pas de hauteur (0). Envoyée
+telle quelle, une créature se trouvait plusieurs milliers d'unités sous le sol : le client la remontait
+tant que le terrain lointain était grossier, puis elle disparaissait sous le relief détaillé quand le
+joueur s'approchait. ArchCore pose donc ces créatures sur le sol du client (`map_height`, lue dans
+`world/b*x.ma2`) et leur fait suivre le terrain quand elles marchent.
 
 **Visibilité par secteurs.** Le monde est découpé en 800 × 800 secteurs de 6400 unités, à partir de
 (-2 560 000, -2 560 000) en X et Z. Un joueur voit tout ce qui se trouve dans les 3 × 3 secteurs centrés

@@ -7,7 +7,8 @@
 //! de 10 000 unités, il y est ramené d'un coup avec tous ses PV.
 //!
 //! Marche : un monstre avance pas à pas vers sa destination à chaque tour, comme les joueurs ; il entre dans la
-//! vue d'un joueur, ou en sort, quand il change vraiment de secteur.
+//! vue d'un joueur, ou en sort, quand il change vraiment de secteur. Un monstre posé sur le sol (point
+//! d'apparition sans hauteur) suit la hauteur du terrain du client.
 //!
 //! États spéciaux : étourdi, gelé ou endormi, un monstre ne bouge ni ne frappe ; immobilisé, il ne poursuit
 //! pas ; sous « attaque interdite » ou la peur, il ne frappe pas. Il ignore les joueurs invincibles ou
@@ -20,6 +21,7 @@
 
 use super::combat::{self, Attacker, Defender};
 use super::effects::{self, status, Guard};
+use super::map::WorldMap;
 use super::monsters::{Aggro, Monster, Walk};
 use super::{WorldCtx, WorldState};
 use crate::debug;
@@ -91,12 +93,23 @@ fn travel(distance: f64, run: i32) -> Duration {
 
 /// Déplace le monstre jusqu'à `dest` (chez les joueurs qui le voient), en courant ou en marchant ; rend le
 /// temps de trajet, d'après la vitesse donnée.
-fn walk(st: &mut WorldState, cid: u32, dest: Vec3, run: i32) -> Duration {
-    go(st, cid, dest, run, true)
+fn walk(map: &WorldMap, st: &mut WorldState, cid: u32, dest: Vec3, run: i32) -> Duration {
+    go(map, st, cid, dest, run, true)
 }
 
-fn go(st: &mut WorldState, cid: u32, dest: Vec3, speed: i32, fast: bool) -> Duration {
+/// Hauteur du sol sous `p` pour un monstre posé sur le sol, sinon `p` tel quel.
+fn on_ground(map: &WorldMap, st: &WorldState, cid: u32, mut p: Vec3) -> Vec3 {
+    if st.monsters.grounded.contains(&cid) {
+        if let Some(y) = map.height(p.x as f64, p.z as f64) {
+            p.y = y;
+        }
+    }
+    p
+}
+
+fn go(map: &WorldMap, st: &mut WorldState, cid: u32, dest: Vec3, speed: i32, fast: bool) -> Duration {
     let Some(from) = st.monsters.get(cid).map(|m| m.pos) else { return Duration::ZERO };
+    let dest = on_ground(map, st, cid, dest);
     let mv = &schema::OPT_CHAR_MOVE;
     let flags = if fast { combat::MOVE_FAST } else { 0 };
     let fields = Fields::new(mv).with(0, cid).with(1, from).with(2, dest).with(5, flags).with(6, 0);
@@ -110,7 +123,7 @@ fn go(st: &mut WorldState, cid: u32, dest: Vec3, speed: i32, fast: bool) -> Dura
 
 /// Fait avancer les monstres en marche. Quand l'un change de secteur, il apparaît chez les joueurs qui voient
 /// le nouveau (avec sa marche) et disparaît chez ceux qui ne le voient plus.
-pub fn walk_step(st: &mut WorldState, now: Instant) {
+pub fn walk_step(map: &WorldMap, st: &mut WorldState, now: Instant) {
     let moving: Vec<(u32, Walk)> = st.monsters.walking.iter().map(|(c, w)| (*c, *w)).collect();
     for (cid, w) in moving {
         let Some(from) = st.monsters.get(cid).filter(|m| m.is_alive()).map(|m| m.pos) else {
@@ -118,6 +131,7 @@ pub fn walk_step(st: &mut WorldState, now: Instant) {
             continue;
         };
         let (next, arrived) = super::presence::step_toward(from, w.dest, w.speed, now.saturating_duration_since(w.at).as_secs_f64());
+        let next = on_ground(map, st, cid, next);
         st.monsters.relocate(cid, next);
         if arrived {
             st.monsters.walking.remove(&cid);
@@ -173,17 +187,17 @@ pub fn patrol_step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) {
         let spot = (0..PATROL_TRIES).map(|_| (rng.gen_range(-roam..roam), rng.gen_range(-roam..roam))).find(|(dx, dz)| !ctx.map.is_blocked(home.x as f64 + dx, home.z as f64 + dz));
         let Some((dx, dz)) = spot else { continue };
         let dest = Vec3::new(home.x + dx as f32, home.y, home.z + dz as f32);
-        let t = go(st, cid, dest, stats.walk, false);
+        let t = go(&ctx.map, st, cid, dest, stats.walk, false);
         st.monsters.get_mut(cid).unwrap().ready_at = now + t;
         started += 1;
     }
 }
 
 /// Un pas d'IA pour tous les monstres engagés.
-pub fn step(_ctx: &WorldCtx, st: &mut WorldState, now: Instant) {
+pub fn step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) {
     let engaged: Vec<u32> = st.monsters.engaged.iter().copied().collect();
     for cid in engaged {
-        monster_step(st, cid, now);
+        monster_step(&ctx.map, st, cid, now);
     }
 }
 
@@ -195,7 +209,7 @@ fn disengage(st: &mut WorldState, cid: u32) {
     st.monsters.engaged.remove(&cid);
 }
 
-fn monster_step(st: &mut WorldState, cid: u32, now: Instant) {
+fn monster_step(map: &WorldMap, st: &mut WorldState, cid: u32, now: Instant) {
     let Some(m) = st.monsters.get(cid).cloned() else {
         st.monsters.engaged.remove(&cid);
         return;
@@ -207,7 +221,7 @@ fn monster_step(st: &mut WorldState, cid: u32, now: Instant) {
     // Trop loin de chez lui : ramené d'un coup, soigné.
     if combat::dist2d(m.pos, m.home) > LEASH {
         disengage(st, cid);
-        walk(st, cid, m.home, stats.run);
+        walk(map, st, cid, m.home, stats.run);
         if let Some(m) = st.monsters.get_mut(cid) {
             m.hp = m.max_hp;
         }
@@ -226,7 +240,7 @@ fn monster_step(st: &mut WorldState, cid: u32, now: Instant) {
         // Plus personne à poursuivre : il rentre.
         disengage(st, cid);
         if combat::dist2d(m.pos, m.home) > 1.0 {
-            let t = walk(st, cid, m.home, stats.run);
+            let t = walk(map, st, cid, m.home, stats.run);
             st.monsters.get_mut(cid).unwrap().ready_at = now + t;
         }
         return;
@@ -260,7 +274,7 @@ fn monster_step(st: &mut WorldState, cid: u32, now: Instant) {
         let k = ((distance - reach * 0.8) / distance).max(0.0) as f32;
         let dest = Vec3::new(m.pos.x + (ppos.x - m.pos.x) * k, ppos.y, m.pos.z + (ppos.z - m.pos.z) * k);
         let run = super::effects::speed(stats.run, st.monsters.mods(cid).movement_pct);
-        let t = walk(st, cid, dest, run);
+        let t = walk(map, st, cid, dest, run);
         debug!("[ia] {} ({cid:#x}) poursuit : {distance:.0} unités, vers {:.0}, {:.0} en {:.1} s", m.name, dest.x, dest.z, t.as_secs_f64());
         st.monsters.get_mut(cid).unwrap().ready_at = now + t;
         return;
