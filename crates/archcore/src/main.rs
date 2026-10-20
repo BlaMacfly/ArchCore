@@ -23,6 +23,7 @@ mod locale;
 mod log;
 mod login;
 mod net;
+mod probe;
 mod server;
 mod tools;
 mod world;

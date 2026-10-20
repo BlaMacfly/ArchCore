@@ -98,6 +98,9 @@ impl SessionHandle {
         if self.is_closed() {
             return;
         }
+        if self.0.server == "world" {
+            crate::probe::outgoing(self.0.id, &plain);
+        }
         if crate::log::trace_enabled() {
             if let Some(h) = parse_header(&plain) {
                 debug!("[{}] #{} → type=0x{:x} {} o{}", self.0.server, self.0.id, h.ptype, plain.len(), if encrypt { " (chiffré)" } else { "" });
@@ -257,6 +260,9 @@ async fn run_session(name: &'static str, socket: TcpStream, remote: String, ip: 
                 }
             };
             debug!("[{name}] #{id} ← {} op={:?} flags=0x{:x}", schema.name, packet.int(0), packet.flags);
+            if name == "world" {
+                crate::probe::incoming(id, header.ptype, &packet);
+            }
             if let Err(e) = conn.on_packet(&session, packet).await {
                 crate::error!("[{name}] #{id} gestionnaire : {e:#}");
             }

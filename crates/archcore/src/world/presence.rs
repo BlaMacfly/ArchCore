@@ -164,6 +164,20 @@ pub fn move_step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) {
         if !p.in_game {
             continue;
         }
+        if crate::probe::every_second(sid) {
+            let (pos, dest) = (p.ch.pos(), p.dest);
+            crate::probe::line(&format!(
+                "POS #{sid} {} ({:.0}, {:.0}, {:.0}) secteur {:?} dest {} vus {} monstres, {} PNJ",
+                p.ch.name,
+                pos.x,
+                pos.y,
+                pos.z,
+                sector::of(pos),
+                dest.map(|d| format!("({:.0}, {:.0})", d.x, d.z)).unwrap_or_else(|| "-".into()),
+                p.seen_monsters.len(),
+                p.seen_npcs.len()
+            ));
+        }
         if p.dest.is_none() {
             p.moved_at = now;
             continue;

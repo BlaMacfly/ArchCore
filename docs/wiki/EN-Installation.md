@@ -73,6 +73,7 @@ archcore                     # login (11002) + world (11008)
 archcore login               # login only
 archcore world               # world only
 ARCHCORE_TRACE=1 archcore    # detailed log of every packet
+ARCHCORE_PROBE=1 archcore    # probe: data/probe-*.log, what each player sees (adds, removals, moves, hits, tracked position)
 ```
 
 ## Useful settings

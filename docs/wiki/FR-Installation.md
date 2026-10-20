@@ -76,6 +76,7 @@ archcore                     # login (11002) + monde (11008)
 archcore login               # login seul
 archcore world               # monde seul
 ARCHCORE_TRACE=1 archcore    # journal détaillé de chaque paquet
+ARCHCORE_PROBE=1 archcore    # sonde : data/probe-*.log, ce que voit chaque joueur (ajouts, retraits, déplacements, coups, position suivie)
 ```
 
 ## Réglages utiles
