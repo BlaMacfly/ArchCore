@@ -39,8 +39,8 @@
   a language selector in the Options.
 - Selling an item to an NPC.
 - ArchRust client (`client` branch): combat (attacking, hits, death, resurrection, loot), parties, other
-  players, inventory and equipment, NPCs (dialog, shop, bank, quests), skills (trainers, casting, shortcut
-  bar); verified against ArchCore by headless runs and screenshots of the graphical client, to confirm in game.
+  players, inventory and equipment, NPCs (dialog, shop, bank and buying pages, quests), skills (trainers,
+  casting, shortcut bar), teleport portals (original window and loading screen); verified against ArchCore by headless runs and screenshots of the graphical client, to confirm in game.
 - Player visibility: movement relayed to nearby players, appearing and disappearing by distance.
 - Chat within view range, and whispers.
 - GM level sent to the "Admin Commands" panel.
@@ -51,7 +51,8 @@
 
 1. Verify full character creation in game.
 2. Verify player visibility with two real clients.
-3. NPC functions: quests with interaction objects. In ArchRust: portal window, buying a bank page.
+3. NPC functions: quests with interaction objects. Portals: player-versus-player zones (confirmation, return,
+   op 7), refusal in combat or while transformed.
 4. Skills: reflecting damage to the attacker, monster skills, party skills; masteries.
 5. Combat: elemental item damage. Items: refining, conversion.
 6. Party chat, guilds.

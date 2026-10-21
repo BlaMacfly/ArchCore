@@ -41,8 +41,8 @@
   de langue dans les Options.
 - Revente d'un objet à un PNJ.
 - Client ArchRust (branche `client`) : combat (attaque, coups, mort, résurrection, butin), groupes, autres
-  joueurs, inventaire et équipement, PNJ (dialogue, boutique, banque, quêtes), compétences (instructeurs,
-  lancement, barre de raccourcis) ; validés contre ArchCore par des essais sans affichage et des captures du
+  joueurs, inventaire et équipement, PNJ (dialogue, boutique, banque et achat de pages, quêtes), compétences
+  (instructeurs, lancement, barre de raccourcis), portails de téléportation (fenêtre et chargement d'origine) ; validés contre ArchCore par des essais sans affichage et des captures du
   client graphique, à confirmer en jeu.
 
 - Visibilité entre joueurs : déplacement relayé aux joueurs proches, apparition et disparition
@@ -56,8 +56,8 @@
 
 1. Valider la création complète d'un personnage en jeu.
 2. Vérifier la visibilité entre joueurs avec deux vrais clients.
-3. Fonctions des PNJ : quêtes à objets d'interaction. Dans ArchRust : fenêtre des portails, achat d'une page
-   de banque.
+3. Fonctions des PNJ : quêtes à objets d'interaction. Portails : zones de combat entre joueurs (confirmation,
+   retour, op 7), refus en combat ou métamorphosé.
 4. Compétences : renvoi de dégâts à l'attaquant, compétences des monstres, compétences de groupe ; maîtrises.
 5. Combat : dégâts élémentaires des objets. Objets : raffinage, conversion.
 6. Discussion de groupe, guildes.
