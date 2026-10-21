@@ -1,5 +1,8 @@
 # Status and roadmap
 
+> **Episode.** World of Episode 8 "The Dark Revelation" (2012) and Archonia extensions; systems of the
+> original release. Detail by episode: [[Game episode|EN-Episode]].
+
 ## Working with the real client
 
 - Server and tools entirely in Rust (a single `archcore` executable).

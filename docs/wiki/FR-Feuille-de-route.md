@@ -1,5 +1,8 @@
 # État et feuille de route
 
+> **Épisode.** Monde de l'épisode 8 « The Dark Revelation » (2012) et extensions d'Archonia ; systèmes de la
+> sortie d'origine. Détail par épisode : [[Épisode du jeu|FR-Episode]].
+
 ## Fonctionne avec le vrai client
 
 - Serveur et outils entièrement en Rust (un seul exécutable `archcore`).

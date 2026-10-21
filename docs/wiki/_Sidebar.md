@@ -11,6 +11,7 @@
 - [[Traduction|FR-Traduction]]
 - [[Administration (MJ)|FR-Administration]]
 - [[Rétro-ingénierie|FR-Retro-ingenierie]]
+- [[Épisode du jeu|FR-Episode]]
 - [[Feuille de route|FR-Feuille-de-route]]
 
 **🇬🇧 English**
@@ -24,4 +25,5 @@
 - [[Translation|EN-Translation]]
 - [[Administration (GM)|EN-Administration]]
 - [[Reverse engineering|EN-Reverse-engineering]]
+- [[Game episode|EN-Episode]]
 - [[Roadmap|EN-Roadmap]]

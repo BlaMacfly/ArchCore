@@ -18,6 +18,7 @@
 | [Traduction française](FR-Traduction) | [French translation](EN-Translation) |
 | [Rétro-ingénierie du client](FR-Retro-ingenierie) | [Client reverse engineering](EN-Reverse-engineering) |
 | [Administration (MJ)](FR-Administration) | [Administration (GM)](EN-Administration) |
+| [Épisode du jeu (où se situe ArchCore)](FR-Episode) | [Game episode (where ArchCore stands)](EN-Episode) |
 | [État et feuille de route](FR-Feuille-de-route) | [Status and roadmap](EN-Roadmap) |
 
 **💬 Discord** : https://discord.gg/JCyrsTm7fR

@@ -29,6 +29,10 @@ reverse engineering the client executable with Ghidra, through [REA](https://git
 from the client's data tables.
 
 > ArchCore is based on the 64-bit client of the Archonia server.
+>
+> **Episode:** ArchCore loads the world of **Episode 8, "The Dark Revelation"** (2012), plus Archonia's own
+> extensions. The gameplay systems programmed so far cover the original release; sieges, guilds, ArchLord
+> powers and Shrines are still to come. See the wiki's [Episode](https://github.com/BlaMacfly/ArchCore/wiki/EN-Episode) page.
 
 ### Project status
 
@@ -47,7 +51,7 @@ from the client's data tables.
 | Character inventory | 🟡 shown in game |
 | Monsters, combat, drops, equipment, potions, scrolls, skills | 🟡 verified with the simulator, to confirm in game |
 | Chat, GM level, first GM commands | 🟡 verified with the simulator, to confirm in game |
-| Bank, trading, quests, parties | 🟡 verified with the simulator, to confirm in game |
+| Bank, trading, quests, parties, teleport portals | 🟡 verified with the simulator, to confirm in game |
 | Guilds, reconnection | ⏳ to do |
 
 ### Quick start
@@ -136,6 +140,10 @@ reconstruit par rétro-ingénierie de l'exécutable du client avec Ghidra, via [
 et à partir des tables de données du client.
 
 > ArchCore est basé sur le client 64 bits du serveur Archonia.
+>
+> **Épisode :** ArchCore charge le monde de l'**épisode 8, « The Dark Revelation »** (2012), avec les
+> extensions propres à Archonia. Les systèmes de jeu programmés couvrent pour l'instant la sortie d'origine ;
+> sièges, guildes, pouvoirs de l'ArchLord et Shrines restent à faire. Voir la page [Épisode](https://github.com/BlaMacfly/ArchCore/wiki/FR-Episode) du wiki.
 
 ### État du projet
 
@@ -154,7 +162,7 @@ et à partir des tables de données du client.
 | Inventaire du personnage | 🟡 affiché en jeu |
 | Monstres, combat, butin, équipement, potions, parchemins, compétences | 🟡 validés au simulateur, à confirmer en jeu |
 | Discussion, niveau MJ, premières commandes MJ | 🟡 validés au simulateur, à confirmer en jeu |
-| Banque, échange, quêtes, groupes | 🟡 validés au simulateur, à confirmer en jeu |
+| Banque, échange, quêtes, groupes, portails de téléportation | 🟡 validés au simulateur, à confirmer en jeu |
 | Guildes, reconnexion | ⏳ à faire |
 
 ### Démarrage rapide
