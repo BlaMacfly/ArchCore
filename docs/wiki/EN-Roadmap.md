@@ -43,7 +43,8 @@
 - Selling an item to an NPC.
 - ArchRust client (`client` branch): combat (attacking, hits, death, resurrection, loot), parties, other
   players, inventory and equipment, NPCs (dialog, shop, bank and buying pages, quests), skills (trainers,
-  casting, shortcut bar), teleport portals (original window and loading screen); verified against ArchCore by headless runs and screenshots of the graphical client, to confirm in game.
+  casting, shortcut bar), teleport portals (original window and loading screen), guilds (registrar, creation,
+  disbanding and guild windows, members) and guild and party chat; verified against ArchCore by headless runs and screenshots of the graphical client, to confirm in game.
 - Player visibility: movement relayed to nearby players, appearing and disappearing by distance.
 - Chat within view range, and whispers.
 - GM level sent to the "Admin Commands" panel.
@@ -59,7 +60,7 @@
 4. Skills: reflecting damage to the attacker, monster skills, party skills; masteries.
 5. Combat: elemental item damage. Items: refining, conversion.
 6. Guilds: guild battles, alliances and hostilities, guild marks, sub-master and handover, enlarging, guild
-   list, warehouse; guild window in ArchRust.
+   list, warehouse. In ArchRust: guild name above heads, whispers.
 7. Automatic reconnection (type 0x63).
 8. Remaining GM commands on the [[Administration|EN-Administration]] page (arena, events, rifts…).
 9. Finish the translation: about 54,000 texts left.

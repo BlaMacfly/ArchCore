@@ -46,7 +46,9 @@
 - Revente d'un objet à un PNJ.
 - Client ArchRust (branche `client`) : combat (attaque, coups, mort, résurrection, butin), groupes, autres
   joueurs, inventaire et équipement, PNJ (dialogue, boutique, banque et achat de pages, quêtes), compétences
-  (instructeurs, lancement, barre de raccourcis), portails de téléportation (fenêtre et chargement d'origine) ; validés contre ArchCore par des essais sans affichage et des captures du
+  (instructeurs, lancement, barre de raccourcis), portails de téléportation (fenêtre et chargement d'origine),
+  guildes (greffier, fenêtres de création, de dissolution et de guilde, membres) et discussion de guilde et de
+  groupe ; validés contre ArchCore par des essais sans affichage et des captures du
   client graphique, à confirmer en jeu.
 
 - Visibilité entre joueurs : déplacement relayé aux joueurs proches, apparition et disparition
@@ -65,7 +67,7 @@
 4. Compétences : renvoi de dégâts à l'attaquant, compétences des monstres, compétences de groupe ; maîtrises.
 5. Combat : dégâts élémentaires des objets. Objets : raffinage, conversion.
 6. Guildes : combats de guildes, alliances et hostilités, emblèmes, second et passation, agrandissement, liste
-   des guildes, entrepôt ; fenêtre de guilde dans ArchRust.
+   des guildes, entrepôt. Dans ArchRust : nom de guilde au-dessus des têtes, chuchotement.
 7. Reconnexion automatique (type 0x63).
 8. Commandes MJ restantes de la page [[Administration|FR-Administration]] (arène, événements, failles…).
 9. Fin de la traduction : environ 54 000 textes restants.
