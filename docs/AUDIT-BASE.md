@@ -508,6 +508,8 @@ annulé et import interrompu signalé, 17 scénarios). Étape 7 (R11, R12) faite
 lentes (`Database.SlowQueryMs`) et verrou par paquet (`World.SlowPacketMs`). Mesures sur copie, seuils à 1 ms :
 requêtes de démarrage jusqu'à 294 ms (butin), verrou tenu au plus 8 ms par paquet (entrée en jeu), attente nulle ;
 17 scénarios.
+Étape 8 (R13, noms VMaNGOS) : **abandonnée** le 2026-10-21 sur décision de l'utilisateur ; ArchCore garde ses noms
+ArchLord (`tid`, `npc_spawn`, `item_data`…).
 
 | Étape | Rec. | Quoi | Raison | Bénéfice | Coût | Risque |
 |---|---|---|---|---|---|---|
