@@ -51,7 +51,8 @@ ne les y fait entrer.
 | Origine | Connexion, personnages, entrée en jeu, PNJ, déplacement, vue | ✅ validés en jeu |
 | Origine | Combat, monstres, butin, équipement, potions, parchemins, compétences | 🟡 validés au simulateur |
 | Origine | Quêtes, groupes, banque, échange, boutiques, portails de téléportation | 🟡 validés au simulateur |
-| Origine | Guildes et combats de guildes, discussion de groupe | ⏳ à faire |
+| Origine | Guildes (création, membres, départ, exclusion, dissolution, annonce, discussion), discussion de groupe | 🟡 validées au simulateur |
+| Origine | Combats de guildes, alliances, emblèmes, entrepôt de guilde | ⏳ à faire |
 | Origine | Battle Square | ⏳ à faire |
 | 2 | Sièges de châteaux | ⏳ à faire |
 | 3 | Pouvoirs de l'ArchLord | ⏳ à faire |

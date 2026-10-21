@@ -59,6 +59,7 @@ pub async fn run(mode: &str) -> anyhow::Result<()> {
         let state = crate::world::WorldState {
             view_radius: config.world.view_radius,
             monsters,
+            guilds: crate::world::guild::Guilds::load(&db).await?,
             rates: crate::world::gm::ServerRates::new(&config.world.rates),
             ..Default::default()
         };

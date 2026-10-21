@@ -417,11 +417,17 @@ impl LoginConn {
         }
         let name = Self::info_values(p).text(1).unwrap_or_default().trim().to_string();
         let Some(ch) = self.characters.iter().find(|c| c.name == name).cloned() else { return Ok(()) };
-        self.svc
-            .db
-            .characters
-            .exec("UPDATE characters SET deleted_at = NOW(), name = CONCAT(name, '#', id) WHERE id = ?", (ch.id,))
-            .await?;
+        // Un chef de guilde doit d'abord dissoudre sa guilde ; un simple membre la quitte.
+        let db = &self.svc.db.characters;
+        if db.first("SELECT 1 FROM guild_member WHERE character_id = ? AND `rank` = 10", (ch.id,)).await?.is_some() {
+            self.send_login_result(s, login_result::CANT_DELETE_GUILD_MASTER);
+            return Ok(());
+        }
+        db.atomic(vec![
+            ("DELETE FROM guild_member WHERE character_id = ?", (ch.id,).into()),
+            ("UPDATE characters SET deleted_at = NOW(), name = CONCAT(name, '#', id) WHERE id = ?", (ch.id,).into()),
+        ])
+        .await?;
         self.load_characters().await?;
         info!("[login] #{} personnage supprimé : {name}", s.id());
         s.send(&schema::LOGIN, login(|f| f.with(0, login_op::DELETE_CHAR).with(8, char_info(|i| i.with(1, name.as_str())))));

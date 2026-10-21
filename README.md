@@ -52,7 +52,8 @@ from the client's data tables.
 | Monsters, combat, drops, equipment, potions, scrolls, skills | 🟡 verified with the simulator, to confirm in game |
 | Chat, GM level, first GM commands | 🟡 verified with the simulator, to confirm in game |
 | Bank, trading, quests, parties, teleport portals | 🟡 verified with the simulator, to confirm in game |
-| Guilds, reconnection | ⏳ to do |
+| Guilds (creation, members, leaving, disbanding, notice, chat), party chat | 🟡 verified with the simulator, to confirm in game |
+| Guild battles, reconnection | ⏳ to do |
 
 ### Quick start
 
@@ -163,7 +164,8 @@ et à partir des tables de données du client.
 | Monstres, combat, butin, équipement, potions, parchemins, compétences | 🟡 validés au simulateur, à confirmer en jeu |
 | Discussion, niveau MJ, premières commandes MJ | 🟡 validés au simulateur, à confirmer en jeu |
 | Banque, échange, quêtes, groupes, portails de téléportation | 🟡 validés au simulateur, à confirmer en jeu |
-| Guildes, reconnexion | ⏳ à faire |
+| Guildes (création, membres, départ, dissolution, annonce, discussion), discussion de groupe | 🟡 validées au simulateur, à confirmer en jeu |
+| Combats de guildes, reconnexion | ⏳ à faire |
 
 ### Démarrage rapide
 

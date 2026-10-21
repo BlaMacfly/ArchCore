@@ -60,6 +60,7 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         Some("lang") => Box::pin(lang::run(&a(1, "sima"), &a(2, "sima"), &a(3, "SimA"))).await,
         Some("bank") => Box::pin(bank(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("portal") => Box::pin(portal(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
+        Some("guild") => Box::pin(guild(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("party") => Box::pin(party(&a(1, "sima"), &a(2, "sima"), &a(3, "SimA"), &a(4, "simb"), &a(5, "simb"), &a(6, "SimB"))).await,
         Some("trade") => Box::pin(private_trade(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("quest") => Box::pin(quest(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
@@ -72,7 +73,7 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         Some("potion") => Box::pin(potion(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("equip") => Box::pin(equip(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("combat") => Box::pin(combat(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "Green Worm"))).await,
-        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol|bag|skill|effects|status|bank|portal|trade|party|quest [arguments]"),
+        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol|bag|skill|effects|status|bank|portal|guild|trade|party|quest [arguments]"),
     }
 }
 
@@ -1440,6 +1441,111 @@ portail : OK");
     Ok(())
 }
 
+/// Guilde : A (compte MJ) crée SimGuild (nom refusé d'abord), invite B qui accepte ; discussion de guilde,
+/// annonce ; B demande à partir et A l'accepte ; B revient puis est exclu ; A retrouve sa guilde à la
+/// reconnexion ; dissolution refusée avec un mauvais mot de passe, puis faite.
+async fn guild(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> anyhow::Result<()> {
+    const NAME: &str = "SimGuild";
+    const PASSWORD: &str = "simpass";
+    let cfg = crate::config::load()?;
+    let (gd, ch, c) = (&schema::GUILD, &schema::CHATTING, &schema::CHARACTER);
+    let say = |cid: u32, kind: i64, text: &str| Fields::new(ch).with(0, 0).with(1, cid).with(2, kind).with(6, crate::tools::to_cp1252(text));
+    let member = |name: &str| build_mini(&mini::GUILD_MEMBER, &Fields::new(&mini::GUILD_MEMBER).with(0, name));
+    let op = |n: i64| move |q: &Recv| q.is(gd, Some(n));
+    let sys = |code: i64| move |q: &Recv| q.is(gd, Some(10)) && q.int(1) == Some(code);
+
+    step(&format!("{ca} et {cb} entrent en jeu"));
+    let mut a = enter_world(&cfg, ua, pa, ca, "A-").await?;
+    let mut b = enter_world(&cfg, ub, pb, cb, "B-").await?;
+    let (acid, bcid) = (a.cid as i64, b.cid as i64);
+    // Reste d'un essai interrompu : la guilde de A est dissoute d'abord.
+    if let Ok(old) = a.world.expect_where(op(0), 800, "guilde existante").await {
+        let old_name = old.fields().text(2).unwrap_or_default();
+        a.world.send(gd, Fields::new(gd).with(0, 6).with(1, acid).with(2, old_name.as_str()).with(9, PASSWORD)).await?;
+        a.world.expect_where(op(6), 3000, "ancienne guilde dissoute").await?;
+        println!("  · ancienne guilde {old_name} dissoute");
+    }
+
+    step("création : nom refusé, puis SimGuild");
+    a.world.send(ch, say(a.cid, 0, "/level 20")).await?;
+    a.world.send(ch, say(a.cid, 0, "/money 20000")).await?;
+    a.world.expect_where(|q| q.is(c, Some(1)) && q.int(8) == Some(20_000), 3000, "argent").await?;
+    a.world.send(gd, Fields::new(gd).with(0, 0).with(1, acid).with(2, "Nom invalide").with(9, PASSWORD)).await?;
+    a.world.expect_where(sys(4), 3000, "nom refusé (code 4)").await?;
+    println!("  ✓ « Nom invalide » refusé (code 4)");
+    a.world.send(gd, Fields::new(gd).with(0, 0).with(1, acid).with(2, NAME).with(9, PASSWORD)).await?;
+    let paid = a.world.expect_where(|q| q.is(c, Some(1)) && q.int(8).is_some(), 3000, "paiement").await?;
+    anyhow::ensure!(paid.int(8) == Some(10_000), "argent {:?}", paid.int(8));
+    let made = a.world.expect_where(op(0), 3000, "guilde créée").await?;
+    anyhow::ensure!(made.fields().text(2).as_deref() == Some(NAME) && made.int(7) == Some(50), "guilde {:?}, taille {:?}", made.fields().text(2), made.int(7));
+    a.world.expect_where(sys(11), 3000, "création confirmée (code 11)").await?;
+    println!("  ✓ {NAME} créée : 50 places, 10 000 pièces payées");
+
+    step(&format!("{ca} invite {cb}, qui accepte"));
+    a.world.send(gd, Fields::new(gd).with(0, 1).with(1, acid).with(2, NAME).with(16, member(cb))).await?;
+    let inv = b.world.expect_where(op(1), 3000, "invitation").await?;
+    anyhow::ensure!(inv.fields().text(3).as_deref() == Some(ca), "invitation de {:?}", inv.fields().text(3));
+    b.world.send(gd, Fields::new(gd).with(0, 3).with(1, bcid).with(2, NAME)).await?;
+    b.world.expect_where(op(0), 3000, "guilde reçue").await?;
+    let link = b.world.expect_where(op(8), 3000, "lien à la guilde").await?;
+    anyhow::ensure!(link.int(1) == Some(bcid), "lien pour {:?}", link.int(1));
+    let joined = a.world.expect_where(op(3), 3000, "nouveau membre").await?;
+    let who = decode_mini(&mini::GUILD_MEMBER, joined.fields().bytes(16).unwrap_or_default())?;
+    anyhow::ensure!(who.text(0).as_deref() == Some(cb) && who.int(1) == Some(1), "membre {:?} rang {:?}", who.text(0), who.int(1));
+    a.world.expect_where(sys(13), 3000, "adhésion annoncée (code 13)").await?;
+    println!("  ✓ {cb} membre (rang 1), annoncé à {ca}");
+
+    step("discussion de guilde et annonce");
+    b.world.send(ch, say(b.cid, 3, "Bonjour la guilde")).await?;
+    let heard = a.world.expect_where(|q| q.ptype == ch.id && q.int(2) == Some(3), 3000, "message de guilde").await?;
+    anyhow::ensure!(heard.fields().text(4).as_deref() == Some(cb), "émetteur {:?}", heard.fields().text(4));
+    a.world.send(gd, Fields::new(gd).with(0, 9).with(1, acid).with(2, NAME).with(10, crate::tools::to_cp1252("Rendez-vous à Anchorville"))).await?;
+    let note = b.world.expect_where(op(9), 3000, "annonce").await?;
+    anyhow::ensure!(note.fields().text(10).as_deref() == Some("Rendez-vous à Anchorville"), "annonce {:?}", note.fields().text(10));
+    println!("  ✓ message de guilde reçu par {ca}, annonce reçue par {cb}");
+
+    step(&format!("{cb} demande à partir, {ca} accepte"));
+    b.world.send(gd, Fields::new(gd).with(0, 4).with(1, bcid).with(2, NAME).with(16, member(cb))).await?;
+    b.world.expect_where(sys(50), 3000, "demande de départ (code 50)").await?;
+    let asked = a.world.expect_where(op(3), 3000, "membre mis à jour").await?;
+    let who = decode_mini(&mini::GUILD_MEMBER, asked.fields().bytes(16).unwrap_or_default())?;
+    anyhow::ensure!(who.int(1) == Some(3), "rang {:?}", who.int(1));
+    a.world.send(gd, Fields::new(gd).with(0, 29).with(1, acid).with(2, NAME).with(16, member(cb))).await?;
+    b.world.expect_where(op(4), 3000, "départ").await?;
+    b.world.expect_where(sys(15), 3000, "départ annoncé (code 15)").await?;
+    a.world.expect_where(op(4), 3000, "départ vu du chef").await?;
+    println!("  ✓ demande (rang 3), départ accepté");
+
+    step(&format!("{cb} revient puis est exclu"));
+    a.world.send(gd, Fields::new(gd).with(0, 1).with(1, acid).with(2, NAME).with(16, member(cb))).await?;
+    b.world.expect_where(op(1), 3000, "invitation").await?;
+    b.world.send(gd, Fields::new(gd).with(0, 3).with(1, bcid).with(2, NAME)).await?;
+    a.world.expect_where(sys(13), 3000, "retour").await?;
+    a.world.send(gd, Fields::new(gd).with(0, 5).with(1, acid).with(2, NAME).with(3, ca).with(16, member(cb))).await?;
+    b.world.expect_where(op(5), 3000, "exclusion").await?;
+    b.world.expect_where(sys(16), 3000, "exclusion annoncée (code 16)").await?;
+    println!("  ✓ {cb} exclu");
+
+    step(&format!("{ca} se reconnecte"));
+    drop(a);
+    let mut a = enter_world(&cfg, ua, pa, ca, "A-").await?;
+    let back = a.world.expect_where(op(0), 3000, "guilde à l'entrée").await?;
+    anyhow::ensure!(back.fields().text(2).as_deref() == Some(NAME), "guilde {:?}", back.fields().text(2));
+    a.world.expect_where(|q| q.is(gd, Some(8)) && q.int(1) == Some(acid), 3000, "lien à l'entrée").await?;
+    println!("  ✓ {NAME} retrouvée à l'entrée");
+
+    step("dissolution");
+    a.world.send(gd, Fields::new(gd).with(0, 6).with(1, acid).with(2, NAME).with(9, "mauvais")).await?;
+    a.world.expect_where(sys(10), 3000, "mot de passe refusé (code 10)").await?;
+    a.world.send(gd, Fields::new(gd).with(0, 6).with(1, acid).with(2, NAME).with(9, PASSWORD)).await?;
+    a.world.expect_where(op(6), 3000, "dissolution").await?;
+    a.world.expect_where(sys(12), 3000, "dissolution annoncée (code 12)").await?;
+    println!("  ✓ mauvais mot de passe refusé, guilde dissoute");
+    drop(b);
+    println!("\nguilde : OK");
+    Ok(())
+}
+
 /// Échange entre deux joueurs : A (compte MJ) propose une pile et de l'argent, B de l'argent.
 /// Groupe de deux joueurs : invitation d'un nom inconnu (refusée), invitation par CID, acceptation (liste des
 /// membres), réglage de l'expérience par le chef, passage de chef, exclusion (groupe dissous).
@@ -1482,6 +1588,13 @@ async fn party(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> an
     }
     a.world.expect_where(is_m(2), 3000, "acceptation annoncée").await?;
     println!("  ✓ {ca} reçoit la confirmation (op 2)");
+
+    step("discussion de groupe");
+    let ch = &schema::CHATTING;
+    b.world.send(ch, Fields::new(ch).with(0, 0).with(1, b.cid).with(2, chat_type::PARTY).with(6, crate::tools::to_cp1252("En route"))).await?;
+    let heard = a.world.expect_where(|q| q.ptype == ch.id && q.int(2) == Some(chat_type::PARTY), 3000, "message de groupe").await?;
+    anyhow::ensure!(heard.fields().text(4).as_deref() == Some(cb), "émetteur {:?}", heard.fields().text(4));
+    println!("  ✓ {ca} reçoit le message de groupe de {cb}");
 
     step("le chef règle l'expérience selon le niveau");
     a.world.send(pt, Fields::new(pt).with(0, 5).with(8, 1)).await?;

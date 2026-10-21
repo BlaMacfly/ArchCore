@@ -24,6 +24,7 @@ pub mod combat;
 pub mod effects;
 pub mod equipment;
 pub mod gm;
+pub mod guild;
 pub mod items;
 pub mod lang;
 pub mod loot;
@@ -199,6 +200,8 @@ pub struct WorldState {
     pub next_skill_id: u32,
     /// Groupes de joueurs.
     pub parties: party::Parties,
+    /// Guildes et leurs membres.
+    pub guilds: guild::Guilds,
     /// Sessions écartées par une nouvelle entrée du même compte, en attente de fermeture : leurs paquets
     /// sont ignorés.
     pub evicted: HashSet<u32>,
@@ -241,6 +244,8 @@ impl Service for WorldService {
                 | ptype::EVENT_SKILL_MASTER
                 | ptype::EVENT_BANK
                 | ptype::EVENT_TELEPORT
+                | ptype::GUILD
+                | ptype::EVENT_GUILD
                 | ptype::PRIVATE_TRADE
                 | ptype::PARTY
                 | ptype::PARTY_MANAGEMENT
@@ -336,6 +341,8 @@ impl Connection for WorldConn {
             ptype::EVENT_SKILL_MASTER => skills::on_master_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::EVENT_BANK => bank::on_packet(ctx, &mut st, self.sid, &p),
             ptype::EVENT_TELEPORT => portal::on_packet(ctx, &mut st, self.sid, &p).await?,
+            ptype::GUILD => guild::on_packet(ctx, &mut st, self.sid, &p).await?,
+            ptype::EVENT_GUILD => guild::on_event(ctx, &st, self.sid, &p),
             ptype::PRIVATE_TRADE => trade::on_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::PARTY => party::on_party(&mut st, self.sid, &p),
             ptype::PARTY_MANAGEMENT => party::on_management(&mut st, self.sid, &p),
@@ -362,6 +369,8 @@ async fn remove_player(ctx: &WorldCtx, st: &mut WorldState, sid: u32) {
     // Le groupe perd ce membre (et se dissout s'il ne reste qu'un joueur).
     if let Some(cid) = st.players.get(&sid).map(|p| p.ch.id) {
         party::on_leave_world(st, cid);
+        // Les membres de sa guilde le voient hors ligne.
+        guild::on_leave_world(st, cid);
     }
     if let Err(e) = presence::leave(ctx, st, sid).await {
         warn!("[world] départ de #{sid} : {e:#}");
@@ -537,6 +546,8 @@ fn enter_world(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle) {
     let cm = &schema::CHAR_MANAGER;
     p.send(cm, Fields::new(cm).with(0, char_mgr_op::FINISH_ENTER).with(4, p.ch.id));
     presence::enter(ctx, st, sid);
+    // Guilde : la guilde, ses membres et le lien du joueur ; les membres le voient en ligne.
+    guild::on_enter(st, sid);
     let p = &st.players[&sid];
     let c = &schema::CHARACTER;
     p.send(c, Fields::new(c).with(0, 1).with(1, p.ch.id).with(4, 2).with(5, move_mini(MoveMini { pos, dest: None, flags: 0 })));

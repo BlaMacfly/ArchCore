@@ -462,6 +462,42 @@ deuxième ; -1, les suivantes, ne s'achètent pas contre de l'or). Le serveur r�
 (argent au champ 8, pages en plus au champ 23) et le message système 30 (page ajoutée), ou 29 si la banque
 a déjà ses 4 pages.
 
+## Guildes (types 0x15 et 0x39, AgpmGuild et AgpmEventGuild)
+
+AGPMGUILD (0x15, drapeaux 4) a 25 champs : op, CID (ou code d'un message système), nom de la guilde (32),
+chef ou joueur (48), 8 × INT32, rang, date de création (INT64), taille, union, mot de passe (12), annonce,
+statut, victoires, nuls, défaites, points, 6 sous-paquets (dont le **membre**, champ 16 : nom, rang, date
+d'adhésion, niveau, TID, en ligne), emblème (TID, couleur), vainqueur. Rangs : 1 membre, 2 demande
+d'adhésion, 3 demande de départ, 10 chef, 11 second.
+
+| Op | Sens | Rôle |
+|---|---|---|
+| 0 | ↔ | Création (nom en lettres et chiffres, mot de passe) ; le serveur renvoie la guilde (nom, chef, date, taille, annonce) |
+| 1 | ↔ | Invitation par le chef ou le second (invité au champ 16) ; l'invité la reçoit avec le nom de la guilde et de l'inviteur |
+| 2 | → | Refus de l'invité ; le chef reçoit le message 14 |
+| 3 | ↔ | Adhésion : membre si invité, sinon demande d'adhésion (rang 2) que le chef accepte par le même op ; le serveur diffuse le membre |
+| 4 | ↔ | Départ : un membre le demande (rang 3, message 50) ; diffusé quand il se fait |
+| 29 | → | Départ accepté par le chef ou le second ; sans réponse, il se fait au bout d'un jour |
+| 5 | ↔ | Exclusion par le chef ou le second (le chef ne peut pas être exclu) |
+| 6 | ↔ | Dissolution par le chef, avec le mot de passe de la création |
+| 8 | ← | Lien d'un personnage (CID) à sa guilde, avec son membre : à l'entrée en jeu, aux autres membres (en ligne, hors ligne) et aux joueurs qui le voient |
+| 9 | ↔ | Annonce (champ 10), par le chef ou le second |
+| 10 | ← | Message système : code (champ 1), textes (2, 3), nombre (4, premier des 8) |
+
+Créer une guilde demande le niveau 20 et le prix de la première ligne de `guildmaxmember.txt` (50 places
+pour 10 000 pièces). Codes utilisés : 0 nom pris, 1 niveau, 2 argent (nombre : prix), 4 caractères, 5 déjà
+membre, 6 guilde pleine, 7 adhésion impossible, 8 départ impossible (le chef), 9 réservé au chef,
+10 mauvais mot de passe, 11 création, 12 dissolution, 13 adhésion, 14 refus, 15 départ, 16 exclusion,
+17 joueur déjà dans une guilde, 48 demande d'adhésion, 50 demande de départ.
+
+À l'entrée en jeu, le membre reçoit sa guilde (op 0), chaque membre (op 3) et son lien (op 8).
+Les gestionnaires de guilde (12 PNJ) portent la fonction 23, sans données ; AGPMEVENTGUILD (0x39) :
+op 0 (événement) ← op 1 (accord, le client ouvre la création). Discussion : le type 3 va aux membres de la
+guilde, le type 4 aux membres du groupe.
+
+Pas encore faits : combats de guildes, alliances et hostilités, emblèmes, second et passation, agrandissement,
+liste des guildes, entrepôt.
+
 ## Groupes (types 0x08 et 0x09, AgpmParty)
 
 Deux types de paquets : **0x09** (gestion, drapeaux 1 : opération, CID de l'auteur, CID de la cible, nom
@@ -584,7 +620,8 @@ pas envoyé `HELLO`. Spécification complète : [[Extensions ArchRust|FR-Extensi
 | 0x13 | Quêtes | 0x63 | Reconnexion |
 | 0x32 | Boutiques des PNJ | 0x37 | Dialogue des PNJ |
 | 0x3B | Maître des compétences | 0x36 | Banque |
-| 0x31 | Portails de téléportation | | |
+| 0x31 | Portails de téléportation | 0x15 | Guildes |
+| 0x39 | Gestionnaire de guilde | | |
 | 0x07 | Échange entre joueurs | 0x3E | Quêtes des PNJ |
 
 Les schémas complets des 86 modules sont dans `data/re/packet-schemas.json`.

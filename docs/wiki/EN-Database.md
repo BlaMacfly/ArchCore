@@ -21,6 +21,8 @@ ArchCore uses three main MariaDB databases, plus a log database, created and upd
 | `character_quests` | Quests in progress (monster A and B counters) and completed |
 | `account_bank` | Account bank: money, pages beyond the first (created on first entry, with the money the characters had in the bank) |
 | `character_skills` | Learned skills and their level ("Normal Attack" is not stored: every character knows it) |
+| `guild` | Guilds: unique name, disbanding password, notice, size, creation date (`sql/migrations/characters/`) |
+| `guild_member` | Guild member (a character is in one at most): rank, join date, leave request date |
 
 ## `archcore_world` — game data (`sql/003_world.sql`)
 
@@ -53,6 +55,7 @@ Filled by `archcore import` from the client tables.
 | `teleport_object` | `obj*.ini` (event 8) | 291 portals: object, point carried, position |
 | `teleport_fee` | `TeleportFee.txt` | 227 trip fees (departure, arrival) |
 | `bank_slot_price` | `bankslotprice.txt` | Price of extra bank pages (-1: cannot be bought with gold) |
+| `guild_max_member` | `guildmaxmember.txt` | Guild sizes and their price; the first row is a new guild (50 places, 10,000 coins) |
 
 **Stable identifiers.** In `monster_spawn`, `monster_drop` and `resurrection_point`, the `id` column is only an
 import order number. The `stable_key` column (unique, case-sensitive) names the same row from one import to the

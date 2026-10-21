@@ -16,6 +16,7 @@ use std::path::Path;
 pub mod event_function {
     pub const NPC_TRADE: i64 = 9;
     pub const BANK: i64 = 20;
+    pub const GUILD: i64 = 23;
     pub const NPC_DIALOG: i64 = 21;
     pub const SKILL_MASTER: i64 = 25;
     pub const QUEST: i64 = 27;
@@ -100,8 +101,8 @@ pub fn event_block(npc: &Npc) -> Vec<u8> {
             out.extend(build_packet(em, &Fields::new(em).with(0, event_base(npc.cid, ev.function)).with(1, data)));
             continue;
         }
-        if ev.function == event_function::BANK {
-            // Gardien de banque : fonction sans données.
+        if ev.function == event_function::BANK || ev.function == event_function::GUILD {
+            // Gardien de banque, gestionnaire de guilde : fonctions sans données.
             let em = &schema::EVENT_MANAGER;
             out.extend(build_packet(em, &Fields::new(em).with(0, event_base(npc.cid, ev.function))));
             continue;

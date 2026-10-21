@@ -32,7 +32,7 @@
   the last safe region crossed; item stacks split, merged, destroyed. Skills: learning and upgrading at
   trainers, skill points, casting; damage, areas, buffs and debuffs, damage over time, heals, passives;
   special states (stun, sleep, slow…), critical hits, block, damage turned into HP or MP.
-  Parties (invitation, members, leader, kick, experience sharing). Account bank (items, money, extra pages) and trading between players. Teleport portals (paid trips between linked points). Quests: taking, progress (monsters, quest
+  Parties (invitation, members, leader, kick, experience sharing, chat). Guilds (creation at guild managers, invitation, joining, leaving, kicking, disbanding, notice, chat). Account bank (items, money, extra pages) and trading between players. Teleport portals (paid trips between linked points). Quests: taking, progress (monsters, quest
   items), completion and rewards, abandoning. See
   [[Network protocol|EN-Network-protocol]].
 - ArchRust extensions: capability negotiation, AddOn messages (whisper, `SAY`), and the client language
@@ -58,7 +58,8 @@
    op 7), refusal in combat or while transformed.
 4. Skills: reflecting damage to the attacker, monster skills, party skills; masteries.
 5. Combat: elemental item damage. Items: refining, conversion.
-6. Party chat, guilds.
+6. Guilds: guild battles, alliances and hostilities, guild marks, sub-master and handover, enlarging, guild
+   list, warehouse; guild window in ArchRust.
 7. Automatic reconnection (type 0x63).
 8. Remaining GM commands on the [[Administration|EN-Administration]] page (arena, events, rifts…).
 9. Finish the translation: about 54,000 texts left.

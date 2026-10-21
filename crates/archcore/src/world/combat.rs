@@ -247,6 +247,7 @@ pub async fn step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) -> anyhow::
     super::recovery::regen_step(st, now);
     super::skills::step(ctx, st, now).await?;
     super::portal::step(st);
+    super::guild::step(ctx, st, now).await?;
     Ok(())
 }
 

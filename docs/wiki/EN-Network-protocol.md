@@ -447,6 +447,41 @@ paid from the money carried, at the `bankslotprice.txt` price (1,000,000 coins f
 next ones, cannot be bought with gold). The server answers AGPMCHARACTER op 1 (money in field 8, extra pages
 in field 23) and system message 30 (page added), or 29 when the bank already has its 4 pages.
 
+## Guilds (types 0x15 and 0x39, AgpmGuild and AgpmEventGuild)
+
+AGPMGUILD (0x15, 4 flag bytes) has 25 fields: op, CID (or a system message code), guild name (32), master or
+player (48), 8 × INT32, rank, creation date (INT64), size, union, password (12), notice, status, wins, draws,
+losses, points, 6 sub-packets (including the **member**, field 16: name, rank, join date, level, TID,
+online), guild mark (TID, colour), winner. Ranks: 1 member, 2 join request, 3 leave request, 10 master,
+11 sub-master.
+
+| Op | Way | Role |
+|---|---|---|
+| 0 | ↔ | Creation (letters and digits name, password); the server sends back the guild (name, master, date, size, notice) |
+| 1 | ↔ | Invitation by the master or sub-master (invitee in field 16); the invitee gets it with the guild and inviter names |
+| 2 | → | Invitee refuses; the master gets message 14 |
+| 3 | ↔ | Joining: member if invited, otherwise a join request (rank 2) the master accepts with the same op; the server broadcasts the member |
+| 4 | ↔ | Leaving: a member asks (rank 3, message 50); broadcast when it happens |
+| 29 | → | Leave accepted by the master or sub-master; without an answer it happens after one day |
+| 5 | ↔ | Kick by the master or sub-master (the master cannot be kicked) |
+| 6 | ↔ | Disbanding by the master, with the creation password |
+| 8 | ← | Link of a character (CID) to its guild, with its member: on entering the world, to the other members (online, offline) and to players who see it |
+| 9 | ↔ | Notice (field 10), by the master or sub-master |
+| 10 | ← | System message: code (field 1), texts (2, 3), number (4, first of 8) |
+
+Creating a guild takes level 20 and the price of the first `guildmaxmember.txt` row (50 places for
+10,000 coins). Codes used: 0 name taken, 1 level, 2 money (number: price), 4 characters, 5 already a
+member, 6 guild full, 7 cannot join, 8 cannot leave (master), 9 master only, 10 wrong password, 11 created,
+12 disbanded, 13 joined, 14 refused, 15 left, 16 kicked, 17 player already in a guild, 48 join request,
+50 leave request.
+
+On entering the world, the member gets its guild (op 0), each member (op 3) and its link (op 8). Guild
+managers (12 NPCs) carry function 23, with no data; AGPMEVENTGUILD (0x39): op 0 (event) ← op 1 (grant, the
+client opens guild creation). Chat: type 3 goes to the guild members, type 4 to the party members.
+
+Not done yet: guild battles, alliances and hostilities, guild marks, sub-master and handover, enlarging, guild
+list, guild warehouse.
+
 ## Parties (types 0x08 and 0x09, AgpmParty)
 
 Two packet types: **0x09** (management, flags 1: operation, author CID, target CID, 49-byte name) and
@@ -565,7 +600,8 @@ Full specification: [[ArchRust extensions|EN-ArchRust-extensions]].
 | 0x13 | Quests | 0x63 | Reconnect |
 | 0x32 | NPC shops | 0x37 | NPC dialog |
 | 0x3B | Skill master | 0x36 | Bank |
-| 0x31 | Teleport portals | | |
+| 0x31 | Teleport portals | 0x15 | Guilds |
+| 0x39 | Guild manager | | |
 | 0x07 | Trading between players | 0x3E | NPC quests |
 
 Full schemas for the 86 modules are in `data/re/packet-schemas.json`.

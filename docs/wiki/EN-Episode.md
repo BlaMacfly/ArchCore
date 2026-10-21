@@ -49,7 +49,8 @@ not program them: they stay out of scope until a decision brings them in.
 | Original | Login, characters, world entry, NPCs, movement, view | ✅ verified in game |
 | Original | Combat, monsters, loot, equipment, potions, scrolls, skills | 🟡 verified with the simulator |
 | Original | Quests, parties, bank, trading, shops, teleport portals | 🟡 verified with the simulator |
-| Original | Guilds and guild battles, party chat | ⏳ to do |
+| Original | Guilds (creation, members, leaving, kicking, disbanding, notice, chat), party chat | 🟡 verified with the simulator |
+| Original | Guild battles, alliances, guild marks, guild warehouse | ⏳ to do |
 | Original | Battle Square | ⏳ to do |
 | 2 | Castle sieges | ⏳ to do |
 | 3 | ArchLord powers | ⏳ to do |

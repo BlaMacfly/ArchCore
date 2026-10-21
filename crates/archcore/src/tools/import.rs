@@ -581,6 +581,18 @@ pub fn parse_bank_slot_prices(text: &str) -> Vec<(u8, i64)> {
         .collect()
 }
 
+/// Tailles de guilde de guildmaxmember.txt : (taille, or, TID et nombre de crânes exigés). La première
+/// colonne, sans titre, est la taille ; les colonnes suivantes sont lues à leur place.
+pub fn parse_guild_max_members(text: &str) -> Vec<(i64, i64, i64, i64)> {
+    let (_, rows) = parse_tsv(text);
+    rows.iter()
+        .filter_map(|r| {
+            let cell = |i: usize| js_number(r.get(i).map(|s| s.trim()).unwrap_or(""), 0.0) as i64;
+            (cell(0) > 0).then(|| (cell(0), cell(1), cell(3), cell(4)))
+        })
+        .collect()
+}
+
 async fn import_loot(db: &Databases, server: &Source) -> anyhow::Result<()> {
     if server.exists("itemdroptable.txt") {
         let rows = parse_monster_drops(&server.read("itemdroptable.txt")?);
@@ -902,6 +914,13 @@ async fn import_all(db: &Databases, src: &Source) -> anyhow::Result<()> {
         println!("✓ teleport_point : {n} ; teleport_object : {m} ; teleport_fee : {f}");
     }
 
+    // ---------------------------------------------------------------- guildmaxmember.txt (taille des guildes)
+    if src.exists("guildmaxmember.txt") {
+        let out: Vec<Vec<Value>> = parse_guild_max_members(&src.read("guildmaxmember.txt")?).into_iter().map(|(m, g, t, c)| vec![v(m), v(g), v(t), v(c)]).collect();
+        let n = replace(db, "guild_max_member", "INSERT INTO guild_max_member (max_members,gold,skull_tid,skull_count) VALUES (?,?,?,?)", out).await?;
+        println!("✓ guild_max_member : {n}");
+    }
+
     // ---------------------------------------------------------------- bankslotprice.txt (pages de banque)
     if src.exists("bankslotprice.txt") {
         let out: Vec<Vec<Value>> = parse_bank_slot_prices(&src.read("bankslotprice.txt")?).into_iter().map(|(s, p)| vec![v(s), v(p)]).collect();
@@ -1028,6 +1047,7 @@ mod tests {
         let fees = parse_teleport_fees("start_portal\tfinish_portal\tcost\r\nA\tB\t500 \r\nA\tB\t700\r\nB\tA\t\r\n");
         assert_eq!(fees, vec![("A".to_string(), "B".to_string(), 700)]);
         assert_eq!(parse_bank_slot_prices("Slot\tPrice\t\r\n1\t1000000\t# commentaire\r\n2\t-1\t\r\n"), vec![(1, 1_000_000), (2, -1)]);
+        assert_eq!(parse_guild_max_members("\tOr\tCrâne\tID\tNombre\r\n50\t10000\t\t\t\r\n60\t1000000\tX\t7\t2\r\n"), vec![(50, 10_000, 0, 0), (60, 1_000_000, 7, 2)]);
     }
 
     #[test]

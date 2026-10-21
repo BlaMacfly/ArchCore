@@ -104,6 +104,27 @@ pub async fn on_chatting(world: &Arc<World>, st: &mut WorldState, sid: u32, p: &
         }
         return Ok(());
     }
+    // Discussion de guilde : aux membres en ligne ; de groupe : aux membres du groupe.
+    if kind == chat_type::GUILD {
+        let pkt = chat_packet_bytes(kind, Some(cid), Some(&name), None, colored);
+        if !super::guild::chat(st, cid, &pkt) {
+            send_system(st, sid, "Vous n'appartenez à aucune guilde.");
+        }
+        return Ok(());
+    }
+    if kind == chat_type::PARTY {
+        let Some(members) = st.parties.party_of(cid).map(|p| p.members.clone()) else {
+            send_system(st, sid, "Vous n'appartenez à aucun groupe.");
+            return Ok(());
+        };
+        let pkt = chat_packet_bytes(kind, Some(cid), Some(&name), None, colored);
+        for m in members {
+            if let Some(p) = st.by_cid.get(&m).and_then(|s| st.players.get(s)) {
+                p.send_raw(pkt.clone());
+            }
+        }
+        return Ok(());
+    }
     // Discussion normale : tous les joueurs à portée de vue, émetteur compris (le client n'affiche son
     // propre message qu'au retour du serveur).
     let pkt = chat_packet_bytes(chat_type::NORMAL, Some(cid), Some(&name), None, colored);

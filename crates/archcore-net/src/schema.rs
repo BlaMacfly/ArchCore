@@ -43,6 +43,7 @@ pub mod ptype {
     pub const RETURN_TO_LOGIN: u8 = 0x2f;
     pub const EVENT_TELEPORT: u8 = 0x31;
     pub const EVENT_NPC_TRADE: u8 = 0x32;
+    pub const EVENT_GUILD: u8 = 0x39;
     pub const EVENT_BANK: u8 = 0x36;
     pub const EVENT_NPC_DIALOG: u8 = 0x37;
     pub const EVENT_SKILL_MASTER: u8 = 0x3b;
@@ -279,6 +280,46 @@ pub static QUEST: Schema = Schema {
 /// AgpmEventQuest (0x3E) — drapeaux 1 : op, événement (EVENT_BASE), CID, entier.
 pub static EVENT_QUEST: Schema = Schema { name: "AGPMEVENTQUEST", id: ptype::EVENT_QUEST, flag_len: 1, fields: &[f(I8), f(Packet), f(I32), f(I32)] };
 
+/// AgpmGuild (0x15) — drapeaux 4 : op, CID (ou code d'un message système), nom de la guilde, nom du chef
+/// (ou d'un joueur), 8 × INT32, rang, date de création (INT64), taille maximale, union, mot de passe,
+/// annonce, statut, victoires, nuls, défaites, points, puis 6 paquets (membre GUILD_MEMBER, combat, …,
+/// liste des guildes), emblème (TID, couleur), vainqueur.
+pub static GUILD: Schema = Schema {
+    name: "AGPMGUILD",
+    id: ptype::GUILD,
+    flag_len: 4,
+    fields: &[
+        f(I8),        // 0 opération
+        f(I32),       // 1 CID (message système : code)
+        fs(Char, 33), // 2 nom de la guilde (message système : texte 1)
+        fs(Char, 49), // 3 chef (message système : texte 2)
+        fs(I32, 8),   // 4 (message système : nombre 1 au premier)
+        f(I32),       // 5 rang de la guilde (message système : nombre 2)
+        f(I64),       // 6 date de création
+        f(I32),       // 7 taille maximale
+        f(I32),       // 8 union
+        fs(Char, 13), // 9 mot de passe
+        f(MemBlock),  // 10 annonce
+        f(I8),        // 11 statut
+        f(I32),       // 12 victoires
+        f(I32),       // 13 nuls
+        f(I32),       // 14 défaites
+        f(I32),       // 15 points
+        f(Packet),    // 16 membre (GUILD_MEMBER)
+        f(Packet),    // 17 combat
+        f(Packet),    // 18 combattant
+        f(Packet),    // 19 membre au combat
+        f(Packet),    // 20 liste des membres au combat
+        f(Packet),    // 21 liste des guildes
+        f(I32),       // 22 emblème : TID
+        f(I32),       // 23 emblème : couleur
+        f(I32),       // 24 guilde victorieuse
+    ],
+};
+
+/// AgpmEventGuild (0x39) — drapeaux 1 : op (0 demande, 1 accord), événement (EVENT_BASE), CID.
+pub static EVENT_GUILD: Schema = Schema { name: "AGPMEVENTGUILD", id: ptype::EVENT_GUILD, flag_len: 1, fields: &[f(I8), f(Packet), f(I32)] };
+
 /// AgpmEventTeleport (0x31) — drapeaux 1 : op, événement (EVENT_BASE), CID du joueur, nom du point d'arrivée
 /// (CP949), position d'arrivée, points d'arrivée désactivés.
 pub static EVENT_TELEPORT: Schema = Schema {
@@ -469,7 +510,7 @@ pub static ARCHCORE_EXT: Schema = Schema {
 /// Tous les schémas principaux, pour l'aiguillage par type.
 pub static MAIN: &[&Schema] = &[
     &CONFIG, &CHARACTER, &CHAR_MANAGER, &LOGIN, &TIMER, &WORLD, &CHATTING, &ADMIN, &ITEM, &EVENT_NPC_TRADE,
-    &EVENT_NPC_DIALOG, &EVENT_MANAGER, &SKILL, &EVENT_SKILL_MASTER, &EVENT_TELEPORT, &EVENT_BANK, &PRIVATE_TRADE, &PARTY, &PARTY_MANAGEMENT, &QUEST, &EVENT_QUEST, &SYSTEM_MESSAGE, &RETURN_TO_LOGIN, &OPT_CHAR_MOVE, &OPT_CHAR_ACTION, &OPT_VIEW,
+    &EVENT_NPC_DIALOG, &EVENT_MANAGER, &SKILL, &EVENT_SKILL_MASTER, &EVENT_TELEPORT, &EVENT_BANK, &GUILD, &EVENT_GUILD, &PRIVATE_TRADE, &PARTY, &PARTY_MANAGEMENT, &QUEST, &EVENT_QUEST, &SYSTEM_MESSAGE, &RETURN_TO_LOGIN, &OPT_CHAR_MOVE, &OPT_CHAR_ACTION, &OPT_VIEW,
     &STARTUP_ENCRYPTION, &ARCHCORE_EXT,
 ];
 
@@ -606,6 +647,11 @@ pub mod mini {
     pub static QUEST_INFO: Schema =
         Schema { name: "AGPMQUEST_INFO", id: 154, flag_len: 1, fields: &[f(I32), f(I32), f(I32), f(I32), f(I32), fs(Char, 49)] };
 
+    /// Membre d'une guilde (AGPMGUILD champ 16) — drapeaux 1 : nom, rang, date d'adhésion, niveau, TID,
+    /// statut (0 hors ligne, 1 en ligne).
+    pub static GUILD_MEMBER: Schema =
+        Schema { name: "AGPMGUILD_MEMBER", id: 155, flag_len: 1, fields: &[fs(Char, 49), f(I32), f(I64), f(U64), f(I32), f(I8)] };
+
     /// Données d'un maître des compétences (race, classe enseignées) — drapeaux 1.
     pub static SKILL_MASTER_DATA: Schema = Schema { name: "AGPMEVENTSKILLMASTER_DATA", id: 153, flag_len: 1, fields: &[f(I8), f(I8)] };
 
@@ -644,6 +690,7 @@ pub mod login_result {
     pub const TOO_MANY_ATTEMPTS: i64 = 2;
     pub const TOS_AGREEMENT: i64 = 3;
     pub const NAME_TAKEN: i64 = 7;
+    pub const CANT_DELETE_GUILD_MASTER: i64 = 19;
 }
 
 pub mod crypt_op {

@@ -12,7 +12,7 @@ named by `ARCHCORE_CONF_DIR` (see [[Configuration|EN-Configuration]]).
 | `archcore decrypt [source] [destination]` | Decrypts `Game/ini` (RC4, MD5("1111")) into `data/client-ini` |
 | `archcore import [folder] [--server folder]` | Imports `data/client-ini` into `archcore_world` (CP949 → UTF-8) and the ground height from the Game folder's `world/b*x.ma2` (`map_height`, a few minutes); with the original server tables (`--server`, or `data/server-ini` if it exists), also imports monster spawns and the server map; finally applies the `content/*.sql` content layer and records each source in `import_run` |
 | `archcore content` | Applies the `content/*.sql` content layer to the world database again, without reimporting (see [[Database\|EN-Database]]) |
-| `archcore sim client\|move\|shop\|addon\|lang\|combat\|equip\|potion\|scroll\|patrol\|bag\|skill\|effects\|bank\|portal\|trade\|quest …` | Simulated clients (see below) |
+| `archcore sim client\|move\|shop\|addon\|lang\|combat\|equip\|potion\|scroll\|patrol\|bag\|skill\|effects\|bank\|portal\|guild\|trade\|quest …` | Simulated clients (see below) |
 | `archcore i18n strings [Game]` | Lists the texts still in English in `data/i18n/pending-en.json` |
 | `archcore i18n coverage [Game]` | Measures how much of `ini_fr` is translated |
 | `archcore i18n apply [--ascii] [--dry]` | Applies the translation memory to the client (see [[Translation|EN-Translation]]) |
@@ -133,6 +133,7 @@ ARCHCORE_CONF_DIR=config/test archcore sim bank [user] [pass] [character]
 ARCHCORE_CONF_DIR=config/test archcore sim portal [user] [pass] [character]
 ARCHCORE_CONF_DIR=config/test archcore sim trade [userA passA charA userB passB charB]
 ARCHCORE_CONF_DIR=config/test archcore sim party [userA passA charA userB passB charB]
+ARCHCORE_CONF_DIR=config/test archcore sim guild [userA passA charA userB passB charB]
 ```
 
 `sim bank` (GM account `gmtest`) checks that depositing without a keeper is refused, opens the bank at
@@ -144,8 +145,11 @@ return (500 coins) to Anchorville. `sim trade` puts GmTest (GM) and SimA at the 
 a potion stack and 500 coins, SimA 100 coins; the offered item cannot be destroyed; locks, exchange (SimA
 receives the stack, money is adjusted on both sides), then a second request refused. `sim party` (SimA and
 SimB) checks that inviting an unknown name is refused, the invitation and acceptance (party and member list
-on both sides), the leader setting experience sharing (refused to the other), the leader handover, then the
-kick, which disbands the party.
+on both sides), party chat, the leader setting experience sharing (refused to the other), the leader handover,
+then the kick, which disbands the party. `sim guild` (GmTest master, SimA) refuses a name with a space,
+creates SimGuild (10,000 coins), invites SimA who accepts, checks guild chat and the notice, a leave request
+accepted by the master, coming back then being kicked, the guild found again on reconnecting, and finally
+disbanding (wrong password refused).
 
 ## Quests test
 
