@@ -1,5 +1,5 @@
 //! Accès MariaDB : un pool par base (auth, characters, world, logs). Une requête plus longue que
-//! `Database.SlowQueryMs` est notée dans le journal.
+//! `Database.SlowQueryMs` est notée dans le journal, une fois le serveur prêt.
 
 use crate::config::DatabaseConfig;
 use mysql_async::prelude::*;
@@ -7,8 +7,14 @@ use mysql_async::{OptsBuilder, Params, PoolConstraints, PoolOpts, Row, TxOpts};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
-/// Seuil des requêtes lentes, en ms (0 : jamais), réglé par `Databases::new`.
-static SLOW_QUERY_MS: AtomicU64 = AtomicU64::new(200);
+/// Seuil des requêtes lentes, en ms (0 : jamais). Désactivé tant que le serveur charge le monde (lectures
+/// complètes des tables, longues par nature) ; réglé par `set_slow_query_ms` une fois le serveur prêt.
+static SLOW_QUERY_MS: AtomicU64 = AtomicU64::new(0);
+
+/// Active la mesure des requêtes lentes (`Database.SlowQueryMs`).
+pub fn set_slow_query_ms(ms: u64) {
+    SLOW_QUERY_MS.store(ms, Ordering::Relaxed);
+}
 
 /// Note une requête lente : durée et début du texte SQL.
 fn timed(sql: &str, started: Instant) {
@@ -99,7 +105,6 @@ pub struct Databases {
 
 impl Databases {
     pub fn new(cfg: &DatabaseConfig) -> Self {
-        SLOW_QUERY_MS.store(cfg.slow_query_ms, Ordering::Relaxed);
         Databases {
             auth: Pool::new(cfg, &cfg.auth),
             characters: Pool::new(cfg, &cfg.characters),

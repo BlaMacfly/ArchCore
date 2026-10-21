@@ -70,7 +70,7 @@ Villages de départ actuels :
 | `Database.ConnectionLimit` | `8` | Taille du pool par base |
 | `Database.Auth` / `Database.Characters` / `Database.World` | `archcore_*` | Noms des trois bases principales |
 | `Database.Logs` | `archcore_logs` | Base des journaux (échanges, boutiques, banque, commandes MJ), en écriture seule. Une instance de test prend la sienne |
-| `Database.SlowQueryMs` | `200` | Une requête plus longue (ms) est notée « requête lente » dans le journal du serveur ; `0` : jamais |
+| `Database.SlowQueryMs` | `200` | Une requête plus longue (ms) est notée « requête lente » dans le journal du serveur, une fois le serveur prêt (le chargement du monde n'est pas compté) ; `0` : jamais |
 
 ## Variables d'environnement
 

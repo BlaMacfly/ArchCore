@@ -70,6 +70,8 @@ pub async fn run(mode: &str) -> anyhow::Result<()> {
         crate::net::serve("world", &listen, Arc::new(crate::world::WorldService(w.clone()))).await?;
     }
 
+    // Serveur prêt : la mesure des requêtes lentes commence (le chargement du monde n'est pas compté).
+    crate::db::set_slow_query_ms(config.database.slow_query_ms);
     tokio::signal::ctrl_c().await?;
     info!("arrêt…");
     db.close().await;

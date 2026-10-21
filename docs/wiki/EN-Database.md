@@ -112,7 +112,7 @@ character or account and by date.
 | `log_gm` | GM command: author, level, command, arguments, success, reply |
 
 **Measurement.** A query longer than `Database.SlowQueryMs` (200 ms by default) is logged as a slow query in the
-server log; a packet handled for longer than `World.SlowPacketMs` (100 ms) under the world lock is logged as a slow
+server log, once the server is ready (start-up loads are not counted); a packet handled for longer than `World.SlowPacketMs` (100 ms) under the world lock is logged as a slow
 packet, with the lock wait. First measurements (test instance, 1 ms thresholds): the longest queries are the
 start-up loads (up to 0.3 s), and the lock is held at most 8 ms per packet (entering the world), with no wait.
 

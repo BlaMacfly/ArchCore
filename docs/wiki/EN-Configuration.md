@@ -70,7 +70,7 @@ Current starting villages:
 | `Database.ConnectionLimit` | `8` | Pool size per database |
 | `Database.Auth` / `Database.Characters` / `Database.World` | `archcore_*` | Names of the three main databases |
 | `Database.Logs` | `archcore_logs` | Log database (trades, shops, bank, GM commands), write-only. A test instance takes its own |
-| `Database.SlowQueryMs` | `200` | A longer query (ms) is logged as a "slow query" (`requête lente`) in the server log; `0`: never |
+| `Database.SlowQueryMs` | `200` | A longer query (ms) is logged as a "slow query" (`requête lente`) in the server log, once the server is ready (loading the world is not counted); `0`: never |
 
 ## Environment variables
 

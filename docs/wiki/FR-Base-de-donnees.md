@@ -115,7 +115,7 @@ index par personnage ou compte et par date.
 | `log_gm` | Commande MJ : auteur, niveau, commande, arguments, réussite, réponse |
 
 **Mesure.** Une requête plus longue que `Database.SlowQueryMs` (200 ms par défaut) est notée « requête lente » dans le
-journal du serveur ; un paquet traité plus longtemps que `World.SlowPacketMs` (100 ms) sous le verrou du monde est
+journal du serveur, une fois le serveur prêt (les chargements du démarrage ne sont pas comptés) ; un paquet traité plus longtemps que `World.SlowPacketMs` (100 ms) sous le verrou du monde est
 noté « paquet lent », avec l'attente du verrou. Premières mesures (instance de test, seuils à 1 ms) : les requêtes
 les plus longues sont les chargements du démarrage (jusqu'à 0,3 s), et le verrou est tenu au plus 8 ms par paquet
 (entrée en jeu), sans attente.
