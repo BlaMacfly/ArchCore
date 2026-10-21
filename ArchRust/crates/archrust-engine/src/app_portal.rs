@@ -114,7 +114,7 @@ fn load_glossary(assets: &Assets) -> HashMap<String, String> {
 
 /// Messages des événements d'interface : `EventName=…` suivi de `Action=4:type:-1:texte`
 /// (`UI_1024X768.ini` du dossier de langue).
-fn ui_events(assets: &Assets) -> HashMap<String, String> {
+pub(super) fn ui_events(assets: &Assets) -> HashMap<String, String> {
     let mut events = HashMap::new();
     for dir in ["ini_fr", "ini"] {
         let Ok(t) = assets.table(dir, "UI_1024X768.ini") else { continue };

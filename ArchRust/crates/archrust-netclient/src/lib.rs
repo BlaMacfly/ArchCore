@@ -11,6 +11,7 @@
 pub mod combat;
 pub mod connection;
 pub mod ext;
+pub mod guild;
 pub mod items;
 pub mod login;
 pub mod npc;

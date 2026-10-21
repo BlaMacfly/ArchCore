@@ -351,12 +351,18 @@ impl App {
         let Some((msg, who)) = self.addons.filter_chat(event, message, from) else {
             return;
         };
-        let line = if event == "CHAT_MSG_SYSTEM" {
-            format!("[système] {msg}")
-        } else {
-            format!("[{}] {}", if who.is_empty() { "?" } else { &who }, msg)
+        // Guilde et groupe : ligne d'Archonia (voir `app_guild.rs`) dans leur onglet.
+        let channel = match event {
+            "CHAT_MSG_GUILD" => 3,
+            "CHAT_MSG_PARTY" => 4,
+            _ => 0,
         };
-        self.ui.push_chat(line);
+        let (line, mask) = match self.guild_chat_line(channel, &who, &msg) {
+            Some(l) => l,
+            None if event == "CHAT_MSG_SYSTEM" => (format!("[système] {msg}"), 0x10),
+            None => (format!("[{}] {}", if who.is_empty() { "?" } else { &who }, msg), if event == "CHAT_MSG_WHISPER" { 0x8 } else { 0x1 }),
+        };
+        self.ui.push_chat_in(mask, line);
         self.addons
             .fire_event_str(event, &[message, from, "", "", from]);
     }

@@ -374,6 +374,13 @@ fn start_function(glue: &mut NpcGlue, npc: i32, f: i32, net: Option<&NetLink>, u
                 net.send(Command::Skill(archrust_netclient::skills::SkillCommand::MasterOpen(npc)));
             }
         }
+        // Gestionnaire de guilde : AGPMEVENTGUILD op 0, l'accord ouvre `Guild_Main` (voir `app_guild.rs`).
+        archrust_netclient::guild::FUNCTION_GUILD => {
+            glue.dialog = None;
+            if let Some(net) = net {
+                net.send(Command::Guild(archrust_netclient::guild::GuildCommand::TalkToManager(npc)));
+            }
+        }
         _ => {}
     }
 }
@@ -805,18 +812,22 @@ impl App {
             let text = template
                 .and_then(|t| self.npc.data(&assets).dialogs.get(&t).filter(|l| !l.is_empty()).map(|l| l[line % l.len()].clone()))
                 .unwrap_or_else(|| "Bonjour, voyageur.".into());
+            // Libellés d'Archonia (FUN_1406ca6a0) : chaîne `sysstr` de la fonction, « Quitter »
+            // (`StaticText_Exit`) pour finir.
             let mut buttons = Vec::new();
             for f in self.npc.functions.get(&npc).into_iter().flatten() {
-                let label = match f.function {
-                    function::TRADE => "Commerce",
-                    function::BANK => "Banque",
-                    function::QUEST => "Quêtes",
-                    function::SKILL_MASTER => "Compétences",
+                let id = match f.function {
+                    function::TRADE => 324,
+                    function::BANK => 326,
+                    function::QUEST => 331,
+                    function::SKILL_MASTER => 14,
+                    archrust_netclient::guild::FUNCTION_GUILD => 328,
                     _ => continue,
                 };
-                buttons.push((f.function, label.to_string()));
+                buttons.push((f.function, sysstr(&assets, id).unwrap_or_default()));
             }
-            v.dialog = Some(DialogView { npc_name: self.npc_name(npc), text, buttons });
+            let exit_label = client_text(&assets, "uimessage.txt").lines().find_map(|l| l.strip_prefix("StaticText_Exit\t")).map(|t| t.trim().to_string()).unwrap_or_default();
+            v.dialog = Some(DialogView { npc_name: self.npc_name(npc), text, buttons, exit_label });
         }
         if let Some(s) = &self.npc.shop {
             v.shop_name = self.npc_name(s.npc);
@@ -861,7 +872,7 @@ impl App {
         tids.iter().map(|&tid| QuestEntry { tid, name: self.npc.quest_name(&assets, tid), state: self.npc.state(tid) }).collect()
     }
 
-    /// `/parler [nom]`, `/boutique`, `/banque`, `/quetespnj`, `/quetes`, `/prendrequete TID`,
+    /// `/parler [nom]`, `/boutique`, `/banque`, `/registraire` (gestionnaire de guilde), `/quetespnj`, `/quetes`, `/prendrequete TID`,
     /// `/abandonner TID`.
     pub(super) fn npc_slash(&mut self, cmd: &str, arg: &str) -> bool {
         match cmd {
@@ -877,9 +888,10 @@ impl App {
                 }
             }
             // Fonction du PNJ le plus proche qui la propose, s'il est à portée.
-            "/boutique" | "/shop" | "/banque" | "/bank" | "/quetespnj" | "/npcquests" | "/instructeur" | "/trainer" => {
+            "/boutique" | "/shop" | "/banque" | "/bank" | "/quetespnj" | "/npcquests" | "/instructeur" | "/trainer" | "/registraire" | "/registrar" => {
                 let f = match cmd {
                     "/boutique" | "/shop" => function::TRADE,
+                    "/registraire" | "/registrar" => archrust_netclient::guild::FUNCTION_GUILD,
                     "/banque" | "/bank" => function::BANK,
                     "/instructeur" | "/trainer" => function::SKILL_MASTER,
                     _ => function::QUEST,

@@ -57,7 +57,7 @@ fn static_text(c: &UiControl) -> &str {
     c.display.as_deref().and_then(|d| d.strip_prefix("1:")).unwrap_or("")
 }
 
-fn argb(c: u32) -> Color32 {
+pub(super) fn argb(c: u32) -> Color32 {
     Color32::from_rgba_unmultiplied((c >> 16) as u8, (c >> 8) as u8, c as u8, (c >> 24) as u8)
 }
 

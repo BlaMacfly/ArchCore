@@ -89,6 +89,7 @@ pub mod packet_type {
     pub const EVENT_TELEPORT: u8 = 0x31;
     pub const EVENT_NPC_TRADE: u8 = 0x32;
     pub const EVENT_BANK: u8 = 0x36;
+    pub const EVENT_GUILD: u8 = 0x39;
     pub const EVENT_NPC_DIALOG: u8 = 0x37;
     pub const EVENT_SKILL_MASTER: u8 = 0x3b;
     pub const EVENT_MANAGER: u8 = 0x3c;
@@ -276,6 +277,39 @@ pub mod main {
         f!(Char, 49),       // 3 nom
     ]);
 
+    // AgpmGuild (0x15) — drapeaux 4 : guildes. Les champs 1 à 4 portent aussi le code, les textes et les
+    // nombres d'un message système (op 10).
+    schema!(pub GUILD = "AGPMGUILD", T::GUILD, 4, [
+        f!(Int8),           // 0 opération
+        f!(Int32),          // 1 CID (message système : code)
+        f!(Char, 33),       // 2 nom de la guilde (message système : texte 1)
+        f!(Char, 49),       // 3 chef ou joueur (message système : texte 2)
+        f!(Int32, 8),       // 4 nombres (message système : le premier)
+        f!(Int32),          // 5 rang de la guilde
+        f!(Int64),          // 6 date de création
+        f!(Int32),          // 7 taille maximale
+        f!(Int32),          // 8 union
+        f!(Char, 13),       // 9 mot de passe
+        f!(MemoryBlock),    // 10 annonce
+        f!(Int8),           // 11 statut
+        f!(Int32),          // 12 victoires
+        f!(Int32),          // 13 nuls
+        f!(Int32),          // 14 défaites
+        f!(Int32),          // 15 points
+        f!(Packet),         // 16 membre (mini GUILD_MEMBER)
+        f!(Packet),         // 17 combat
+        f!(Packet),         // 18 combattant
+        f!(Packet),         // 19 membre au combat
+        f!(Packet),         // 20 liste des membres au combat
+        f!(Packet),         // 21 liste des guildes
+        f!(Int32),          // 22 emblème : TID
+        f!(Int32),          // 23 emblème : couleur
+        f!(Int32),          // 24 guilde victorieuse
+    ]);
+
+    // AgpmEventGuild (0x39) — drapeaux 1 : op (0 demande, 1 accord), événement (EVENT_BASE), CID du joueur.
+    schema!(pub EVENT_GUILD = "AGPMEVENTGUILD", T::EVENT_GUILD, 1, [f!(Int8), f!(Packet), f!(Int32)]);
+
     // ApmEventManager (0x3C) — drapeaux 1 : désignation (mini EVENT_BASE), données de la fonction.
     // Les fonctions d'un PNJ arrivent ainsi, paquets complets mis bout à bout, au champ 4 de sa vue.
     schema!(pub EVENT_MANAGER = "APMEVENTMANAGER", T::EVENT_MANAGER, 1, [f!(Packet), f!(Packet)]);
@@ -349,6 +383,8 @@ pub mod main {
             T::EVENT_NPC_DIALOG => EVENT_NPC_DIALOG,
             T::EVENT_NPC_TRADE => EVENT_NPC_TRADE,
             T::EVENT_BANK => EVENT_BANK,
+            T::GUILD => GUILD,
+            T::EVENT_GUILD => EVENT_GUILD,
             T::EVENT_QUEST => EVENT_QUEST,
             T::QUEST => QUEST,
             T::PARTY => PARTY,
@@ -496,6 +532,10 @@ pub mod mini {
 
     // Quête du journal — drapeaux 1 : TID, monstres A et B tués, objectifs remplis, valeur, texte.
     schema!(pub QUEST_INFO = "AGPMQUEST_INFO", 154, 1, [f!(Int32), f!(Int32), f!(Int32), f!(Int32), f!(Int32), f!(Char, 49)]);
+
+    // Membre d'une guilde (champ 16 d'AGPMGUILD) — drapeaux 1 : nom, rang (1 membre, 2 demande d'adhésion,
+    // 3 demande de départ, 10 chef, 11 second), date d'adhésion, niveau, TID, en ligne (0 ou 1).
+    schema!(pub GUILD_MEMBER = "AGPMGUILD_MEMBER", 155, 1, [f!(Char, 49), f!(Int32), f!(Int64), f!(UInt64), f!(Int32), f!(Int8)]);
 }
 
 /// Opérations (champ 0) du paquet de connexion (AgpmLogin).

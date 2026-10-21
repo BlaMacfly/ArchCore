@@ -241,6 +241,8 @@ pub enum WorldEvent {
     Skill(crate::skills::SkillEvent),
     /// Portails : accord, départ, chargement fini (voir `teleport`).
     Teleport(crate::teleport::TeleportEvent),
+    /// Guildes : guilde, membres, invitation, liens, messages (voir `guild`).
+    Guild(crate::guild::GuildEvent),
     Disconnected(String),
 }
 
@@ -284,6 +286,10 @@ pub enum Command {
     Skill(crate::skills::SkillCommand),
     /// Demande au portail, destination choisie (voir `teleport`).
     Teleport(crate::teleport::TeleportCommand),
+    /// Demande de guilde (voir `guild`).
+    Guild(crate::guild::GuildCommand),
+    /// Message sur un canal de discussion (AGPMCHATTING champ 2 : 3 guilde, 4 groupe…).
+    Chat { kind: i8, message: String },
     Quit,
 }
 
@@ -467,6 +473,10 @@ pub fn translate(p: &Incoming) -> WorldEvent {
     if let Some(ev) = p.packet.as_ref().and_then(|packet| crate::npc::translate(p.packet_type, &packet.values)) {
         return WorldEvent::Npc(ev);
     }
+    // Guildes (voir `guild`).
+    if let Some(ev) = p.packet.as_ref().and_then(|packet| crate::guild::translate(p.packet_type, &packet.values)) {
+        return WorldEvent::Guild(ev);
+    }
     // Portails (voir `teleport`).
     if let Some(ev) = p.packet.as_ref().and_then(|packet| crate::teleport::translate(p.packet_type, &packet.values)) {
         return WorldEvent::Teleport(ev);
@@ -645,7 +655,10 @@ pub fn translate(p: &Incoming) -> WorldEvent {
             from_cid: p.get(1).and_then(Value::as_i64).unwrap_or(0) as i32,
             channel: p.get(2).and_then(Value::as_i64).unwrap_or(0) as i8,
             from: text(p.get(4)),
-            message: text(p.get(6)),
+            message: p.get(6).and_then(Value::as_bytes).map(|b| {
+                let end = b.iter().position(|&c| c == 0).unwrap_or(b.len());
+                encoding_rs::WINDOWS_1252.decode(&b[..end]).0.into_owned()
+            }).unwrap_or_default(),
         },
         packet_type::SYSTEM_MESSAGE => match (text(p.get(4)), p.get(1).and_then(Value::as_i64)) {
             (t, Some(code)) if t.is_empty() => WorldEvent::SystemCode(code as i32),
@@ -976,13 +989,18 @@ impl WorldClient {
 
     /// Envoie un message sur le canal « dire » (type 0x0F).
     pub async fn send_say(&mut self, message: &str) -> Result<(), NetError> {
+        self.send_chat(0, message).await
+    }
+
+    /// Message sur le canal `kind` (0 normal, 3 guilde, 4 groupe), en CP1252 comme Archonia.
+    pub async fn send_chat(&mut self, kind: i8, message: &str) -> Result<(), NetError> {
         let values = sparse(
             main::CHATTING,
             &[
                 (0, Value::I8(0)),
                 (1, Value::I32(self.cid)),
-                (2, Value::I8(0)),
-                (6, Value::Block(message.as_bytes().to_vec())),
+                (2, Value::I8(kind)),
+                (6, Value::Block(crate::guild::to_cp1252(message))),
             ],
         );
         self.conn.send(main::CHATTING, &values).await
@@ -1088,6 +1106,11 @@ impl WorldClient {
                         Some(Command::MoveTo { position, destination }) => self.send_move(position, destination).await,
                         Some(Command::Stop { position }) => self.send_stop(position).await,
                         Some(Command::Say(m)) => self.send_say(&m).await,
+                        Some(Command::Chat { kind, message }) => self.send_chat(kind, &message).await,
+                        Some(Command::Guild(c)) => {
+                            let (schema, values) = crate::guild::command_packet(&c, self.cid);
+                            self.conn.send(schema, &values).await
+                        }
                         Some(Command::AddonSend { request_id, prefix, channel, target, payload }) => {
                             self.send_addon(request_id, &prefix, channel, target.as_deref(), &payload).await
                         }

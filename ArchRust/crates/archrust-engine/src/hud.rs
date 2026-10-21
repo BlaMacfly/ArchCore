@@ -42,9 +42,16 @@ mod skills_ui;
 
 #[path = "hud_portal.rs"]
 mod portal_ui;
+
+#[path = "hud_guild.rs"]
+mod guild_ui;
+pub use guild_ui::{draw_guild_window, draw_message_box, GuildEdit, GuildRow, GuildUi, GuildView, PageColors};
 pub use portal_ui::{draw_buy_bank, draw_loading, draw_teleport, BuyBankView, PortalUi, TeleportRow, TeleportView};
 pub use skills_ui::{draw_quickbar, draw_skill_book, draw_trainer, BookEntry, BookView, Shortcut, SkillUi, SlotView, TrainerEntry, TrainerView};
 pub use npc_ui::{draw_bank, draw_npc_dialog, draw_quests, draw_shop, BankView, DialogView, NpcUi, QuestEntry, QuestState, QuestView, ShopEntry, ShopView};
+
+/// Fenêtres de guilde d'Archonia (voir `hud_guild.rs`).
+const GUILD_WINDOWS: [&str; 9] = ["Guild_Main", "Guild_Create", "Guild_Destroy", "Guild_Create_Request", "Guild_Create_Complete", "Guild_Destroy_Confirm", "Guild_Destroy_Complete", "Guild_Notice", "Guild_Member"];
 
 /// Amélioration active sur le joueur.
 #[derive(Debug, Clone)]
@@ -328,12 +335,13 @@ impl HudState {
             };
             let mut list: Vec<UiWindow> = ["UI_CharInfo", "MiniMap", "UI_Inventory", "UI_TargetInfo", "Chat_Input_Normal", "UI_Resurrection", "Character_Status", "UI_NPCDialog", "UI_NPCTrade", "UI_Bank", "QuestAccept_UI", "QuestMain_UI", "UI_Skill", "UI_SkillBuy", "UI_Teleport", "UI_BuyBank", "UI_LG_Loading"]
                 .iter()
+                .chain(GUILD_WINDOWS.iter())
                 .filter_map(|n| UiWindow::parse(&ui, pos.as_deref(), n))
                 .collect();
             // Textes fixes du client français (`ini_fr/UI_1024X768.ini`, mêmes contrôles) pour les
             // fenêtres qui les affichent tels quels.
             if let Ok(fr) = assets.table("ini_fr", "UI_1024X768.ini") {
-                for w in list.iter_mut().filter(|w| ["UI_Teleport", "UI_BuyBank", "UI_Bank"].contains(&w.name.as_str())) {
+                for w in list.iter_mut().filter(|w| ["UI_Teleport", "UI_BuyBank", "UI_Bank"].contains(&w.name.as_str()) || GUILD_WINDOWS.contains(&w.name.as_str())) {
                     let Some(fw) = UiWindow::parse(&fr, None, &w.name) else { continue };
                     for c in &mut w.controls {
                         if let Some(d) = fw.control(&c.name).and_then(|x| x.display.clone()) {
@@ -782,6 +790,9 @@ pub struct ChatBar {
     /// Contrôle `Input_Message` (type 16, ChattingEdit), où se pose la zone de saisie.
     pub input: Rect,
     pub scale: f32,
+    /// Onglets de la discussion d'Archonia (`MainChat_Tab_a/b/c.png`, FUN_1407a30a0) : texture et
+    /// taille d'origine, repos / survol / choisi.
+    pub tabs: [Option<(egui::TextureId, [f32; 2])>; 3],
 }
 
 /// Dessine `Chat_Input_Normal` (395 × 25, en bas à gauche en 1920 × 1080) et rend la place de sa
@@ -807,10 +818,12 @@ pub fn chat_bar(ctx: &egui::Context, hud: &mut HudState, assets: &Assets) -> Opt
         .control("Input_Message")
         .map(|c| layout.rect(origin, c.pos, c.size))
         .unwrap_or(window);
+    let tabs = ["MainChat_Tab_a.png", "MainChat_Tab_b.png", "MainChat_Tab_c.png"].map(|t| hud.image(ctx, assets, t));
     Some(ChatBar {
         window,
         input,
         scale: layout.scale,
+        tabs,
     })
 }
 

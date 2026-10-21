@@ -54,6 +54,9 @@ mod skills_glue;
 #[path = "app_portal.rs"]
 mod portal_glue;
 
+#[path = "app_guild.rs"]
+mod guild_glue;
+
 /// Configuration du client.
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -185,6 +188,8 @@ pub struct App {
     skills: skills_glue::SkillsGlue,
     /// Portails : liste des destinations, écran de chargement, voir `app_portal.rs`.
     portal: portal_glue::PortalGlue,
+    /// Guilde : fenêtres d'Archonia, invitations, discussion de guilde, voir `app_guild.rs`.
+    guild: guild_glue::GuildGlue,
 }
 
 impl App {
@@ -281,6 +286,7 @@ impl App {
             npc: Default::default(),
             skills: Default::default(),
             portal: Default::default(),
+            guild: Default::default(),
         })
     }
 
@@ -1377,6 +1383,8 @@ impl App {
             WorldEvent::Skill(ev) => self.on_skill_event(ev),
             // Portails : accord, départ, chargement fini (voir `app_portal.rs`).
             WorldEvent::Teleport(ev) => self.on_teleport_event(ev),
+            // Guildes (0x15 / 0x39), voir `app_guild.rs`.
+            WorldEvent::Guild(ev) => self.on_guild_event(ev),
             // Messages système réduits à un code (banque agrandie…, voir `app_npc.rs`).
             WorldEvent::SystemCode(code) => self.npc_system_code(code),
             WorldEvent::Chat {
@@ -1385,9 +1393,11 @@ impl App {
                 channel,
                 ..
             } => {
+                // Types AGPMCHATTING : 3 guilde, 4 groupe, 5 et 6 chuchotement (FUN_140511e20).
                 let event = match channel {
-                    1 => "CHAT_MSG_WHISPER",
-                    2 => "CHAT_MSG_PARTY",
+                    3 => "CHAT_MSG_GUILD",
+                    4 => "CHAT_MSG_PARTY",
+                    5 | 6 => "CHAT_MSG_WHISPER",
                     _ => "CHAT_MSG_SAY",
                 };
                 // Filtres des AddOns, fenêtre de discussion, puis événement CHAT_MSG_*.
@@ -1433,6 +1443,7 @@ impl App {
             ev @ (WorldEvent::Party(_) | WorldEvent::PartyManagement(_)) => self.on_party_event(ev),
             WorldEvent::Disconnected(why) => {
                 self.party_reset();
+                self.guild_reset();
                 self.ui.push_chat(format!("[système] déconnecté : {why}"));
                 self.ui.status = format!("déconnecté : {why}");
                 self.phase = Phase::Login;
@@ -1672,6 +1683,8 @@ impl App {
             _ if self.skills_slash(cmd, arg) => {}
             // Groupes : /inviter, /accepter, /refuser, /quittergroupe, /exclure, /chef, /groupe.
             _ if self.party_slash(cmd, arg) => {}
+            // Discussion /G, /P, /N et guilde : /guilde, /ginviter, /gquitter… (voir `app_guild.rs`).
+            _ if self.guild_slash(cmd, arg) => {}
             // Comme Archonia : une commande inconnue du client part au serveur dans la discussion,
             // qui traite les commandes MJ (`/create`, `/money`, `/move`… d'ArchCore) ou répond.
             _ if self.net.is_some() => {
@@ -1946,6 +1959,7 @@ impl App {
         self.npc_frame();
         // Portails des tuiles proches, liste fermée en s'éloignant (voir `app_portal.rs`).
         self.portal_frame();
+        self.guild_frame();
         // Demandes des fenêtres de compétences, barre du personnage (voir `app_skills.rs`).
         self.skills_frame();
 
@@ -2102,6 +2116,8 @@ impl App {
                 combat_glue::panel(ctx, &mut self.combat, &combat_view, &mut self.hud, &self.assets, self.net.as_ref(), &mut self.ui);
                 // Liste des destinations d'un portail, écran de chargement du trajet.
                 portal_glue::panel(ctx, &mut self.portal, &mut self.hud, &self.assets, self.net.as_ref(), &mut self.ui);
+                // Fenêtres de guilde et boîte OK / Annuler.
+                guild_glue::panel(ctx, &mut self.guild, &mut self.hud, &self.assets, &player_name);
                 // Comme dans WoW, l'interface des AddOns n'apparaît qu'en jeu.
                 self.addon_glue
                     .ui
@@ -2391,6 +2407,8 @@ impl ApplicationHandler for App {
                         self.item_ui.show_character = !self.item_ui.show_character
                     }
                     // K : livre des compétences ; 1 à = : barre de raccourcis (voir `app_skills.rs`).
+                    // G : guilde (`Hotkey=0:34` « Guild » d'Archonia, voir `app_guild.rs`).
+                    PhysicalKey::Code(KeyCode::KeyG) if down && !event.repeat && self.phase == Phase::InWorld => self.guild_toggle(),
                     PhysicalKey::Code(KeyCode::KeyK) if down && !event.repeat && self.phase == Phase::InWorld => {
                         self.skills.show_book = !self.skills.show_book
                     }

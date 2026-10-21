@@ -85,13 +85,14 @@ Events fired by the client:
 | `VARIABLES_LOADED`, `ADDONS_LOADED` | — |
 | `PLAYER_LOGIN`, `PLAYER_LOGOUT`, `PLAYER_LEAVING_WORLD` | — |
 | `PLAYER_ENTERING_WORLD` | isInitialLogin, isReloadingUi |
-| `CHAT_MSG_SAY`, `CHAT_MSG_WHISPER`, `CHAT_MSG_PARTY`, `CHAT_MSG_SYSTEM` | text, author, language, channel, author |
+| `CHAT_MSG_SAY`, `CHAT_MSG_WHISPER`, `CHAT_MSG_PARTY`, `CHAT_MSG_GUILD`, `CHAT_MSG_SYSTEM` | text, author, language, channel, author |
 | `UNIT_HEALTH`, `UNIT_MAXHEALTH` | unit (`player`, `target`, `nameplateN`) |
 | `UNIT_POWER_UPDATE` | unit, `"MANA"` |
 | `UNIT_COMBAT` | unit, `"WOUND"`/`"HEAL"`, "", amount, 1 |
 | `COMBAT_LOG_EVENT_UNFILTERED` | — (read `CombatLogGetCurrentEventInfo()`) |
 | `PLAYER_TARGET_CHANGED` | — |
 | `GROUP_ROSTER_UPDATE`, `GROUP_JOINED`, `GROUP_LEFT`, `PARTY_LEADER_CHANGED`, `PARTY_LOOT_METHOD_CHANGED` | — |
+| `GUILD_ROSTER_UPDATE` | — (guild, members, notice or invitation received) |
 | `PARTY_INVITE_REQUEST` | inviter's name |
 | `PLAYER_DEAD`, `PLAYER_ALIVE`, `PLAYER_UNGHOST` | — (player death, back to life in town) |
 | `PLAYER_REGEN_DISABLED`, `PLAYER_REGEN_ENABLED` | — (start and end of a player attack) |

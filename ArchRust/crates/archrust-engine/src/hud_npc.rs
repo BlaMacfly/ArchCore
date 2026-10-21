@@ -40,6 +40,8 @@ pub struct DialogView {
     pub text: String,
     /// Fonctions proposées (fonction, libellé).
     pub buttons: Vec<(i32, String)>,
+    /// Dernier bouton (`StaticText_Exit`).
+    pub exit_label: String,
 }
 
 /// Objet de la boutique.
@@ -182,7 +184,7 @@ pub fn draw_npc_dialog(ctx: &egui::Context, hud: &mut HudState, assets: &Assets,
                 }
                 "CONTROL_NPCDialogButton" => {
                     let mut labels: Vec<(Option<i32>, &str)> = view.buttons.iter().map(|(f, l)| (Some(*f), l.as_str())).collect();
-                    labels.push((None, "Au revoir"));
+                    labels.push((None, view.exit_label.as_str()));
                     for (i, (f, label)) in labels.into_iter().enumerate() {
                         let rr = layout.rect(origin, [c.pos[0], c.pos[1] + i as f32 * 28.0], c.size);
                         if button(ctx, ui, hud, assets, painter, rr, c, label, font, true, ("npc-dialog-fn", i)).clicked() {

@@ -27,6 +27,11 @@ pub struct UiState {
     pub remember: bool,
     pub status: String,
     pub chat_lines: Vec<String>,
+    /// Onglets de chaque ligne (masques de FUN_140511e20 : 0x1 normal, 0x2 guilde, 0x4 groupe…).
+    pub chat_masks: Vec<u16>,
+    /// Onglets de la discussion : nom (`Chat_Tab_*` de uimessage) et masque (`u16::MAX` = tout).
+    pub chat_tabs: Vec<(String, u16)>,
+    pub chat_tab: usize,
     pub chat_input: String,
     /// Lignes remontées à la molette dans la discussion (0 : les plus récentes).
     pub chat_scroll: usize,
@@ -82,6 +87,9 @@ impl Default for UiState {
             remember: false,
             status: String::new(),
             chat_lines: Vec::new(),
+            chat_masks: Vec::new(),
+            chat_tabs: Vec::new(),
+            chat_tab: 0,
             chat_input: String::new(),
             chat_scroll: 0,
             chat_focus: false,
@@ -235,10 +243,23 @@ pub fn inventory_panel(ctx: &egui::Context, st: &mut UiState, items: &[(ItemReco
 
 impl UiState {
     pub fn push_chat(&mut self, line: impl Into<String>) {
+        self.push_chat_in(0x1, line);
+    }
+
+    /// Ligne de discussion rangée dans les onglets du masque `mask` (et toujours dans « Universel »).
+    pub fn push_chat_in(&mut self, mask: u16, line: impl Into<String>) {
         self.chat_lines.push(line.into());
+        self.chat_masks.push(mask);
         if self.chat_lines.len() > 200 {
             self.chat_lines.remove(0);
+            self.chat_masks.remove(0);
         }
+    }
+
+    /// Lignes visibles dans l'onglet choisi.
+    fn chat_view(&self) -> Vec<&String> {
+        let mask = self.chat_tabs.get(self.chat_tab).map_or(u16::MAX, |t| t.1);
+        self.chat_lines.iter().zip(self.chat_masks.iter().chain(std::iter::repeat(&0x1))).filter(|(_, m)| mask == u16::MAX || *m & mask != 0).map(|(l, _)| l).collect()
     }
 }
 
@@ -925,6 +946,45 @@ pub fn chat_panel(
         });
 }
 
+/// Onglets au-dessus des lignes (`MainChat_Tab` repos, survol, choisi ; noms `Chat_Tab_*`). Leur
+/// place exacte dans Archonia (FUN_1407a30a0 et suivantes) n'est pas établie : ArchRust les aligne
+/// au-dessus des lignes, à leur taille d'origine.
+fn chat_tabs(ctx: &egui::Context, st: &mut UiState, bar: &crate::hud::ChatBar, lines_rect: egui::Rect, font: &egui::FontId) {
+    if st.chat_tabs.is_empty() {
+        return;
+    }
+    // Taille d'origine de la texture, élargie au libellé (étirée).
+    let base = bar.tabs[0].map_or(egui::Vec2::new(60.0, 18.0), |(_, s)| egui::Vec2::new(s[0], s[1])) * bar.scale;
+    let label_font = egui::FontId::proportional(font.size * 0.9);
+    let widths: Vec<f32> = st.chat_tabs.iter().map(|(n, _)| ctx.fonts(|f| f.layout_no_wrap(n.clone(), label_font.clone(), Color32::WHITE).size().x + 12.0).max(base.x)).collect();
+    let top = lines_rect.top() - base.y - 2.0;
+    egui::Area::new(egui::Id::new("archonia-chat-tabs")).fixed_pos(egui::Pos2::new(lines_rect.left(), top)).order(egui::Order::Background).show(ctx, |ui| {
+        let painter = ui.painter().clone();
+        let mut x = lines_rect.left();
+        for i in 0..st.chat_tabs.len() {
+            let r = egui::Rect::from_min_size(egui::Pos2::new(x, top), egui::Vec2::new(widths[i], base.y));
+            x += widths[i];
+            let resp = ui.interact(r, egui::Id::new(("archonia-chat-tab", i)), egui::Sense::click());
+            if resp.clicked() {
+                st.chat_tab = i;
+                st.chat_scroll = 0;
+            }
+            let state = if st.chat_tab == i { 2 } else if resp.hovered() { 1 } else { 0 };
+            match bar.tabs[state] {
+                Some((tex, _)) => {
+                    painter.image(tex, r, egui::Rect::from_min_max(egui::Pos2::ZERO, egui::Pos2::new(1.0, 1.0)), Color32::WHITE);
+                }
+                None => {
+                    painter.rect_filled(r, 2.0, Color32::from_black_alpha(if state == 2 { 200 } else { 120 }));
+                }
+            }
+            let f = label_font.clone();
+            painter.text(r.center() + egui::Vec2::splat(1.0), Align2::CENTER_CENTER, &st.chat_tabs[i].0, f.clone(), Color32::from_black_alpha(210));
+            painter.text(r.center(), Align2::CENTER_CENTER, &st.chat_tabs[i].0, f, if state == 2 { Color32::WHITE } else { Color32::from_rgb(200, 200, 200) });
+        }
+    });
+}
+
 fn archonia_chat(
     ctx: &egui::Context,
     st: &mut UiState,
@@ -945,15 +1005,17 @@ fn archonia_chat(
     let hovered = ctx
         .pointer_hover_pos()
         .is_some_and(|p| lines_rect.contains(p));
+    chat_tabs(ctx, st, bar, lines_rect, &font);
+    let lines = st.chat_view().into_iter().cloned().collect::<Vec<String>>();
     if hovered {
         let dy = ctx.input(|i| i.raw_scroll_delta.y);
         if dy != 0.0 {
             let steps = ((dy.abs() / 16.0).round() as isize).max(1) * dy.signum() as isize;
-            let max = st.chat_lines.len().saturating_sub(1) as isize;
+            let max = lines.len().saturating_sub(1) as isize;
             st.chat_scroll = (st.chat_scroll as isize + steps).clamp(0, max) as usize;
         }
     }
-    st.chat_scroll = st.chat_scroll.min(st.chat_lines.len().saturating_sub(1));
+    st.chat_scroll = st.chat_scroll.min(lines.len().saturating_sub(1));
     let painter = ctx.layer_painter(egui::LayerId::new(
         egui::Order::Background,
         egui::Id::new("archonia-chat-lines"),
@@ -961,9 +1023,9 @@ fn archonia_chat(
     if hovered || typing {
         painter.rect_filled(lines_rect.expand(2.0), 3.0, Color32::from_black_alpha(110));
     }
-    let end = st.chat_lines.len() - st.chat_scroll.min(st.chat_lines.len());
+    let end = lines.len() - st.chat_scroll.min(lines.len());
     let mut y = bottom - 2.0;
-    for l in st.chat_lines[..end].iter().rev() {
+    for l in lines[..end].iter().rev() {
         let job = colored_job_with(
             font.clone(),
             Color32::from_rgb(235, 235, 235),

@@ -86,7 +86,7 @@ L'interface des AddOns n'apparaît qu'en jeu (pas sur l'écran de connexion).
 | `VARIABLES_LOADED`, `ADDONS_LOADED` | — |
 | `PLAYER_LOGIN`, `PLAYER_LOGOUT`, `PLAYER_LEAVING_WORLD` | — |
 | `PLAYER_ENTERING_WORLD` | isInitialLogin, isReloadingUi |
-| `CHAT_MSG_SAY`, `CHAT_MSG_WHISPER`, `CHAT_MSG_PARTY`, `CHAT_MSG_SYSTEM` | texte, auteur, langue, canal, auteur |
+| `CHAT_MSG_SAY`, `CHAT_MSG_WHISPER`, `CHAT_MSG_PARTY`, `CHAT_MSG_GUILD`, `CHAT_MSG_SYSTEM` | texte, auteur, langue, canal, auteur |
 | `UNIT_HEALTH`, `UNIT_MAXHEALTH` | unité (`player`, `target`, `nameplateN`) |
 | `UNIT_POWER_UPDATE` | unité, `"MANA"` |
 | `UNIT_COMBAT` | unité, `"WOUND"`/`"HEAL"`, "", montant, 1 |
@@ -94,6 +94,7 @@ L'interface des AddOns n'apparaît qu'en jeu (pas sur l'écran de connexion).
 | `PLAYER_TARGET_CHANGED` | — |
 | `GROUP_ROSTER_UPDATE`, `GROUP_JOINED`, `GROUP_LEFT`, `PARTY_LEADER_CHANGED`, `PARTY_LOOT_METHOD_CHANGED` | — |
 | `PARTY_INVITE_REQUEST` | nom de l'inviteur |
+| `GUILD_ROSTER_UPDATE` | — (guilde, membres, annonce ou invitation reçus) |
 | `PLAYER_DEAD`, `PLAYER_ALIVE`, `PLAYER_UNGHOST` | — (mort du joueur, retour à la vie au village) |
 | `PLAYER_REGEN_DISABLED`, `PLAYER_REGEN_ENABLED` | — (début et fin d'une attaque du joueur) |
 | `PLAYER_LEVEL_UP` | nouveau niveau |
