@@ -3,7 +3,7 @@
 //! * `sql/001…004` forment la **base de référence** : `archcore db-init` les rejoue à chaque fois (elles
 //!   sont idempotentes) et le note sous l'identifiant [`BASELINE`].
 //! * Les changements suivants vont dans `sql/migrations/<base>/<AAAAMMJJHHMM>_<sujet>.sql`, où `<base>` vaut
-//!   `auth`, `characters` ou `world` : la base cible se lit dans le chemin. Chacune n'est appliquée qu'une
+//!   `auth`, `characters`, `world` ou `logs` : la base cible se lit dans le chemin. Chacune n'est appliquée qu'une
 //!   fois, dans l'ordre des identifiants, puis enregistrée dans la table `schema_migrations` de sa base
 //!   (identifiant, date, empreinte SHA-256 du texte).
 //! * Les scripts sont embarqués dans l'exécutable (`build.rs`) : le serveur sait à la compilation quelles
@@ -23,8 +23,8 @@ pub const BASELINE: &str = "0000_reference";
 /// Table des versions, créée dans chaque base.
 pub const TABLE_SQL: &str = "CREATE TABLE IF NOT EXISTS schema_migrations (\n  id         VARCHAR(96) NOT NULL COMMENT 'base de référence ou fichier de sql/migrations/<base>/ sans .sql',\n  applied_at DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,\n  checksum   CHAR(64)    NOT NULL COMMENT 'SHA-256 hexadécimal du texte appliqué',\n  PRIMARY KEY (id)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4";
 
-/// Bases logiques, dans l'ordre d'application.
-pub const BASES: [&str; 3] = ["auth", "characters", "world"];
+/// Bases logiques, dans l'ordre d'application (`logs` n'a pas de base de référence : tout y est migration).
+pub const BASES: [&str; 4] = ["auth", "characters", "world", "logs"];
 
 /// Base logique de chaque fichier de la base de référence.
 const BASELINE_TARGETS: [(&str, &str); 4] = [("001_auth.sql", "auth"), ("002_characters.sql", "characters"), ("003_world.sql", "world"), ("004_locale.sql", "world")];
@@ -115,9 +115,9 @@ pub async fn applied(pool: &Pool) -> anyhow::Result<Option<Vec<(String, String)>
 
 /// Contrôle de version au démarrage du serveur : refuse une base en retard, en avance ou jamais
 /// initialisée, avec la marche à suivre.
-pub async fn verify(db: &Databases, names: [&str; 3]) -> anyhow::Result<()> {
+pub async fn verify(db: &Databases, names: [&str; 4]) -> anyhow::Result<()> {
     let mut errors = Vec::new();
-    for ((base, pool), name) in BASES.iter().zip([&db.auth, &db.characters, &db.world]).zip(names) {
+    for ((base, pool), name) in BASES.iter().zip([&db.auth, &db.characters, &db.world, &db.logs]).zip(names) {
         let v = compare(base, applied(pool).await?.as_deref());
         if v.not_initialized {
             errors.push(format!("base {name} : pas encore suivie par les migrations — lancer `archcore db-init`"));
@@ -156,9 +156,11 @@ mod tests {
 
     #[test]
     fn base_de_reference_embarquee() {
-        for base in BASES {
+        for base in ["auth", "characters", "world"] {
             assert!(!baseline(base).is_empty(), "base de référence vide pour {base}");
         }
+        assert!(baseline("logs").is_empty());
+        assert!(!expected("logs").is_empty(), "migrations de la base des journaux");
         assert_eq!(baseline("world").iter().map(|(f, _)| *f).collect::<Vec<_>>(), vec!["003_world.sql", "004_locale.sql"]);
         assert!(baseline_unknown().is_empty(), "fichiers sans base : {:?}", baseline_unknown());
     }

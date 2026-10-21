@@ -49,7 +49,7 @@ crates/archcore/           server and tools
     chat.rs, gm.rs         chat and GM commands
     addon.rs               AddOn messages of the ArchRust extensions
   src/tools/               tools: conf (migration), db_init, decrypt, import, i18n, sim, re
-sql/                       schemas of the three databases
+sql/                       database schemas (baseline 00x, migrations/<base>/)
 data/i18n/                 translation memory
 data/re/                   reverse engineering findings (packet schemas)
 ```

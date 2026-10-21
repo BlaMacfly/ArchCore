@@ -45,6 +45,7 @@ unknown key (typo) is reported.
 | `World.Language` | `fr` | NPC title language (`data/i18n/npc-titles-<lang>.json`); `en` keeps them in English |
 | `World.ViewRadius` | `8000` | Range of normal chat and `SAY` AddOn messages. NPCs, monsters, players and ground items are seen by sector (see [[Network protocol|EN-Network-protocol]]) |
 | `World.MonsterDensity` | `1` | Multiplies the number of monsters at each spawn point (rounded, at least 1). The server tables are sparse in places: 2 or 3 come closer to the original game's density |
+| `World.SlowPacketMs` | `100` | A packet handled for longer (ms) under the world lock is logged as a "slow packet" (`paquet lent`), with the lock wait time; `0`: never |
 | `World.TimeZone` | `local` | Time zone of the clock sent to the client (AGPMTIMER packet): `local` = the machine's time (day/night cycle, music and ambience follow the server's local time), `utc` = raw Unix epoch. See [[Network protocol|EN-Network-protocol]] |
 | `World.ExitOnRestart` | `0` | `1`: stops the server at the end of the `/announce_restart` countdown |
 | `StartPosition.<race>.Village` / `.X` / `.Y` / `.Z` | see the template | Spawn position per race: 1 Human, 2 Orc, 3 Moon Elf, 4 Scion |
@@ -67,7 +68,9 @@ Current starting villages:
 | `Database.Host` / `Database.Port` | `127.0.0.1` / `3306` | MariaDB server |
 | `Database.User` / `Database.Password` | `root` / `archcore` | Credentials. **Change them** outside a development machine |
 | `Database.ConnectionLimit` | `8` | Pool size per database |
-| `Database.Auth` / `Database.Characters` / `Database.World` | `archcore_*` | Names of the three databases |
+| `Database.Auth` / `Database.Characters` / `Database.World` | `archcore_*` | Names of the three main databases |
+| `Database.Logs` | `archcore_logs` | Log database (trades, shops, bank, GM commands), write-only. A test instance takes its own |
+| `Database.SlowQueryMs` | `200` | A longer query (ms) is logged as a "slow query" (`requête lente`) in the server log; `0`: never |
 
 ## Environment variables
 

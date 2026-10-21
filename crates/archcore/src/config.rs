@@ -54,6 +54,8 @@ pub struct WorldConfig {
     pub exit_on_restart: bool,
     /// Fuseau de l'heure du jeu envoyée dans AGPMTIMER : `local` (défaut) ou `utc`.
     pub time_zone: TimeZone,
+    /// Seuil (ms) au-delà duquel le traitement d'un paquet sous le verrou du monde est noté ; 0 : jamais.
+    pub slow_packet_ms: u64,
 }
 
 /// Fuseau de l'horloge envoyée au client (`World.TimeZone`). Le client calcule l'heure du ciel par
@@ -100,6 +102,10 @@ pub struct DatabaseConfig {
     pub auth: String,
     pub characters: String,
     pub world: String,
+    /// Base des journaux (échanges, boutiques, banque, MJ), en écriture seule.
+    pub logs: String,
+    /// Seuil (ms) au-delà duquel une requête est notée comme lente ; 0 : jamais.
+    pub slow_query_ms: u64,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -144,6 +150,7 @@ impl Default for WorldConfig {
             gm_command_levels: HashMap::new(),
             exit_on_restart: false,
             time_zone: TimeZone::Local,
+            slow_packet_ms: 100,
         }
     }
 }
@@ -159,6 +166,8 @@ impl Default for DatabaseConfig {
             auth: "archcore_auth".into(),
             characters: "archcore_characters".into(),
             world: "archcore_world".into(),
+            logs: "archcore_logs".into(),
+            slow_query_ms: 200,
         }
     }
 }
@@ -312,6 +321,8 @@ fn read_common(s: &Settings, cfg: &mut Config) {
         auth: s.string("Database.Auth", &d.auth),
         characters: s.string("Database.Characters", &d.characters),
         world: s.string("Database.World", &d.world),
+        logs: s.string("Database.Logs", &d.logs),
+        slow_query_ms: s.parse("Database.SlowQueryMs", d.slow_query_ms),
     };
 }
 
@@ -365,6 +376,7 @@ fn read_world(s: &Settings, cfg: &mut Config) {
         start_positions,
         view_radius: s.parse("World.ViewRadius", d.view_radius),
         monster_density: s.parse("World.MonsterDensity", d.monster_density),
+        slow_packet_ms: s.parse("World.SlowPacketMs", d.slow_packet_ms),
         language: s.string("World.Language", &d.language),
         rates,
         gm_command_levels,
@@ -487,6 +499,7 @@ pub fn to_values(cfg: &Config, which: Which) -> Vec<(String, String)> {
             put("World.Language", w.language.clone());
             put("World.ViewRadius", fmt_num(w.view_radius));
             put("World.MonsterDensity", fmt_num(w.monster_density));
+            put("World.SlowPacketMs", w.slow_packet_ms.to_string());
             put("World.TimeZone", w.time_zone.name().into());
             put("World.ExitOnRestart", (w.exit_on_restart as i64).to_string());
             put("Client.DataDir", cfg.client.data_dir.clone());
@@ -523,6 +536,8 @@ pub fn to_values(cfg: &Config, which: Which) -> Vec<(String, String)> {
     put("Database.Auth", d.auth.clone());
     put("Database.Characters", d.characters.clone());
     put("Database.World", d.world.clone());
+    put("Database.Logs", d.logs.clone());
+    put("Database.SlowQueryMs", d.slow_query_ms.to_string());
     v
 }
 

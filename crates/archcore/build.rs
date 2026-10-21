@@ -23,7 +23,7 @@ fn main() {
         writeln!(out, "    ({f:?}, include_str!({:?})),", path.display().to_string()).unwrap();
     }
     out.push_str("];\n\n/// Migrations : (base, identifiant, texte), dans l'ordre des identifiants.\npub static MIGRATION_FILES: &[(&str, &str, &str)] = &[\n");
-    for base in ["auth", "characters", "world"] {
+    for base in ["auth", "characters", "world", "logs"] {
         let dir = root.join("migrations").join(base);
         println!("cargo:rerun-if-changed={}", dir.display());
         for f in sql_files(&dir) {

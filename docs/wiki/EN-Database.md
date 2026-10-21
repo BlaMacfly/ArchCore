@@ -1,7 +1,7 @@
 # Database
 
-ArchCore uses three MariaDB databases, created and updated by `archcore db-init` from `sql/` (baseline and
-migrations, see below). All use `utf8mb4`.
+ArchCore uses three main MariaDB databases, plus a log database, created and updated by `archcore db-init` from
+`sql/` (baseline and migrations, see below). All use `utf8mb4`.
 
 ## `archcore_auth` — accounts and worlds (`sql/001_auth.sql`, `sql/migrations/auth/`)
 
@@ -97,6 +97,24 @@ sql/migrations/<base>/<YYYYMMDDHHMM>_<topic>.sql      <base> = auth, characters 
   being applied, or a changed baseline, gives a warning.
 - Migrations are additive by default; a rename or a removal takes two versions (add and read both, then
   remove). Never a destructive migration without a backup first (`mariadb-dump`).
+
+## `archcore_logs` — logs (`sql/migrations/logs/`)
+
+Traces of the economy and of administration, write-only: the server never reads them, and each write runs on its
+own, outside the world lock (a slow or unavailable log never delays the game). No foreign key, indexes by
+character or account and by date.
+
+| Table | Content |
+|---|---|
+| `log_trade` | Completed trade: both characters, the gold and items (`[{iid, tid, count}]`) each one gave |
+| `log_shop` | Purchase or sale to an NPC: character, NPC, item (TID, IID), count, price |
+| `log_bank` | Deposit or withdrawal at the account bank: item (TID, IID, count) or gold |
+| `log_gm` | GM command: author, level, command, arguments, success, reply |
+
+**Measurement.** A query longer than `Database.SlowQueryMs` (200 ms by default) is logged as a slow query in the
+server log; a packet handled for longer than `World.SlowPacketMs` (100 ms) under the world lock is logged as a slow
+packet, with the lock wait. First measurements (test instance, 1 ms thresholds): the longest queries are the
+start-up loads (up to 0.3 s), and the lock is held at most 8 ms per packet (entering the world), with no wait.
 
 ## Database consistency (`archcore db-check`)
 

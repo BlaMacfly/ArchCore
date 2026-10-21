@@ -19,7 +19,7 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
     for file in migrations::baseline_unknown() {
         println!("? {file} : base cible inconnue, ignoré");
     }
-    let names = [&db.auth, &db.characters, &db.world];
+    let names = [&db.auth, &db.characters, &db.world, &db.logs];
     for (base, name) in BASES.iter().zip(names) {
         conn.query_drop(format!("CREATE DATABASE IF NOT EXISTS `{name}` CHARACTER SET utf8mb4")).await?;
         conn.query_drop(format!("USE `{name}`")).await?;

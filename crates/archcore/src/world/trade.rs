@@ -341,6 +341,9 @@ async fn execute(ctx: &WorldCtx, st: &mut WorldState, a: u32, b: u32) -> anyhow:
         return Err(e);
     }
     let sids = [a, b];
+    // Trace dans la base des journaux : ce que chacun a donné.
+    let given = |side: usize| moved.iter().filter(|(from, _)| *from == side).map(|(_, i)| (i.iid, i.tid, i.count)).collect::<Vec<_>>();
+    crate::journal::trade(&ctx.db, (cid_a, &st.players[&a].ch.name), (cid_b, &st.players[&b].ch.name), ta.gold, tb.gold, &given(0), &given(1));
     let [inv_a, inv_b] = inv;
     for (sid, inventory) in [(a, inv_a), (b, inv_b)] {
         let p = st.players.get_mut(&sid).unwrap();

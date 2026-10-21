@@ -21,6 +21,7 @@ mod character;
 mod check;
 mod config;
 mod db;
+mod journal;
 mod ext;
 mod locale;
 mod log;

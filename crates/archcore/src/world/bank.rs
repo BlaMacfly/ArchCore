@@ -194,6 +194,7 @@ async fn deposit(ctx: &WorldCtx, st: &mut WorldState, sid: u32, iid: u32, wanted
         let merged = merged.clone();
         p.send_raw(item_remove(iid, Some(cid)));
         p.send_raw(item_update(&merged, cid, item_status::BANK));
+        crate::journal::bank_item(&ctx.db, p.bank.account_id, (cid, &p.ch.name), "dépôt", item.tid, item.iid, item.count);
         return Ok(());
     }
     let Some(grid) = wanted.filter(|g| p.bank.is_free(*g)).or_else(|| p.bank.free_slot()) else {
@@ -209,6 +210,7 @@ async fn deposit(ctx: &WorldCtx, st: &mut WorldState, sid: u32, iid: u32, wanted
     let stored = InventoryItem { grid, ..item };
     p.bank.items.insert(iid, stored.clone());
     p.send_raw(item_update(&stored, cid, item_status::BANK));
+    crate::journal::bank_item(&ctx.db, p.bank.account_id, (cid, &p.ch.name), "dépôt", stored.tid, stored.iid, stored.count);
     info!("[banque] {} dépose {} × {}", p.ch.name, stored.count, ctx.catalog.get(stored.tid).map(|d| d.name.as_str()).unwrap_or("?"));
     Ok(())
 }
@@ -250,6 +252,7 @@ async fn withdraw(ctx: &WorldCtx, st: &mut WorldState, sid: u32, iid: u32, wante
         let merged = merged.clone();
         p.send_raw(item_remove(iid, Some(cid)));
         p.send_raw(item_update(&merged, cid, item_status::INVENTORY));
+        crate::journal::bank_item(&ctx.db, p.bank.account_id, (cid, &p.ch.name), "retrait", item.tid, item.iid, item.count);
         return Ok(());
     }
     let Some(grid) = wanted.filter(|g| p.inventory.is_free(*g)).or_else(|| p.inventory.free_slot()) else {
@@ -268,6 +271,7 @@ async fn withdraw(ctx: &WorldCtx, st: &mut WorldState, sid: u32, iid: u32, wante
     let taken = InventoryItem { grid, ..item };
     p.inventory.items.insert(iid, taken.clone());
     p.send_raw(item_update(&taken, cid, item_status::INVENTORY));
+    crate::journal::bank_item(&ctx.db, p.bank.account_id, (cid, &p.ch.name), "retrait", taken.tid, taken.iid, taken.count);
     info!("[banque] {} retire {} × {}", p.ch.name, taken.count, ctx.catalog.get(taken.tid).map(|d| d.name.as_str()).unwrap_or("?"));
     Ok(())
 }
@@ -296,6 +300,7 @@ pub async fn move_money(ctx: &WorldCtx, st: &mut WorldState, sid: u32, amount: i
     p.ch.bank_money = bank as u64;
     let c = &schema::CHARACTER;
     p.send(c, Fields::new(c).with(0, 1).with(1, p.ch.id).with(8, money).with(9, bank));
+    crate::journal::bank_money(&ctx.db, p.bank.account_id, (p.ch.id, &p.ch.name), amount);
     info!("[banque] {} {} {} pièce(s) : {money} sur lui, {bank} en banque", p.ch.name, if amount > 0 { "dépose" } else { "retire" }, amount.abs());
     Ok(())
 }

@@ -177,6 +177,7 @@ async fn buy(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> anyho
     show_money(player, left);
     let name = player.ch.name.clone();
     result(st, sid, trade_op::BUY, trade_result::BUY_SUCCEEDED);
+    crate::journal::shop(&ctx.db, (cid, &name), &npc_name, "achat", data.tid, item.iid, count as i64, price as i64);
     info!("[boutique] {name} achète {count} × {} (TID {}) pour {price} à {npc_name}", data.name, data.tid);
     Ok(())
 }
@@ -211,6 +212,7 @@ async fn sell(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> anyh
     show_money(player, total);
     let name = player.ch.name.clone();
     result(st, sid, trade_op::SELL, trade_result::SELL_SUCCEEDED);
+    crate::journal::shop(&ctx.db, (cid, &name), &npc_name, "vente", data.tid, item.iid, item.count, price);
     info!("[boutique] {name} vend {} × {} (TID {}) pour {price} à {npc_name}", item.count, data.name, data.tid);
     Ok(())
 }

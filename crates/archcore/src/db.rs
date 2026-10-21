@@ -1,8 +1,24 @@
-//! Accès MariaDB : un pool par base (auth, characters, world).
+//! Accès MariaDB : un pool par base (auth, characters, world, logs). Une requête plus longue que
+//! `Database.SlowQueryMs` est notée dans le journal.
 
 use crate::config::DatabaseConfig;
 use mysql_async::prelude::*;
 use mysql_async::{OptsBuilder, Params, PoolConstraints, PoolOpts, Row, TxOpts};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Instant;
+
+/// Seuil des requêtes lentes, en ms (0 : jamais), réglé par `Databases::new`.
+static SLOW_QUERY_MS: AtomicU64 = AtomicU64::new(200);
+
+/// Note une requête lente : durée et début du texte SQL.
+fn timed(sql: &str, started: Instant) {
+    let limit = SLOW_QUERY_MS.load(Ordering::Relaxed);
+    let ms = started.elapsed().as_millis() as u64;
+    if limit > 0 && ms >= limit {
+        let text: String = sql.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(160).collect();
+        crate::warn!("requête lente ({ms} ms) : {text}");
+    }
+}
 
 #[derive(Clone)]
 pub struct Pool(mysql_async::Pool);
@@ -22,20 +38,28 @@ impl Pool {
 
     /// Requête qui rend des lignes.
     pub async fn rows(&self, sql: &str, params: impl Into<Params> + Send) -> anyhow::Result<Vec<Row>> {
+        let started = Instant::now();
         let mut conn = self.0.get_conn().await?;
-        Ok(conn.exec(sql, params).await?)
+        let rows = conn.exec(sql, params).await?;
+        timed(sql, started);
+        Ok(rows)
     }
 
     /// Première ligne, s'il y en a une.
     pub async fn first(&self, sql: &str, params: impl Into<Params> + Send) -> anyhow::Result<Option<Row>> {
+        let started = Instant::now();
         let mut conn = self.0.get_conn().await?;
-        Ok(conn.exec_first(sql, params).await?)
+        let row = conn.exec_first(sql, params).await?;
+        timed(sql, started);
+        Ok(row)
     }
 
     /// Requête sans résultat ; rend l'identifiant inséré (0 s'il n'y en a pas).
     pub async fn exec(&self, sql: &str, params: impl Into<Params> + Send) -> anyhow::Result<u64> {
+        let started = Instant::now();
         let mut conn = self.0.get_conn().await?;
         conn.exec_drop(sql, params).await?;
+        timed(sql, started);
         Ok(conn.last_insert_id().unwrap_or(0))
     }
 
@@ -47,12 +71,15 @@ impl Pool {
     /// Plusieurs requêtes dans une seule transaction : toutes passent ou aucune. Rend l'identifiant inséré
     /// par la dernière (0 s'il n'y en a pas).
     pub async fn atomic(&self, stmts: Vec<(&str, Params)>) -> anyhow::Result<u64> {
+        let started = Instant::now();
+        let label = format!("transaction de {} requête(s) : {}", stmts.len(), stmts.first().map(|s| s.0).unwrap_or(""));
         let mut tx = self.begin().await?;
         for (sql, params) in stmts {
             tx.exec_drop(sql, params).await?;
         }
         let id = tx.last_insert_id().unwrap_or(0);
         tx.commit().await?;
+        timed(&label, started);
         Ok(id)
     }
 
@@ -66,20 +93,28 @@ pub struct Databases {
     pub auth: Pool,
     pub characters: Pool,
     pub world: Pool,
+    /// Journaux, en écriture seule (voir `journal.rs`).
+    pub logs: Pool,
 }
 
 impl Databases {
     pub fn new(cfg: &DatabaseConfig) -> Self {
+        SLOW_QUERY_MS.store(cfg.slow_query_ms, Ordering::Relaxed);
         Databases {
             auth: Pool::new(cfg, &cfg.auth),
             characters: Pool::new(cfg, &cfg.characters),
             world: Pool::new(cfg, &cfg.world),
+            logs: Pool::new(cfg, &cfg.logs),
         }
     }
 
     pub async fn check(&self) -> anyhow::Result<()> {
-        for (name, pool) in [("auth", &self.auth), ("characters", &self.characters), ("world", &self.world)] {
-            let row = pool.first("SELECT DATABASE() AS db, VERSION() AS v", ()).await?.ok_or_else(|| anyhow::anyhow!("base {name} muette"))?;
+        for (name, pool) in [("auth", &self.auth), ("characters", &self.characters), ("world", &self.world), ("logs", &self.logs)] {
+            let row = pool
+                .first("SELECT DATABASE() AS db, VERSION() AS v", ())
+                .await
+                .map_err(|e| if e.to_string().contains("1049") { anyhow::anyhow!("{e:#} — base {name} absente : lancer `archcore db-init`") } else { e })?
+                .ok_or_else(|| anyhow::anyhow!("base {name} muette"))?;
             let v: String = row.get("v").unwrap_or_default();
             let db: String = row.get("db").unwrap_or_default();
             crate::info!("MariaDB {v} — base {name} = {db}");
@@ -91,6 +126,7 @@ impl Databases {
         self.auth.close().await;
         self.characters.close().await;
         self.world.close().await;
+        self.logs.close().await;
     }
 }
 

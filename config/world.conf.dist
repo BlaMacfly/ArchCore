@@ -88,6 +88,20 @@ Database.Auth = "archcore_auth"
 Database.Characters = "archcore_characters"
 Database.World = "archcore_world"
 
+#    Database.Logs
+#        Base des journaux (échanges, boutiques, banque, commandes MJ), en
+#        écriture seule ; créée par `archcore db-init`.
+#        Défaut : "archcore_logs"
+
+Database.Logs = "archcore_logs"
+
+#    Database.SlowQueryMs
+#        Une requête plus longue (en ms) est notée dans le journal du serveur
+#        (« requête lente »). 0 : jamais.
+#        Défaut : 200
+
+Database.SlowQueryMs = 200
+
 ###############################################################################
 # 3. DONNÉES DU CLIENT
 #
@@ -123,6 +137,13 @@ World.ViewRadius = 8000
 #        Défaut : 1
 
 World.MonsterDensity = 1
+
+#    World.SlowPacketMs
+#        Un paquet traité plus longtemps (en ms) sous le verrou du monde est noté
+#        dans le journal du serveur (« paquet lent »). 0 : jamais.
+#        Défaut : 100
+
+World.SlowPacketMs = 100
 
 #    World.TimeZone
 #        Fuseau de l'horloge envoyée au client, qui en tire l'heure du ciel.

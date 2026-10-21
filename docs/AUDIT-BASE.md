@@ -503,7 +503,11 @@ sort en erreur et le serveur démarre en les signalant. Étape 6 (R9, R10) faite
 `202610210300_import_run_et_sources` (table `import_run`, colonne `localized_text.source`), couche `content/`
 appliquée après l'import et par `archcore content` (`tools/content.rs`), `i18n db` limité à ses lignes ;
 validée sur copie (textes saisis à la main gardés, contenu réappliqué après un import complet, fichier fautif
-annulé et import interrompu signalé, 17 scénarios).
+annulé et import interrompu signalé, 17 scénarios). Étape 7 (R11, R12) faite le 2026-10-21 : base
+`archcore_logs` (`log_trade`, `log_shop`, `log_bank`, `log_gm`, écriture hors du verrou, `journal.rs`) ; requêtes
+lentes (`Database.SlowQueryMs`) et verrou par paquet (`World.SlowPacketMs`). Mesures sur copie, seuils à 1 ms :
+requêtes de démarrage jusqu'à 294 ms (butin), verrou tenu au plus 8 ms par paquet (entrée en jeu), attente nulle ;
+17 scénarios.
 
 | Étape | Rec. | Quoi | Raison | Bénéfice | Coût | Risque |
 |---|---|---|---|---|---|---|

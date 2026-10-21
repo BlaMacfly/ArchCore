@@ -251,11 +251,48 @@ struct WorldConn {
     sid: u32,
 }
 
+/// Seuil (ms) au-delà duquel le traitement d'un paquet sous le verrou du monde est noté (`World.SlowPacketMs`,
+/// 0 : jamais).
+static SLOW_PACKET_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(100);
+
+pub fn set_slow_packet_ms(ms: u64) {
+    SLOW_PACKET_MS.store(ms, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Mesure d'un paquet : attente du verrou du monde, puis temps où il est tenu ; notée par `finish` à la fin du
+/// traitement si elle dépasse le seuil. Pas de garde à `Drop` : dans le futur d'`on_packet`, il fait planter
+/// la compilation release (rustc, 0xc0000005) ; les retours anticipés (erreur, session évincée) ne sont pas mesurés.
+struct PacketTimer {
+    ptype: u8,
+    op: Option<i64>,
+    waited: std::time::Duration,
+    held_since: Instant,
+}
+
+impl PacketTimer {
+    fn new(ptype: u8, op: Option<i64>, asked: Instant) -> Self {
+        let held_since = Instant::now();
+        PacketTimer { ptype, op, waited: held_since - asked, held_since }
+    }
+}
+
+impl PacketTimer {
+    fn finish(self) {
+        let limit = SLOW_PACKET_MS.load(std::sync::atomic::Ordering::Relaxed);
+        let held = self.held_since.elapsed().as_millis() as u64;
+        if limit > 0 && held >= limit {
+            warn!("[world] paquet lent 0x{:02x} op {:?} : verrou du monde tenu {held} ms (attente {} ms)", self.ptype, self.op, self.waited.as_millis());
+        }
+    }
+}
+
 #[async_trait]
 impl Connection for WorldConn {
     async fn on_packet(&mut self, s: &SessionHandle, p: Packet) -> anyhow::Result<()> {
         let world = self.world.clone();
+        let asked = Instant::now();
         let mut st = world.state.lock().await;
+        let timer = PacketTimer::new(p.header.ptype, p.int(0), asked);
         if st.evicted.contains(&self.sid) {
             return Ok(());
         }
@@ -297,6 +334,7 @@ impl Connection for WorldConn {
             ptype::EVENT_QUEST => quests::on_event(ctx, &mut st, self.sid, &p),
             _ => {}
         }
+        timer.finish();
         Ok(())
     }
 

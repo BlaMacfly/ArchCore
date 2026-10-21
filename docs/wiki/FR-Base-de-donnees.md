@@ -1,7 +1,7 @@
 # Base de données
 
-ArchCore utilise trois bases MariaDB, créées et mises à jour par `archcore db-init` à partir de `sql/` (base de
-référence et migrations, voir plus bas).
+ArchCore utilise trois bases MariaDB principales, plus une base de journaux, créées et mises à jour par
+`archcore db-init` à partir de `sql/` (base de référence et migrations, voir plus bas).
 Toutes sont en `utf8mb4`.
 
 ## `archcore_auth` — comptes et mondes (`sql/001_auth.sql`, `sql/migrations/auth/`)
@@ -100,6 +100,25 @@ sql/migrations/<base>/<AAAAMMJJHHMM>_<sujet>.sql      <base> = auth, characters 
   avertissement.
 - Une migration est additive par défaut ; un renommage ou une suppression se fait en deux versions (ajout et
   double lecture, puis retrait). Jamais de migration destructive sans sauvegarde préalable (`mariadb-dump`).
+
+## `archcore_logs` — journaux (`sql/migrations/logs/`)
+
+Traces de l'économie et de l'administration, en écriture seule : le serveur n'y lit jamais, et chaque écriture part
+à part, hors du verrou du monde (un journal lent ou indisponible ne retarde pas le jeu). Pas de clé étrangère, des
+index par personnage ou compte et par date.
+
+| Table | Contenu |
+|---|---|
+| `log_trade` | Échange conclu : les deux personnages, l'or et les objets (`[{iid, tid, count}]`) donnés par chacun |
+| `log_shop` | Achat ou vente à un PNJ : personnage, PNJ, objet (TID, IID), quantité, prix |
+| `log_bank` | Dépôt ou retrait à la banque du compte : objet (TID, IID, quantité) ou or |
+| `log_gm` | Commande MJ : auteur, niveau, commande, arguments, réussite, réponse |
+
+**Mesure.** Une requête plus longue que `Database.SlowQueryMs` (200 ms par défaut) est notée « requête lente » dans le
+journal du serveur ; un paquet traité plus longtemps que `World.SlowPacketMs` (100 ms) sous le verrou du monde est
+noté « paquet lent », avec l'attente du verrou. Premières mesures (instance de test, seuils à 1 ms) : les requêtes
+les plus longues sont les chargements du démarrage (jusqu'à 0,3 s), et le verrou est tenu au plus 8 ms par paquet
+(entrée en jeu), sans attente.
 
 ## Cohérence des bases (`archcore db-check`)
 

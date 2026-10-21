@@ -303,6 +303,14 @@ pub async fn execute(world: &Arc<World>, st: &mut WorldState, sid: u32, text: &s
         Ok(args) => run(world, st, sid, cmd, &args, &tokens).await?,
         Err(e) => Err(e),
     };
+    // Trace dans la base des journaux : auteur, commande, arguments, réponse.
+    if let Some(p) = st.players.get(&sid) {
+        let (ok, reply) = match &result {
+            Ok(r) => (true, r.clone()),
+            Err(e) => (false, e.0.clone()),
+        };
+        crate::journal::gm(&world.ctx.db, p.account.id, (p.ch.id, &p.ch.name), gm_level, &name, &tokens.join(" "), ok, &reply);
+    }
     match result {
         Ok(reply) => send_system(st, sid, &reply),
         Err(e) => send_system(st, sid, &format!("/{name} : {}. Syntaxe : {}", e.0, cmd.usage)),

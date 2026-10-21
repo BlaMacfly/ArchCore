@@ -50,7 +50,8 @@ ARCHCORE_CONF_DIR=config/test archcore sim move
 The test server has its own three databases, the world included: otherwise `archcore db-init` run for it
 would also apply the world migrations to the main server. To create its world database, copy the main
 server's (`CREATE DATABASE archcore_test_world`, then `mariadb-dump archcore_world | mariadb
-archcore_test_world`), set it in `Database.World`, and run `ARCHCORE_CONF_DIR=config/test archcore db-init`.
+archcore_test_world`), set it in `Database.World`, also give it its own log database (`Database.Logs`, for example `archcore_test_logs`,
+created by `db-init`), and run `ARCHCORE_CONF_DIR=config/test archcore db-init`.
 
 ## Shop test
 

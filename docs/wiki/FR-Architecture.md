@@ -49,7 +49,7 @@ crates/archcore/           serveur et outils
     chat.rs, gm.rs         discussion et commandes MJ
     addon.rs               messages d'AddOn des extensions ArchRust
   src/tools/               outils : conf (migration), db_init, decrypt, import, i18n, sim, re
-sql/                       schémas des trois bases
+sql/                       schémas des bases (référence 00x, migrations/<base>/)
 data/i18n/                 mémoire de traduction
 data/re/                   relevés de rétro-ingénierie (schémas de paquets)
 ```

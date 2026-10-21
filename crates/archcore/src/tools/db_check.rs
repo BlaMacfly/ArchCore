@@ -10,10 +10,10 @@ pub async fn run(_args: &[String]) -> anyhow::Result<()> {
     let d = &cfg.database;
     let names = Names { auth: &d.auth, characters: &d.characters, world: &d.world };
     let db = Databases::new(d);
-    println!("Bases : {}, {}, {}", d.auth, d.characters, d.world);
+    println!("Bases : {}, {}, {}, {}", d.auth, d.characters, d.world, d.logs);
 
     // Versions du schéma.
-    let schema_ok = match crate::migrations::verify(&db, [&d.auth, &d.characters, &d.world]).await {
+    let schema_ok = match crate::migrations::verify(&db, [&d.auth, &d.characters, &d.world, &d.logs]).await {
         Ok(()) => {
             println!("✓ schéma à jour");
             true
