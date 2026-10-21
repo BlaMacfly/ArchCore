@@ -25,6 +25,8 @@ pub enum NpcUi {
     BankTake(i32),
     /// Bouton « Déposer » ou « Retirer » de l'argent.
     BankMoney { deposit: bool },
+    /// Bouton « Agrandir » (`Item_RequestBuyBankSlot`) : fenêtre d'achat d'une page.
+    BankBuyRequest,
     CloseQuests,
     SelectQuest(i32),
     QuestAccept(i32),
@@ -65,6 +67,8 @@ pub struct BankView<'a> {
     /// Pages ouvertes (la première toujours).
     pub pages: i16,
     pub page: &'a mut i16,
+    /// `IsActiveBuyBankSlot` : moins de 3 pages en plus et la suivante en vente contre de l'or.
+    pub can_buy: bool,
 }
 
 /// État d'une quête dans une liste.
@@ -95,7 +99,7 @@ pub struct QuestView<'a> {
     pub text: String,
 }
 
-fn window(hud: &mut HudState, assets: &Assets, name: &str) -> Option<UiWindow> {
+pub(super) fn window(hud: &mut HudState, assets: &Assets, name: &str) -> Option<UiWindow> {
     hud.windows(assets).iter().find(|w| w.name == name).cloned()
 }
 
@@ -137,7 +141,7 @@ fn text_box(ui: &mut egui::Ui, r: Rect, id: &str, text: &str, font: f32, color: 
 }
 
 /// Fenêtre déplaçable aux dimensions d'Archonia, avec son fond.
-fn frame<R>(ctx: &egui::Context, hud: &mut HudState, assets: &Assets, w: &UiWindow, id: &str, add: impl FnOnce(&mut egui::Ui, &mut HudState, &Layout, Pos2, &egui::Painter) -> R) -> Option<R> {
+pub(super) fn frame<R>(ctx: &egui::Context, hud: &mut HudState, assets: &Assets, w: &UiWindow, id: &str, add: impl FnOnce(&mut egui::Ui, &mut HudState, &Layout, Pos2, &egui::Painter) -> R) -> Option<R> {
     let layout = Layout::new(ctx.screen_rect());
     let size = Vec2::new(w.size[0], w.size[1]) * layout.scale;
     egui::Area::new(egui::Id::new(id))
@@ -294,9 +298,6 @@ pub fn draw_bank(ctx: &egui::Context, hud: &mut HudState, assets: &Assets, view:
                 if resp.clicked() {
                     *view.page = page;
                 }
-                if !open {
-                    resp.on_hover_text("Page fermée (agrandissement de la banque pas encore disponible)");
-                }
                 continue;
             }
             match c.name.as_str() {
@@ -317,8 +318,12 @@ pub fn draw_bank(ctx: &egui::Context, hud: &mut HudState, assets: &Assets, view:
                         out.push(NpcUi::BankMoney { deposit });
                     }
                 }
+                // Agrandissement (`Item_RequestBuyBankSlot`), actif selon `IsActiveBuyBankSlot`.
                 "CONTROL_26485" => {
-                    button(ctx, ui, hud, assets, painter, r, c, "Agrandir", font * 0.95, false, "bank-expand").on_hover_text("Pas encore disponible");
+                    let label = c.display.as_deref().and_then(|d| d.strip_prefix("1:")).unwrap_or("");
+                    if button(ctx, ui, hud, assets, painter, r, c, label, font * 0.95, view.can_buy, "bank-expand").clicked() {
+                        out.push(NpcUi::BankBuyRequest);
+                    }
                 }
                 "CONTROL_16826" => {
                     for (cell, grid) in grid_cells(c, layout, origin, *view.page, 0) {

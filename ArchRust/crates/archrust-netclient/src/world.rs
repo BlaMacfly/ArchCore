@@ -195,6 +195,8 @@ pub enum WorldEvent {
         message: String,
     },
     SystemMessage(String),
+    /// Message système sans texte (0x44 op 0) : code au champ 1 (29 banque au maximum, 30 page ajoutée…).
+    SystemCode(i32),
     /// Entrée en jeu confirmée (op 7).
     EnteredWorld,
     /// Paquet non interprété (type, opération).
@@ -237,6 +239,8 @@ pub enum WorldEvent {
     Npc(crate::npc::NpcEvent),
     /// Compétences : liste, niveau, lancement, instructeur (voir `skills`).
     Skill(crate::skills::SkillEvent),
+    /// Portails : accord, départ, chargement fini (voir `teleport`).
+    Teleport(crate::teleport::TeleportEvent),
     Disconnected(String),
 }
 
@@ -278,6 +282,8 @@ pub enum Command {
     Npc(crate::npc::NpcCommand),
     /// Lancement et apprentissage des compétences (voir `skills`).
     Skill(crate::skills::SkillCommand),
+    /// Demande au portail, destination choisie (voir `teleport`).
+    Teleport(crate::teleport::TeleportCommand),
     Quit,
 }
 
@@ -461,6 +467,10 @@ pub fn translate(p: &Incoming) -> WorldEvent {
     if let Some(ev) = p.packet.as_ref().and_then(|packet| crate::npc::translate(p.packet_type, &packet.values)) {
         return WorldEvent::Npc(ev);
     }
+    // Portails (voir `teleport`).
+    if let Some(ev) = p.packet.as_ref().and_then(|packet| crate::teleport::translate(p.packet_type, &packet.values)) {
+        return WorldEvent::Teleport(ev);
+    }
     // Compétences : liste, niveau, lancement, résultat, instructeur (voir `skills`).
     if let Some(ev) = p.packet.as_ref().and_then(|packet| crate::skills::translate(p.packet_type, &packet.values)) {
         return ev;
@@ -637,7 +647,10 @@ pub fn translate(p: &Incoming) -> WorldEvent {
             from: text(p.get(4)),
             message: text(p.get(6)),
         },
-        packet_type::SYSTEM_MESSAGE => WorldEvent::SystemMessage(text(p.get(4))),
+        packet_type::SYSTEM_MESSAGE => match (text(p.get(4)), p.get(1).and_then(Value::as_i64)) {
+            (t, Some(code)) if t.is_empty() => WorldEvent::SystemCode(code as i32),
+            (t, _) => WorldEvent::SystemMessage(t),
+        },
         packet_type::PARTY | packet_type::PARTY_MANAGEMENT => {
             let ev = if p.packet_type == packet_type::PARTY {
                 crate::party::decode_party(p).map(WorldEvent::Party)
@@ -1098,6 +1111,10 @@ impl WorldClient {
                         }
                         Some(Command::Skill(c)) => {
                             let (schema, values) = crate::skills::command_packet(&c, self.cid);
+                            self.conn.send(schema, &values).await
+                        }
+                        Some(Command::Teleport(c)) => {
+                            let (schema, values) = crate::teleport::command_packet(&c, self.cid);
                             self.conn.send(schema, &values).await
                         }
                         Some(Command::Quit) | None => { self.conn.close().await; return; }

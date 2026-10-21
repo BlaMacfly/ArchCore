@@ -16,6 +16,7 @@ pub mod login;
 pub mod npc;
 pub mod party;
 pub mod skills;
+pub mod teleport;
 pub mod world;
 
 pub use connection::{Connection, NetError};

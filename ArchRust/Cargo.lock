@@ -305,6 +305,7 @@ dependencies = [
  "archcore-net",
  "archrust-crypto",
  "archrust-protocol",
+ "encoding_rs",
  "env_logger",
  "glam",
  "log",

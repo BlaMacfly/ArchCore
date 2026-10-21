@@ -6,14 +6,19 @@
 //! * Boutique : clic droit sur un objet pour l'acheter (Maj : quantité) ; vendre un objet du sac en
 //!   le lâchant sur la boutique ou d'un clic droit, après accord.
 //! * Banque : glisser entre le sac et la banque, ou clic droit ; boutons « Déposer » / « Retirer »
-//!   pour l'argent.
+//!   pour l'argent ; « Agrandir » (Archonia `Item_RequestBuyBankSlot`) ouvre `UI_BuyBank` : prix de
+//!   `bankslotprice.txt` selon les pages déjà achetées (-1 : pas en vente contre de l'or), or porté
+//!   vérifié avant l'envoi (`Item_BuyBankSlot`, sinon `Bank_NotEnoughBuyCost`), AGPMITEM op 22 ;
+//!   réponse : champ 23 du personnage (onglets ouverts) et message système 30 ou 29, affiché avec
+//!   `sysstr.txt` 718 ou 717 (« L'entrepot a ete agrandi avec succes. » / « … ne peut plus etre
+//!   agrandi. » : même sens que les codes d'ArchCore, correspondance non retrouvée dans l'exe).
 //! * Quêtes : celles du groupe du PNJ (`questgroup.ini`), texte de `questtemplate.ini` (le client
 //!   français n'en décrit qu'une soixantaine) ; journal par `L` ou `/quetes`.
 //! * Commandes : `/parler [nom]`, `/quetes`, `/prendrequete TID`, `/abandonner TID`.
 
 use super::App;
 use crate::assets::Assets;
-use crate::hud::{BankView, DialogView, HudState, ItemUi, NpcUi, QuestEntry, QuestState, QuestView, ShopEntry, ShopView};
+use crate::hud::{BankView, BuyBankView, DialogView, HudState, ItemUi, NpcUi, PortalUi, QuestEntry, QuestState, QuestView, ShopEntry, ShopView};
 use crate::net::NetLink;
 use crate::scene::item_name_for_tid;
 use crate::ui::UiState;
@@ -56,6 +61,8 @@ struct NpcData {
     /// Quêtes proposées et reçues par groupe (`questgroup.ini`).
     groups: HashMap<i32, (Vec<i32>, Vec<i32>)>,
     quests: HashMap<i32, QuestText>,
+    /// Prix des pages de banque en plus (`bankslotprice.txt`, indice = pages déjà achetées).
+    bank_prices: Vec<i64>,
 }
 
 struct Shop {
@@ -88,6 +95,8 @@ pub struct NpcGlue {
     buy: Option<(i32, i32)>,
     sell: Option<i32>,
     money: Option<(bool, i64)>,
+    /// Fenêtre d'achat d'une page de banque (`UI_BuyBank`) ouverte.
+    buy_bank: bool,
 }
 
 /// Ce que les fenêtres dessinent, préparé avant la passe egui.
@@ -100,14 +109,43 @@ pub struct NpcViews {
 }
 
 /// Texte d'un fichier du client, version française d'abord (`ini_fr/`), déchiffré.
-fn client_text(assets: &Assets, file: &str) -> String {
-    for dir in ["ini_fr", "ini"] {
-        let Ok(raw) = assets.read_file(&format!("{dir}/{file}")) else { continue };
-        let cp = CodePage::for_dir(dir);
-        let plain = raw.iter().take(256).filter(|&&b| b < 0x20 && b != b'\r' && b != b'\n' && b != b'\t').count() * 20 < raw.len().min(256);
-        return if plain { archrust_data::ini::decode_text(&raw, cp) } else { archrust_data::ini::decrypt_ini_with(&raw, cp) };
+pub(super) fn client_text(assets: &Assets, file: &str) -> String {
+    ["ini_fr", "ini"].iter().map(|d| client_text_in(assets, d, file)).find(|t| !t.is_empty()).unwrap_or_default()
+}
+
+/// Texte d'un fichier d'un dossier de tables (`ini`, `ini_fr`…), déchiffré s'il le faut.
+pub(super) fn client_text_in(assets: &Assets, dir: &str, file: &str) -> String {
+    let Ok(raw) = assets.read_file(&format!("{dir}/{file}")) else { return String::new() };
+    let cp = CodePage::for_dir(dir);
+    let plain = raw.iter().take(256).filter(|&&b| b < 0x20 && b != b'\r' && b != b'\n' && b != b'\t').count() * 20 < raw.len().min(256);
+    if plain {
+        archrust_data::ini::decode_text(&raw, cp)
+    } else {
+        archrust_data::ini::decrypt_ini_with(&raw, cp)
     }
-    String::new()
+}
+
+/// Prix des pages de banque en plus : `bankslotprice.txt` (`Slot<TAB>Price`, la page 1 achetée en
+/// premier).
+fn bank_slot_prices(text: &str) -> Vec<i64> {
+    let mut prices = Vec::new();
+    for line in text.lines().skip(1) {
+        let mut cols = line.split('\t');
+        if let (Some(Ok(slot)), Some(Ok(price))) = (cols.next().map(|s| s.trim().parse::<usize>()), cols.next().map(|s| s.trim().parse::<i64>())) {
+            if slot >= 1 {
+                prices.resize(prices.len().max(slot), -1);
+                prices[slot - 1] = price;
+            }
+        }
+    }
+    prices
+}
+
+/// Texte d'une ligne `id=texte` de `sysstr.txt`.
+fn sysstr(assets: &Assets, id: u32) -> Option<String> {
+    let text = client_text(assets, "sysstr.txt");
+    let key = format!("{id}=");
+    text.lines().find_map(|l| l.strip_prefix(&key)).map(|t| t.trim().to_string())
 }
 
 /// Lignes d'un fichier tabulé ; un champ entre guillemets peut contenir des retours à la ligne.
@@ -227,6 +265,7 @@ fn load_data(assets: &Assets) -> NpcData {
         data.groups.len(),
         data.quests.len()
     );
+    data.bank_prices = bank_slot_prices(&client_text(assets, "bankslotprice.txt"));
     data
 }
 
@@ -339,6 +378,26 @@ fn start_function(glue: &mut NpcGlue, npc: i32, f: i32, net: Option<&NetLink>, u
     }
 }
 
+/// Prix de la page de banque suivante (Archonia FUN_140314970 : pages achetées < 3 et prix ≥ 0).
+fn next_bank_price(glue: &mut NpcGlue, hud: &HudState, assets: &Assets) -> Option<i64> {
+    let bought = hud.stats.bank_pages.unwrap_or(0).max(0) as usize;
+    glue.data(assets).bank_prices.get(bought).copied().filter(|p| *p >= 0 && bought < 3)
+}
+
+/// « Acheter » d'`UI_BuyBank` (`Item_BuyBankSlot`, FUN_1406f6c80) : l'or porté est vérifié avant
+/// l'envoi (sinon `Bank_NotEnoughBuyCost`).
+fn confirm_buy_bank(glue: &mut NpcGlue, hud: &mut HudState, assets: &Assets, net: Option<&NetLink>, ui: &mut UiState) {
+    glue.buy_bank = false;
+    let Some(price) = next_bank_price(glue, hud, assets) else { return };
+    if hud.stats.money.unwrap_or(0) < price {
+        let text = super::portal_glue::ui_event_text(assets, "Bank_NotEnoughBuyCost");
+        hud.push_system(&text);
+        ui.push_chat(format!("[banque] {text}"));
+    } else {
+        send(net, NpcCommand::BuyBankSlot);
+    }
+}
+
 fn send(net: Option<&NetLink>, cmd: NpcCommand) {
     if let Some(net) = net {
         net.send(Command::Npc(cmd));
@@ -368,9 +427,34 @@ pub fn panel(
         crate::hud::draw_shop(ctx, hud, assets, view, &mut out);
     }
     let pages = 1 + hud.stats.bank_pages.unwrap_or(0).clamp(0, 3) as i16;
+    let bought = hud.stats.bank_pages.unwrap_or(0).max(0) as usize;
+    let price = next_bank_price(glue, hud, assets);
     if glue.bank.is_some() {
         let money = hud.stats.bank_money;
-        crate::hud::draw_bank(ctx, hud, assets, BankView { items: &views.bank_items, money, pages, page: &mut glue.bank_page }, &mut out);
+        crate::hud::draw_bank(ctx, hud, assets, BankView { items: &views.bank_items, money, pages, page: &mut glue.bank_page, can_buy: price.is_some() }, &mut out);
+    }
+    if glue.bank.is_none() || price.is_none() {
+        glue.buy_bank = false;
+    }
+    if let (true, Some(price)) = (glue.buy_bank, price) {
+        let messages: HashMap<String, String> = client_text(assets, "uimessage.txt").lines().filter_map(|l| l.split_once('\t')).map(|(k, v)| (k.trim().to_string(), v.trim().to_string())).collect();
+        let msg = |k: &str| messages.get(k).cloned().unwrap_or_default();
+        let money = hud.stats.money.unwrap_or(0);
+        let view = BuyBankView {
+            title: msg("Item_BuyBankSlotTitle").replace("%d", &(bought + 1).to_string()),
+            price_label: msg("Item_BuyBankSlotPrice"),
+            price,
+            money_name: msg("Money_Name"),
+            affordable: price <= money,
+        };
+        let mut answer = Vec::new();
+        crate::hud::draw_buy_bank(ctx, hud, assets, &view, &mut answer);
+        for a in answer {
+            glue.buy_bank = false;
+            if a == PortalUi::BuyBank {
+                confirm_buy_bank(glue, hud, assets, net, ui);
+            }
+        }
     }
     if let Some((journal, title, entries, text)) = &views.quests {
         let view = QuestView { journal: *journal, title: title.clone(), entries, selected: glue.selected_quest, text: text.clone() };
@@ -417,6 +501,7 @@ pub fn panel(
             NpcUi::BankDrop { drag, grid } => send(net, NpcCommand::BankStore { iid: drag.iid, grid }),
             NpcUi::BankTake(iid) => send(net, NpcCommand::BankTake { iid, grid: None }),
             NpcUi::BankMoney { deposit } => glue.money = Some((deposit, 0)),
+            NpcUi::BankBuyRequest => glue.buy_bank = true,
             NpcUi::CloseQuests => {
                 glue.quest_npc = None;
                 glue.show_journal = false;
@@ -527,6 +612,22 @@ impl App {
             if !c.npc_functions.is_empty() {
                 self.npc.functions.insert(c.cid, c.npc_functions.clone());
             }
+        }
+    }
+
+    /// Message système sans texte (0x44) : codes de la banque 29 (au maximum) et 30 (page ajoutée).
+    pub(super) fn npc_system_code(&mut self, code: i32) {
+        let id = match code {
+            29 => 717,
+            30 => 718,
+            _ => {
+                log::debug!("message système {code} sans texte connu");
+                return;
+            }
+        };
+        if let Some(text) = sysstr(&self.assets, id) {
+            self.hud.push_system(&text);
+            self.ui.push_chat(format!("[banque] {text}"));
         }
     }
 
@@ -764,6 +865,17 @@ impl App {
     /// `/abandonner TID`.
     pub(super) fn npc_slash(&mut self, cmd: &str, arg: &str) -> bool {
         match cmd {
+            // Banque ouverte : `/agrandir` comme le bouton « Agrandir », `/agrandir oui` comme « Acheter ».
+            "/agrandir" | "/expandbank" => {
+                if self.npc.bank.is_none() || next_bank_price(&mut self.npc, &self.hud, &self.assets).is_none() {
+                    self.ui.push_chat("[banque] Ouvrez la banque d'un gardien ; la page suivante doit être en vente contre de l'or.");
+                } else if matches!(arg.trim(), "oui" | "yes") {
+                    let assets = self.assets.clone();
+                    confirm_buy_bank(&mut self.npc, &mut self.hud, &assets, self.net.as_ref(), &mut self.ui);
+                } else {
+                    self.npc.buy_bank = true;
+                }
+            }
             // Fonction du PNJ le plus proche qui la propose, s'il est à portée.
             "/boutique" | "/shop" | "/banque" | "/bank" | "/quetespnj" | "/npcquests" | "/instructeur" | "/trainer" => {
                 let f = match cmd {
@@ -845,5 +957,10 @@ mod tests {
         items.insert(1, ItemRecord { operation: 0, id: 1, template_id: Some(1), owner_cid: None, count: Some(1), status: Some(STATUS_BANK), grid: Some([0, 0, 0]) });
         assert_eq!(free_bank_cell(&items, 0, 1), Some([0, 0, 1]));
         assert_eq!(free_bank_cell(&items, 1, 2), Some([1, 0, 0]));
+    }
+
+    #[test]
+    fn prix_des_pages_de_banque() {
+        assert_eq!(bank_slot_prices("Slot\tPrice\t\r\n1\t1000000\t# commentaire\r\n2\t-1\t\r\n3\t-1\t\r\n"), vec![1_000_000, -1, -1]);
     }
 }

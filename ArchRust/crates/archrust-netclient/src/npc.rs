@@ -15,6 +15,8 @@
 //! 0x36 op 0 (1 EVENT_BASE, 2 CID)            → op 1 : banque ouverte
 //! AGPMITEM op 2 statut 100, champ 8 = case   déposer ; op 2 statut 2 (case au champ 7 ou rien) : retirer
 //! AGPMCHARACTER op 7 (1 CID, 9 montant)      déposer de l'argent (négatif : retirer) → op 1 champs 8, 9
+//! AGPMITEM op 22 (4 CID)                      acheter une page de banque → AGPMCHARACTER op 1 (8 argent,
+//!                                              23 pages en plus) et 0x44 op 0, code 30 (ajoutée) ou 29 (maximum)
 //! 0x3E op 0 (1 EVENT_BASE, 2 CID)            → op 0 : fenêtre des quêtes du PNJ
 //! AGPMQUEST op 0 prendre, 2 terminer (7 récompense), 6 abandonner (1 CID, 2 EVENT_BASE, 4 TID)
 //!     → op 1, 3, 7 (4 TID, 6 résultat 1 réussi / 0 refus) ; op 4 et 10 : quête du journal
@@ -118,6 +120,8 @@ pub enum NpcCommand {
     BankTake { iid: i32, grid: Option<[i16; 3]> },
     /// Déposer de l'argent (négatif : retirer).
     BankMoney(i64),
+    /// Acheter une page de banque en plus, payée sur l'argent porté.
+    BuyBankSlot,
     /// Ouvrir la fenêtre des quêtes d'un PNJ.
     QuestWindow(i32),
     /// Prendre une quête (auprès d'un PNJ, ou depuis le journal).
@@ -182,6 +186,10 @@ pub fn command_packet(cmd: &NpcCommand, me: i32) -> (&'static Schema, Vec<Option
         NpcCommand::BankMoney(amount) => (
             main::CHARACTER,
             sparse(main::CHARACTER, &[(0, Value::I8(7)), (1, Value::I32(me)), (9, Value::I64(*amount))]),
+        ),
+        NpcCommand::BuyBankSlot => (
+            main::ITEM,
+            sparse(main::ITEM, &[(0, Value::U8(archrust_protocol::schema::item_op::BUY_BANK_SLOT)), (4, Value::I32(me))]),
         ),
         NpcCommand::QuestWindow(npc) => (
             main::EVENT_QUEST,

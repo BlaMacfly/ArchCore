@@ -77,6 +77,47 @@ pub fn tile_placements(assets: &Assets, tile: u32) -> Vec<Placement> {
         .collect()
 }
 
+/// Portail : objet placé qui porte la fonction d'événement 8 (AgpmEventTeleport) et le nom de son
+/// point de `TeleportPoint.ini` (`Function=8` puis `PointName=…` dans sa section).
+#[derive(Debug, Clone, PartialEq)]
+pub struct PortalObject {
+    /// Section de l'objet : identifiant envoyé dans l'EVENT_BASE.
+    pub id: u32,
+    pub point: String,
+    pub placement: Placement,
+}
+
+/// Portails d'une tuile (`ini/obj%05d.ini`).
+pub fn tile_portals(assets: &Assets, tile: u32) -> Vec<PortalObject> {
+    let Ok(table) = assets.table("ini", &format!("obj{tile:05}.ini")) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for s in &table.sections {
+        let Ok(id) = s.name.trim().parse::<u32>() else { continue };
+        // Chaque `Function=` ouvre une fonction ; le `PointName` qui suit appartient à la dernière.
+        let mut teleport = false;
+        let mut point = None;
+        for (k, v) in &s.entries {
+            if k.eq_ignore_ascii_case("Function") {
+                teleport = v.trim() == "8";
+            } else if teleport && k.eq_ignore_ascii_case("PointName") && !v.trim().is_empty() {
+                point = Some(v.trim().to_string());
+            }
+        }
+        let (Some(point), Some(position)) = (point, s.get("Position").and_then(vec3_of)) else { continue };
+        let placement = Placement {
+            tid: s.get("TID").and_then(|t| t.trim().parse().ok()).unwrap_or(0),
+            position,
+            scale: s.get("Scale").and_then(vec3_of).unwrap_or(Vec3::ONE),
+            degree_x: s.get_f32("DegreeX").unwrap_or(0.0),
+            degree_y: s.get_f32("DegreeY").unwrap_or(0.0),
+        };
+        out.push(PortalObject { id, point, placement });
+    }
+    out
+}
+
 /// Fichier de modèle d'un modèle d'objet, ou `None` s'il ne doit pas être dessiné.
 pub fn template_model(assets: &Assets, tid: u32) -> Option<String> {
     let table = assets.table("ini", "objecttemplate.ini").ok()?;
@@ -279,6 +320,18 @@ impl WorldObjects {
             }
             self.sectors.insert(key, meshes);
         }
+    }
+
+    /// Sphère englobante (centre, rayon) d'un objet placé, en coordonnées monde, si son modèle est
+    /// déjà chargé.
+    pub fn placed_bounds(&self, p: &Placement) -> Option<(Vec3, f32)> {
+        let meshes = self.models.get(&p.tid)?.as_ref()?;
+        let world = p.matrix();
+        let scale = p.scale.max_element();
+        let spheres: Vec<(Vec3, f32)> = meshes.iter().map(|(m, local)| (world.transform_point3(local.transform_point3(m.bounds_center)), m.bounds_radius * scale)).collect();
+        let center = spheres.iter().map(|s| s.0).sum::<Vec3>() / spheres.len().max(1) as f32;
+        let radius = spheres.iter().map(|(c, r)| c.distance(center) + r).fold(0.0, f32::max);
+        (!spheres.is_empty()).then_some((center, radius))
     }
 
     /// Objets à dessiner à moins de `max_distance` de `eye`.

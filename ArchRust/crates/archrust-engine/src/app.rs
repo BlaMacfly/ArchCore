@@ -51,6 +51,9 @@ mod npc_glue;
 #[path = "app_skills.rs"]
 mod skills_glue;
 
+#[path = "app_portal.rs"]
+mod portal_glue;
+
 /// Configuration du client.
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -180,6 +183,8 @@ pub struct App {
     npc: npc_glue::NpcGlue,
     /// Compétences : livre, instructeurs, barre de raccourcis, voir `app_skills.rs`.
     skills: skills_glue::SkillsGlue,
+    /// Portails : liste des destinations, écran de chargement, voir `app_portal.rs`.
+    portal: portal_glue::PortalGlue,
 }
 
 impl App {
@@ -275,6 +280,7 @@ impl App {
             item_ui: Default::default(),
             npc: Default::default(),
             skills: Default::default(),
+            portal: Default::default(),
         })
     }
 
@@ -1369,6 +1375,10 @@ impl App {
             WorldEvent::Npc(ev) => self.on_npc_event(ev),
             // Compétences : liste, niveau, lancement, instructeur (voir `app_skills.rs`).
             WorldEvent::Skill(ev) => self.on_skill_event(ev),
+            // Portails : accord, départ, chargement fini (voir `app_portal.rs`).
+            WorldEvent::Teleport(ev) => self.on_teleport_event(ev),
+            // Messages système réduits à un code (banque agrandie…, voir `app_npc.rs`).
+            WorldEvent::SystemCode(code) => self.npc_system_code(code),
             WorldEvent::Chat {
                 from,
                 message,
@@ -1656,6 +1666,8 @@ impl App {
             _ if self.items_slash(cmd, arg) => {}
             // PNJ : /parler, /quetes, /prendrequete, /abandonner (voir `app_npc.rs`).
             _ if self.npc_slash(cmd, arg) => {}
+            // Portails : /portail, /portail n (voir `app_portal.rs`).
+            _ if self.portal_slash(cmd, arg) => {}
             // Compétences : /competences, /lancer (voir `app_skills.rs`).
             _ if self.skills_slash(cmd, arg) => {}
             // Groupes : /inviter, /accepter, /refuser, /quittergroupe, /exclure, /chef, /groupe.
@@ -1875,6 +1887,10 @@ impl App {
             self.addons.set_target(Some(cid));
             return;
         }
+        // Clic sur un portail du décor : demande au serveur (voir `app_portal.rs`).
+        if self.portal_left_click() {
+            return;
+        }
         let (Some(gpu), Some((cx, cy)), Some(player)) =
             (&self.gpu, self.last_cursor, self.player.as_ref())
         else {
@@ -1928,6 +1944,8 @@ impl App {
         self.items_frame();
         // Approche d'un PNJ, fenêtres fermées en s'éloignant (voir `app_npc.rs`).
         self.npc_frame();
+        // Portails des tuiles proches, liste fermée en s'éloignant (voir `app_portal.rs`).
+        self.portal_frame();
         // Demandes des fenêtres de compétences, barre du personnage (voir `app_skills.rs`).
         self.skills_frame();
 
@@ -2082,6 +2100,8 @@ impl App {
                 // Groupe : bouton, fenêtre des membres, invitations reçues.
                 party_glue::panel(ctx, &mut self.party, &party_view, self.net.as_ref(), &mut self.ui);
                 combat_glue::panel(ctx, &mut self.combat, &combat_view, &mut self.hud, &self.assets, self.net.as_ref(), &mut self.ui);
+                // Liste des destinations d'un portail, écran de chargement du trajet.
+                portal_glue::panel(ctx, &mut self.portal, &mut self.hud, &self.assets, self.net.as_ref(), &mut self.ui);
                 // Comme dans WoW, l'interface des AddOns n'apparaît qu'en jeu.
                 self.addon_glue
                     .ui

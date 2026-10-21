@@ -39,6 +39,10 @@ mod npc_ui;
 
 #[path = "hud_skills.rs"]
 mod skills_ui;
+
+#[path = "hud_portal.rs"]
+mod portal_ui;
+pub use portal_ui::{draw_buy_bank, draw_loading, draw_teleport, BuyBankView, PortalUi, TeleportRow, TeleportView};
 pub use skills_ui::{draw_quickbar, draw_skill_book, draw_trainer, BookEntry, BookView, Shortcut, SkillUi, SlotView, TrainerEntry, TrainerView};
 pub use npc_ui::{draw_bank, draw_npc_dialog, draw_quests, draw_shop, BankView, DialogView, NpcUi, QuestEntry, QuestState, QuestView, ShopEntry, ShopView};
 
@@ -65,6 +69,13 @@ pub struct UiControl {
     pub grid: Option<[f32; 4]>,
     /// Nom de la grille, dernier élément de `Grid=` (ex. `EquipSlotGridHead`).
     pub grid_name: Option<String>,
+    /// `CtrlFont=0:couleur:échelle:…:alignement:…` : couleur ARGB du texte (-1 blanc) et alignement
+    /// (relevés : 16 à gauche, 17 centré, 18 à droite).
+    pub font: Option<(u32, i32)>,
+    /// `Status2=n:rect:…:couleur:. Nom` : couleur du texte de chaque statut (0, 1, 2…).
+    pub status_colors: Vec<u32>,
+    /// `Button=repos:survol:appui:inactif:…` : indice de `Texture=` de chaque état (0 : aucune).
+    pub button_states: Option<[u32; 4]>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -123,6 +134,23 @@ impl UiWindow {
                         ("Texture", Some(c)) => c.textures.extend(texture_entry(v)),
                         ("CtrlDisplay", Some(c)) => c.display = Some(v.trim().to_string()),
                         ("Bar", Some(c)) => c.bar = Some(v.trim().to_string()),
+                        ("CtrlFont", Some(c)) => {
+                            let p: Vec<&str> = v.split(':').collect();
+                            if let (Some(color), Some(align)) = (p.get(1).and_then(|x| x.trim().parse::<i64>().ok()), p.get(4).and_then(|x| x.trim().parse().ok())) {
+                                c.font = Some((color as u32, align));
+                            }
+                        }
+                        ("Button", Some(c)) => {
+                            let p: Vec<u32> = v.split(':').take(4).filter_map(|x| x.trim().parse::<i64>().ok()).map(|x| x.max(0) as u32).collect();
+                            if let [a, b, h, d] = p[..] {
+                                c.button_states = Some([a, b, h, d]);
+                            }
+                        }
+                        ("Status2", Some(c)) => {
+                            if let Some(color) = v.split(':').nth(4).and_then(|x| x.trim().parse::<i64>().ok()) {
+                                c.status_colors.push(color as u32);
+                            }
+                        }
                         ("Grid", Some(c)) => {
                             let p: Vec<f32> =
                                 v.split(':').filter_map(|x| x.trim().parse().ok()).collect();
@@ -298,10 +326,22 @@ impl HudState {
                 log::warn!("HUD : ini/UI_1024X768.ini illisible");
                 return Vec::new();
             };
-            let list: Vec<UiWindow> = ["UI_CharInfo", "MiniMap", "UI_Inventory", "UI_TargetInfo", "Chat_Input_Normal", "UI_Resurrection", "Character_Status", "UI_NPCDialog", "UI_NPCTrade", "UI_Bank", "QuestAccept_UI", "QuestMain_UI", "UI_Skill", "UI_SkillBuy"]
+            let mut list: Vec<UiWindow> = ["UI_CharInfo", "MiniMap", "UI_Inventory", "UI_TargetInfo", "Chat_Input_Normal", "UI_Resurrection", "Character_Status", "UI_NPCDialog", "UI_NPCTrade", "UI_Bank", "QuestAccept_UI", "QuestMain_UI", "UI_Skill", "UI_SkillBuy", "UI_Teleport", "UI_BuyBank", "UI_LG_Loading"]
                 .iter()
                 .filter_map(|n| UiWindow::parse(&ui, pos.as_deref(), n))
                 .collect();
+            // Textes fixes du client français (`ini_fr/UI_1024X768.ini`, mêmes contrôles) pour les
+            // fenêtres qui les affichent tels quels.
+            if let Ok(fr) = assets.table("ini_fr", "UI_1024X768.ini") {
+                for w in list.iter_mut().filter(|w| ["UI_Teleport", "UI_BuyBank", "UI_Bank"].contains(&w.name.as_str())) {
+                    let Some(fw) = UiWindow::parse(&fr, None, &w.name) else { continue };
+                    for c in &mut w.controls {
+                        if let Some(d) = fw.control(&c.name).and_then(|x| x.display.clone()) {
+                            c.display = Some(d);
+                        }
+                    }
+                }
+            }
             log::info!("HUD : {} fenêtre(s) d'interface Archonia", list.len());
             list
         })

@@ -86,6 +86,7 @@ pub mod packet_type {
     pub const GUILD: u8 = 0x15;
     pub const WORLD: u8 = 0x18;
     pub const RETURN_TO_LOGIN: u8 = 0x2f;
+    pub const EVENT_TELEPORT: u8 = 0x31;
     pub const EVENT_NPC_TRADE: u8 = 0x32;
     pub const EVENT_BANK: u8 = 0x36;
     pub const EVENT_NPC_DIALOG: u8 = 0x37;
@@ -282,6 +283,16 @@ pub mod main {
     // AgpmEventNPCDialog (0x37) — drapeaux 1 : op (0 demande, 1 accord), événement, CID du joueur.
     schema!(pub EVENT_NPC_DIALOG = "AGPMEVENTNPCDIALOG", T::EVENT_NPC_DIALOG, 1, [f!(Int8), f!(Packet), f!(Int32)]);
 
+    // AgpmEventTeleport (0x31) — drapeaux 1 : portails (relevé d'Archonia, validé avec ArchCore `sim portal`).
+    schema!(pub EVENT_TELEPORT = "AGPMEVENTTELEPORT", T::EVENT_TELEPORT, 1, [
+        f!(Int8),           // 0 opération (4 demande → 5 accord ; 0 point choisi → 1 départ, 8 chargement fini ; 7 retour)
+        f!(Packet),         // 1 événement (EVENT_BASE de l'objet portail)
+        f!(Int32),          // 2 CID du joueur
+        f!(Char, 33),       // 3 nom du point d'arrivée (CP949)
+        f!(Vec3F),          // 4 position d'arrivée
+        f!(MemoryBlock),    // 5 points d'arrivée désactivés
+    ]);
+
     // AgcmEventNPCTrade (0x32) — drapeaux 2 : boutique d'un PNJ.
     schema!(pub EVENT_NPC_TRADE = "AGCMEVENTNPCTRADE", T::EVENT_NPC_TRADE, 2, [
         f!(Packet),         // 0 événement (EVENT_BASE)
@@ -333,6 +344,7 @@ pub mod main {
     pub fn by_id(id: u8) -> Option<&'static Schema> {
         Some(match id {
             T::EVENT_SKILL_MASTER => EVENT_SKILL_MASTER,
+            T::EVENT_TELEPORT => EVENT_TELEPORT,
             T::EVENT_MANAGER => EVENT_MANAGER,
             T::EVENT_NPC_DIALOG => EVENT_NPC_DIALOG,
             T::EVENT_NPC_TRADE => EVENT_NPC_TRADE,
@@ -468,8 +480,9 @@ pub mod mini {
     // Objet au sol (statut 1) : position, un seul VEC3F (champ 6 d'AGPMITEM).
     schema!(pub ITEM_FIELD = "AGPMITEM_FIELD", 124, 1, [f!(Vec3F)]);
 
-    // Désignation d'un événement : type de la source (3 personnage), CID du PNJ, identifiant
-    // d'événement, fonction (21 dialogue, 9 boutique, 20 banque, 25 compétences, 27 quêtes).
+    // Désignation d'un événement : type de la source (1 objet du décor, 3 personnage), identifiant (section
+    // de l'objet, CID du PNJ), identifiant d'événement, fonction (8 portail, 21 dialogue, 9 boutique, 20 banque,
+    // 25 compétences, 27 quêtes).
     schema!(pub EVENT_BASE = "APMEVENTMANAGER_BASE", 60, 1, [f!(Int8), f!(Int32), f!(Int32), f!(Int32)]);
 
     // Données d'une fonction réduites à un entier (modèle de dialogue, de boutique, groupe de quêtes).
@@ -568,6 +581,8 @@ pub mod item_op {
     pub const PICKUP: u8 = 11;
     /// Résultat du ramassage (champ 1 : 0 réussi, 1 échec).
     pub const PICKUP_RESULT: u8 = 12;
+    /// Achat d'une page de banque (client → serveur, CID au champ 4).
+    pub const BUY_BANK_SLOT: u8 = 22;
 }
 
 /// Statut AgpmItem d'un objet posé au sol.
