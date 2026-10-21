@@ -1510,6 +1510,8 @@ async fn guild(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> an
     let asked = a.world.expect_where(op(3), 3000, "membre mis à jour").await?;
     let who = decode_mini(&mini::GUILD_MEMBER, asked.fields().bytes(16).unwrap_or_default())?;
     anyhow::ensure!(who.int(1) == Some(3), "rang {:?}", who.int(1));
+    let asking = a.world.expect_where(sys(50), 3000, "demande de départ vue du chef").await?;
+    anyhow::ensure!(asking.fields().text(2).as_deref() == Some(cb), "demande au nom de {:?}", asking.fields().text(2));
     a.world.send(gd, Fields::new(gd).with(0, 29).with(1, acid).with(2, NAME).with(16, member(cb))).await?;
     b.world.expect_where(op(4), 3000, "départ").await?;
     b.world.expect_where(sys(15), 3000, "départ annoncé (code 15)").await?;

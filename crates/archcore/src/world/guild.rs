@@ -627,7 +627,9 @@ async fn leave(ctx: &WorldCtx, st: &mut WorldState, sid: u32) -> anyhow::Result<
             m.leave_requested_at = Some(now());
             let g = &st.guilds.by_id[&gid];
             send_to_guild(st, g, None, &join_packet(g, &g.members[&cid]));
-            send_to(st, sid, system_packet(code::LEAVE_REQUEST, None, None));
+            // Le message nomme le membre : le chef et le second y répondent.
+            let name = g.members[&cid].name.clone();
+            send_to_guild(st, g, None, &system_packet(code::LEAVE_REQUEST, Some(&name), None));
             info!("[guilde] {} demande à quitter {}", st.players[&sid].ch.name, g.name);
         }
     }

@@ -461,7 +461,7 @@ online), guild mark (TID, colour), winner. Ranks: 1 member, 2 join request, 3 le
 | 1 | ↔ | Invitation by the master or sub-master (invitee in field 16); the invitee gets it with the guild and inviter names |
 | 2 | → | Invitee refuses; the master gets message 14 |
 | 3 | ↔ | Joining: member if invited, otherwise a join request (rank 2) the master accepts with the same op; the server broadcasts the member |
-| 4 | ↔ | Leaving: a member asks (rank 3, message 50); broadcast when it happens |
+| 4 | ↔ | Leaving: a member asks (rank 3, message 50 with their name, to the whole guild); broadcast when it happens |
 | 29 | → | Leave accepted by the master or sub-master; without an answer it happens after one day |
 | 5 | ↔ | Kick by the master or sub-master (the master cannot be kicked) |
 | 6 | ↔ | Disbanding by the master, with the creation password |

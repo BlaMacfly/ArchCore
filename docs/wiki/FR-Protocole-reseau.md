@@ -476,7 +476,7 @@ d'adhésion, 3 demande de départ, 10 chef, 11 second.
 | 1 | ↔ | Invitation par le chef ou le second (invité au champ 16) ; l'invité la reçoit avec le nom de la guilde et de l'inviteur |
 | 2 | → | Refus de l'invité ; le chef reçoit le message 14 |
 | 3 | ↔ | Adhésion : membre si invité, sinon demande d'adhésion (rang 2) que le chef accepte par le même op ; le serveur diffuse le membre |
-| 4 | ↔ | Départ : un membre le demande (rang 3, message 50) ; diffusé quand il se fait |
+| 4 | ↔ | Départ : un membre le demande (rang 3, message 50 avec son nom, à toute la guilde) ; diffusé quand il se fait |
 | 29 | → | Départ accepté par le chef ou le second ; sans réponse, il se fait au bout d'un jour |
 | 5 | ↔ | Exclusion par le chef ou le second (le chef ne peut pas être exclu) |
 | 6 | ↔ | Dissolution par le chef, avec le mot de passe de la création |
