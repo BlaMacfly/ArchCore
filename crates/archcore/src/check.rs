@@ -100,6 +100,12 @@ fn checks(n: &Names) -> Vec<Check> {
             sample: "CONCAT(x.username, ' (', x.language, ')')",
         },
         Check {
+            label: "dernier import interrompu",
+            severity: Severity::Warning,
+            rows: format!("`{w}`.import_run x WHERE x.finished_at IS NULL AND x.id = (SELECT MAX(y.id) FROM `{w}`.import_run y WHERE y.source = x.source)"),
+            sample: "CONCAT(x.source, ' (', x.started_at, ')')",
+        },
+        Check {
             label: "identifiants de personnage dans la plage des PNJ",
             severity: Severity::Error,
             rows: format!("`{c}`.characters x WHERE x.id >= {CHARACTER_ID_LIMIT}"),
@@ -179,10 +185,10 @@ mod tests {
     fn requetes_des_controles() {
         let n = Names { auth: "a_auth", characters: "a_chars", world: "a_world" };
         let all = checks(&n);
-        assert_eq!(all.len(), 9);
+        assert_eq!(all.len(), 10);
         // Chaque contrôle nomme ses bases : il passe par le pool des personnages.
         for k in &all {
-            assert!(k.rows.contains("`a_chars`.") || k.rows.contains("`a_auth`."), "{}", k.label);
+            assert!(k.rows.contains("`a_chars`.") || k.rows.contains("`a_auth`.") || k.rows.contains("`a_world`.import_run"), "{}", k.label);
         }
         assert!(all.iter().any(|k| k.rows.contains("`a_world`.item_data")));
         let f = Finding { label: "objets sans définition dans item_data", severity: Severity::Error, count: 7, samples: vec!["objet 1".into()] };

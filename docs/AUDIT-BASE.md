@@ -499,7 +499,11 @@ résurrection) ; clés identiques après deux réimports sur une copie (12 802 a
 17 scénarios. Étape 5 (R8) faite le 2026-10-21 : `archcore db-check` et contrôle au démarrage
 (`crates/archcore/src/check.rs`) ; aucune anomalie sur les bases principales et de test, et sur une copie
 fautive (TID retiré d'`item_data`, compétence et langue inconnues) les trois anomalies sont trouvées, `db-check`
-sort en erreur et le serveur démarre en les signalant.
+sort en erreur et le serveur démarre en les signalant. Étape 6 (R9, R10) faite le 2026-10-21 : migration
+`202610210300_import_run_et_sources` (table `import_run`, colonne `localized_text.source`), couche `content/`
+appliquée après l'import et par `archcore content` (`tools/content.rs`), `i18n db` limité à ses lignes ;
+validée sur copie (textes saisis à la main gardés, contenu réappliqué après un import complet, fichier fautif
+annulé et import interrompu signalé, 17 scénarios).
 
 | Étape | Rec. | Quoi | Raison | Bénéfice | Coût | Risque |
 |---|---|---|---|---|---|---|

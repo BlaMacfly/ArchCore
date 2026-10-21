@@ -96,17 +96,24 @@ async fn db(lang: Option<&String>) -> anyhow::Result<()> {
     for (k, _, _) in &rows {
         *counts.entry(k.clone()).or_default() += 1;
     }
-    // Anciens textes remplacés en une transaction : interrompu, rien n'est perdu.
+    // Anciens textes remplacés en une transaction : interrompu, rien n'est perdu. Seuls ceux qu'i18n db a
+    // écrits (source « import ») sont remplacés ; un texte saisi autrement (« manual ») est gardé, même s'il
+    // vise la même ligne.
     let mut tx = db.world.begin().await?;
     for (k, _) in &originals {
-        tx.exec_drop("DELETE FROM localized_text WHERE lang = ? AND kind = ?", (lang.clone(), k.to_string())).await?;
+        tx.exec_drop("DELETE FROM localized_text WHERE lang = ? AND kind = ? AND source = 'import'", (lang.clone(), k.to_string())).await?;
     }
     let params: Vec<(String, u32, String, String)> = rows.into_iter().map(|(k, id, t)| (k, id, lang.clone(), t)).collect();
     let total = params.len();
     if total > 0 {
-        tx.exec_batch("INSERT INTO localized_text (kind, ref_id, lang, text) VALUES (?,?,?,?)", params).await?;
+        tx.exec_batch("INSERT INTO localized_text (kind, ref_id, lang, text, source) VALUES (?,?,?,?,'import') ON DUPLICATE KEY UPDATE kind = kind", params).await?;
     }
+    let manual: Vec<mysql_async::Row> = tx.exec("SELECT COUNT(*) AS n FROM localized_text WHERE lang = ? AND source = 'manual'", (lang.clone(),)).await?;
     tx.commit().await?;
+    let manual: i64 = manual.first().map(|r| col(r, "n")).unwrap_or(0);
+    if manual > 0 {
+        println!("{manual} texte(s) saisi(s) à la main gardé(s) en {lang}");
+    }
     for (k, n) in &counts {
         println!("{k:<16}{n:>7} ligne(s)");
     }

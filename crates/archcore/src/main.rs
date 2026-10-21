@@ -5,7 +5,8 @@
 //!   archcore config migrate <archcore.json>   convertit une ancienne configuration JSON en .conf
 //!   archcore db-init [--account nom mdp [mj]]  crée les bases et applique sql/*.sql et sql/migrations/
 //!   archcore db-check                          contrôle de cohérence des bases (lecture seule)
-//!   archcore import [dossier]                  importe les tables déchiffrées du client
+//!   archcore import [dossier]                  importe les tables déchiffrées du client, puis content/*.sql
+//!   archcore content                           réapplique la couche de contenu content/*.sql
 //!   archcore decrypt [source] [destination]    déchiffre Game/ini vers data/client-ini
 //!   archcore i18n strings|coverage [Game]      mesure ce qui reste à traduire
 //!   archcore i18n apply [--ascii] [--dry]      applique data/i18n/fr.json à Game/ini_fr
@@ -31,7 +32,7 @@ mod server;
 mod tools;
 mod world;
 
-const USAGE: &str = "usage : archcore [login|world|all] | config | db-init | db-check | import | decrypt | i18n | sim | re (voir le wiki, page Outils)";
+const USAGE: &str = "usage : archcore [login|world|all] | config | db-init | db-check | import | content | decrypt | i18n | sim | re (voir le wiki, page Outils)";
 
 #[tokio::main]
 async fn main() {
@@ -45,6 +46,7 @@ async fn main() {
         "db-check" => tools::db_check::run(&rest).await,
         "config" => tools::conf::run(&rest),
         "import" => tools::import::run(&rest).await,
+        "content" => tools::content::run(&rest).await,
         "decrypt" => tools::decrypt::run(&rest),
         "i18n" => tools::i18n::run(&rest).await,
         "sim" => tools::sim::run(&rest).await,

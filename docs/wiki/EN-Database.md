@@ -62,9 +62,22 @@ filled by `archcore import`.
 | Table | Content |
 |---|---|
 | `language` | Languages offered to clients: BCP 47 code, names, tier (1 official version, 2 Webzen 2010 client, 3 community), client text folder, `enabled`, order; 11 rows inserted by `db-init` |
-| `localized_text` | Localized texts: `kind` (`npc_name`, `monster_name`, `item_name`, `item_desc`, `quest_name`, `quest_desc`, `skill_name`, `region_name`, `npc_dialog`), `ref_id` (identifier in the source table), `lang`, `text`; filled by `archcore i18n db <language>` and by hand |
+| `localized_text` | Localized texts: `kind` (`npc_name`, `monster_name`, `item_name`, `item_desc`, `quest_name`, `quest_desc`, `skill_name`, `region_name`, `npc_dialog`), `ref_id` (identifier in the source table), `lang`, `text`, `source`; filled by `archcore i18n db <language>` (source `import`, the only rows it replaces) and by hand (source `manual` by default, kept by `i18n db`) |
 
 See [[Translation|EN-Translation]] for the fallback and [[ArchRust extensions|EN-ArchRust-extensions]] for the protocol.
+
+## ArchCore's own content and import log
+
+`archcore import` rebuilds the world tables from the client files (and the original server tables): anything
+written there by hand would be erased by the next import, and that data is not publishable. ArchCore's own
+content (fixes, added spawns, NPCs made with the editor…) therefore goes in the repository's **`content/`**
+folder, as `<YYYYMMDDHHMM>_<topic>.sql` files: `archcore import` applies them at the end, and `archcore content`
+applies them again on their own. Each file runs in a transaction (all or nothing), must be replayable and holds
+data only, targeted by TID or `stable_key` (see `content/README.md`).
+
+The **`import_run`** table records each source read (`client`, `relief` (terrain), `serveur` (server),
+`contenu` (content)): folder, file count, SHA-256 fingerprint (names and sizes; texts for the content), ArchCore
+version, start and end. An empty end means an interrupted import, which `archcore db-check` reports.
 
 ## Schema versions (migrations)
 

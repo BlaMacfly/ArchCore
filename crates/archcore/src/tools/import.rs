@@ -244,18 +244,33 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
     }
     let dir = positional.first().map(PathBuf::from).unwrap_or_else(|| cfg.root.join("data").join("client-ini"));
     let server_dir = server_dir.or_else(|| Some(cfg.root.join("data").join("server-ini")).filter(|d| d.exists()));
-    let src = Source(dir);
+    let src = Source(dir.clone());
     let db = Databases::new(&cfg.database);
+    use super::content::{begin_run, finish_run, fingerprint};
+    // Chaque source lue est notée dans import_run (empreinte, version) ; finished_at reste vide si l'import
+    // s'arrête en route.
+    let (n, sum) = fingerprint(&dir, |_| true);
+    let run = begin_run(&db, "client", &dir, n, &sum).await?;
     import_all(&db, &src).await?;
-    import_terrain(&db, &cfg.root.join(&cfg.client.data_dir)).await?;
+    finish_run(&db, run).await?;
+    let game = cfg.root.join(&cfg.client.data_dir);
+    let (n, sum) = fingerprint(&game.join("world"), |f| f.starts_with('b') && f.ends_with("x.ma2"));
+    let run = begin_run(&db, "relief", &game.join("world"), n, &sum).await?;
+    import_terrain(&db, &game).await?;
+    finish_run(&db, run).await?;
     match server_dir {
         Some(d) => {
+            let (n, sum) = fingerprint(&d, |_| true);
+            let run = begin_run(&db, "serveur", &d, n, &sum).await?;
             import_spawns(&db, &src, &Source(d.clone())).await?;
             import_map(&db, &d).await?;
             import_loot(&db, &Source(d.clone())).await?;
+            finish_run(&db, run).await?;
         }
         None => println!("· monster_spawn : pas de tables du serveur (data/server-ini ou --server), ignoré"),
     }
+    // Couche de contenu d'ArchCore (content/*.sql), par-dessus les tables tout juste régénérées.
+    super::content::apply(&db, &cfg.root).await?;
     db.close().await;
     Ok(())
 }

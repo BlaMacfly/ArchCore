@@ -63,9 +63,22 @@ points de résurrection est remplie par `archcore import`.
 | Table | Contenu |
 |---|---|
 | `language` | Langues proposées aux clients : code BCP 47, noms, niveau (1 version officielle, 2 client Webzen 2010, 3 communauté), dossier de textes du client, `enabled`, ordre ; 11 lignes insérées par `db-init` |
-| `localized_text` | Textes localisés : `kind` (`npc_name`, `monster_name`, `item_name`, `item_desc`, `quest_name`, `quest_desc`, `skill_name`, `region_name`, `npc_dialog`), `ref_id` (identifiant de la table d'origine), `lang`, `text` ; remplie par `archcore i18n db <langue>` et à la main |
+| `localized_text` | Textes localisés : `kind` (`npc_name`, `monster_name`, `item_name`, `item_desc`, `quest_name`, `quest_desc`, `skill_name`, `region_name`, `npc_dialog`), `ref_id` (identifiant de la table d'origine), `lang`, `text`, `source` ; remplie par `archcore i18n db <langue>` (source `import`, seules lignes qu'il remplace) et à la main (source `manual` par défaut, gardée par `i18n db`) |
 
 Voir [[Traduction|FR-Traduction]] pour le repli et [[Extensions ArchRust|FR-Extensions-ArchRust]] pour le protocole.
+
+## Contenu propre à ArchCore et journal des imports
+
+`archcore import` régénère les tables du monde depuis les fichiers du client (et les tables du serveur d'origine) :
+tout ce qu'on y écrirait à la main serait effacé au prochain import, et ces données ne sont pas publiables. Le
+contenu propre à ArchCore (corrections, apparitions ajoutées, PNJ créés avec l'éditeur…) va donc dans le dossier
+**`content/`** du dépôt, en fichiers `<AAAAMMJJHHMM>_<sujet>.sql` : `archcore import` les applique à la fin, et
+`archcore content` les réapplique seuls. Chaque fichier passe dans une transaction (tout ou rien), doit pouvoir
+être rejoué et ne contient que des données, ciblées par TID ou par `stable_key` (voir `content/README.md`).
+
+La table **`import_run`** note chaque source lue (`client`, `relief`, `serveur`, `contenu`) : dossier, nombre de
+fichiers, empreinte SHA-256 (noms et tailles ; textes pour le contenu), version d'ArchCore, début et fin. Une fin
+vide signale un import interrompu, que `archcore db-check` relève.
 
 ## Versions du schéma (migrations)
 
