@@ -12,7 +12,7 @@ dossier désigné par `ARCHCORE_CONF_DIR` (voir [[Configuration|FR-Configuration
 | `archcore decrypt [source] [destination]` | Déchiffre `Game/ini` (RC4, MD5(« 1111 »)) vers `data/client-ini` |
 | `archcore import [dossier] [--server dossier]` | Importe `data/client-ini` dans `archcore_world` (CP949 → UTF-8) et la hauteur du sol depuis `world/b*x.ma2` du dossier Game (`map_height`, quelques minutes) ; avec les tables du serveur d'origine (`--server`, ou `data/server-ini` s'il existe), importe aussi les apparitions de monstres et la carte serveur ; applique enfin la couche de contenu `content/*.sql` et note chaque source dans `import_run` |
 | `archcore content` | Réapplique la couche de contenu `content/*.sql` à la base monde, sans réimporter (voir [[Base de données\|FR-Base-de-donnees]]) |
-| `archcore sim client\|move\|shop\|addon\|lang\|combat\|equip\|potion\|scroll\|patrol\|bag\|skill\|effects\|bank\|trade\|quest …` | Clients simulés (voir plus bas) |
+| `archcore sim client\|move\|shop\|addon\|lang\|combat\|equip\|potion\|scroll\|patrol\|bag\|skill\|effects\|bank\|portal\|trade\|quest …` | Clients simulés (voir plus bas) |
 | `archcore i18n strings [Game]` | Liste les textes encore en anglais dans `data/i18n/pending-en.json` |
 | `archcore i18n coverage [Game]` | Mesure la part déjà traduite de `ini_fr` |
 | `archcore i18n apply [--ascii] [--dry]` | Applique la mémoire de traduction au client (voir [[Traduction|FR-Traduction]]) |
@@ -132,13 +132,17 @@ il doit revenir au point de résurrection d'Anchorville (-476000, -61000).
 
 ```bash
 ARCHCORE_CONF_DIR=config/test archcore sim bank [compte] [mdp] [personnage]
+ARCHCORE_CONF_DIR=config/test archcore sim portal [compte] [mdp] [personnage]
 ARCHCORE_CONF_DIR=config/test archcore sim trade [compteA mdpA persoA compteB mdpB persoB]
 ARCHCORE_CONF_DIR=config/test archcore sim party [compteA mdpA persoA compteB mdpB persoB]
 ```
 
 `sim bank` (compte MJ `gmtest`) vérifie le refus d'un dépôt sans gardien, ouvre la banque chez Holly (au
-sud d'Anchorville), y dépose une pile de potions et 1000 pièces, se reconnecte et les retrouve, puis les
-retire et détruit la pile. `sim trade` place GmTest (MJ) et SimA au même endroit : GmTest propose une pile
+sud d'Anchorville), achète la deuxième page (1 000 000 pièces) et se voit refuser la suivante, y dépose une
+pile de potions et 1000 pièces, se reconnecte et les retrouve, puis les retire et détruit la pile.
+`sim portal` (compte MJ `gmtest`) se place à 2500 unités du portail d'Anchorville et s'y adresse : le
+serveur le fait courir puis donne l'accord ; trajet payant (100 pièces) vers le Repaire de l'éclaireur, refus
+d'un trajet non relié, retour payant (500 pièces) à Anchorville. `sim trade` place GmTest (MJ) et SimA au même endroit : GmTest propose une pile
 de potions et 500 pièces, SimA 100 pièces ; l'objet proposé ne peut pas être détruit ; verrous, échange
 (SimA reçoit la pile, l'argent est ajusté des deux côtés), puis une seconde demande refusée. `sim party`
 (SimA et SimB) vérifie le refus d'une invitation à un nom inconnu, l'invitation et l'acceptation (groupe et

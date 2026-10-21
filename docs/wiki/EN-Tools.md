@@ -12,7 +12,7 @@ named by `ARCHCORE_CONF_DIR` (see [[Configuration|EN-Configuration]]).
 | `archcore decrypt [source] [destination]` | Decrypts `Game/ini` (RC4, MD5("1111")) into `data/client-ini` |
 | `archcore import [folder] [--server folder]` | Imports `data/client-ini` into `archcore_world` (CP949 → UTF-8) and the ground height from the Game folder's `world/b*x.ma2` (`map_height`, a few minutes); with the original server tables (`--server`, or `data/server-ini` if it exists), also imports monster spawns and the server map; finally applies the `content/*.sql` content layer and records each source in `import_run` |
 | `archcore content` | Applies the `content/*.sql` content layer to the world database again, without reimporting (see [[Database\|EN-Database]]) |
-| `archcore sim client\|move\|shop\|addon\|lang\|combat\|equip\|potion\|scroll\|patrol\|bag\|skill\|effects\|bank\|trade\|quest …` | Simulated clients (see below) |
+| `archcore sim client\|move\|shop\|addon\|lang\|combat\|equip\|potion\|scroll\|patrol\|bag\|skill\|effects\|bank\|portal\|trade\|quest …` | Simulated clients (see below) |
 | `archcore i18n strings [Game]` | Lists the texts still in English in `data/i18n/pending-en.json` |
 | `archcore i18n coverage [Game]` | Measures how much of `ini_fr` is translated |
 | `archcore i18n apply [--ascii] [--dry]` | Applies the translation memory to the client (see [[Translation|EN-Translation]]) |
@@ -130,13 +130,17 @@ must come back at Anchorville's resurrection point (-476000, -61000).
 
 ```bash
 ARCHCORE_CONF_DIR=config/test archcore sim bank [user] [pass] [character]
+ARCHCORE_CONF_DIR=config/test archcore sim portal [user] [pass] [character]
 ARCHCORE_CONF_DIR=config/test archcore sim trade [userA passA charA userB passB charB]
 ARCHCORE_CONF_DIR=config/test archcore sim party [userA passA charA userB passB charB]
 ```
 
 `sim bank` (GM account `gmtest`) checks that depositing without a keeper is refused, opens the bank at
-Holly (south of Anchorville), deposits a potion stack and 1000 coins, reconnects and finds them, then
-withdraws them and destroys the stack. `sim trade` puts GmTest (GM) and SimA at the same spot: GmTest offers
+Holly (south of Anchorville), buys the second page (1,000,000 coins) and is refused the next one, deposits a
+potion stack and 1000 coins, reconnects and finds them, then withdraws them and destroys the stack.
+`sim portal` (GM account `gmtest`) stands 2500 units from the Anchorville portal and addresses it: the
+server makes it run then grants; paid trip (100 coins) to the Scout's Grounds, unlinked trip refused, paid
+return (500 coins) to Anchorville. `sim trade` puts GmTest (GM) and SimA at the same spot: GmTest offers
 a potion stack and 500 coins, SimA 100 coins; the offered item cannot be destroyed; locks, exchange (SimA
 receives the stack, money is adjusted on both sides), then a second request refused. `sim party` (SimA and
 SimB) checks that inviting an unknown name is refused, the invitation and acceptance (party and member list

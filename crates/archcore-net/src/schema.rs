@@ -41,6 +41,7 @@ pub mod ptype {
     pub const GUILD: u8 = 0x15;
     pub const WORLD: u8 = 0x18;
     pub const RETURN_TO_LOGIN: u8 = 0x2f;
+    pub const EVENT_TELEPORT: u8 = 0x31;
     pub const EVENT_NPC_TRADE: u8 = 0x32;
     pub const EVENT_BANK: u8 = 0x36;
     pub const EVENT_NPC_DIALOG: u8 = 0x37;
@@ -278,6 +279,15 @@ pub static QUEST: Schema = Schema {
 /// AgpmEventQuest (0x3E) — drapeaux 1 : op, événement (EVENT_BASE), CID, entier.
 pub static EVENT_QUEST: Schema = Schema { name: "AGPMEVENTQUEST", id: ptype::EVENT_QUEST, flag_len: 1, fields: &[f(I8), f(Packet), f(I32), f(I32)] };
 
+/// AgpmEventTeleport (0x31) — drapeaux 1 : op, événement (EVENT_BASE), CID du joueur, nom du point d'arrivée
+/// (CP949), position d'arrivée, points d'arrivée désactivés.
+pub static EVENT_TELEPORT: Schema = Schema {
+    name: "AGPMEVENTTELEPORT",
+    id: ptype::EVENT_TELEPORT,
+    flag_len: 1,
+    fields: &[f(I8), f(Packet), f(I32), fs(Char, 33), f(Vec3), f(MemBlock)],
+};
+
 /// AgpmEventBank (0x36) — drapeaux 1 : op (0 demande, 1 accord), événement (EVENT_BASE), CID du joueur.
 pub static EVENT_BANK: Schema = Schema { name: "AGPMEVENTBANK", id: ptype::EVENT_BANK, flag_len: 1, fields: &[f(I8), f(Packet), f(I32)] };
 
@@ -459,7 +469,7 @@ pub static ARCHCORE_EXT: Schema = Schema {
 /// Tous les schémas principaux, pour l'aiguillage par type.
 pub static MAIN: &[&Schema] = &[
     &CONFIG, &CHARACTER, &CHAR_MANAGER, &LOGIN, &TIMER, &WORLD, &CHATTING, &ADMIN, &ITEM, &EVENT_NPC_TRADE,
-    &EVENT_NPC_DIALOG, &EVENT_MANAGER, &SKILL, &EVENT_SKILL_MASTER, &EVENT_BANK, &PRIVATE_TRADE, &PARTY, &PARTY_MANAGEMENT, &QUEST, &EVENT_QUEST, &SYSTEM_MESSAGE, &RETURN_TO_LOGIN, &OPT_CHAR_MOVE, &OPT_CHAR_ACTION, &OPT_VIEW,
+    &EVENT_NPC_DIALOG, &EVENT_MANAGER, &SKILL, &EVENT_SKILL_MASTER, &EVENT_TELEPORT, &EVENT_BANK, &PRIVATE_TRADE, &PARTY, &PARTY_MANAGEMENT, &QUEST, &EVENT_QUEST, &SYSTEM_MESSAGE, &RETURN_TO_LOGIN, &OPT_CHAR_MOVE, &OPT_CHAR_ACTION, &OPT_VIEW,
     &STARTUP_ENCRYPTION, &ARCHCORE_EXT,
 ];
 

@@ -405,6 +405,24 @@ back (chance `skill_rate`, otherwise `special_status_rate`; share `damage_conver
 Still to do: reflecting damage back to the attacker, ignored defense (bits 4 and 8 of
 `reflect_melee_attack`), skill criticals, dispels and party skills; monsters do not cast skills yet.
 
+## Teleport portals (type 0x31, AgpmEventTeleport)
+
+Portals are scenery objects (`obj*.ini`) carrying event 8 and the name of a `TeleportPoint.ini` point
+(`PointName`); no NPC teleports. AGPMEVENTTELEPORT (0x31, 1 flag byte): op, event (EVENT_BASE of type 1,
+object), CID, point name (CP949, 33 bytes), position, disabled points.
+
+- **op 4**: the client addresses the portal. Within 1600 units, the server answers **op 5** (the client
+  opens the destination list); further away, it makes the player run towards the object and answers as soon
+  as it is in range. A move asked by the player cancels the wait.
+- **op 0**: the client picks its destination (point name). The trip is allowed if one of the groups targeted
+  by the departure point (`TargetGroup`) lists the arrival point (`Group`) and the player's race is allowed
+  at both ends (`UseType`: 1 human, 2 orc, 4 moon elf, 8 dragon scion; 0 all). The fee (`TeleportFee.txt`,
+  also shown by the client) is taken from the money carried; the server sends **op 1** (CID, arrival
+  position), moves the player, then **op 8** (loading done).
+
+The player lands on a circle of radius `RadiusMin`..`RadiusMax` around the object carrying the arrival
+point, at the first of eight points 45° apart (from a random angle) that is not on blocked ground.
+
 ## Bank (types 0x36, 0x04 and 0x02)
 
 The bank is shared by the characters of one account. Keepers ("Safe Keeper", 18 NPCs) carry function 20,
@@ -423,6 +441,11 @@ Money goes through AGPMCHARACTER **op 7**: field 9 holds the amount deposited (n
 server answers op 1 with the money carried (field 8) and banked (field 9). In the database, `account_bank`
 keeps the account's money and pages; items stay in `character_items` (status 2), attached to the
 character who deposited them and handed to the one who withdraws them.
+
+**Extra page.** From the bank window, the client sends AGPMITEM **op 22** (CID in field 4). The next page is
+paid from the money carried, at the `bankslotprice.txt` price (1,000,000 coins for the second; -1, the
+next ones, cannot be bought with gold). The server answers AGPMCHARACTER op 1 (money in field 8, extra pages
+in field 23) and system message 30 (page added), or 29 when the bank already has its 4 pages.
 
 ## Parties (types 0x08 and 0x09, AgpmParty)
 
@@ -542,6 +565,7 @@ Full specification: [[ArchRust extensions|EN-ArchRust-extensions]].
 | 0x13 | Quests | 0x63 | Reconnect |
 | 0x32 | NPC shops | 0x37 | NPC dialog |
 | 0x3B | Skill master | 0x36 | Bank |
+| 0x31 | Teleport portals | | |
 | 0x07 | Trading between players | 0x3E | NPC quests |
 
 Full schemas for the 86 modules are in `data/re/packet-schemas.json`.

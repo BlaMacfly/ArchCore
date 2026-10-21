@@ -33,6 +33,7 @@ pub mod npc_events;
 pub mod npc_trade;
 pub mod npcs;
 pub mod party;
+pub mod portal;
 pub mod presence;
 pub mod quests;
 pub mod recovery;
@@ -80,6 +81,10 @@ pub struct WorldCtx {
     pub quests: quests::QuestCatalog,
     /// Langues proposées et textes localisés (tables `language`, `localized_text`).
     pub locale: crate::locale::Catalog,
+    /// Portails de téléportation (points, objets, prix des trajets).
+    pub portals: portal::Portals,
+    /// Prix des pages de banque en plus (indice 0 : deuxième page) ; -1 : pas en vente.
+    pub bank_slot_prices: Vec<i64>,
     pub view_radius: f64,
 }
 
@@ -154,6 +159,8 @@ pub struct Player {
     pub quests: quests::PlayerQuests,
     /// Langue appliquée aux textes envoyés à ce joueur (code de la table `language`, voir `locale.rs`).
     pub language: String,
+    /// Demande faite à un portail de téléportation, en attendant d'être à portée.
+    pub portal: Option<portal::Pending>,
 }
 
 impl Player {
@@ -233,6 +240,7 @@ impl Service for WorldService {
                 | ptype::SKILL
                 | ptype::EVENT_SKILL_MASTER
                 | ptype::EVENT_BANK
+                | ptype::EVENT_TELEPORT
                 | ptype::PRIVATE_TRADE
                 | ptype::PARTY
                 | ptype::PARTY_MANAGEMENT
@@ -327,6 +335,7 @@ impl Connection for WorldConn {
             ptype::SKILL => skills::on_packet(ctx, &mut st, self.sid, &p),
             ptype::EVENT_SKILL_MASTER => skills::on_master_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::EVENT_BANK => bank::on_packet(ctx, &mut st, self.sid, &p),
+            ptype::EVENT_TELEPORT => portal::on_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::PRIVATE_TRADE => trade::on_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::PARTY => party::on_party(&mut st, self.sid, &p),
             ptype::PARTY_MANAGEMENT => party::on_management(&mut st, self.sid, &p),
@@ -482,6 +491,7 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
             trade: None,
             quests,
             language,
+            portal: None,
         },
     );
     st.by_cid.insert(cid, s.id());

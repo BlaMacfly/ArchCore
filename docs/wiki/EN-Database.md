@@ -49,6 +49,10 @@ Filled by `archcore import` from the client tables.
 | `drop_rank_rate` | original server `droprankrate.txt` | Item ranks (percent) by the monster's drop rank |
 | `region_template` | `RegionTemplate.ini` | 331 regions: name, parent region, Type field, safety (33 safe) |
 | `resurrection_point` | `obj*.ini` (event 19, type 1) | 62 resurrection points: region, position, allowed race and class |
+| `teleport_point` | `TeleportPoint.ini` | 301 teleport points: landing radius, allowed races, groups (arrival, destinations) |
+| `teleport_object` | `obj*.ini` (event 8) | 291 portals: object, point carried, position |
+| `teleport_fee` | `TeleportFee.txt` | 227 trip fees (departure, arrival) |
+| `bank_slot_price` | `bankslotprice.txt` | Price of extra bank pages (-1: cannot be bought with gold) |
 
 **Stable identifiers.** In `monster_spawn`, `monster_drop` and `resurrection_point`, the `id` column is only an
 import order number. The `stable_key` column (unique, case-sensitive) names the same row from one import to the

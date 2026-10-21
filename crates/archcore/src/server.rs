@@ -45,6 +45,8 @@ pub async fn run(mode: &str) -> anyhow::Result<()> {
         let regions = crate::world::regions::Regions::load(&db).await?;
         let skills = crate::world::skills::SkillCatalog::load(&db).await?;
         let quests = crate::world::quests::QuestCatalog::load(&db).await?;
+        let portals = crate::world::portal::Portals::load(&db).await?;
+        let bank_slot_prices = crate::world::bank::slot_prices(&db).await;
         let mut level_exp = Vec::new();
         for r in db.world.rows("SELECT level, exp FROM level_exp ORDER BY level", ()).await? {
             let level: usize = crate::db::col(&r, "level");
@@ -61,7 +63,7 @@ pub async fn run(mode: &str) -> anyhow::Result<()> {
             ..Default::default()
         };
         let w = Arc::new(crate::world::World {
-            ctx: crate::world::WorldCtx { db: db.clone(), templates: templates.clone(), config: config.clone(), npcs, catalog, map, level_exp, loot, regions, skills, quests, locale, view_radius: config.world.view_radius },
+            ctx: crate::world::WorldCtx { db: db.clone(), templates: templates.clone(), config: config.clone(), npcs, catalog, map, level_exp, loot, regions, skills, quests, locale, portals, bank_slot_prices, view_radius: config.world.view_radius },
             state: tokio::sync::Mutex::new(state),
         });
         crate::world::presence::spawn_autosave(w.clone());

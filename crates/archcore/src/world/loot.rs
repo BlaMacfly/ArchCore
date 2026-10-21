@@ -354,6 +354,7 @@ pub async fn on_item_packet(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &P
         Some(super::travel::USE_RETURN_SCROLL) => super::travel::use_return(ctx, st, sid, Instant::now()).await,
         Some(super::equipment::SPLIT_ITEM) => super::equipment::split(ctx, st, sid, p).await,
         Some(super::equipment::REQUEST_DESTROY_ITEM) => super::equipment::destroy(ctx, st, sid, p.int(2).unwrap_or(0) as u32).await,
+        Some(super::bank::REQUEST_BUY_BANK_SLOT) => super::bank::buy_slot(ctx, st, sid).await,
         op => {
             debug!("[world] #{sid} AGPMITEM op {op:?} (ignoré)");
             Ok(())

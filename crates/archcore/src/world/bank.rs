@@ -7,6 +7,9 @@
 //!   Argent : AGPMCHARACTER op 7, champ 9 = montant déposé (négatif : retiré) ← op 1, champs 8 et 9.
 //!   À l'entrée en jeu, les objets de la banque partent avec l'inventaire (statut 100), l'argent au champ 9
 //!   du personnage et les pages en plus de la première au champ 23.
+//!   Page en plus : AGPMITEM op 22 (CID au champ 4), payée sur l'argent porté au prix de bankslotprice.txt
+//!            (-1 : pas en vente contre de l'or) ← AGPMCHARACTER op 1 champs 8 et 23, message système 30
+//!            (page ajoutée) ou 29 (banque déjà au maximum).
 //! ```
 //! En base : `account_bank` (argent, pages) ; les objets sont des lignes de `character_items` au statut 2,
 //! rattachées au personnage qui les a déposés et passées à celui qui les retire.
@@ -31,6 +34,44 @@ pub const MOVE_BANK_MONEY: i64 = 7;
 pub mod op {
     pub const REQUEST: i64 = 0;
     pub const GRANT: i64 = 1;
+}
+
+/// AGPMITEM : opération « acheter une page de banque ».
+pub const REQUEST_BUY_BANK_SLOT: i64 = 22;
+
+/// Codes AGPMSYSTEMMESSAGE de la banque.
+pub mod message {
+    pub const BANK_SLOT_IS_MAX: i64 = 29;
+    pub const BANK_ADD_SLOT_SUCCESS: i64 = 30;
+}
+
+/// Prix des pages en plus (`bank_slot_price`) : indice 0 pour la deuxième page.
+pub async fn slot_prices(db: &Databases) -> Vec<i64> {
+    let Ok(rows) = db.world.rows("SELECT slot, price FROM bank_slot_price ORDER BY slot", ()).await else {
+        warn!("prix des pages de banque non chargés : lancer `archcore db-init` puis `archcore import`");
+        return Vec::new();
+    };
+    let mut prices = Vec::new();
+    for r in &rows {
+        let slot: usize = col(r, "slot");
+        if slot >= 1 {
+            prices.resize(prices.len().max(slot), -1);
+            prices[slot - 1] = col(r, "price");
+        }
+    }
+    prices
+}
+
+/// Prix de la page suivante pour un compte qui en a déjà `extra` en plus ; `None` si elle n'est pas en vente.
+pub fn next_slot_price(prices: &[i64], extra: i64) -> Option<i64> {
+    usize::try_from(extra).ok().and_then(|i| prices.get(i)).copied().filter(|p| *p >= 0)
+}
+
+fn system_message(st: &WorldState, sid: u32, code: i64) {
+    if let Some(p) = st.players.get(&sid) {
+        let s = &schema::SYSTEM_MESSAGE;
+        p.send(s, Fields::new(s).with(0, 0).with(1, code));
+    }
 }
 
 /// Banque d'un compte, chargée à l'entrée en jeu.
@@ -276,6 +317,47 @@ async fn withdraw(ctx: &WorldCtx, st: &mut WorldState, sid: u32, iid: u32, wante
     Ok(())
 }
 
+/// AGPMITEM op 22 : achat d'une page de banque, payée sur l'argent porté.
+pub async fn buy_slot(ctx: &WorldCtx, st: &mut WorldState, sid: u32) -> anyhow::Result<()> {
+    if !at_keeper(ctx, st, sid) {
+        send_system(st, sid, "Parlez à un gardien de banque pour agrandir votre banque.");
+        return Ok(());
+    }
+    let p = st.players.get_mut(&sid).unwrap();
+    let extra = p.bank.extra_slots.max(0);
+    if extra + 1 >= BANK_GRID.0 {
+        system_message(st, sid, message::BANK_SLOT_IS_MAX);
+        return Ok(());
+    }
+    let Some(price) = next_slot_price(&ctx.bank_slot_prices, extra) else {
+        send_system(st, sid, "Cette page de banque ne s'achète pas contre de l'or.");
+        return Ok(());
+    };
+    let money = p.ch.money as i64;
+    if price > money {
+        send_system(st, sid, &format!("Il faut {price} pièce(s) d'or pour une page de banque en plus."));
+        return Ok(());
+    }
+    let left = money - price;
+    let (cid, account_id) = (p.ch.id, p.bank.account_id);
+    ctx.db
+        .characters
+        .atomic(vec![
+            (super::SAVE_MONEY, (left, cid).into()),
+            ("UPDATE account_bank SET extra_slots = ? WHERE account_id = ?", (extra + 1, account_id).into()),
+        ])
+        .await?;
+    p.ch.money = left as u64;
+    p.bank.extra_slots = extra + 1;
+    p.ch.bank_size = (extra + 1) as i32;
+    let c = &schema::CHARACTER;
+    p.send(c, Fields::new(c).with(0, 1).with(1, cid).with(8, left).with(23, extra + 1));
+    crate::journal::bank_page(&ctx.db, account_id, (cid, &p.ch.name), extra + 2, price);
+    info!("[banque] {} achète la page {} de sa banque pour {price} pièce(s)", p.ch.name, extra + 2);
+    system_message(st, sid, message::BANK_ADD_SLOT_SUCCESS);
+    Ok(())
+}
+
 /// AGPMCHARACTER op 7 : `amount` pièces vers la banque (négatif : vers l'inventaire).
 pub async fn move_money(ctx: &WorldCtx, st: &mut WorldState, sid: u32, amount: i64) -> anyhow::Result<()> {
     if !at_keeper(ctx, st, sid) {
@@ -318,6 +400,10 @@ mod tests {
         bank.extra_slots = 9;
         assert_eq!(bank.layers(), 4);
         assert!(bank.is_free([3, 6, 3]) && !bank.is_free([0, 7, 0]));
+        let prices = [1_000_000, -1, -1];
+        assert_eq!(next_slot_price(&prices, 0), Some(1_000_000));
+        assert_eq!(next_slot_price(&prices, 1), None, "pas en vente contre de l'or");
+        assert_eq!(next_slot_price(&prices, 3), None);
         for r in 0..7 {
             for c in 0..4 {
                 bank.items.insert((r * 4 + c) as u32 + 1, InventoryItem { iid: (r * 4 + c) as u32 + 1, tid: 1, count: 1, grid: [0, r, c] });

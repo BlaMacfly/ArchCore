@@ -418,6 +418,25 @@ Restent à faire : renvoi de dégâts à l'attaquant, défense ignorée (bits 4 
 `reflect_melee_attack`), critiques des compétences, purges et compétences de groupe ; les monstres ne
 lancent pas encore de compétences.
 
+## Portails de téléportation (type 0x31, AgpmEventTeleport)
+
+Les portails sont des objets du décor (`obj*.ini`) qui portent l'événement 8 et le nom d'un point de
+`TeleportPoint.ini` (`PointName`) ; aucun PNJ ne téléporte. AGPMEVENTTELEPORT (0x31, drapeaux 1) : op,
+événement (EVENT_BASE de type 1, objet), CID, nom du point (CP949, 33 octets), position, points désactivés.
+
+- **op 4** : le client s'adresse au portail. À moins de 1600 unités, le serveur répond **op 5** (le client
+  ouvre la liste des destinations) ; plus loin, il fait courir le joueur vers l'objet et répond dès qu'il est
+  à portée. Une marche demandée par le joueur annule l'attente.
+- **op 0** : le client choisit sa destination (nom du point). Le trajet est permis si l'un des groupes visés
+  par le point de départ (`TargetGroup`) compte le point d'arrivée (`Group`) et si la race du joueur est
+  admise aux deux bouts (`UseType` : 1 humain, 2 orc, 4 elfe de lune, 8 dragonien ; 0 toutes). Le prix
+  (`TeleportFee.txt`, que le client affiche aussi) est pris sur l'argent porté ; le serveur envoie **op 1**
+  (CID, position d'arrivée), déplace le joueur, puis **op 8** (chargement terminé).
+
+On arrive sur un cercle de rayon `RadiusMin`..`RadiusMax` autour de l'objet qui porte le point d'arrivée,
+au premier des huit points espacés de 45° (à partir d'un angle tiré au hasard) qui n'est pas sur un sol
+infranchissable.
+
 ## Banque (types 0x36, 0x04 et 0x02)
 
 La banque est commune aux personnages d'un même compte. Les gardiens (« Safe Keeper », 18 PNJ) portent la
@@ -436,6 +455,12 @@ L'argent passe par AGPMCHARACTER **op 7** : le champ 9 porte le montant déposé
 serveur renvoie op 1 avec l'argent sur soi (champ 8) et en banque (champ 9). En base, `account_bank`
 garde l'argent et les pages du compte ; les objets restent dans `character_items` (statut 2), rattachés
 au personnage qui les a déposés et passés à celui qui les retire.
+
+**Page en plus.** Depuis la fenêtre de la banque, le client envoie AGPMITEM **op 22** (CID au champ 4). La
+page suivante se paie sur l'argent porté, au prix de `bankslotprice.txt` (1 000 000 pièces pour la
+deuxième ; -1, les suivantes, ne s'achètent pas contre de l'or). Le serveur répond AGPMCHARACTER op 1
+(argent au champ 8, pages en plus au champ 23) et le message système 30 (page ajoutée), ou 29 si la banque
+a déjà ses 4 pages.
 
 ## Groupes (types 0x08 et 0x09, AgpmParty)
 
@@ -559,6 +584,7 @@ pas envoyé `HELLO`. Spécification complète : [[Extensions ArchRust|FR-Extensi
 | 0x13 | Quêtes | 0x63 | Reconnexion |
 | 0x32 | Boutiques des PNJ | 0x37 | Dialogue des PNJ |
 | 0x3B | Maître des compétences | 0x36 | Banque |
+| 0x31 | Portails de téléportation | | |
 | 0x07 | Échange entre joueurs | 0x3E | Quêtes des PNJ |
 
 Les schémas complets des 86 modules sont dans `data/re/packet-schemas.json`.

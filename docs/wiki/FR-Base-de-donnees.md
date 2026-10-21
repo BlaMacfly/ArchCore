@@ -50,6 +50,10 @@ Remplie par `archcore import` à partir des tables du client.
 | `drop_rank_rate` | `droprankrate.txt` du serveur d'origine | Rangs d'objets (pour cent) selon le rang de butin du monstre |
 | `region_template` | `RegionTemplate.ini` | 331 régions : nom, région parente, champ Type, sûreté (33 sûres) |
 | `resurrection_point` | `obj*.ini` (événement 19, type 1) | 62 points de résurrection : région, position, race et classe admises |
+| `teleport_point` | `TeleportPoint.ini` | 301 points de téléportation : rayon d'arrivée, races admises, groupes (arrivée, destinations) |
+| `teleport_object` | `obj*.ini` (événement 8) | 291 portails : objet, point porté, position |
+| `teleport_fee` | `TeleportFee.txt` | 227 prix de trajet (départ, arrivée) |
+| `bank_slot_price` | `bankslotprice.txt` | Prix des pages de banque en plus (-1 : pas en vente contre de l'or) |
 
 **Identifiants stables.** Dans `monster_spawn`, `monster_drop` et `resurrection_point`, la colonne `id` n'est qu'un
 numéro d'ordre d'import. La colonne `stable_key` (unique, sensible à la casse) désigne la même ligne d'un import

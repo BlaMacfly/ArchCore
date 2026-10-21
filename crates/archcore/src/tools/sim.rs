@@ -59,6 +59,7 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         }
         Some("lang") => Box::pin(lang::run(&a(1, "sima"), &a(2, "sima"), &a(3, "SimA"))).await,
         Some("bank") => Box::pin(bank(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
+        Some("portal") => Box::pin(portal(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("party") => Box::pin(party(&a(1, "sima"), &a(2, "sima"), &a(3, "SimA"), &a(4, "simb"), &a(5, "simb"), &a(6, "SimB"))).await,
         Some("trade") => Box::pin(private_trade(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("quest") => Box::pin(quest(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
@@ -71,7 +72,7 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         Some("potion") => Box::pin(potion(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("equip") => Box::pin(equip(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("combat") => Box::pin(combat(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "Green Worm"))).await,
-        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol|bag|skill|effects|status|bank|trade|party|quest [arguments]"),
+        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol|bag|skill|effects|status|bank|portal|trade|party|quest [arguments]"),
     }
 }
 
@@ -256,6 +257,8 @@ pub struct InWorld {
     pub level: i64,
     /// Argent en banque (champ 9 du personnage).
     pub bank_money: i64,
+    /// Pages de banque en plus de la première (champ 23 du personnage).
+    pub bank_size: i64,
     /// Objets reçus à l'entrée (vue op 2, champ 6) : (IID, TID, statut, quantité).
     pub items: Vec<(i64, i64, i64, i64)>,
     /// Quêtes à l'entrée : terminées (drapeaux de l'op 5) et en cours (op 4).
@@ -456,6 +459,7 @@ pub async fn enter_world_opts(cfg: &Config, user: &str, pass: &str, char_name: &
     world.send(cm, Fields::new(cm).with(0, char_mgr_op::ENTER_WORLD)).await?;
     let me = world.expect(&schema::CHARACTER, Some(0)).await?;
     let bank_money = me.int(9).unwrap_or(0);
+    let bank_size = me.int(23).unwrap_or(0);
     let level = me
         .fields()
         .bytes(7)
@@ -543,7 +547,7 @@ pub async fn enter_world_opts(cfg: &Config, user: &str, pass: &str, char_name: &
     println!("  niveau {level}, {} compétence(s) : {skills:?}", skills.len());
     println!("  entrée en jeu confirmée");
     println!("  quêtes : terminées {quests_done:?}, en cours {quests_active:?}");
-    Ok(InWorld { world, cid, start, monsters, npcs, level, bank_money, items, quests_done, quests_active, skills, language_ack })
+    Ok(InWorld { world, cid, start, monsters, npcs, level, bank_money, bank_size, items, quests_done, quests_active, skills, language_ack })
 }
 
 async fn client(user: &str, pass: &str, char_name: &str, commands: &[String]) -> anyhow::Result<()> {
@@ -1322,6 +1326,24 @@ async fn bank(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
     w.world.expect_where(|q| q.is(bk, Some(1)), 3000, "accord").await?;
     println!("  ✓ banque ouverte ({keeper:#x})");
 
+    step("page de banque en plus");
+    // bankslotprice.txt : la deuxième page coûte 1 000 000 pièces, les suivantes ne s'achètent pas contre de l'or.
+    w.world.send(ch, say(w.cid, "/money 1500000")).await?;
+    w.world.expect_where(|q| q.is(c, Some(1)) && q.int(8) == Some(1_500_000), 3000, "argent").await?;
+    w.world.send(it, Fields::new(it).with(0, 22).with(4, w.cid)).await?;
+    let sm = &schema::SYSTEM_MESSAGE;
+    if w.bank_size == 0 {
+        let up = w.world.expect_where(|q| q.is(c, Some(1)) && q.int(23).is_some(), 3000, "page achetée").await?;
+        anyhow::ensure!(up.int(23) == Some(1) && up.int(8) == Some(500_000), "pages {:?}, argent {:?}", up.int(23), up.int(8));
+        w.world.expect_where(|q| q.is(sm, Some(0)) && q.int(1) == Some(30), 3000, "message « page ajoutée »").await?;
+        println!("  ✓ deuxième page achetée 1 000 000 pièces (message 30)");
+    } else {
+        println!("  · le compte a déjà {} page(s) en plus", w.bank_size);
+    }
+    w.world.send(it, Fields::new(it).with(0, 22).with(4, w.cid)).await?;
+    let no = w.world.expect_where(|q| (q.ptype == ch.id && q.int(2) == Some(chat_type::SYSTEM)) || q.is(sm, Some(0)), 3000, "refus").await?;
+    println!("  ✓ page suivante refusée ({})", if no.ptype == ch.id { "pas en vente contre de l'or".to_string() } else { format!("message {}", o(no.int(1))) });
+
     step("dépôt d'une pile et de 1000 pièces");
     w.world.send(ch, say(w.cid, "/money 5000")).await?;
     w.world.expect_where(|q| q.is(c, Some(1)) && q.int(8) == Some(5000), 3000, "argent").await?;
@@ -1355,6 +1377,66 @@ async fn bank(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
     w.world.send(it, Fields::new(it).with(0, 21).with(2, iid)).await?;
     w.world.expect_where(|q| q.is(it, Some(1)) && q.int(2) == Some(iid), 3000, "pile détruite").await?;
     println!("\nbanque : OK");
+    Ok(())
+}
+
+/// Portails de téléportation : demande de loin (le serveur fait courir le joueur), trajet payant
+/// d'Anchorville au Repaire de l'éclaireur, trajet non relié refusé, retour payant à Anchorville.
+async fn portal(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
+    const ANCHORVILLE: (i64, Vec3) = (132_646_586, Vec3 { x: -475_600.0, y: 4_516.0, z: -63_400.0 });
+    const SCOUT: (i64, Vec3) = (126_091_730, Vec3 { x: -531_600.0, y: 4_872.0, z: -33_600.0 });
+    const STOP: i64 = 0x04;
+    let cfg = crate::config::load()?;
+    let (tp, ch, c, mv, eb) = (&schema::EVENT_TELEPORT, &schema::CHATTING, &schema::CHARACTER, &schema::OPT_CHAR_MOVE, &mini::EVENT_BASE);
+    let say = |cid: u32, text: &str| Fields::new(ch).with(0, 0).with(1, cid).with(2, chat_type::NORMAL).with(6, crate::tools::to_cp1252(text));
+    let base = |object: i64| build_mini(eb, &Fields::new(eb).with(0, 1).with(1, object).with(3, 8));
+    let name = |n: &str| encoding_rs::EUC_KR.encode(n).0.into_owned();
+
+    step(&format!("{char_name} entre en jeu, à 2500 unités du portail d'Anchorville"));
+    let mut w = enter_world(&cfg, user, pass, char_name, "").await?;
+    let me = w.cid as i64;
+    let far = Vec3 { x: ANCHORVILLE.1.x - 2_500.0, ..ANCHORVILLE.1 };
+    w.world.send(mv, Fields::new(mv).with(0, w.cid).with(1, far).with(2, far).with(5, STOP).with(6, 0)).await?;
+    w.world.send(ch, say(w.cid, "/money 5000")).await?;
+    w.world.expect_where(|q| q.is(c, Some(1)) && q.int(8) == Some(5000), 3000, "argent").await?;
+
+    step("demande de loin : le joueur court, puis l'accord arrive");
+    w.world.send(tp, Fields::new(tp).with(0, 4).with(1, base(ANCHORVILLE.0)).with(2, w.cid)).await?;
+    let run = w.world.expect_where(|q| q.is(mv, None) && q.int(0) == Some(me), 3000, "course vers le portail").await?;
+    let dest = run.fields().vec3(2).unwrap_or(far);
+    println!("  ✓ course vers {:.0}, {:.0}", dest.x, dest.z);
+    let ok = w.world.expect_where(|q| q.is(tp, Some(5)), 15_000, "accord").await?;
+    anyhow::ensure!(ok.int(2) == Some(me), "CID de l'accord {:?}", ok.int(2));
+    println!("  ✓ accord (op 5) une fois à portée");
+
+    step("trajet payant vers le Repaire de l'éclaireur (100 pièces)");
+    w.world.send(tp, Fields::new(tp).with(0, 0).with(1, base(ANCHORVILLE.0)).with(2, w.cid).with(3, name("정찰자의 터"))).await?;
+    // Le prix est pris avant le départ.
+    let paid = w.world.expect_where(|q| q.is(c, Some(1)) && q.int(8).is_some(), 3000, "paiement").await?;
+    anyhow::ensure!(paid.int(8) == Some(4900), "argent {:?}", paid.int(8));
+    let start = w.world.expect_where(|q| q.is(tp, Some(1)), 3000, "départ").await?;
+    let at = start.fields().vec3(4).ok_or_else(|| anyhow::anyhow!("position d'arrivée absente"))?;
+    let d = ((at.x - SCOUT.1.x).powi(2) + (at.z - SCOUT.1.z).powi(2)).sqrt();
+    anyhow::ensure!(d <= 1_601.0, "arrivée à {d:.0} unités du portail (rayon 400 à 1600)");
+    w.world.expect_where(|q| q.is(tp, Some(8)), 3000, "chargement").await?;
+    println!("  ✓ arrivée en {:.0}, {:.0} ({d:.0} unités du portail), 4900 pièces restantes", at.x, at.z);
+
+    step("trajet non relié refusé");
+    w.world.send(tp, Fields::new(tp).with(0, 0).with(1, base(SCOUT.0)).with(2, w.cid).with(3, name("도시 툴란"))).await?;
+    anyhow::ensure!(w.world.expect_where(|q| q.is(tp, Some(1)), 1000, "départ").await.is_err(), "trajet non relié accepté");
+    println!("  ✓ aucun départ");
+
+    step("retour à Anchorville (500 pièces)");
+    w.world.send(tp, Fields::new(tp).with(0, 4).with(1, base(SCOUT.0)).with(2, w.cid)).await?;
+    w.world.expect_where(|q| q.is(tp, Some(5)), 3000, "accord").await?;
+    w.world.send(tp, Fields::new(tp).with(0, 0).with(1, base(SCOUT.0)).with(2, w.cid).with(3, name("앵커빌 마을"))).await?;
+    let paid = w.world.expect_where(|q| q.is(c, Some(1)) && q.int(8).is_some(), 3000, "paiement").await?;
+    anyhow::ensure!(paid.int(8) == Some(4400), "argent {:?}", paid.int(8));
+    w.world.expect_where(|q| q.is(tp, Some(1)), 3000, "départ").await?;
+    w.world.expect_where(|q| q.is(tp, Some(8)), 3000, "chargement").await?;
+    println!("  ✓ de retour à Anchorville, 4400 pièces restantes");
+    println!("
+portail : OK");
     Ok(())
 }
 

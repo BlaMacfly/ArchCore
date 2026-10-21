@@ -23,6 +23,8 @@ pub mod event_function {
 
 /// Type d'objet « personnage » dans les mini EVENT_BASE (0 aucun, 1 objet, 2 modèle d'objet, 3 personnage).
 pub const BASE_TYPE_CHARACTER: i64 = 3;
+/// Type « objet du décor » dans les mini EVENT_BASE.
+pub const BASE_TYPE_OBJECT: i64 = 1;
 /// Les PNJ reçoivent des CID dans une plage séparée de celle des joueurs.
 pub const NPC_CID_BASE: u32 = 0x4000_0000;
 

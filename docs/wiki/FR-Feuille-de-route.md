@@ -31,8 +31,8 @@
   traversée ; piles d'objets séparées, réunies, détruites. Compétences : apprentissage et amélioration
   chez les instructeurs, points de compétence, lancement ; dégâts, zones, renforcements et
   affaiblissements, dégâts sur la durée, soins, passives ; états spéciaux (étourdissement, sommeil,
-  ralentissement…), coups critiques, blocage, dégâts changés en PV ou PM. Groupes (invitation, membres, chef, exclusion, partage de l'expérience). Banque du compte (objets, argent) et échange
-  entre joueurs. Quêtes : prise, progression (monstres, objets de quête), fin et récompenses, abandon. Voir
+  ralentissement…), coups critiques, blocage, dégâts changés en PV ou PM. Groupes (invitation, membres, chef, exclusion, partage de l'expérience). Banque du compte (objets, argent, pages en plus) et
+  échange entre joueurs. Portails de téléportation (trajets payants entre points reliés). Quêtes : prise, progression (monstres, objets de quête), fin et récompenses, abandon. Voir
   [[Protocole réseau|FR-Protocole-reseau]].
 - Extensions ArchRust : négociation de capacités, messages d'AddOn (murmure, `SAY`), et langue du client
   (version 1.1) : le serveur sert les noms des PNJ et des monstres dans la langue choisie, avec repli, et
@@ -56,7 +56,8 @@
 
 1. Valider la création complète d'un personnage en jeu.
 2. Vérifier la visibilité entre joueurs avec deux vrais clients.
-3. Fonctions des PNJ : téléportation ; agrandissement de la banque ; quêtes à objets d'interaction.
+3. Fonctions des PNJ : quêtes à objets d'interaction. Dans ArchRust : fenêtre des portails, achat d'une page
+   de banque.
 4. Compétences : renvoi de dégâts à l'attaquant, compétences des monstres, compétences de groupe ; maîtrises.
 5. Combat : dégâts élémentaires des objets. Objets : raffinage, conversion.
 6. Discussion de groupe, guildes.

@@ -75,9 +75,11 @@ pub fn on_move(ctx: &WorldCtx, st: &mut WorldState, sid: u32, packet: &Packet) {
     if p.dead {
         return;
     }
-    // Un déplacement demandé par le joueur interrompt son attaque et la compétence en préparation.
+    // Un déplacement demandé par le joueur interrompt son attaque, la compétence en préparation et la
+    // course vers un portail.
     p.attack = None;
     p.skills.cast = None;
+    p.portal = None;
     let flags = packet.int(5).unwrap_or(0);
     let dest = packet.vec3(2).filter(Vec3::is_finite);
     // Position : celle que le serveur tient, la marche en cours avancée jusqu'à maintenant. Le vrai client ne
@@ -242,6 +244,36 @@ pub(super) fn set_visible(st: &mut WorldState, viewer: u32, target: u32, visible
         }
     } else if !visible && v.seen_players.remove(&tid) {
         v.send_raw(character_remove_packet(tid));
+    }
+}
+
+/// Fait courir le joueur jusqu'à `dest` sur ordre du serveur (à lui et aux joueurs qui le voient).
+pub fn run_to(st: &mut WorldState, sid: u32, dest: Vec3, now: Instant) {
+    let Some(p) = st.players.get_mut(&sid) else { return };
+    advance(p, now);
+    p.dest = Some(dest);
+    p.move_flags = super::combat::MOVE_FAST;
+    p.moved_at = now;
+    p.dirty = true;
+    broadcast_move(st, sid);
+}
+
+/// Arrête le joueur là où il est (à lui et aux joueurs qui le voient).
+pub fn stop(st: &mut WorldState, sid: u32) {
+    let Some(p) = st.players.get_mut(&sid) else { return };
+    advance(p, Instant::now());
+    p.dest = None;
+    p.dirty = true;
+    broadcast_move(st, sid);
+}
+
+fn broadcast_move(st: &WorldState, sid: u32) {
+    let fields = move_fields(st, sid);
+    let cid = st.players[&sid].ch.id;
+    for (other, o) in &st.players {
+        if *other == sid || o.seen_players.contains(&cid) {
+            o.send(&schema::OPT_CHAR_MOVE, fields.clone());
+        }
     }
 }
 

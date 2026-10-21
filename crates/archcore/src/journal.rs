@@ -68,6 +68,16 @@ pub fn bank_money(db: &Databases, account_id: u32, character: (u32, &str), amoun
     );
 }
 
+/// Page de banque achetée (`page` : 2 pour la deuxième), au prix `price`.
+pub fn bank_page(db: &Databases, account_id: u32, character: (u32, &str), page: i64, price: i64) {
+    write(
+        &db.logs,
+        "de banque",
+        "INSERT INTO log_bank (account_id, character_id, name, action, count, money) VALUES (?,?,?,'page',?,?)",
+        (account_id, character.0, cut(character.1, 48), page, price).into(),
+    );
+}
+
 /// Commande MJ exécutée (ou refusée pour ses arguments), avec sa réponse.
 #[allow(clippy::too_many_arguments)]
 pub fn gm(db: &Databases, account_id: u32, character: (u32, &str), gm_level: i64, command: &str, args: &str, ok: bool, reply: &str) {

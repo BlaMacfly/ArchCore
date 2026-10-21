@@ -490,6 +490,97 @@ pub fn drop_keys(rows: &[(u32, u32, i64, i64, i64)]) -> Vec<String> {
         .collect()
 }
 
+/// Point de téléportation de TeleportPoint.ini.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TeleportPointRow {
+    pub name: String,
+    pub target_type: i64,
+    pub pos: [f64; 3],
+    pub radius_min: f64,
+    pub radius_max: f64,
+    pub region_type: i64,
+    pub special_type: i64,
+    pub use_type: i64,
+    pub groups: Vec<String>,
+    pub target_groups: Vec<String>,
+}
+
+/// Points de TeleportPoint.ini : une section par point ; « Group » (répété) donne les groupes où il sert
+/// d'arrivée, « TargetGroup » ceux vers lesquels il mène, « PointPos » (x:y:z) la position d'un point fixe.
+pub fn parse_teleport_points(text: &str) -> Vec<TeleportPointRow> {
+    parse_ini(text)
+        .iter()
+        .map(|s| {
+            let pos: Vec<f64> = s.first("PointPos").unwrap_or("").split(':').map(|x| js_number(x, 0.0)).collect();
+            let strings = |key: &str| s.all(key).into_iter().filter(|v| !v.is_empty()).map(str::to_string).collect();
+            TeleportPointRow {
+                name: s.id.clone(),
+                target_type: js_number(s.first("PointTargetType").unwrap_or(""), 2.0) as i64,
+                pos: [pos.first().copied().unwrap_or(0.0), pos.get(1).copied().unwrap_or(0.0), pos.get(2).copied().unwrap_or(0.0)],
+                radius_min: num(s.first("RadiusMin")),
+                radius_max: num(s.first("RadiusMax")),
+                region_type: num(s.first("RegionType")) as i64,
+                special_type: num(s.first("SpecialType")) as i64,
+                use_type: num(s.first("UseType")) as i64,
+                groups: strings("Group"),
+                target_groups: strings("TargetGroup"),
+            }
+        })
+        .collect()
+}
+
+/// Objets d'un fichier obj*.ini qui portent un point de téléportation (événement 8, clé « PointName ») :
+/// (objet, point, position de l'objet).
+pub fn parse_portals(text: &str) -> Vec<(u32, String, [f64; 3])> {
+    let mut out = Vec::new();
+    for s in parse_ini(text).iter().filter(|s| is_uint(&s.id)) {
+        let Some(p) = s.first("Position") else { continue };
+        let p: Vec<f64> = p.split(',').map(|x| js_number(x, 0.0)).collect();
+        let pos = [p.first().copied().unwrap_or(0.0), p.get(1).copied().unwrap_or(0.0), p.get(2).copied().unwrap_or(0.0)];
+        let mut teleport = false;
+        for (k, val) in &s.order {
+            match k.as_str() {
+                "Function" => teleport = val.trim() == "8",
+                "PointName" if teleport && !val.is_empty() => out.push((s.id.parse().unwrap(), val.clone(), pos)),
+                _ => {}
+            }
+        }
+    }
+    out
+}
+
+/// Prix des trajets de TeleportFee.txt : (départ, arrivée, prix) ; un couple répété garde sa dernière ligne.
+pub fn parse_teleport_fees(text: &str) -> Vec<(String, String, i64)> {
+    let (h, rows) = parse_tsv(text);
+    let c = ["start_portal", "finish_portal", "cost"].map(|n| h.iter().position(|x| x == n));
+    let cell = |r: &[String], i: Option<usize>| i.and_then(|i| r.get(i)).map(|s| s.trim().to_string()).unwrap_or_default();
+    let mut fees: Vec<(String, String, i64)> = Vec::new();
+    for r in &rows {
+        let (from, to) = (cell(r, c[0]), cell(r, c[1]));
+        let cost = cell(r, c[2]);
+        let fee = js_number(&cost, -1.0) as i64;
+        if from.is_empty() || to.is_empty() || cost.is_empty() || fee < 0 {
+            continue;
+        }
+        fees.retain(|(a, b, _)| !(*a == from && *b == to));
+        fees.push((from, to, fee));
+    }
+    fees
+}
+
+/// Prix des pages de banque en plus (bankslotprice.txt) : (page, prix), -1 pour une page pas en vente.
+pub fn parse_bank_slot_prices(text: &str) -> Vec<(u8, i64)> {
+    let (h, rows) = parse_tsv(text);
+    let c = ["Slot", "Price"].map(|n| h.iter().position(|x| x == n));
+    rows.iter()
+        .filter_map(|r| {
+            let cell = |i: Option<usize>| i.and_then(|i| r.get(i)).map(|s| s.trim().to_string()).unwrap_or_default();
+            let slot = js_number(&cell(c[0]), 0.0);
+            (slot >= 1.0 && slot <= 255.0).then(|| (slot as u8, js_number(&cell(c[1]), -1.0) as i64))
+        })
+        .collect()
+}
+
 async fn import_loot(db: &Databases, server: &Source) -> anyhow::Result<()> {
     if server.exists("itemdroptable.txt") {
         let rows = parse_monster_drops(&server.read("itemdroptable.txt")?);
@@ -778,6 +869,46 @@ async fn import_all(db: &Databases, src: &Source) -> anyhow::Result<()> {
         println!("✓ region_template : {n} ; resurrection_point : {m} (sur {} fichier(s) obj*.ini)", files.len());
     }
 
+    // ---------------------------------------------------------------- TeleportPoint.ini, obj*.ini, TeleportFee.txt (portails)
+    if src.exists("TeleportPoint.ini") {
+        let points = parse_teleport_points(&src.read("TeleportPoint.ini")?);
+        let out: Vec<Vec<Value>> = points
+            .iter()
+            .map(|p| {
+                let list = |l: &Vec<String>| serde_json::to_string(l).unwrap();
+                vec![
+                    v(p.name.clone()), v(p.target_type), v(p.pos[0]), v(p.pos[1]), v(p.pos[2]), v(p.radius_min), v(p.radius_max),
+                    v(p.region_type), v(p.special_type), v(p.use_type), v(list(&p.groups)), v(list(&p.target_groups)),
+                ]
+            })
+            .collect();
+        let n = replace(db, "teleport_point", "INSERT INTO teleport_point (name,target_type,pos_x,pos_y,pos_z,radius_min,radius_max,region_type,special_type,use_type,point_groups,target_groups) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", out).await?;
+        let mut files: Vec<String> = std::fs::read_dir(&src.0)?
+            .filter_map(|e| e.ok().and_then(|e| e.file_name().to_str().map(str::to_string)))
+            .filter(|n| n.starts_with("obj") && n.ends_with(".ini"))
+            .collect();
+        files.sort();
+        let mut portals: std::collections::BTreeMap<u32, (String, [f64; 3])> = std::collections::BTreeMap::new();
+        for f in &files {
+            for (object, point, pos) in parse_portals(&src.read(f)?) {
+                portals.insert(object, (point, pos));
+            }
+        }
+        let out: Vec<Vec<Value>> = portals.iter().map(|(id, (point, pos))| vec![v(*id), v(point.clone()), v(pos[0]), v(pos[1]), v(pos[2])]).collect();
+        let m = replace(db, "teleport_object", "INSERT INTO teleport_object (object_id,point,pos_x,pos_y,pos_z) VALUES (?,?,?,?,?)", out).await?;
+        let fees = if src.exists("TeleportFee.txt") { parse_teleport_fees(&src.read("TeleportFee.txt")?) } else { Vec::new() };
+        let out: Vec<Vec<Value>> = fees.into_iter().map(|(a, b, fee)| vec![v(a), v(b), v(fee)]).collect();
+        let f = replace(db, "teleport_fee", "INSERT INTO teleport_fee (source,destination,fee) VALUES (?,?,?)", out).await?;
+        println!("✓ teleport_point : {n} ; teleport_object : {m} ; teleport_fee : {f}");
+    }
+
+    // ---------------------------------------------------------------- bankslotprice.txt (pages de banque)
+    if src.exists("bankslotprice.txt") {
+        let out: Vec<Vec<Value>> = parse_bank_slot_prices(&src.read("bankslotprice.txt")?).into_iter().map(|(s, p)| vec![v(s), v(p)]).collect();
+        let n = replace(db, "bank_slot_price", "INSERT INTO bank_slot_price (slot,price) VALUES (?,?)", out).await?;
+        println!("✓ bank_slot_price : {n}");
+    }
+
     // ---------------------------------------------------------------- itemdatatable.txt (prix, piles)
     {
         let (header, rows) = parse_tsv(&src.read("itemdatatable.txt")?);
@@ -883,6 +1014,20 @@ mod tests {
         assert_eq!(b.len(), 1);
         assert_eq!((b[0].town.as_str(), b[0].binding_type, b[0].race, b[0].class, b[0].pos[0]), ("Delfaras", 1, 2, 0, -579188.8));
         assert_eq!(b[0].object, "1");
+    }
+
+    #[test]
+    fn portails_et_pages_de_banque() {
+        let pts = parse_teleport_points("[Village]\nModuleData1=AgpmEventTeleport\nRadiusMin=400\nRadiusMax=600\nPointTargetType=2\nPointPos=0:0:0\nUseType=3\nGroup=1.A\nGroup=2.B\nTargetGroup=1.A\nEnumEnd=0\n[Fixe]\nPointTargetType=1\nPointPos=10:20:30\n");
+        assert_eq!(pts.len(), 2);
+        assert_eq!((pts[0].name.as_str(), pts[0].radius_min, pts[0].radius_max, pts[0].use_type), ("Village", 400.0, 600.0, 3));
+        assert_eq!((pts[0].groups.clone(), pts[0].target_groups.clone()), (vec!["1.A".to_string(), "2.B".to_string()], vec!["1.A".to_string()]));
+        assert_eq!((pts[1].target_type, pts[1].pos), (1, [10.0, 20.0, 30.0]));
+        let obj = "[19990004]\nPosition=-762800.0,1600.0,-578820.0\nFunction=19\nPointName=Leurre\nFunction=8\nEventID=1\nPointName=Village\nTeleportEnd=0\n[abc]\nPosition=0,0,0\nFunction=8\nPointName=X\n";
+        assert_eq!(parse_portals(obj), vec![(19_990_004, "Village".to_string(), [-762800.0, 1600.0, -578820.0])]);
+        let fees = parse_teleport_fees("start_portal\tfinish_portal\tcost\r\nA\tB\t500 \r\nA\tB\t700\r\nB\tA\t\r\n");
+        assert_eq!(fees, vec![("A".to_string(), "B".to_string(), 700)]);
+        assert_eq!(parse_bank_slot_prices("Slot\tPrice\t\r\n1\t1000000\t# commentaire\r\n2\t-1\t\r\n"), vec![(1, 1_000_000), (2, -1)]);
     }
 
     #[test]
