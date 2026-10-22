@@ -162,6 +162,8 @@ pub struct Player {
     pub language: String,
     /// Demande faite à un portail de téléportation, en attendant d'être à portée.
     pub portal: Option<portal::Pending>,
+    /// Multiplicateur de la vitesse de déplacement réglé par /speed (1 : normal), oublié à la déconnexion.
+    pub gm_speed: i32,
 }
 
 impl Player {
@@ -501,6 +503,7 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
             quests,
             language,
             portal: None,
+            gm_speed: 1,
         },
     );
     st.by_cid.insert(cid, s.id());

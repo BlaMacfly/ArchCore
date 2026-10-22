@@ -121,6 +121,11 @@ pub fn recompute_factors(ctx: &WorldCtx, p: &mut Player) {
     f.status[7] = old.status[7];
     f.dirt = old.dirt;
     super::effects::apply(&mut f, &super::effects::total(&p.skills.effects));
+    // Vitesse de déplacement multipliée par /speed (MJ), jusqu'à la déconnexion.
+    if p.gm_speed > 1 {
+        f.status[8] = f.status[8].saturating_mul(p.gm_speed);
+        f.status[9] = f.status[9].saturating_mul(p.gm_speed);
+    }
     f.point[POINT_HP] = f.point[POINT_HP].min(f.point_max[0]);
     f.point[1] = f.point[1].min(f.point_max[1]);
     p.factors = f;

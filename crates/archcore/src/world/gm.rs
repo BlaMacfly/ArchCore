@@ -227,6 +227,9 @@ pub fn format_duration(total: i64) -> String {
 // ---------------------------------------------------------------------------------------------
 // Table des commandes
 // ---------------------------------------------------------------------------------------------
+/// Multiplicateur maximal de /speed.
+pub const MAX_GM_SPEED: i64 = 10;
+
 pub struct CommandDef {
     pub name: &'static str,
     pub level: i64,
@@ -255,6 +258,8 @@ pub static COMMANDS: &[CommandDef] = &[
     CommandDef { name: "invincible", level: 2, args: Some(&["int?"]), usage: "/invincible <0|1>" },
     CommandDef { name: "rename_char", level: 2, args: Some(&["name", "name"]), usage: "/rename_char \"ancien\" \"nouveau\"" },
     CommandDef { name: "create", level: 3, args: Some(&["name", "int", "int?", "int?"]), usage: "/create \"nom\" <TID> <quantité> <0|1>" },
+    CommandDef { name: "additem", level: 3, args: Some(&["int", "int?"]), usage: "/additem <TID> <quantité>" },
+    CommandDef { name: "speed", level: 2, args: Some(&["int"]), usage: "/speed <1-10>" },
     CommandDef { name: "questreset", level: 3, args: Some(&["int"]), usage: "/questreset <TID>" },
     CommandDef { name: "recast", level: 3, args: Some(&[]), usage: "/recast" },
     CommandDef { name: "level", level: 3, args: Some(&["int", "name?"]), usage: "/level <niveau> \"nom\"" },
@@ -394,6 +399,30 @@ async fn run(world: &Arc<World>, st: &mut WorldState, sid: u32, cmd: &CommandDef
                 Err(_) => err(format!("inventaire plein pour {name}")),
                 Ok((item, ch)) => Ok(format!("{qty} × {item} (TID {tid}) donné(s) à {ch}{}.", if bound { ", non échangeable(s)" } else { "" })),
             }
+        }
+        "additem" => {
+            // Raccourci de /create sur soi : objet échangeable.
+            let (tid, qty) = (a[0].int().unwrap_or(0), a[1].int().unwrap_or(1));
+            if !(1..=9999).contains(&qty) {
+                return Ok(err("quantité entre 1 et 9999"));
+            }
+            let me = st.players[&sid].ch.name.clone();
+            match create_item(ctx, st, &me, tid as u32, qty, false).await? {
+                Err("item") => err(format!("objet inconnu : TID {tid}")),
+                Err(_) => err("inventaire plein"),
+                Ok((item, _)) => Ok(format!("{qty} × {item} (TID {tid}) ajouté(s) à votre inventaire.")),
+            }
+        }
+        "speed" => {
+            let n = a[0].int().unwrap_or(0);
+            if !(1..=MAX_GM_SPEED).contains(&n) {
+                return Ok(err(format!("multiplicateur entre 1 et {MAX_GM_SPEED}")));
+            }
+            st.players.get_mut(&sid).unwrap().gm_speed = n as i32;
+            super::equipment::refresh_factors(ctx, st, sid);
+            let p = &st.players[&sid];
+            info!("[mj] {} : vitesse de déplacement ×{n}", p.ch.name);
+            Ok(format!("Vitesse de déplacement ×{n} (course {}).", p.factors.status[9]))
         }
         "money" => {
             let amount = a[0].int().unwrap_or(-1);

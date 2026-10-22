@@ -19,6 +19,9 @@
 //!   archcore sim party [A… B…]                                groupe SimA + SimB : invitation (nom inconnu, puis CID), acceptation, liste, réglage, chef, exclusion
 //!   archcore sim trade [A… B…]                                échange GmTest ↔ SimA : objet et argent, verrou, échange ; refus ; A compte MJ
 //!   archcore sim quest [compte] [mdp] [perso]                 quêtes : prendre, refus, terminer (objets rapportés, récompense), abandonner ; compte MJ
+//!   archcore sim portal [compte] [mdp] [perso]                portail d'Anchorville : demande de loin, trajet payant, trajet non relié refusé, retour ; compte MJ
+//!   archcore sim guild [A… B…]                                guilde GmTest + SimA : création, invitation, discussion, annonce, départ, exclusion, dissolution
+//!   archcore sim gm [compte] [mdp] [perso]                    commandes MJ d'ArchCore : /speed (×5, refus au-delà de 10, retour) et /additem ; compte MJ
 //!   archcore sim status [compte] [mdp] [perso]                état spécial : Shield Bash étourdit un Ver vert (champ 17), puis l'état retombe ; compte MJ, personnage GmEffets
 //!   archcore sim effects [compte] [mdp] [perso]               passive (défense), renforcement (vitesse d'attaque), zone, affaiblissement d'un Ver vert ; compte MJ, personnage GmEffets
 //! ```
@@ -60,6 +63,7 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         Some("lang") => Box::pin(lang::run(&a(1, "sima"), &a(2, "sima"), &a(3, "SimA"))).await,
         Some("bank") => Box::pin(bank(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("portal") => Box::pin(portal(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
+        Some("gm") => Box::pin(gm_commands(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("guild") => Box::pin(guild(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("party") => Box::pin(party(&a(1, "sima"), &a(2, "sima"), &a(3, "SimA"), &a(4, "simb"), &a(5, "simb"), &a(6, "SimB"))).await,
         Some("trade") => Box::pin(private_trade(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
@@ -73,7 +77,7 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         Some("potion") => Box::pin(potion(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("equip") => Box::pin(equip(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("combat") => Box::pin(combat(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "Green Worm"))).await,
-        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol|bag|skill|effects|status|bank|portal|guild|trade|party|quest [arguments]"),
+        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol|bag|skill|effects|status|bank|portal|guild|gm|trade|party|quest [arguments]"),
     }
 }
 
@@ -1720,6 +1724,57 @@ fn factors_max_points(bytes: &[u8]) -> Option<(i64, i64)> {
     let f = decode_mini(&mini::CHAR_FACTORS, bytes).ok()?;
     let max = decode_mini(&mini::FACTOR_POINTMAX, f.bytes(4)?).ok()?;
     Some((max.int(0)?, max.int(1)?))
+}
+
+/// Vitesse de course d'un mini-paquet de facteurs complet (sous-paquet 1, valeur 9).
+fn factors_run_speed(bytes: &[u8]) -> Option<i64> {
+    let f = decode_mini(&mini::CHAR_FACTORS, bytes).ok()?;
+    decode_mini(&mini::FACTOR_STATUS, f.bytes(1)?).ok()?.int(9)
+}
+
+/// Commandes MJ ajoutées par ArchCore : /speed (vitesse de déplacement ×1 à ×10) et /additem (objet sur soi).
+async fn gm_commands(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
+    const POTION: i64 = 190; // Small Life Potion
+    let cfg = crate::config::load()?;
+    let (it, ch, c) = (&schema::ITEM, &schema::CHATTING, &schema::CHARACTER);
+    let say = |cid: u32, text: &str| Fields::new(ch).with(0, 0).with(1, cid).with(2, chat_type::NORMAL).with(6, crate::tools::to_cp1252(text));
+    let speed = |q: &Recv| q.is(c, Some(1)) && q.fields().bytes(7).and_then(factors_run_speed).is_some();
+    let reply = |q: &Recv| q.ptype == ch.id && q.int(2) == Some(chat_type::SYSTEM);
+
+    step(&format!("{char_name} entre en jeu"));
+    let mut w = enter_world(&cfg, user, pass, char_name, "").await?;
+
+    step("/speed 1, puis 5, refus au-delà de 10, retour à 1");
+    // La réponse donne la course obtenue ; les facteurs envoyés avant elle doivent porter la même valeur.
+    let course = |q: &Recv| q.fields().text(6).and_then(|t| t.rsplit("course ").next().map(|n| n.trim_end_matches(").").trim().parse::<i64>().ok())).flatten();
+    w.world.send(ch, say(w.cid, "/speed 1")).await?;
+    let base = course(&w.world.expect_where(|q| reply(q) && q.fields().text(6).is_some_and(|t| t.contains("×1")), 3000, "réponse ×1").await?).unwrap_or(0);
+    w.world.send(ch, say(w.cid, "/speed 5")).await?;
+    let fast = w.world.expect_where(|q| speed(q) && q.fields().bytes(7).and_then(factors_run_speed) == Some(base * 5), 3000, "facteurs à ×5").await?.fields().bytes(7).and_then(factors_run_speed).unwrap_or(0);
+    anyhow::ensure!(base > 0 && fast == base * 5, "course {base} → {fast}");
+    println!("  ✓ course {base} → {fast}");
+    w.world.send(ch, say(w.cid, "/speed 11")).await?;
+    let no = w.world.expect_where(|q| reply(q) && q.fields().text(6).is_some_and(|t| t.contains("multiplicateur")), 3000, "refus").await?;
+    println!("  ✓ refusé : {}", no.fields().text(6).unwrap_or_default());
+    w.world.send(ch, say(w.cid, "/speed 1")).await?;
+    let back = w.world.expect_where(|q| speed(q) && q.fields().bytes(7).and_then(factors_run_speed) == Some(base), 3000, "retour à ×1").await?.fields().bytes(7).and_then(factors_run_speed).unwrap_or(0);
+    anyhow::ensure!(back == base, "course {back} au lieu de {base}");
+    println!("  ✓ course revenue à {back}");
+
+    step("/additem 190 3");
+    w.world.send(ch, say(w.cid, &format!("/additem {POTION} 3"))).await?;
+    let made = w.world.expect_where(|q| q.is(it, None) && q.int(3) == Some(POTION) && q.int(1) == Some(2), 3000, "potions ajoutées").await?;
+    let iid = made.int(2).unwrap_or(0);
+    let ok = w.world.expect_where(|q| reply(q) && q.fields().text(6).is_some_and(|t| t.contains("ajouté")), 3000, "réponse").await?;
+    println!("  ✓ {}", ok.fields().text(6).unwrap_or_default());
+    w.world.send(ch, say(w.cid, "/additem 999999999")).await?;
+    w.world.expect_where(|q| reply(q) && q.fields().text(6).is_some_and(|t| t.contains("objet inconnu")), 3000, "objet inconnu").await?;
+    println!("  ✓ TID inconnu refusé");
+    // La pile ajoutée est détruite.
+    w.world.send(it, Fields::new(it).with(0, 21).with(2, iid)).await?;
+    w.world.expect_where(|q| q.is(it, Some(1)) && q.int(2) == Some(iid), 3000, "pile détruite").await?;
+    println!("\ncommandes MJ : OK");
+    Ok(())
 }
 
 /// Niveau d'un mini-paquet de facteurs complet (sous-paquet 1, valeur 7).

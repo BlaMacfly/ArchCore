@@ -12,7 +12,7 @@ dossier désigné par `ARCHCORE_CONF_DIR` (voir [[Configuration|FR-Configuration
 | `archcore decrypt [source] [destination]` | Déchiffre `Game/ini` (RC4, MD5(« 1111 »)) vers `data/client-ini` |
 | `archcore import [dossier] [--server dossier]` | Importe `data/client-ini` dans `archcore_world` (CP949 → UTF-8) et la hauteur du sol depuis `world/b*x.ma2` du dossier Game (`map_height`, quelques minutes) ; avec les tables du serveur d'origine (`--server`, ou `data/server-ini` s'il existe), importe aussi les apparitions de monstres et la carte serveur ; applique enfin la couche de contenu `content/*.sql` et note chaque source dans `import_run` |
 | `archcore content` | Réapplique la couche de contenu `content/*.sql` à la base monde, sans réimporter (voir [[Base de données\|FR-Base-de-donnees]]) |
-| `archcore sim client\|move\|shop\|addon\|lang\|combat\|equip\|potion\|scroll\|patrol\|bag\|skill\|effects\|bank\|portal\|guild\|trade\|quest …` | Clients simulés (voir plus bas) |
+| `archcore sim client\|move\|shop\|addon\|lang\|combat\|equip\|potion\|scroll\|patrol\|bag\|skill\|effects\|bank\|portal\|guild\|gm\|trade\|quest …` | Clients simulés (voir plus bas) |
 | `archcore i18n strings [Game]` | Liste les textes encore en anglais dans `data/i18n/pending-en.json` |
 | `archcore i18n coverage [Game]` | Mesure la part déjà traduite de `ini_fr` |
 | `archcore i18n apply [--ascii] [--dry]` | Applique la mémoire de traduction au client (voir [[Traduction|FR-Traduction]]) |
@@ -136,6 +136,7 @@ ARCHCORE_CONF_DIR=config/test archcore sim portal [compte] [mdp] [personnage]
 ARCHCORE_CONF_DIR=config/test archcore sim trade [compteA mdpA persoA compteB mdpB persoB]
 ARCHCORE_CONF_DIR=config/test archcore sim party [compteA mdpA persoA compteB mdpB persoB]
 ARCHCORE_CONF_DIR=config/test archcore sim guild [compteA mdpA persoA compteB mdpB persoB]
+ARCHCORE_CONF_DIR=config/test archcore sim gm [compte] [mdp] [personnage]
 ```
 
 `sim bank` (compte MJ `gmtest`) vérifie le refus d'un dépôt sans gardien, ouvre la banque chez Holly (au
@@ -151,7 +152,9 @@ liste des membres chez les deux), la discussion de groupe, le réglage de l'exp�
 l'autre), le passage de chef puis l'exclusion, qui dissout le groupe. `sim guild` (GmTest chef, SimA) refuse
 un nom à espace, crée SimGuild (10 000 pièces), invite SimA qui accepte, vérifie la discussion de guilde et
 l'annonce, la demande de départ acceptée par le chef, le retour puis l'exclusion, la guilde retrouvée à la
-reconnexion, enfin la dissolution (mauvais mot de passe refusé).
+reconnexion, enfin la dissolution (mauvais mot de passe refusé). `sim gm` (compte MJ `gmtest`) vérifie `/speed` (course ×5
+dans les facteurs reçus, refus au-delà de 10, retour à ×1) et `/additem` (potions ajoutées, TID inconnu
+refusé), puis détruit la pile.
 
 ## Test des quêtes
 
