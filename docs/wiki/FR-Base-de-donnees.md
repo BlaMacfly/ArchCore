@@ -4,6 +4,9 @@ ArchCore utilise trois bases MariaDB principales, plus une base de journaux, cr�
 `archcore db-init` à partir de `sql/` (base de référence et migrations, voir plus bas).
 Toutes sont en `utf8mb4`.
 
+> **Éditeur.** [ArchForge](https://github.com/BlaMacfly/ArchForge) modifie le contenu de ces bases sans écrire de
+> SQL et peut ajouter ses changements à la couche de contenu (`content/*.sql`), qui survit aux imports.
+
 ## `archcore_auth` — comptes et mondes (`sql/001_auth.sql`, `sql/migrations/auth/`)
 
 | Table | Contenu |

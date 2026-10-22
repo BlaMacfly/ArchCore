@@ -81,6 +81,14 @@ The [wiki](https://github.com/BlaMacfly/ArchCore/wiki) covers installation, conf
 architecture, the network protocol, the database, the tools and the translation. The same pages
 are in [`docs/wiki`](docs/wiki).
 
+### Ecosystem
+
+| Project | Role |
+|---|---|
+| [ArchRust](https://github.com/BlaMacfly/ArchCore/tree/client) (`client` branch) | 64-bit ArchLord client rewritten in Rust, with Lua add-ons |
+| [ArchCoreAdmin](https://github.com/BlaMacfly/ArchCoreAdmin) | In-game GM panel: a Lua add-on for ArchRust with a button for every ArchCore GM command, server replies read back into the panel |
+| [ArchForge](https://github.com/BlaMacfly/ArchForge) | Database editor: creatures, NPCs, items, shops, loot, quests, skills, teleports, with SQL preview and export to the content layer (`content/*.sql`) |
+
 ### Community
 
 Join the official Discord to follow the project, ask questions and offer help:
@@ -192,6 +200,14 @@ Pour connecter le jeu, voir la page [Installation](https://github.com/BlaMacfly/
 Le [wiki](https://github.com/BlaMacfly/ArchCore/wiki) détaille l'installation, la configuration,
 l'architecture du code, le protocole réseau, la base de données, les outils et la traduction.
 Les mêmes pages sont dans [`docs/wiki`](docs/wiki).
+
+### Écosystème
+
+| Projet | Rôle |
+|---|---|
+| [ArchRust](https://github.com/BlaMacfly/ArchCore/tree/client) (branche `client`) | Client ArchLord 64 bits réécrit en Rust, avec AddOns Lua |
+| [ArchCoreAdmin](https://github.com/BlaMacfly/ArchCoreAdmin) | Panneau MJ en jeu : un AddOn Lua pour ArchRust, avec un bouton pour chaque commande MJ d'ArchCore et les réponses du serveur relues dans le panneau |
+| [ArchForge](https://github.com/BlaMacfly/ArchForge) | Éditeur de la base de données : créatures, PNJ, objets, boutiques, butin, quêtes, compétences, téléportation, avec aperçu du SQL et export vers la couche de contenu (`content/*.sql`) |
 
 ### Communauté
 

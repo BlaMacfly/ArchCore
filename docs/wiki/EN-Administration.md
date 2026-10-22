@@ -7,6 +7,9 @@ This page describes the game master (GM) commands the client can send, and how t
 > the matching game systems (arena, events, rifts…). Progress is tracked on the
 > [[Roadmap|EN-Roadmap]] page.
 
+> **GM panel.** With the ArchRust client, the [ArchCoreAdmin](https://github.com/BlaMacfly/ArchCoreAdmin) add-on
+> offers a button for each of these commands and reads the server replies back.
+
 ## 1. Give GM rights to an account
 
 The GM level is stored in the `gm_level` column of the `archcore_auth.account` table. A value of 0

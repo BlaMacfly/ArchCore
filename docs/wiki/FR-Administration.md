@@ -7,6 +7,9 @@ Cette page décrit les commandes de maître du jeu (MJ) que le client sait envoy
 > elles attendent les systèmes de jeu correspondants (arène, événements, failles…). Le suivi se fait
 > sur la page [[Feuille de route|FR-Feuille-de-route]].
 
+> **Panneau MJ.** Avec le client ArchRust, l'AddOn [ArchCoreAdmin](https://github.com/BlaMacfly/ArchCoreAdmin)
+> propose un bouton pour chacune de ces commandes et relit les réponses du serveur.
+
 ## 1. Donner les droits MJ à un compte
 
 Le niveau MJ est stocké dans la colonne `gm_level` de la table `archcore_auth.account`. La valeur 0

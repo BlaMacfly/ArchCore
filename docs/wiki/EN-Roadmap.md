@@ -71,8 +71,9 @@
   PlayerBots of World of Warcraft servers and adapted to ArchLord (movement, combat, parties, trade).
   To start once monsters, combat and parties work.
 - **Add-ons built into the client**: ship ready-to-use add-ons with ArchRust, built into the client and
-  enabled from the game, on top of the Lua add-on system already in place.
-- **Database editor**: a free graphical tool for Windows, Linux and macOS that creates and edits the world
+  enabled from the game, on top of the Lua add-on system already in place. First add-on:
+  [ArchCoreAdmin](https://github.com/BlaMacfly/ArchCoreAdmin), the GM panel.
+- **Database editor**: under way in [ArchForge](https://github.com/BlaMacfly/ArchForge) — a free graphical tool for Windows, Linux and macOS that creates and edits the world
   content without writing SQL: creatures and their spawns, vendors, trainers, quests, items, loot tables,
   dialogs, conditions and monster behaviour. Every field is explained, selectors help pick values and flags,
   and the generated SQL query is shown (only the changes, or the whole entry for a backup), to copy or to run

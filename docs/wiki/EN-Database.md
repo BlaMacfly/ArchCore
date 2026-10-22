@@ -3,6 +3,9 @@
 ArchCore uses three main MariaDB databases, plus a log database, created and updated by `archcore db-init` from
 `sql/` (baseline and migrations, see below). All use `utf8mb4`.
 
+> **Editor.** [ArchForge](https://github.com/BlaMacfly/ArchForge) edits the content of these databases without
+> writing SQL and can add its changes to the content layer (`content/*.sql`), which survives imports.
+
 ## `archcore_auth` — accounts and worlds (`sql/001_auth.sql`, `sql/migrations/auth/`)
 
 | Table | Content |

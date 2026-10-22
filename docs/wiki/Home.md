@@ -21,6 +21,14 @@
 | [Épisode du jeu (où se situe ArchCore)](FR-Episode) | [Game episode (where ArchCore stands)](EN-Episode) |
 | [État et feuille de route](FR-Feuille-de-route) | [Status and roadmap](EN-Roadmap) |
 
+## Écosystème / Ecosystem
+
+| Projet / Project | 🇫🇷 Rôle | 🇬🇧 Role |
+|---|---|---|
+| [ArchRust](https://github.com/BlaMacfly/ArchCore/tree/client) | Client ArchLord 64 bits en Rust (branche `client`) | 64-bit ArchLord client in Rust (`client` branch) |
+| [ArchCoreAdmin](https://github.com/BlaMacfly/ArchCoreAdmin) | Panneau MJ en jeu (AddOn Lua pour ArchRust) | In-game GM panel (Lua add-on for ArchRust) |
+| [ArchForge](https://github.com/BlaMacfly/ArchForge) | Éditeur de la base de données, export vers `content/*.sql` | Database editor, export to `content/*.sql` |
+
 **💬 Discord** : https://discord.gg/JCyrsTm7fR
 
 > ArchLord est une marque de son éditeur. ArchCore est indépendant et ne distribue aucune donnée du jeu.
