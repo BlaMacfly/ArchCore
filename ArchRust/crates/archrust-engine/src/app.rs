@@ -167,6 +167,9 @@ pub struct App {
     /// Options persistées (`saved-variables/options.toml`) et drapeau « à enregistrer ».
     options: ClientOptions,
     options_dirty: bool,
+    /// Packs de ressources tels que le joueur les règle dans les Options (copie de ceux d'`assets`,
+    /// enregistrée dans `packs.toml` et appliquée au prochain démarrage).
+    packs: archrust_patch::PatchStack,
     /// Musique imposée par un AddOn (`PlayMusic`) : `Some(Some(chemin))` ; `Some(None)` = coupée ;
     /// `None` = musique automatique (écrans ou région).
     music_override: Option<Option<String>>,
@@ -194,7 +197,10 @@ pub struct App {
 
 impl App {
     pub fn new(config: Config) -> Result<Self> {
-        let assets = Arc::new(Assets::new(config.game_dir.clone(), &config.patch_dirs));
+        // Packs de ressources, avec les préférences du joueur (`saved-variables/packs.toml`).
+        let pack_settings = archrust_patch::PackSettings::load(&config.saved_dir);
+        let assets = Arc::new(Assets::new(config.game_dir.clone(), &config.patch_dirs).with_pack_settings(&pack_settings));
+        let packs = assets.patches.clone();
         // Comme sous WoW, les AddOns se chargent à l'entrée en jeu (voir `enter_world_addons`).
         let addons = Self::new_addon_manager(&config)?;
         log::info!(
@@ -274,6 +280,7 @@ impl App {
             addon_glue: Default::default(),
             audio,
             zones: Zones::default(),
+            packs,
             options,
             options_dirty: false,
             music_override: None,
@@ -1553,6 +1560,9 @@ impl App {
         let (cmd, arg) = text.split_once(' ').unwrap_or((text, ""));
         match cmd {
             "/reload" | "/rl" => self.reload_addons(),
+            // Fenêtre Options du client (son, langue, packs de ressources), comme la touche Échap ;
+            // « /options » appartient déjà à l'AddOn ArchAce.
+            "/reglages" | "/réglages" => self.ui.show_options = !self.ui.show_options,
             // /music <chemin> | off | auto : musique forcée (comme PlayMusic / StopMusic des AddOns).
             "/music" => {
                 let arg = arg.trim();
@@ -2136,12 +2146,15 @@ impl App {
                 }),
             };
             let language_before = self.options.language.clone();
+            let mut pack_action = ui::PackAction::None;
             if ui::options_panel(
                 ctx,
                 &mut self.ui,
                 &mut self.options.audio,
                 &status,
                 &mut self.options.language,
+                &mut self.packs,
+                &mut pack_action,
             ) {
                 self.audio.set_settings(&self.options.audio);
                 self.options_dirty = true;
@@ -2153,6 +2166,20 @@ impl App {
                         phase == Phase::InWorld,
                     );
                 }
+            }
+            match pack_action {
+                ui::PackAction::None => {}
+                ui::PackAction::Changed => match self.packs.settings().save(&self.config.saved_dir) {
+                    Ok(()) => self.ui.packs_restart = true,
+                    Err(e) => log::warn!("packs.toml : {e}"),
+                },
+                ui::PackAction::Reset => match archrust_patch::PackSettings::reset(&self.config.saved_dir) {
+                    Ok(()) => {
+                        self.packs.apply_settings(&archrust_patch::PackSettings::default());
+                        self.ui.packs_restart = true;
+                    }
+                    Err(e) => log::warn!("packs.toml : {e}"),
+                },
             }
         });
         gpu.egui_state

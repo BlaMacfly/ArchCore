@@ -37,7 +37,7 @@ and the [ArchCore](https://github.com/BlaMacfly/ArchCore) server emulator. This 
 | World objects (`ini/obj%05d.ini` + `objecttemplate.ini`, `object` pack) | ✅ Anchorville buildings, trees, fences, props; LOD and animations remain |
 | Character models (`charactertemplateclient.ini` rule → hexadecimal `a/b/c` files) | ✅ player and the 18 Anchorville NPCs |
 | Lua AddOns (`.toc`, frames, events, slash commands, timers, SavedVariables, LibStub + Ace3, extended API) | ✅ see [docs/ADDONS.en.md](docs/ADDONS.en.md) |
-| HD patches (`patch.toml`, folder or `.ahp`, priorities, patterns) | ✅ textures/models/files |
+| Resource packs (`patch.toml`, folder or `.ahp`; graphics and sounds; priorities, fallback, "Packs de ressources" section of the Options, `saved-variables/packs.toml`) | ✅ textures, models, files, sounds; see [docs/RESOURCE-PACKS.en.md](docs/RESOURCE-PACKS.en.md); shaders not applied yet |
 | Movement (click to walk, `/goto`), terrain height, packet 0x40 and stop on arrival | ✅ verified with two clients on ArchCore ([screenshot](docs/captures/deplacement.png)) |
 | Optimized action 0x41 | ✅ attack request, received hits (result, damage, remaining HP), see “Combat” |
 | Inventory and equipment (0x04 packets: wear, take off, move, merge and split stacks, use potions and scrolls, destroy, round-trip return; Archonia character window `Character_Status` and its slots, `C` or `/perso`; drag and drop, right click, Shift + click; `/utiliser`, `/porter`, `/ranger`, `/detruire`, `/retour`) | ✅ verified on ArchCore (`examples/items.rs`, graphical client: [screenshot](docs/captures/personnage.png)); drag and drop not yet tried with the mouse; weapons and shields are not yet attached to the hand bones, so they are not drawn on the player |
@@ -157,7 +157,9 @@ extensions the client works as before.
 
 Full reference: **[docs/ADDONS.en.md](docs/ADDONS.en.md)**. Sample: `addons/ArchAce` (`/archace`).
 
-## HD patches
+## Resource packs (HD patches)
+
+Full guide to create, install and share a pack: [docs/RESOURCE-PACKS.en.md](docs/RESOURCE-PACKS.en.md).
 
 A patch is a folder (or an `.ahp` archive) with a `patch.toml`:
 
@@ -182,8 +184,10 @@ path = "ini/npc.ini"
 file = "npc.ini"
 ```
 
-Patches in the `patches/` folder are stacked by decreasing priority; the first one providing a
-resource wins, otherwise the original game data is used. glTF/GLB `[[models]]` are drawn in place of
+Community packs (`patches/`) come before the official pack (`free-assets/`), each by decreasing
+priority; the first one providing a resource wins, otherwise the original game data is used. A missing
+or unreadable file hands over to the next pack. In game, Options (Escape or `/reglages`) → "Packs de
+ressources" enables, disables and orders the packs (on the next start). glTF/GLB `[[models]]` are drawn in place of
 the client's model (characters, NPCs, `world/D272,272.dff` sectors) with their own textures;
 `archrust inspect gltf <file>` describes a glTF file.
 

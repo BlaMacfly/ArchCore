@@ -192,6 +192,27 @@ pub const CLIENT_DIR_CANDIDATES: &[&str] = &[
 /// Résout le dossier du client : le chemin explicite s'il est donné, sinon le dossier de
 /// l'exécutable s'il ressemble à un dossier `Game` (présence de `character/` ou d'`ini/` :
 /// `ArchRust.exe` posé à côté d'`Archonia.exe`), sinon le premier candidat qui y ressemble.
+/// Ordre des packs actifs, dans le journal.
+fn log_packs(patches: &PatchStack) {
+    if !patches.is_empty() {
+        log::info!(
+            "packs : {}",
+            patches
+                .patches
+                .iter()
+                .map(|p| format!(
+                    "{} ({}{}{})",
+                    p.manifest.patch.id,
+                    p.priority,
+                    if p.official { ", officiel" } else { "" },
+                    if p.enabled { "" } else { ", désactivé" }
+                ))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
+}
+
 /// `None` = mode sans client.
 pub fn find_client_dir(explicit: Option<&Path>) -> Option<PathBuf> {
     let looks_like_client = |p: &Path| p.join("character").is_dir() || p.join("ini").is_dir();
@@ -232,10 +253,12 @@ impl Assets {
         for dir in patch_dirs {
             if dir.join("patch.toml").is_file() {
                 match PatchStack::load_one(dir) {
-                    Ok(p) => {
-                        if let Err(e) = p.validate() {
-                            log::warn!("patch {} : {e}", p.manifest.patch.id);
+                    Ok(mut p) => {
+                        for problem in &p.problems {
+                            log::warn!("patch {} : {problem}", p.manifest.patch.id);
                         }
+                        // Un dossier qui est lui-même un pack (`free-assets/`) : pack officiel du projet.
+                        p.official = true;
                         patches.push(p);
                     }
                     Err(e) => log::warn!("patch {} ignoré : {e}", dir.display()),
@@ -246,17 +269,7 @@ impl Assets {
                 }
             }
         }
-        if !patches.is_empty() {
-            log::info!(
-                "patchs : {}",
-                patches
-                    .patches
-                    .iter()
-                    .map(|p| format!("{} ({})", p.manifest.patch.id, p.manifest.patch.priority))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            );
-        }
+        log_packs(&patches);
         match &game_dir {
             Some(g) => log::info!("client : {}", g.display()),
             None => log::warn!("mode sans client : seules les ressources des patchs sont utilisées, le reste est remplacé par des substituts"),
@@ -286,6 +299,15 @@ impl Assets {
             models: Mutex::new(HashMap::new()),
             effect_sets: Mutex::new(None),
         }
+    }
+
+    /// Applique les préférences du joueur sur les packs (`packs.toml`), avant toute lecture.
+    pub fn with_pack_settings(mut self, settings: &archrust_patch::PackSettings) -> Self {
+        if !settings.packs.is_empty() {
+            self.patches.apply_settings(settings);
+            log_packs(&self.patches);
+        }
+        self
     }
 
     /// Jeux d'effets du client (`effect/ini/new/efffile_set.eff` + `efffile_var.eff`), en cache.
@@ -459,13 +481,25 @@ impl Assets {
     /// Fichier brut du client, en passant par les patchs (`[[files]]`) puis le système de fichiers
     /// virtuel du client (packs, disque, surcharge `etc`).
     pub fn read_file(&self, rel_path: &str) -> Result<Vec<u8>> {
-        if let Some(r) = self.patches.read(ResourceKind::File, rel_path) {
-            let (bytes, res) = r?;
-            log::debug!("{rel_path} fourni par le patch {}", res.patch_id);
+        if let Some((bytes, res)) = self.from_packs(ResourceKind::File, rel_path, |b, _| Ok(b)) {
+            log::debug!("{rel_path} fourni par le pack {}", res.patch_id);
             return Ok(bytes);
         }
         self.open(rel_path, true)?
             .ok_or_else(|| anyhow!("{rel_path} introuvable dans le client"))
+    }
+
+    /// Ressource fournie par les packs actifs, du plus prioritaire au moins prioritaire : un fichier
+    /// absent ou que `decode` refuse est signalé dans le journal, et le pack suivant est essayé.
+    /// `None` : aucun pack ne la fournit utilisablement (l'appelant passe aux données d'origine).
+    fn from_packs<T>(&self, kind: ResourceKind, key: &str, decode: impl Fn(Vec<u8>, &Resolved) -> Result<T>) -> Option<(T, Resolved)> {
+        for r in self.patches.candidates(kind, key) {
+            match self.patches.read_resolved(&r).map_err(anyhow::Error::from).and_then(|b| decode(b, &r)) {
+                Ok(v) => return Some((v, r)),
+                Err(e) => log::warn!("pack {} : {key} inutilisable ({e:#}), essai du suivant", r.patch_id),
+            }
+        }
+        None
     }
 
     /// Table `ini` déchiffrée (cache). `dir` = `ini`, `ini_fr`… Sans client, une table absente est
@@ -524,12 +558,8 @@ impl Assets {
     }
 
     fn load_texture_uncached(&self, name: &str) -> Result<RgbaImage> {
-        // 1. Patch HD
-        if let Some(r) = self.patches.read(ResourceKind::Texture, name) {
-            let (bytes, res) = r?;
-            let img = image::load_from_memory(&bytes)
-                .with_context(|| format!("image du patch {} pour {name}", res.patch_id))?
-                .to_rgba8();
+        // 1. Packs de ressources, dans l'ordre ; une image illisible passe la main au suivant.
+        if let Some((img, res)) = self.from_packs(ResourceKind::Texture, name, |bytes, _| Ok(image::load_from_memory(&bytes)?.to_rgba8())) {
             return Ok(RgbaImage {
                 width: img.width(),
                 height: img.height(),
@@ -603,18 +633,17 @@ impl Assets {
     /// déclaré pour `rel_dir/name` (ex. `texture/ui/ac_base.png`) l'emporte sur le pack.
     pub fn image(&self, rel_dir: &str, name: &str) -> Result<RgbaImage> {
         let rel_path = format!("{rel_dir}/{name}");
-        let (bytes, from_patch) = match self.patches.read(ResourceKind::File, &rel_path) {
-            Some(r) => {
-                let (bytes, res) = r?;
-                log::debug!("{rel_path} fournie par le patch {}", res.patch_id);
-                (bytes, Some(res.patch_id))
-            }
-            None => (
-                self.open(&rel_path, true)?
-                    .ok_or_else(|| anyhow!("{rel_path} introuvable dans le client"))?,
-                None,
-            ),
-        };
+        if let Some((img, res)) = self.from_packs(ResourceKind::File, &rel_path, |bytes, _| Ok(image::load_from_memory(&bytes)?.to_rgba8())) {
+            log::debug!("{rel_path} fournie par le pack {}", res.patch_id);
+            return Ok(RgbaImage {
+                width: img.width(),
+                height: img.height(),
+                data: img.into_raw(),
+                uv_scale: 1.0,
+                from_patch: Some(res.patch_id),
+            });
+        }
+        let bytes = self.open(&rel_path, true)?.ok_or_else(|| anyhow!("{rel_path} introuvable dans le client"))?;
         let img = image::load_from_memory(&bytes)
             .with_context(|| format!("décodage de {rel_path}"))?
             .to_rgba8();
@@ -623,7 +652,7 @@ impl Assets {
             height: img.height(),
             data: img.into_raw(),
             uv_scale: 1.0,
-            from_patch,
+            from_patch: None,
         })
     }
 
@@ -919,6 +948,35 @@ mod tests {
 
     /// Un `[[files]]` de patch l'emporte sur le pack pour une image d'interface, et le TIFF RGBA
     /// non compressé (cadres `et_*`/`tb_*` du client) est décodé.
+    #[test]
+    fn unreadable_pack_texture_falls_back_to_next_pack() {
+        use image::ImageEncoder;
+        let root = std::env::temp_dir().join(format!("archrust-packs-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let pack = |dir: &std::path::Path, id: &str, priority: i32, bytes: &[u8]| {
+            std::fs::create_dir_all(dir.join("tex")).unwrap();
+            std::fs::write(dir.join("patch.toml"), format!("[patch]\nid = \"{id}\"\nname = \"{id}\"\npriority = {priority}\n\n[[textures]]\nmatch = \"a0057aab\"\nfile = \"tex/a.png\"\n")).unwrap();
+            std::fs::write(dir.join("tex/a.png"), bytes).unwrap();
+        };
+        let mut png = std::io::Cursor::new(Vec::new());
+        image::codecs::png::PngEncoder::new(&mut png).write_image(&[1, 2, 3, 255], 1, 1, image::ExtendedColorType::Rgba8).unwrap();
+        let png = png.into_inner();
+        pack(&root.join("patches/haut"), "haut", 100, b"pas une image");
+        pack(&root.join("patches/bas"), "bas", 1, &png);
+        pack(&root.join("officiel"), "officiel", 1000, &png);
+        let assets = Assets::new(None, &[root.join("officiel"), root.join("patches")]);
+        let ids: Vec<_> = assets.patches.patches.iter().map(|p| p.manifest.patch.id.as_str()).collect();
+        assert_eq!(ids, ["haut", "bas", "officiel"], "le pack officiel passe après la communauté");
+        let t = assets.texture("a0057aab").unwrap();
+        assert_eq!((t.from_patch.as_deref(), t.data.as_slice()), (Some("bas"), &[1u8, 2, 3, 255][..]), "« haut » illisible : pack suivant");
+        // Le joueur désactive « bas » : le pack officiel répond.
+        let mut settings = archrust_patch::PackSettings::default();
+        settings.packs.push(archrust_patch::PackChoice { id: "bas".into(), enabled: false, priority: None });
+        let assets = Assets::new(None, &[root.join("officiel"), root.join("patches")]).with_pack_settings(&settings);
+        assert_eq!(assets.texture("a0057aab").unwrap().from_patch.as_deref(), Some("officiel"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     #[test]
     fn patched_ui_image_tiff_wins_over_pack() {
         use image::ImageEncoder;

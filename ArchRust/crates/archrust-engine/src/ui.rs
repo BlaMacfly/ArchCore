@@ -46,6 +46,19 @@ pub struct UiState {
     pub show_options: bool,
     /// Langue appliquée par le serveur et langues qu'il propose (`HELLO_ACK`, `LANGUAGE_ACK`).
     pub server_language: Option<(String, Vec<String>)>,
+    /// Les packs de ressources ont changé : ils s'appliqueront au prochain démarrage.
+    pub packs_restart: bool,
+}
+
+/// Changement demandé dans la section « Packs de ressources » des Options.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PackAction {
+    #[default]
+    None,
+    /// Un pack activé, désactivé ou déplacé : enregistrer `packs.toml`.
+    Changed,
+    /// « Rétablir la configuration par défaut » : supprimer `packs.toml`.
+    Reset,
 }
 
 /// Langues proposées dans les Options : versions officielles d'ArchLord (Corée 2005, Codemasters
@@ -100,6 +113,7 @@ impl Default for UiState {
             show_inventory: false,
             show_options: false,
             server_language: None,
+            packs_restart: false,
         }
     }
 }
@@ -123,6 +137,8 @@ pub fn options_panel(
     audio: &mut crate::audio::AudioSettings,
     status: &AudioStatus,
     language: &mut Option<String>,
+    packs: &mut archrust_patch::PatchStack,
+    pack_action: &mut PackAction,
 ) -> bool {
     if !st.show_options {
         return false;
@@ -212,6 +228,8 @@ pub fn options_panel(
                 )),
                 None => ui.small("Serveur : inconnu (extensions ArchCore non négociées)"),
             };
+            ui.add_space(8.0);
+            *pack_action = packs_section(ui, st.packs_restart, packs);
             ui.add_space(4.0);
             ui.small("Enregistré dans saved-variables/options.toml. Échap pour fermer.");
         });
@@ -219,6 +237,73 @@ pub fn options_panel(
         st.show_options = false;
     }
     changed
+}
+
+/// Section « Packs de ressources » : graphismes et sons, activés ou non, ordre, détails et problèmes.
+/// Les packs de la communauté (`patches/`) passent avant le pack officiel (`free-assets/`), puis les
+/// données du jeu ; un pack mixte figure dans les deux listes.
+fn packs_section(ui: &mut egui::Ui, restart: bool, packs: &mut archrust_patch::PatchStack) -> PackAction {
+    use archrust_patch::Category;
+    let mut action = PackAction::None;
+    egui::CollapsingHeader::new("Packs de ressources").default_open(true).show(ui, |ui| {
+        if packs.patches.is_empty() {
+            ui.small("Aucun pack installé (dossiers free-assets/ et patches/).");
+            return;
+        }
+        egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
+            for (title, category) in [("Graphismes", Category::Graphics), ("Sons", Category::Sounds)] {
+                ui.label(egui::RichText::new(title).strong());
+                let rows = packs.in_category(category);
+                if rows.is_empty() {
+                    ui.small("Aucun pack.");
+                }
+                for i in rows {
+                    let p = &packs.patches[i];
+                    let m = &p.manifest;
+                    let (id, mut enabled, official) = (m.patch.id.clone(), p.enabled, p.official);
+                    let title = format!("{}{}{}", m.patch.name, if m.patch.version.is_empty() { String::new() } else { format!(" {}", m.patch.version) }, if official { " (officiel)" } else { "" });
+                    let details = format!(
+                        "{}\nIdentifiant : {id}\nAuteur : {}\nCatégorie : {}\nPriorité : {}\nContenu : {} texture(s), {} modèle(s), {} fichier(s), {} son(s)",
+                        if m.patch.description.is_empty() { "—" } else { m.patch.description.as_str() },
+                        if m.patch.author.is_empty() { "—" } else { m.patch.author.as_str() },
+                        m.category().label(),
+                        p.priority,
+                        m.textures.len(),
+                        m.models.len(),
+                        m.files.len(),
+                        m.sounds.len(),
+                    );
+                    let problems = p.problems.clone();
+                    ui.horizontal(|ui| {
+                        if ui.checkbox(&mut enabled, "").on_hover_text("Activer ou désactiver ce pack").changed() {
+                            packs.set_enabled(&id, enabled);
+                            action = PackAction::Changed;
+                        }
+                        if ui.small_button("Haut").on_hover_text("Plus prioritaire").clicked() && packs.move_pack(&id, true) {
+                            action = PackAction::Changed;
+                        }
+                        if ui.small_button("Bas").on_hover_text("Moins prioritaire").clicked() && packs.move_pack(&id, false) {
+                            action = PackAction::Changed;
+                        }
+                        let label = if enabled { egui::RichText::new(title) } else { egui::RichText::new(title).weak() };
+                        ui.label(label).on_hover_text(details);
+                    });
+                    for problem in problems {
+                        ui.colored_label(Color32::LIGHT_RED, format!("    {problem}"));
+                    }
+                }
+                ui.add_space(4.0);
+            }
+        });
+        if ui.button("Rétablir la configuration par défaut").clicked() {
+            action = PackAction::Reset;
+        }
+        if restart {
+            ui.colored_label(Color32::YELLOW, "Redémarrez le client pour appliquer les changements.");
+        }
+        ui.small("Ordre : packs de la communauté (patches/), puis pack officiel (free-assets/), puis données du jeu. Enregistré dans saved-variables/packs.toml.");
+    });
+    action
 }
 
 /// Bouton d'inventaire (nombre d'objets du sac) ; il ouvre la fenêtre d'Archonia dessinée par le HUD.

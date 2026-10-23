@@ -39,7 +39,7 @@ Licence : [GPL-3.0-or-later](LICENSE.md).
 | Objets du monde (`ini/obj%05d.ini` + `objecttemplate.ini`, pack `object`) | ✅ bâtiments, arbres, barrières, décor d'Anchorville ; LOD et animations à faire |
 | Modèles de personnages (règle `charactertemplateclient.ini` → fichiers `a/b/c` en hexadécimal) | ✅ joueur et 18 PNJ d'Anchorville |
 | AddOns Lua (`.toc`, frames, événements, slash, minuteurs, SavedVariables, LibStub + Ace3, API étendue) | ✅ voir [docs/ADDONS.md](docs/ADDONS.md) |
-| Patchs HD (`patch.toml`, dossier ou `.ahp`, priorités, motifs) | ✅ textures/modèles/fichiers |
+| Packs de ressources (`patch.toml`, dossier ou `.ahp` ; graphismes et sons ; priorités, repli, onglet « Packs de ressources » des Options, `saved-variables/packs.toml`) | ✅ textures, modèles, fichiers, sons ; voir [docs/PACKS-DE-RESSOURCES.md](docs/PACKS-DE-RESSOURCES.md) ; shaders pas encore appliqués |
 | Déplacement (clic au sol, `/goto`), hauteur du terrain, paquet 0x40 et arrêt à l'arrivée | ✅ validé avec deux clients sur ArchCore ([capture](docs/captures/deplacement.png)) |
 | Cycle d'entités `CHARACTER` (opérations update/remove/remove-for-view) | ✅ schéma et événements vérifiés sur le code Archonia/ArchCore |
 | Action optimisée 0x41 | ✅ demande d'attaque, coups reçus (résultat, dégâts, PV restants), voir « Combat » |
@@ -163,7 +163,9 @@ serveur. Sans extensions, le client fonctionne comme avant.
 
 Référence complète : **[docs/ADDONS.md](docs/ADDONS.md)**. Exemple : `addons/ArchAce` (`/archace`).
 
-## Patchs HD
+## Packs de ressources (patchs HD)
+
+Guide complet pour créer, installer et partager un pack : [docs/PACKS-DE-RESSOURCES.md](docs/PACKS-DE-RESSOURCES.md).
 
 Un patch est un dossier (ou une archive `.ahp`) avec un `patch.toml` :
 
@@ -176,7 +178,7 @@ priority = 100
 
 [[textures]]
 match = "a0057aab"            # nom RenderWare, motif * accepté
-file = "textures/a0057aab.png" # PNG/DDS de n'importe quelle taille
+file = "textures/a0057aab.png" # PNG, DDS, BMP, JPEG, TGA, TIFF ; toute taille
 
 [[models]]
 match = "character/a0000001.ecl"
@@ -186,10 +188,16 @@ scale = 100.0                 # glTF en mètres → unités ArchLord (≈ cm)
 [[files]]
 path = "ini/npc.ini"
 file = "npc.ini"
+
+[[sounds]]
+path = "ui/block.wav"
+file = "sons/bip.wav"
 ```
 
-Les patchs du dossier `patches/` sont empilés par priorité décroissante ; le premier qui fournit une
-ressource l'emporte, sinon les données d'origine sont utilisées. Les `[[models]]` glTF/GLB sont
+Les packs de la communauté (`patches/`) passent avant le pack officiel (`free-assets/`), chacun par
+priorité décroissante ; le premier qui fournit une ressource l'emporte, sinon les données d'origine sont
+utilisées. Un fichier absent ou illisible passe la main au pack suivant. Dans le jeu, Options (Échap ou
+`/reglages`) → « Packs de ressources » active, désactive et ordonne les packs (au prochain démarrage). Les `[[models]]` glTF/GLB sont
 affichés à la place du modèle du client (personnages, PNJ, secteurs `world/D272,272.dff`), avec leurs
 propres textures ; `archrust inspect gltf <fichier>` décrit un glTF.
 

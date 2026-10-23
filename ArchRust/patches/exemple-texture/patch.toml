@@ -1,0 +1,17 @@
+# Pack d'exemple : remplace une texture. Création originale (domaine public, CC0).
+# La carte de couleurs du secteur « R325,389 » (128 × 128, Anchorville) devient un damier vert et or.
+# Pour le vérifier : archrust extract texture "R325,389" damier.png. Voir docs/PACKS-DE-RESSOURCES.md.
+
+[patch]
+id = "exemple-texture"
+name = "Exemple : damier à Anchorville"
+version = "1.0.0"
+author = "ArchRust"
+category = "graphics"
+priority = 50
+description = "Remplace une texture : la carte de couleurs du secteur d'Anchorville"
+min_archrust = "0.1"
+
+[[textures]]
+match = "R325,389"
+file = "textures/damier.png"

@@ -302,18 +302,23 @@ fn main() -> Result<()> {
                 PatchOp::Check { path } => {
                     let p = archrust_patch::PatchStack::load_one(&path)?;
                     p.validate()?;
-                    println!("{} v{} (priorité {}) : {} textures, {} modèles, {} fichiers, {} shaders — OK", p.manifest.patch.name, p.manifest.patch.version, p.manifest.patch.priority, p.manifest.textures.len(), p.manifest.models.len(), p.manifest.files.len(), p.manifest.shaders.len());
+                    for problem in &p.problems {
+                        println!("  ! {problem}");
+                    }
+                    println!("{} v{} ({}, priorité {}) : {} textures, {} modèles, {} fichiers, {} sons, {} shaders — OK", p.manifest.patch.name, p.manifest.patch.version, p.manifest.category().label(), p.manifest.patch.priority, p.manifest.textures.len(), p.manifest.models.len(), p.manifest.files.len(), p.manifest.sounds.len(), p.manifest.shaders.len());
                     Ok(())
                 }
                 PatchOp::List => {
                     let stack = archrust_patch::PatchStack::load_dir(&cli.patches);
                     for p in &stack.patches {
                         println!(
-                            "{:>5}  {}  {} ({})",
+                            "{:>5}  {}  {} ({}, {}){}",
                             p.manifest.patch.priority,
                             p.manifest.patch.id,
                             p.manifest.patch.name,
-                            p.manifest.patch.version
+                            p.manifest.patch.version,
+                            p.manifest.category().label(),
+                            if p.problems.is_empty() { String::new() } else { format!(" — {} problème(s)", p.problems.len()) }
                         );
                     }
                     if stack.is_empty() {

@@ -1,0 +1,17 @@
+# Pack d'exemple : remplace un son. Création originale (domaine public, CC0).
+# Le son de blocage de l'interface (« sound/ui/block.wav », dans le pack sound/ui du client) devient un
+# bip. Pour l'entendre en jeu : /sound sound/ui/block.wav. Voir docs/PACKS-DE-RESSOURCES.md.
+
+[patch]
+id = "exemple-son"
+name = "Exemple : bip de blocage"
+version = "1.0.0"
+author = "ArchRust"
+category = "sounds"
+priority = 50
+description = "Remplace un son : celui du blocage dans l'interface"
+min_archrust = "0.1"
+
+[[sounds]]
+path = "ui/block.wav"
+file = "sons/bip.wav"
