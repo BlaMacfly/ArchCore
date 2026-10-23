@@ -44,7 +44,8 @@
 - ArchRust client (`client` branch): combat (attacking, hits, death, resurrection, loot), parties, other
   players, inventory and equipment, NPCs (dialog, shop, bank and buying pages, quests), skills (trainers,
   casting, shortcut bar), teleport portals (original window and loading screen), guilds (registrar, creation,
-  disbanding and guild windows, members) and guild and party chat; verified against ArchCore by headless runs and screenshots of the graphical client, to confirm in game.
+  disbanding and guild windows, members) and guild and party chat, graphics and sound resource packs (enabled,
+  ordered and checked from the Options; see the [guide](https://github.com/BlaMacfly/ArchCore/blob/client/ArchRust/docs/RESOURCE-PACKS.en.md)); verified against ArchCore by headless runs and screenshots of the graphical client, to confirm in game.
 - Player visibility: movement relayed to nearby players, appearing and disappearing by distance.
 - Chat within view range, and whispers.
 - GM level sent to the "Admin Commands" panel.
