@@ -87,6 +87,7 @@ are in [`docs/wiki`](docs/wiki).
 |---|---|
 | [ArchRust](https://github.com/BlaMacfly/ArchCore/tree/client) (`client` branch) | 64-bit ArchLord client rewritten in Rust, with Lua add-ons |
 | [ArchCoreAdmin](https://github.com/BlaMacfly/ArchCoreAdmin) | In-game GM panel: a Lua add-on for ArchRust with a button for every ArchCore GM command, server replies read back into the panel |
+| [ArchHome](https://github.com/BlaMacfly/ArchHome) | HomeRPG ArchLord: single-player, offline ArchLord in one folder — local ArchCore, portable MariaDB, ArchRust and a one-button Rust launcher |
 | [ArchForge](https://github.com/BlaMacfly/ArchForge) | Database editor: creatures, NPCs, items, shops, loot, quests, skills, teleports, with SQL preview and export to the content layer (`content/*.sql`) |
 
 ### Community
@@ -207,6 +208,7 @@ Les mêmes pages sont dans [`docs/wiki`](docs/wiki).
 |---|---|
 | [ArchRust](https://github.com/BlaMacfly/ArchCore/tree/client) (branche `client`) | Client ArchLord 64 bits réécrit en Rust, avec AddOns Lua |
 | [ArchCoreAdmin](https://github.com/BlaMacfly/ArchCoreAdmin) | Panneau MJ en jeu : un AddOn Lua pour ArchRust, avec un bouton pour chaque commande MJ d'ArchCore et les réponses du serveur relues dans le panneau |
+| [ArchHome](https://github.com/BlaMacfly/ArchHome) | HomeRPG ArchLord : ArchLord en solo, hors ligne, dans un seul dossier — ArchCore en local, MariaDB portable, ArchRust et un lanceur Rust à un seul bouton |
 | [ArchForge](https://github.com/BlaMacfly/ArchForge) | Éditeur de la base de données : créatures, PNJ, objets, boutiques, butin, quêtes, compétences, téléportation, avec aperçu du SQL et export vers la couche de contenu (`content/*.sql`) |
 
 ### Communauté
