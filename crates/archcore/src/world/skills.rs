@@ -709,13 +709,9 @@ pub fn skill_damage(rng: &mut impl Rng, a: &Attacker, spirit_ranges: &[(f64, f64
     out
 }
 
-/// Fourchettes de dégâts élémentaires d'un joueur, dans l'ordre de `SPIRIT`.
+/// Fourchettes de dégâts élémentaires d'un joueur, dans l'ordre de `SPIRIT` (attributs 1 à 8).
 fn spirit_ranges(f: &Factors) -> [(f64, f64); 8] {
-    let mut r = [(0.0, 0.0); 8];
-    for (i, (_, attr, _)) in SPIRIT.iter().enumerate() {
-        r[i] = (f.damage_min[*attr] as f64, f.damage_max[*attr].max(f.damage_min[*attr]) as f64);
-    }
-    r
+    super::combat::spirit_ranges(f)
 }
 
 // ---------------------------------------------------------------------------------------------

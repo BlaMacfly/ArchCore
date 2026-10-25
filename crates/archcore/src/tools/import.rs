@@ -935,6 +935,18 @@ async fn import_all(db: &Databases, src: &Source) -> anyhow::Result<()> {
         println!("✓ skill_mastery : {n}");
     }
 
+    // ---------------------------------------------------------------- ItemConvertTable.txt (texte entier)
+    // Plusieurs tableaux à la suite, séparés par des lignes vides : le monde les découpe au chargement.
+    if src.exists("ItemConvertTable.txt") {
+        let text = src.read("ItemConvertTable.txt")?;
+        let rows = vec![vec![v("ItemConvertTable.txt"), v(0u32), v(serde_json::Value::String(text).to_string())]];
+        db.world.exec("DELETE FROM client_table WHERE name = ?", ("ItemConvertTable.txt",)).await?;
+        let mut tx = db.world.begin().await?;
+        tx.exec_batch("INSERT INTO client_table (name,row_idx,data) VALUES (?,?,?)", rows).await?;
+        tx.commit().await?;
+        println!("✓ client_table : ItemConvertTable.txt");
+    }
+
     // ---------------------------------------------------------------- questtemplate.ini (tabulé)
     if src.exists("questtemplate.ini") {
         let quests = parse_quests(&src.read("questtemplate.ini")?);

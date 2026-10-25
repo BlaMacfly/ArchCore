@@ -99,8 +99,8 @@ impl Bank {
         let rows = db
             .characters
             .rows(
-                "SELECT i.id, i.template_id, i.layer, i.row_idx, i.col_idx, i.count FROM character_items i JOIN characters c ON c.id = i.character_id \
-                 WHERE c.account_id = ? AND i.status = ?",
+                "SELECT i.id, i.template_id, i.layer, i.row_idx, i.col_idx, i.count, i.convert_level, i.socket_count, i.socket_tids \
+                 FROM character_items i JOIN characters c ON c.id = i.character_id WHERE c.account_id = ? AND i.status = ?",
                 (account_id, stored_status::BANK),
             )
             .await?;
@@ -108,7 +108,7 @@ impl Bank {
             .iter()
             .map(|r| {
                 let iid: u32 = col(r, "id");
-                (iid, InventoryItem { iid, tid: col(r, "template_id"), count: col(r, "count"), grid: [col(r, "layer"), col(r, "row_idx"), col(r, "col_idx")] })
+                (iid, InventoryItem { iid, tid: col(r, "template_id"), count: col(r, "count"), grid: [col(r, "layer"), col(r, "row_idx"), col(r, "col_idx")], conv: super::items::convert_of(r) })
             })
             .collect();
         Ok(Bank { account_id, money, extra_slots, items, keeper: None })
@@ -135,7 +135,10 @@ impl Bank {
 
     /// Paquets AGPMITEM d'ajout des objets de la banque (entrée en jeu).
     pub fn add_packets(&self, owner: u32) -> Vec<Vec<u8>> {
-        self.items.values().map(|i| super::items::item_add(i.iid, i.tid, Some(owner), i.count, item_status::BANK, Some(i.grid))).collect()
+        self.items
+            .values()
+            .flat_map(|i| std::iter::once(super::items::item_add(i.iid, i.tid, Some(owner), i.count, item_status::BANK, Some(i.grid))).chain(super::items::convert_add(i, owner)))
+            .collect()
     }
 }
 
@@ -406,7 +409,7 @@ mod tests {
         assert_eq!(next_slot_price(&prices, 3), None);
         for r in 0..7 {
             for c in 0..4 {
-                bank.items.insert((r * 4 + c) as u32 + 1, InventoryItem { iid: (r * 4 + c) as u32 + 1, tid: 1, count: 1, grid: [0, r, c] });
+                bank.items.insert((r * 4 + c) as u32 + 1, InventoryItem { iid: (r * 4 + c) as u32 + 1, tid: 1, count: 1, grid: [0, r, c], conv: Default::default() });
             }
         }
         assert_eq!(bank.free_slot(), Some([1, 0, 0]));

@@ -72,7 +72,9 @@
 4. Compétences : renvoi de dégâts (contre-attaque), compétences des monstres, compétences de groupe et maîtrises
    validés au simulateur le 25 octobre 2026, à confirmer en jeu. Restent le partage des dégâts (Divine Protection,
    Martyr's Mark), les purges, la défense ignorée et le gain des points héroïques et de charisme.
-5. Combat : dégâts élémentaires des objets. Objets : raffinage, conversion.
+5. Conversion des objets (sockets, pierres d'esprit, renforcement) et dégâts élémentaires des coups normaux :
+   validés au simulateur le 25 octobre 2026, à confirmer en jeu. Restent les runes, les pierres de glace, de
+   foudre, de venin et de caractéristiques d'Archonia, le raffinage, et l'affichage dans ArchRust.
 6. Guildes : combats de guildes, alliances et hostilités, emblèmes, second et passation, agrandissement, liste
    des guildes, entrepôt.
 7. Reconnexion automatique (type 0x63).

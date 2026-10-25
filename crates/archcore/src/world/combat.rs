@@ -163,12 +163,61 @@ pub fn strike_at(rng: &mut impl Rng, chance: i32, a: &Attacker, d: &Defender) ->
 /// Champ 3 du paquet d'action : facteurs complets avec le résultat (PV, PM, dégâts affichés en négatif)
 /// et les PV restants.
 pub fn damage_factors(hp: i32, mp: i32, damage: i32) -> Vec<u8> {
+    parts_factors(hp, mp, &[(RESULT_PHYSICAL, damage)])
+}
+
+/// Même chose avec des dégâts par nature : (indice dans le résultat, dégâts).
+pub fn parts_factors(hp: i32, mp: i32, parts: &[(usize, i32)]) -> Vec<u8> {
     let pt = &mini::FACTOR_POINT;
+    let mut shown = Fields::new(pt).with(0, hp).with(1, mp);
+    for (i, d) in parts {
+        shown.set(*i, -*d);
+    }
     let cf = &mini::CHAR_FACTORS;
-    let shown = build_mini(pt, &Fields::new(pt).with(0, hp).with(1, mp).with(9, -damage));
-    let result = build_mini(cf, &Fields::new(cf).with(3, shown));
+    let result = build_mini(cf, &Fields::new(cf).with(3, build_mini(pt, &shown)));
     let current = build_mini(pt, &Fields::new(pt).with(0, hp).with(1, mp));
     build_mini(cf, &Fields::new(cf).with(0, result).with(3, current))
+}
+
+/// Indice des dégâts physiques dans le résultat (facteurs « points ») ; les éléments suivent, de 10 (magie)
+/// à 17 (glace), dans l'ordre des attributs 1 à 8.
+pub const RESULT_PHYSICAL: usize = 9;
+
+/// Fourchettes de dégâts élémentaires (attributs 1 à 8) de facteurs.
+pub fn spirit_ranges(f: &crate::character::Factors) -> [(f64, f64); 8] {
+    std::array::from_fn(|i| (f.damage_min[i + 1] as f64, f.damage_max[i + 1].max(f.damage_min[i + 1]) as f64))
+}
+
+/// Chance qu'un élément porte, en pour cent : 70 pour un joueur ; pour un monstre, 80 plus l'écart de
+/// niveau avec sa cible, 60 au moins.
+pub fn spirit_chance(attacker_is_player: bool, attacker_level: i32, target_level: i32) -> u32 {
+    if attacker_is_player { 70 } else { (80 + attacker_level - target_level).max(60) as u32 }
+}
+
+/// Part élémentaire d'un coup qui touche : pour chaque élément dont l'attaquant a des dégâts, avec la
+/// chance `chance`, un jet entre le minimum et le maximum, doublé, moins la résistance de la cible en
+/// pour cent (sa défense de l'élément, 80 au plus pour un joueur, 100 pour un monstre). Rend
+/// (indice dans le résultat, dégâts) pour les éléments qui portent.
+pub fn spirit_hits(rng: &mut impl Rng, chance: u32, ranges: &[(f64, f64); 8], resist: &[i32; 8], target_is_player: bool) -> Vec<(usize, i32)> {
+    let cap = if target_is_player { 80 } else { 100 };
+    let mut out = Vec::new();
+    for (i, &(lo, hi)) in ranges.iter().enumerate() {
+        if hi <= 0.0 || rng.gen_range(0..100) >= chance {
+            continue;
+        }
+        let raw = if lo < hi { rng.gen_range(lo..=hi) } else { hi };
+        let res = resist[i].clamp(0, cap) as f64;
+        let d = (2.0 * raw * (100.0 - res) / 100.0) as i32;
+        if d > 0 {
+            out.push((RESULT_PHYSICAL + 1 + i, d));
+        }
+    }
+    out
+}
+
+/// Résistances élémentaires (attributs 1 à 8) de facteurs.
+pub fn spirit_resist(f: &crate::character::Factors) -> [i32; 8] {
+    std::array::from_fn(|i| f.defense_point[i + 1])
 }
 
 /// Paquet AGPMOPTIMIZEDCHARACTION d'un coup porté.
@@ -295,11 +344,18 @@ async fn attack_step(ctx: &WorldCtx, st: &mut WorldState, sid: u32, now: Instant
 
     let attacker = Attacker::of_player(p);
     let defender = Defender { level: m.level as i32, dr: 0, defense: super::effects::monster_defense(stats.ac, &st.monsters.mods(m.cid)) };
-    let (outcome, damage) = {
+    let (outcome, parts) = {
         let mut rng = rand::thread_rng();
         let (outcome, damage) = strike(&mut rng, &attacker, &defender);
-        super::effects::critical(&mut rng, &super::effects::total(&p.skills.effects), outcome, damage)
+        let (outcome, damage) = super::effects::critical(&mut rng, &super::effects::total(&p.skills.effects), outcome, damage);
+        let mut parts = vec![(RESULT_PHYSICAL, damage)];
+        if damage > 0 {
+            let chance = spirit_chance(true, attacker.level, m.level as i32);
+            parts.extend(spirit_hits(&mut rng, chance, &spirit_ranges(&p.factors), &[0; 8], false));
+        }
+        (outcome, parts)
     };
+    let damage: i32 = parts.iter().map(|(_, d)| d).sum();
     let speed = p.factors.attack[2].max(1) as u64;
     let (cid, name) = (p.ch.id, p.ch.name.clone());
     let me = st.players.get_mut(&sid).unwrap();
@@ -314,7 +370,7 @@ async fn attack_step(ctx: &WorldCtx, st: &mut WorldState, sid: u32, now: Instant
     if damage > 0 {
         st.monsters.wake(m.cid);
     }
-    let factors = (damage > 0).then(|| damage_factors(hp, stats.max_mp, damage));
+    let factors = (damage > 0).then(|| parts_factors(hp, stats.max_mp, &parts));
     let watchers = viewers(st, m.cid);
     broadcast(st, &watchers, &action_packet(cid, m.cid, outcome, factors));
     if damage > 0 {
@@ -495,14 +551,15 @@ fn life_step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) {
 }
 
 /// Le joueur `sid` reçoit le coup d'un monstre : PV, diffusion (à lui et à ceux qui le voient), mort.
-pub fn hit_player(st: &mut WorldState, sid: u32, monster: u32, outcome: i64, damage: i32) {
+pub fn hit_player(st: &mut WorldState, sid: u32, monster: u32, outcome: i64, parts: &[(usize, i32)]) {
+    let damage: i32 = parts.iter().map(|(_, d)| d).sum();
     let Some(p) = st.players.get_mut(&sid) else { return };
     super::recovery::in_combat(&mut p.timers, Instant::now());
     let hp = (p.factors.point[POINT_HP] - damage).max(0);
     p.factors.point[POINT_HP] = hp;
     debug!("[combat] {} reçoit {damage} dégât(s) (résultat {outcome}) : {hp}/{} PV", p.ch.name, p.factors.point_max[0]);
     let (cid, mp) = (p.ch.id, p.factors.point[1]);
-    let factors = (outcome == result::SUCCESS).then(|| damage_factors(hp, mp, damage));
+    let factors = (outcome == result::SUCCESS).then(|| parts_factors(hp, mp, parts));
     let plain = action_packet(monster, cid, outcome, factors);
     send_around(st, sid, &plain);
     if hp == 0 {
@@ -660,5 +717,24 @@ mod tests {
         // Coup manqué : pas de facteurs.
         let miss = decode_packet(&schema::OPT_CHAR_ACTION, &action_packet(1, 2, result::MISS, None)).unwrap();
         assert!(miss.bytes(3).is_none());
+    }
+
+    #[test]
+    fn degats_elementaires() {
+        let mut rng = rand::rngs::StdRng::seed_from_u64(7);
+        // 10 d'eau fixes : doublés, moins 25 % de résistance ; le feu sans dégâts ne compte pas.
+        let mut ranges = [(0.0, 0.0); 8];
+        ranges[1] = (10.0, 10.0);
+        let mut resist = [0; 8];
+        resist[1] = 25;
+        assert_eq!(spirit_hits(&mut rng, 100, &ranges, &resist, true), vec![(11, 15)]);
+        // Résistance plafonnée à 80 % pour un joueur, 100 % pour un monstre.
+        resist[1] = 95;
+        assert_eq!(spirit_hits(&mut rng, 100, &ranges, &resist, true), vec![(11, 4)]);
+        assert_eq!(spirit_hits(&mut rng, 100, &ranges, &resist, false), vec![(11, 1)]);
+        resist[1] = 100;
+        assert!(spirit_hits(&mut rng, 100, &ranges, &resist, false).is_empty());
+        assert!(spirit_hits(&mut rng, 0, &ranges, &[0; 8], false).is_empty());
+        assert_eq!((spirit_chance(true, 1, 50), spirit_chance(false, 30, 20), spirit_chance(false, 10, 40)), (70, 90, 60));
     }
 }

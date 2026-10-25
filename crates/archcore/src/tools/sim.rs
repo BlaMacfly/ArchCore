@@ -24,6 +24,7 @@
 //!   archcore sim gm [compte] [mdp] [perso]                    commandes MJ d'ArchCore : /speed (×5, refus au-delà de 10, retour) et /additem ; compte MJ
 //!   archcore sim status [compte] [mdp] [perso]                état spécial : Shield Bash étourdit un Ver vert (champ 17), puis l'état retombe ; compte MJ, personnage GmEffets
 //!   archcore sim effects [compte] [mdp] [perso]               passive (défense), renforcement (vitesse d'attaque), zone, affaiblissement d'un Ver vert ; compte MJ, personnage GmEffets
+//!   archcore sim convert [compte] [mdp] [perso]               forgeron Halo : socket, pierre d'eau, renforcement +2, état relu à la reconnexion ; compte MJ
 //! ```
 //! À lancer contre un serveur de test (`ARCHCORE_CONF_DIR`) : les personnages sont créés au besoin,
 //! déplacés, et `sim shop` leur donne 1000 pièces d'or.
@@ -81,6 +82,7 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         Some("counter") => Box::pin(counter_attack(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("partyskill") => Box::pin(party_skill(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("mastery") => Box::pin(mastery(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
+        Some("convert") => Box::pin(convert(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol|bag|skill|effects|status|bank|portal|guild|gm|trade|party|quest|mobskill|counter|partyskill|mastery [arguments]"),
     }
 }
@@ -277,6 +279,8 @@ pub struct InWorld {
     pub skills: Vec<(i64, i64, i64)>,
     /// Langue appliquée annoncée par un `LANGUAGE_ACK` reçu pendant l'entrée (langue du compte).
     pub language_ack: Option<String>,
+    /// Conversions reçues avec les objets (AGPMITEMCONVERT op 0) : (IID, renforcement, sockets, remplis).
+    pub converts: Vec<(i64, i64, i64, i64)>,
 }
 
 /// Paquets complets mis bout à bout (champs « tous les objets », « compétences » de la vue op 2).
@@ -481,6 +485,7 @@ pub async fn enter_world_opts(cfg: &Config, user: &str, pass: &str, char_name: &
     let mut skills = Vec::new();
     let mut npcs = Vec::new();
     let mut items = Vec::new();
+    let mut converts = Vec::new();
     let (mut quests_done, mut quests_active) = (Vec::new(), Vec::new());
     let mut language_ack = None;
     loop {
@@ -528,6 +533,8 @@ pub async fn enter_world_opts(cfg: &Config, user: &str, pass: &str, char_name: &
             for raw in split_packets(p.fields().bytes(6).unwrap_or_default()) {
                 if let Ok(i) = decode_packet(&schema::ITEM, raw) {
                     items.push((i.int(2).unwrap_or(0), i.int(3).unwrap_or(0), i.int(1).unwrap_or(0), i.int(5).unwrap_or(0)));
+                } else if let Ok(c) = decode_packet(&schema::ITEM_CONVERT, raw) {
+                    converts.push((c.int(2).unwrap_or(0), c.int(5).unwrap_or(0), c.int(6).unwrap_or(0), c.int(7).unwrap_or(0)));
                 }
             }
             for raw in split_packets(p.fields().bytes(8).unwrap_or_default()) {
@@ -556,7 +563,7 @@ pub async fn enter_world_opts(cfg: &Config, user: &str, pass: &str, char_name: &
     println!("  niveau {level}, {} compétence(s) : {skills:?}", skills.len());
     println!("  entrée en jeu confirmée");
     println!("  quêtes : terminées {quests_done:?}, en cours {quests_active:?}");
-    Ok(InWorld { world, cid, start, monsters, npcs, level, bank_money, bank_size, items, quests_done, quests_active, skills, language_ack })
+    Ok(InWorld { world, cid, start, monsters, npcs, level, bank_money, bank_size, items, quests_done, quests_active, skills, language_ack, converts })
 }
 
 async fn client(user: &str, pass: &str, char_name: &str, commands: &[String]) -> anyhow::Result<()> {
@@ -1778,6 +1785,93 @@ async fn gm_commands(user: &str, pass: &str, char_name: &str) -> anyhow::Result<
     w.world.send(it, Fields::new(it).with(0, 21).with(2, iid)).await?;
     w.world.expect_where(|q| q.is(it, Some(1)) && q.int(2) == Some(iid), 3000, "pile détruite").await?;
     println!("\ncommandes MJ : OK");
+    Ok(())
+}
+
+/// Conversion chez le forgeron Halo (Anchorville) : fenêtre, ajout de socket (répété jusqu'à la réussite), pierre
+/// d'eau de rang 1 (100 % sur une arme), deux renforcements (100 % aux niveaux 1 et 2 du rang 10), puis
+/// état relu à la reconnexion. Compte MJ (/additem).
+async fn convert(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
+    const SMITH: Vec3 = Vec3 { x: -479_400.0, y: 4_955.0, z: -69_300.0 };
+    const SWORD: i64 = 2; // Bastard Sword : rang 10, 1 socket au départ
+    const STONE: i64 = 201; // Water Elemental Stone, rang 1
+    const POTION: i64 = 486; // Reinforcement Potion
+    const STOP: i64 = 0x04;
+    let cfg = crate::config::load()?;
+    let (it, ch, mv, ic, ev, eb) = (&schema::ITEM, &schema::CHATTING, &schema::OPT_CHAR_MOVE, &schema::ITEM_CONVERT, &schema::EVENT_ITEM_CONVERT, &mini::EVENT_BASE);
+    let say = |cid: u32, text: &str| Fields::new(ch).with(0, 0).with(1, cid).with(2, chat_type::NORMAL).with(6, crate::tools::to_cp1252(text));
+
+    step(&format!("{char_name} entre en jeu, chez Halo"));
+    let mut w = enter_world(&cfg, user, pass, char_name, "").await?;
+    let me = w.cid as i64;
+    w.world.send(mv, Fields::new(mv).with(0, w.cid).with(1, SMITH).with(2, SMITH).with(5, STOP).with(6, 0)).await?;
+    let mut smith = w.npcs.iter().find(|n| n.1.ends_with(" Halo")).map(|n| n.0);
+    while let Ok(p) = w.world.expect_where(|q| q.is(&schema::OPT_VIEW, Some(1)), 1500, "PNJ").await {
+        if let Ok(view) = decode_mini(&mini::OPT_VIEW_CHAR, p.fields().bytes(1).unwrap_or_default()) {
+            if view.text(2).is_some_and(|n| n.ends_with(" Halo")) {
+                smith = view.int(0);
+            }
+        }
+    }
+    let smith = smith.ok_or_else(|| anyhow::anyhow!("Halo introuvable"))?;
+    let event = build_mini(eb, &Fields::new(eb).with(0, 3).with(1, smith).with(3, 22));
+    w.world.send(ev, Fields::new(ev).with(0, 0).with(1, event).with(2, w.cid)).await?;
+    w.world.expect_where(|q| q.is(ev, Some(1)), 3000, "fenêtre de conversion").await?;
+    println!("  ✓ fenêtre de conversion ouverte ({smith:#x})");
+
+    step("épée, pierre d'eau et deux potions de renforcement");
+    let mut made = Vec::new();
+    for (tid, n) in [(SWORD, 1), (STONE, 1), (POTION, 2)] {
+        w.world.send(ch, say(w.cid, &format!("/additem {tid} {n}"))).await?;
+        made.push(w.world.expect_where(|q| q.is(it, Some(0)) && q.int(3) == Some(tid) && q.int(1) == Some(2), 3000, "objet ajouté").await?.int(2).unwrap_or(0));
+    }
+    let (sword, stone, potion) = (made[0], made[1], made[2]);
+
+    step("ajout de socket");
+    let mut sockets = 0;
+    for attempt in 1..=20 {
+        w.world.send(ic, Fields::new(ic).with(0, 2).with(1, me).with(2, sword)).await?;
+        let r = w.world.expect_where(|q| q.is(ic, Some(6)) && q.int(2) == Some(sword), 3000, "réponse socket").await?;
+        sockets = r.int(6).unwrap_or(0);
+        println!("  essai {attempt} : résultat {}, {sockets} socket(s)", o(r.int(4)));
+        anyhow::ensure!(matches!(r.int(4), Some(1 | 5 | 6)), "résultat inattendu {:?}", r.int(4));
+        if r.int(4) == Some(1) {
+            break;
+        }
+    }
+    anyhow::ensure!(sockets == 2, "{sockets} socket(s) après l'ajout");
+    println!("  ✓ 2 sockets");
+
+    step("pierre d'eau");
+    w.world.send(ic, Fields::new(ic).with(0, 4).with(1, me).with(2, sword).with(3, stone)).await?;
+    let r = w.world.expect_where(|q| q.is(ic, Some(7)) && q.int(2) == Some(sword), 3000, "réponse pierre").await?;
+    anyhow::ensure!(r.int(4) == Some(0) && r.int(7) == Some(1) && r.int(8) == Some(STONE), "pierre : résultat {:?}, {:?} remplie(s), TID {:?}", r.int(4), r.int(7), r.int(8));
+    w.world.expect_where(|q| q.is(it, Some(1)) && q.int(2) == Some(stone), 3000, "pierre consommée").await?;
+    println!("  ✓ sertie, pierre consommée");
+
+    step("renforcement +1 puis +2");
+    for level in 1..=2 {
+        w.world.send(ic, Fields::new(ic).with(0, 1).with(1, me).with(2, sword).with(3, potion)).await?;
+        // La potion est consommée avant le tirage : la dernière disparaît avant la réponse.
+        if level == 2 {
+            w.world.expect_where(|q| q.is(it, Some(1)) && q.int(2) == Some(potion), 3000, "potions consommées").await?;
+        }
+        let r = w.world.expect_where(|q| q.is(ic, Some(5)) && q.int(2) == Some(sword), 3000, "réponse renforcement").await?;
+        anyhow::ensure!(r.int(4) == Some(1) && r.int(5) == Some(level), "renforcement : résultat {:?}, niveau {:?}", r.int(4), r.int(5));
+        println!("  ✓ +{level}");
+    }
+
+    step("reconnexion : état relu");
+    drop(w);
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let mut w = enter_world(&cfg, user, pass, char_name, "").await?;
+    let state = w.converts.iter().find(|c| c.0 == sword).copied();
+    anyhow::ensure!(state == Some((sword, 2, 2, 1)), "état relu : {state:?}");
+    println!("  ✓ +2, 2 sockets, 1 pierre");
+    w.world.send(it, Fields::new(it).with(0, 21).with(2, sword)).await?;
+    w.world.expect_where(|q| q.is(it, Some(1)) && q.int(2) == Some(sword), 3000, "épée détruite").await?;
+    println!("
+conversion : OK");
     Ok(())
 }
 

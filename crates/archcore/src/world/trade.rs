@@ -199,6 +199,9 @@ fn add(ctx: &WorldCtx, st: &mut WorldState, sid: u32, iid: u32) {
     st.players[&sid].send_raw(item_update(&shown, cid, item_status::TRADE_GRID));
     if let Some(peer) = st.players.get(&mine.peer) {
         peer.send_raw(item_add(item.iid, item.tid, Some(cid), item.count, item_status::TRADE_GRID, Some(grid)));
+        if let Some(c) = super::items::convert_add(&item, cid) {
+            peer.send_raw(c);
+        }
     }
     let name = ctx.catalog.get(item.tid).map(|d| d.name.as_str()).unwrap_or("?");
     info!("[échange] {} propose {} × {name}", st.players[&sid].ch.name, item.count);
@@ -355,6 +358,9 @@ async fn execute(ctx: &WorldCtx, st: &mut WorldState, a: u32, b: u32) -> anyhow:
         let receiver = &st.players[&sids[to]];
         receiver.send_raw(item_remove(item.iid, Some(cids[from])));
         receiver.send_raw(item_add(item.iid, item.tid, Some(cids[to]), item.count, item_status::INVENTORY, Some(item.grid)));
+        if let Some(c) = super::items::convert_add(&item, cids[to]) {
+            receiver.send_raw(c);
+        }
         st.players[&sids[from]].send_raw(item_remove(item.iid, Some(cids[from])));
     }
     for (i, me) in sids.into_iter().enumerate() {

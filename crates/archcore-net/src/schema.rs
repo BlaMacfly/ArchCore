@@ -45,6 +45,8 @@ pub mod ptype {
     pub const EVENT_NPC_TRADE: u8 = 0x32;
     pub const EVENT_GUILD: u8 = 0x39;
     pub const EVENT_BANK: u8 = 0x36;
+    pub const ITEM_CONVERT: u8 = 0x16;
+    pub const EVENT_ITEM_CONVERT: u8 = 0x38;
     pub const EVENT_NPC_DIALOG: u8 = 0x37;
     pub const EVENT_SKILL_MASTER: u8 = 0x3b;
     pub const EVENT_MANAGER: u8 = 0x3c;
@@ -329,6 +331,19 @@ pub static EVENT_TELEPORT: Schema = Schema {
     fields: &[f(I8), f(Packet), f(I32), fs(Char, 33), f(Vec3), f(MemBlock)],
 };
 
+/// AgpmItemConvert (0x16) — drapeaux 2 : op, CID du joueur, IID de l'objet, IID de ce qui le convertit
+/// (catalyseur, pierre, rune), résultat, niveau de renforcement, sockets, sockets remplis, TID ajouté, TID
+/// des sockets remplis (ITEM_CONVERT_TIDS).
+pub static ITEM_CONVERT: Schema = Schema {
+    name: "AGPMITEMCONVERT",
+    id: ptype::ITEM_CONVERT,
+    flag_len: 2,
+    fields: &[f(I8), f(I32), f(I32), f(I32), f(I8), f(I8), f(I8), f(I8), f(I32), f(Packet)],
+};
+
+/// AgpmEventItemConvert (0x38) — drapeaux 1 : op, événement (EVENT_BASE), CID du joueur.
+pub static EVENT_ITEM_CONVERT: Schema = Schema { name: "AGPMEVENTITEMCONVERT", id: ptype::EVENT_ITEM_CONVERT, flag_len: 1, fields: &[f(I8), f(Packet), f(I32)] };
+
 /// AgpmEventBank (0x36) — drapeaux 1 : op (0 demande, 1 accord), événement (EVENT_BASE), CID du joueur.
 pub static EVENT_BANK: Schema = Schema { name: "AGPMEVENTBANK", id: ptype::EVENT_BANK, flag_len: 1, fields: &[f(I8), f(Packet), f(I32)] };
 
@@ -510,7 +525,7 @@ pub static ARCHCORE_EXT: Schema = Schema {
 /// Tous les schémas principaux, pour l'aiguillage par type.
 pub static MAIN: &[&Schema] = &[
     &CONFIG, &CHARACTER, &CHAR_MANAGER, &LOGIN, &TIMER, &WORLD, &CHATTING, &ADMIN, &ITEM, &EVENT_NPC_TRADE,
-    &EVENT_NPC_DIALOG, &EVENT_MANAGER, &SKILL, &EVENT_SKILL_MASTER, &EVENT_TELEPORT, &EVENT_BANK, &GUILD, &EVENT_GUILD, &PRIVATE_TRADE, &PARTY, &PARTY_MANAGEMENT, &QUEST, &EVENT_QUEST, &SYSTEM_MESSAGE, &RETURN_TO_LOGIN, &OPT_CHAR_MOVE, &OPT_CHAR_ACTION, &OPT_VIEW,
+    &EVENT_NPC_DIALOG, &EVENT_MANAGER, &SKILL, &EVENT_SKILL_MASTER, &EVENT_TELEPORT, &EVENT_BANK, &ITEM_CONVERT, &EVENT_ITEM_CONVERT, &GUILD, &EVENT_GUILD, &PRIVATE_TRADE, &PARTY, &PARTY_MANAGEMENT, &QUEST, &EVENT_QUEST, &SYSTEM_MESSAGE, &RETURN_TO_LOGIN, &OPT_CHAR_MOVE, &OPT_CHAR_ACTION, &OPT_VIEW,
     &STARTUP_ENCRYPTION, &ARCHCORE_EXT,
 ];
 
@@ -613,6 +628,9 @@ pub mod mini {
 
     /// Position d'un objet au sol (AGPMITEM champ 6), drapeaux 1 : un VEC3F (relevé dans le client x64).
     pub static ITEM_FIELD: Schema = Schema { name: "AGPMITEM_FIELD", id: 140, flag_len: 1, fields: &[f(Vec3)] };
+
+    /// TID de ce qui remplit les sockets d'un objet (AGPMITEMCONVERT champ 9), dans l'ordre — drapeaux 1.
+    pub static ITEM_CONVERT_TIDS: Schema = Schema { name: "AGPMITEMCONVERT_TID", id: 141, flag_len: 1, fields: &rep::<8>(I32) };
 
     /// Désignation dans AGPMSKILL (type d'objet, identifiant) — drapeaux 1.
     pub static SKILL_BASE: Schema = Schema { name: "AGPMSKILL_BASE", id: 150, flag_len: 1, fields: &[f(I8), f(I32)] };

@@ -68,7 +68,9 @@
 4. Skills: damage reflection (counter attack), monster skills, party skills and masteries validated with the
    simulator on 25 October 2026, to be confirmed in game. Still to do: damage sharing (Divine Protection, Martyr's
    Mark), dispels, ignored defense and earning heroic and charisma points.
-5. Combat: elemental item damage. Items: refining, conversion.
+5. Item conversion (sockets, spirit stones, reinforcement) and elemental damage on normal hits: checked with
+   the simulator on 25 October 2026, still to confirm in game. Runes, Archonia's ice, lightning, venom and
+   stat stones, refining and the display in ArchRust remain.
 6. Guilds: guild battles, alliances and hostilities, guild marks, sub-master and handover, enlarging, guild
    list, warehouse.
 7. Automatic reconnection (type 0x63).

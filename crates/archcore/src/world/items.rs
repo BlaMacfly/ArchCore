@@ -113,6 +113,13 @@ pub fn item_count(item: &InventoryItem, owner: u32) -> Vec<u8> {
     )
 }
 
+/// AGPMITEMCONVERT op 0 d'un objet converti, à envoyer après son AGPMITEM op 0 ; rien pour un objet
+/// ordinaire.
+pub fn convert_add(item: &InventoryItem, owner: u32) -> Option<Vec<u8>> {
+    use super::convert::{op, state_packet};
+    (!item.conv.is_plain()).then(|| state_packet(op::ADD, owner, item.iid, &item.conv, None, None))
+}
+
 #[derive(Clone, Debug)]
 pub struct ItemData {
     pub tid: u32,
@@ -126,6 +133,24 @@ pub struct ItemData {
     pub potion: Option<super::recovery::Potion>,
     /// Parchemin de téléportation.
     pub scroll: Option<super::travel::Scroll>,
+    /// Pierre d'esprit : (« Spirit Type », « Rank »).
+    pub stone: Option<(i64, i64)>,
+    /// Type d'un consommable (« Type » quand « ItemType » vaut 1 : 2 pierre d'esprit, 8 potion de
+    /// renforcement, 9 rune), 0 sinon.
+    pub usable_type: i64,
+}
+
+/// Type d'un consommable (colonnes « ItemType » 1 et « Type »).
+pub fn usable_type_of(raw: &serde_json::Value) -> i64 {
+    let num = |k: &str| raw.get(k).and_then(|v| v.as_str()).and_then(|t| t.trim().parse::<f64>().ok()).map(|v| v as i64).unwrap_or(0);
+    if num("ItemType") == 1 { num("Type") } else { 0 }
+}
+
+/// Type et rang d'une pierre d'esprit (colonnes « Spirit Type » et « Rank » d'itemdatatable.txt).
+pub fn stone_of(raw: &serde_json::Value) -> Option<(i64, i64)> {
+    let num = |k: &str| raw.get(k).and_then(|v| v.as_str()).and_then(|t| t.trim().parse::<f64>().ok()).map(|v| v as i64).unwrap_or(0);
+    let kind = num("Spirit Type");
+    (kind > 0).then(|| (kind, num("Rank")))
 }
 
 /// Caractéristiques d'un équipement (colonnes d'itemdatatable.txt).
@@ -151,7 +176,21 @@ pub struct EquipData {
     /// Vitesse et portée d'attaque d'une arme.
     pub atk_speed: i32,
     pub atk_range: i32,
+    /// Dégâts (min, max) et défense de chaque élément, dans l'ordre des attributs 1 à 8 (magie, eau, feu,
+    /// terre, air, poison, foudre, glace).
+    pub spirit_damage: [(i32, i32); 8],
+    pub spirit_defense: [i32; 8],
+    /// Rang de renforcement (« PhysicalRank », ligne des tables de chance) et sockets au départ et au plus.
+    pub physical_rank: i64,
+    pub min_socket: i64,
+    pub max_socket: i64,
+    /// Type d'arme (colonne « Type » : 17 lance).
+    pub weapon_type: i64,
 }
+
+/// Préfixe des colonnes élémentaires d'itemdatatable.txt, dans l'ordre des attributs 1 à 8 (« Linghtning »
+/// est l'orthographe du fichier).
+pub const SPIRIT_COLUMNS: [&str; 8] = ["Magic", "Water", "Fire", "Earth", "Air", "Poison", "Linghtning", "Ice"];
 
 impl EquipData {
     /// Lit les colonnes d'une ligne d'itemdatatable.txt ; `None` si l'objet ne se porte pas.
@@ -178,6 +217,12 @@ impl EquipData {
             hp: num("HP") as i32,
             atk_speed: num("ATK Speed") as i32,
             atk_range: num("ATK Range") as i32,
+            spirit_damage: SPIRIT_COLUMNS.map(|e| (num(&format!("{e}_Min_Damage")) as i32, num(&format!("{e}_Max_Damage")) as i32)),
+            spirit_defense: SPIRIT_COLUMNS.map(|e| num(&format!("{e}_Defense_Point")) as i32),
+            physical_rank: num("PhysicalRank"),
+            min_socket: num("MinSocket"),
+            max_socket: num("MaxSocket"),
+            weapon_type: num("Type"),
         })
     }
 }
@@ -206,7 +251,9 @@ impl ItemCatalog {
                 let equip = raw.as_ref().and_then(EquipData::from_raw);
                 let potion = raw.as_ref().and_then(super::recovery::Potion::from_raw);
                 let scroll = raw.as_ref().and_then(super::travel::Scroll::from_raw);
-                (tid, ItemData { tid, name: col(r, "name"), npc_price: col(r, "npc_price"), pc_price: col(r, "pc_price"), stack: col::<i64>(r, "stack").max(1), equip, potion, scroll })
+                let stone = raw.as_ref().and_then(stone_of);
+                let usable_type = raw.as_ref().map(usable_type_of).unwrap_or(0);
+                (tid, ItemData { tid, name: col(r, "name"), npc_price: col(r, "npc_price"), pc_price: col(r, "pc_price"), stack: col::<i64>(r, "stack").max(1), equip, potion, scroll, stone, usable_type })
             })
             .collect();
         let lists = db.world.rows("SELECT template_id, tid, count FROM npc_trade_list ORDER BY template_id, idx", ()).await?;
@@ -233,6 +280,16 @@ pub struct InventoryItem {
     pub tid: u32,
     pub count: i64,
     pub grid: Grid,
+    /// Renforcement, sockets et pierres serties.
+    pub conv: super::convert::ItemConvert,
+}
+
+/// Colonnes de conversion lues avec un objet.
+pub const CONVERT_COLUMNS: &str = "convert_level, socket_count, socket_tids";
+
+/// État de conversion d'une ligne de `character_items` (colonnes `CONVERT_COLUMNS`).
+pub fn convert_of(r: &mysql_async::Row) -> super::convert::ItemConvert {
+    super::convert::ItemConvert::from_columns(col(r, "convert_level"), col(r, "socket_count"), &col::<String>(r, "socket_tids"))
 }
 
 /// Inventaire d'un personnage en jeu, synchronisé avec `character_items`.
@@ -249,14 +306,14 @@ impl Inventory {
         let rows = db
             .characters
             .rows(
-                "SELECT id, template_id, status, layer, row_idx, col_idx, count FROM character_items WHERE character_id = ? AND status IN (?, ?)",
+                &format!("SELECT id, template_id, status, layer, row_idx, col_idx, count, {CONVERT_COLUMNS} FROM character_items WHERE character_id = ? AND status IN (?, ?)"),
                 (character_id, stored_status::INVENTORY, stored_status::EQUIP),
             )
             .await?;
         let mut inv = Inventory { character_id, ..Default::default() };
         for r in &rows {
             let iid: u32 = col(r, "id");
-            let item = InventoryItem { iid, tid: col(r, "template_id"), count: col(r, "count"), grid: [col(r, "layer"), col(r, "row_idx"), col(r, "col_idx")] };
+            let item = InventoryItem { iid, tid: col(r, "template_id"), count: col(r, "count"), grid: [col(r, "layer"), col(r, "row_idx"), col(r, "col_idx")], conv: convert_of(r) };
             if col::<i64>(r, "status") == stored_status::EQUIP {
                 inv.equipment.insert(item.grid[0], item);
             } else {
@@ -328,7 +385,7 @@ impl Inventory {
                 (item.clone(), false)
             }
             Placement::Slot(grid) => {
-                let item = InventoryItem { iid: new_iid, tid, count, grid };
+                let item = InventoryItem { iid: new_iid, tid, count, grid, conv: Default::default() };
                 self.items.insert(new_iid, item.clone());
                 (item, true)
             }
@@ -343,8 +400,16 @@ impl Inventory {
 
     /// Paquets AGPMITEM d'ajout de tout l'inventaire et de l'équipement (entrée en jeu).
     pub fn add_packets(&self) -> Vec<Vec<u8>> {
-        let bag = self.items.values().map(|i| item_add(i.iid, i.tid, Some(self.character_id), i.count, item_status::INVENTORY, Some(i.grid)));
-        bag.chain(self.equip_packets()).collect()
+        let mut out = Vec::new();
+        for i in self.items.values() {
+            out.push(item_add(i.iid, i.tid, Some(self.character_id), i.count, item_status::INVENTORY, Some(i.grid)));
+            out.extend(convert_add(i, self.character_id));
+        }
+        for i in self.equipment.values() {
+            out.push(item_add(i.iid, i.tid, Some(self.character_id), i.count, item_status::EQUIP, None));
+            out.extend(convert_add(i, self.character_id));
+        }
+        out
     }
 
     /// Paquets AGPMITEM d'ajout de l'équipement porté (pour le porteur ou ceux qui le voient).
@@ -446,7 +511,7 @@ impl Inventory {
                 (INSERT_ITEM, (self.character_id, tid, stored_status::INVENTORY, grid[0], grid[1], grid[2], n).into()),
             ])
             .await? as u32;
-        let part = InventoryItem { iid: new_iid, tid, count: n, grid };
+        let part = InventoryItem { iid: new_iid, tid, count: n, grid, conv: Default::default() };
         self.items.insert(new_iid, part.clone());
         let origin = self.items.get_mut(&iid).unwrap();
         origin.count = left;
@@ -473,7 +538,7 @@ mod tests {
     fn premiere_case_libre() {
         let mut inv = Inventory { character_id: 1, ..Default::default() };
         assert_eq!(inv.free_slot(), Some([0, 0, 0]));
-        inv.items.insert(3, InventoryItem { iid: 3, tid: 190, count: 5, grid: [0, 0, 0] });
+        inv.items.insert(3, InventoryItem { iid: 3, tid: 190, count: 5, grid: [0, 0, 0], conv: Default::default() });
         assert_eq!(inv.free_slot(), Some([0, 0, 1]));
         assert_eq!(inv.stack_for(190, 10, 9999), Some(3));
         assert_eq!(inv.stack_for(190, 10, 1), None);
@@ -483,7 +548,7 @@ mod tests {
     #[test]
     fn place_des_objets_ajoutes() {
         let mut inv = Inventory { character_id: 1, ..Default::default() };
-        inv.items.insert(3, InventoryItem { iid: 3, tid: 190, count: 5, grid: [0, 0, 0] });
+        inv.items.insert(3, InventoryItem { iid: 3, tid: 190, count: 5, grid: [0, 0, 0], conv: Default::default() });
         assert_eq!(inv.placement(190, 10, 9999, None), Some(Placement::Stack(3, 15)));
         assert_eq!(inv.placement(190, 10, 1, Some([0, 2, 2])), Some(Placement::Slot([0, 2, 2])));
         assert_eq!(inv.placement(191, 1, 1, Some([0, 0, 0])), Some(Placement::Slot([0, 0, 1])), "case voulue occupée");
@@ -498,7 +563,7 @@ mod tests {
     #[test]
     fn case_occupee() {
         let mut inv = Inventory { character_id: 1, ..Default::default() };
-        inv.items.insert(3, InventoryItem { iid: 3, tid: 190, count: 5, grid: [0, 1, 2] });
+        inv.items.insert(3, InventoryItem { iid: 3, tid: 190, count: 5, grid: [0, 1, 2], conv: Default::default() });
         assert_eq!(inv.at([0, 1, 2]).map(|i| i.iid), Some(3));
         assert!(inv.at([0, 0, 0]).is_none());
     }

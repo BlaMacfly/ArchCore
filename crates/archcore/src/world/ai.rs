@@ -316,7 +316,14 @@ fn monster_step(ctx: &WorldCtx, st: &mut WorldState, cid: u32, now: Instant) -> 
     let attacker = Attacker { level: m.level as i32, ar: stats.ar, min_damage, max_damage, ..Default::default() };
     let defender = Defender { level: p.factors.status[7], dr: p.factors.point_max[9], defense: p.factors.defense_point[0] as f64 };
     let mut rng = rand::thread_rng();
-    let (mut outcome, mut damage) = combat::strike_at(&mut rng, combat::monster_hit_chance(&attacker, &defender), &attacker, &defender);
+    let (mut outcome, physical) = combat::strike_at(&mut rng, combat::monster_hit_chance(&attacker, &defender), &attacker, &defender);
+    let mut parts = vec![(combat::RESULT_PHYSICAL, physical)];
+    if outcome == combat::result::SUCCESS {
+        let spirit = stats.spirit.map(|(lo, hi)| (lo as f64, hi.max(lo) as f64));
+        let chance = combat::spirit_chance(false, m.level as i32, p.factors.status[7]);
+        parts.extend(combat::spirit_hits(&mut rng, chance, &spirit, &combat::spirit_resist(&p.factors), true));
+    }
+    let mut damage: i32 = parts.iter().map(|(_, d)| d).sum();
     let speed = super::effects::speed(stats.attack_speed, mods.atk_speed_pct).max(1) as u64;
     st.monsters.get_mut(cid).unwrap().ready_at = now + Duration::from_millis(60_000 / speed);
     // Qui frappe s'arrête (le client arrête aussi le monstre au début de son coup).
@@ -346,11 +353,12 @@ fn monster_step(ctx: &WorldCtx, st: &mut WorldState, cid: u32, now: Instant) -> 
         }
         if guard != Guard::Hit {
             damage = 0;
+            parts.clear();
             debug!("[ia] {} ({cid:#x}) : coup {guard:?}", m.name);
         }
     }
     debug!("[ia] {} ({cid:#x}) frappe : résultat {outcome}, {damage} dégât(s)", m.name);
-    combat::hit_player(st, sid, cid, outcome, damage);
+    combat::hit_player(st, sid, cid, outcome, &parts);
     if outcome == combat::result::SUCCESS && damage > 0 {
         monster_skills::on_hit(ctx, st, cid, sid, now);
     }

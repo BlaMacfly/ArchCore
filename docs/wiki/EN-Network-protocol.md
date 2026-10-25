@@ -219,6 +219,14 @@ Out of reach (player attack range + target `HitRange` radius), the server walks 
 with an AGPMOPTIMIZEDCHARMOVE; a movement requested by the client cancels the attack. Hits follow the
 attack speed (60,000 / speed ms).
 
+**Elemental damage.** A hit that lands adds, for each element (magic, water, fire, earth, air, poison,
+lightning, ice) the attacker has damage in, a part that lands with a 70 % chance for a player, 80 % plus the
+level difference (at least 60 %) for a monster: a roll between the element's minimum and maximum, doubled,
+minus the target's resistance to that element in percent (80 % at most for a player). Each part is shown in
+the result's point block, fields 10 (magic) to 17 (ice); the HP lost is their sum. A player's elemental
+damage comes from their equipment (`Magic_Min_Damage`… columns of itemdatatable.txt) and from the spirit
+stones set in it; a monster's from CharacterDataTable.txt. Monsters have no elemental resistance in the data.
+
 When a monster dies, AGPMCHARACTER op 1 with field 11 (action status) set to 2; the corpse is removed
 20 s later (op 3), then the monster respawns in place with full HP. The killer gets the template's
 experience (`Exp` from CharacterDataTable.txt × the `exp` rate) in its factors (op 1, field 7) and a
@@ -290,8 +298,8 @@ part back in the inventory (`Part`: 2 body, 3 head, 5 hands, 6 legs, 7 feet, 9 l
 the wearer with op 2 packets (status 3 without a slot for the worn item, status 2 with its slot for a
 stored item), sends players who see them an op 0 (status 3, owner = wearer) or an op 1, then sends the
 wearer's factors again (AGPMCHARACTER op 1, field 7). Equipment adds to the template's factors: physical
-min and max damage, physical defense, accuracy (`Physical_ATKRate`), HP, and for a weapon its attack speed
-and range. A refusal gives a system message and puts the item back. In the database a worn item has
+min and max damage, physical defense, accuracy (`Physical_ATKRate`), HP, elemental damage and defense, and
+for a weapon its attack speed and range, all with the item's conversion (next section). A refusal gives a system message and puts the item back. In the database a worn item has
 status 1 and its body part in `layer`. A player's equipment is sent (op 0, status 3) to those who start
 seeing them.
 
@@ -299,6 +307,42 @@ In the inventory, dropping a stack on a stack of the same item (op 2, status 2, 
 the total fits in one stack: the source disappears (op 1), the target is updated (op 2). AGPMITEM **op 17**
 splits a stack (count in field 5, free slot in field 7): the new stack arrives with op 0, the old one is
 updated with op 2. **Op 21** destroys an inventory item (op 1 in answer).
+
+## Item conversion (types 0x16 and 0x38, AgpmItemConvert and AgpmEventItemConvert)
+
+Rules and codes read in `Archonia.exe`; chances and values from `ItemConvertTable.txt` (imported into
+`client_table`). An item's state (reinforcement level, sockets, set TIDs) is stored in `character_items`
+(`convert_level`, `socket_count`, `socket_tids`).
+
+AGPMITEMCONVERT (2 flag bytes): 0 op, 1 CID, 2 item IID, 3 IID of what converts it (potion, stone), 4 result,
+5 reinforcement level, 6 sockets, 7 filled sockets, 8 added TID, 9 set TIDs (mini packet of 8 INT32).
+
+- **op 0**: an item's state, sent after its AGPMITEM op 0 (entering the game, bank, trade) for a reinforced
+  or socketed item. An item that takes sockets and has none stored has max(1, `MinSocket`), as the client
+  computes it.
+- **Blacksmith** (npc.ini function 22): AGPMEVENTITEMCONVERT op 0 (event, CID) asks for the window, op 1
+  grants it. Adding a socket and reinforcing require a blacksmith in range.
+- **op 2 → op 6, add a socket**: weapon (except lances, `Type` 17), armour, or "other" (kinds 4, 8, 16,
+  64), 8, 6 and 5 sockets at most. Chance of the n-th socket: "Socket Slot Success" section (Korean header of
+  the original server's file: socket addition success); on failure, a second roll in "Socket Slot Fail":
+  5 no loss, 6 set stones lost, 7 item back to its original state, 8 item destroyed. Success 1, full 2,
+  unsuitable item 9. No price: the client's cost table is empty and it shows 0. After 6 or 7, an op 0 sends
+  the set stones again, which the client does not read from the answer.
+- **op 4 → op 7, spirit stone**: a stone (`Type` 2) of element 1 to 5 (`Spirit Type`: magic, water, fire,
+  earth, air) and rank 1 to 5 (`Rank`), into a weapon (except lances) or an armour in the inventory with a
+  free socket; the item's `PhysicalRank` row in the first section must have the `Spirit<rank>` cell.
+  Chance "Weapon Probability" or "Armor Probability" of the rank; the stone is used up either way. Here
+  **0 = success**, 1 failure, 2 stone refused, 3 full, 5 unsuitable item. Effect: the rank's "Weapon Value
+  Increase" to a weapon's min and max damage of the element, "Reinforcement Level%" to an armour's
+  resistance; each further stone of the same element adds "Elemental Stone Bonus" (3).
+- **op 1 → op 5, reinforcement**: a reinforcement potion (`Type` 8, used up either way) on a weapon (except
+  lances) or a body or legs armour; level at most `PhysicalRank`. `PhysicalRank` row, target level column:
+  success from "Success", otherwise a second roll: "Unchanged" (5), "Reset Reinforcement" (6, back to +0),
+  "Destroy" (8). Full 2, unsuitable item 3, wrong potion 9. Each level adds "Weapon Increase" to a weapon's
+  physical damage, "Armor Increase" to the physical defense of the rest, levels adding up.
+
+Not handled yet: runes (op 3 → op 8), Archonia's ice, lightning and venom stones and stat stones
+(`Spirit Type` 6 to 8 and 100 to 106, refused by the client).
 
 ## Potions and regeneration (types 0x04 and 0x02)
 
@@ -638,7 +682,8 @@ Full specification: [[ArchRust extensions|EN-ArchRust-extensions]].
 | 0x32 | NPC shops | 0x37 | NPC dialog |
 | 0x3B | Skill master | 0x36 | Bank |
 | 0x31 | Teleport portals | 0x15 | Guilds |
-| 0x39 | Guild manager | | |
+| 0x39 | Guild manager | 0x16 | Item conversion |
+| 0x38 | Blacksmith (conversion) | | |
 | 0x07 | Trading between players | 0x3E | NPC quests |
 
 Full schemas for the 86 modules are in `data/re/packet-schemas.json`.

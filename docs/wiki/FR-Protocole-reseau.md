@@ -223,6 +223,15 @@ Hors de portée (portée d'attaque du joueur + rayon `HitRange` de la cible), le
 joueur jusqu'à la cible avec un AGPMOPTIMIZEDCHARMOVE ; un déplacement demandé par le client interrompt
 l'attaque. Les coups suivent la vitesse d'attaque (60 000 / vitesse ms).
 
+**Dégâts élémentaires.** Un coup qui touche ajoute, pour chaque élément (magie, eau, feu, terre, air,
+poison, foudre, glace) dont l'attaquant a des dégâts, une part qui porte avec une chance de 70 % pour un
+joueur, de 80 % plus l'écart de niveau (60 % au moins) pour un monstre : un jet entre le minimum et le
+maximum de l'élément, doublé, moins la résistance de la cible à cet élément en pour cent (80 % au plus pour
+un joueur). Chaque part s'affiche dans le bloc de points du résultat, aux champs 10 (magie) à 17 (glace) ;
+les PV perdus en font la somme. Les dégâts élémentaires d'un joueur viennent de son équipement (colonnes
+`Magic_Min_Damage`… d'itemdatatable.txt) et des pierres d'esprit serties ; ceux d'un monstre de
+CharacterDataTable.txt. Les monstres n'ont pas de résistance élémentaire dans les données.
+
 À la mort d'un monstre, AGPMCHARACTER op 1 avec le champ 11 (statut d'action) à 2 ; le cadavre est
 retiré 20 s plus tard (op 3), puis le monstre réapparaît à sa place avec tous ses PV. Le tueur reçoit
 l'expérience du modèle (`Exp` de CharacterDataTable.txt × taux `exp`) dans ses facteurs (op 1, champ 7)
@@ -296,7 +305,8 @@ pour une arme à deux mains (`Hand` = 2). Il répond au porteur par des op 2 (st
 l'objet porté, statut 2 avec sa case pour un objet rangé), envoie aux joueurs qui le voient un op 0
 (statut 3, propriétaire = porteur) ou un op 1, puis renvoie les facteurs du porteur (AGPMCHARACTER op 1,
 champ 7). L'équipement s'ajoute aux facteurs du modèle : dégâts physiques min et max, défense physique,
-précision (`Physical_ATKRate`), PV, et pour une arme sa vitesse et sa portée d'attaque. Un refus donne
+précision (`Physical_ATKRate`), PV, dégâts et défenses élémentaires, et pour une arme sa vitesse et sa
+portée d'attaque, le tout avec la conversion de l'objet (section suivante). Un refus donne
 un message système et remet l'objet à sa place. En base, un objet porté a le statut 1 et sa partie dans
 `layer`. L'équipement d'un joueur est envoyé (op 0, statut 3) à ceux qui commencent à le voir.
 
@@ -304,6 +314,44 @@ Dans l'inventaire, poser une pile sur une pile du même objet (op 2, statut 2, c
 si le total tient dans une pile : la source disparaît (op 1), la cible est mise à jour (op 2). AGPMITEM
 **op 17** sépare une pile (quantité au champ 5, case libre au champ 7) : la nouvelle pile arrive par op 0,
 l'ancienne est mise à jour par op 2. **Op 21** détruit un objet de l'inventaire (op 1 en réponse).
+
+## Conversion des objets (types 0x16 et 0x38, AgpmItemConvert et AgpmEventItemConvert)
+
+Règles et codes relevés dans `Archonia.exe` ; chances et valeurs d'`ItemConvertTable.txt` (importée dans
+`client_table`). L'état d'un objet (niveau de renforcement, sockets, TID sertis) est en base dans
+`character_items` (`convert_level`, `socket_count`, `socket_tids`).
+
+AGPMITEMCONVERT (drapeaux 2) : 0 op, 1 CID, 2 IID de l'objet, 3 IID de ce qui le convertit (potion, pierre),
+4 résultat, 5 niveau de renforcement, 6 sockets, 7 sockets remplis, 8 TID ajouté, 9 TID sertis (mini-paquet
+de 8 INT32).
+
+- **op 0** : état d'un objet, envoyé après son AGPMITEM op 0 (entrée en jeu, banque, échange) pour un objet
+  renforcé ou à sockets. Un objet qui reçoit des sockets et n'en a pas d'enregistré en a max(1, `MinSocket`),
+  comme le calcule le client.
+- **Forgeron** (fonction 22 de npc.ini) : AGPMEVENTITEMCONVERT op 0 (événement, CID) demande la fenêtre,
+  op 1 l'accorde. L'ajout de socket et le renforcement exigent un forgeron à portée.
+- **op 2 → op 6, ajout de socket** : arme (sauf lance, `Type` 17), armure, ou « autre » (genres 4, 8, 16,
+  64), 8, 6 et 5 sockets au plus. Chance du n-ième socket : section « Socket Slot Success » (en-tête coréen
+  du fichier du serveur d'origine : succès d'ajout de socket) ; en cas d'échec, second tirage dans
+  « Socket Slot Fail » : 5 sans perte, 6 sertissages perdus, 7 objet remis à son état d'origine, 8 objet
+  détruit. Réussite 1, plein 2, objet inadapté 9. Pas de prix : la table des coûts du client est vide et il
+  affiche 0. Après 6 ou 7, un op 0 redonne les sertissages, que le client ne relit pas dans la réponse.
+- **op 4 → op 7, pierre d'esprit** : pierre (`Type` 2) d'élément 1 à 5 (`Spirit Type` : magie, eau, feu,
+  terre, air) et de rang 1 à 5 (`Rank`), dans une arme (sauf lance) ou une armure de l'inventaire qui a un
+  socket libre ; la ligne `PhysicalRank` de l'objet dans la première section doit avoir la case
+  `Spirit<rang>`. Chance « Weapon Probability » ou « Armor Probability » du rang ; la pierre est consommée
+  dans tous les cas. Ici **0 = réussite**, 1 échec, 2 pierre refusée, 3 plein, 5 objet inadapté. Effet :
+  « Weapon Value Increase » du rang aux dégâts min et max de l'élément d'une arme, « Reinforcement Level% »
+  à la résistance d'une armure ; chaque pierre de plus du même élément ajoute « Elemental Stone Bonus » (3).
+- **op 1 → op 5, renforcement** : potion de renforcement (`Type` 8, consommée dans tous les cas) sur une
+  arme (sauf lance) ou une armure de corps ou de jambes ; niveau au plus `PhysicalRank`. Ligne
+  `PhysicalRank`, colonne niveau visé : réussite selon « Success », sinon second tirage : « Unchanged »
+  (5), « Reset Reinforcement » (6, retour à +0), « Destroy » (8). Plein 2, objet inadapté 3, mauvaise potion
+  9. Chaque niveau ajoute « Weapon Increase » aux dégâts physiques d'une arme, « Armor Increase » à la
+  défense physique du reste, en cumulant les niveaux.
+
+Pas encore gérés : les runes (op 3 → op 8), les pierres de glace, de foudre et de venin et les pierres de
+caractéristiques d'Archonia (`Spirit Type` 6 à 8 et 100 à 106, refusées par le client).
 
 ## Potions et régénération (types 0x04 et 0x02)
 
@@ -660,7 +708,8 @@ pas envoyé `HELLO`. Spécification complète : [[Extensions ArchRust|FR-Extensi
 | 0x32 | Boutiques des PNJ | 0x37 | Dialogue des PNJ |
 | 0x3B | Maître des compétences | 0x36 | Banque |
 | 0x31 | Portails de téléportation | 0x15 | Guildes |
-| 0x39 | Gestionnaire de guilde | | |
+| 0x39 | Gestionnaire de guilde | 0x16 | Conversion des objets |
+| 0x38 | Forgeron (conversion) | | |
 | 0x07 | Échange entre joueurs | 0x3E | Quêtes des PNJ |
 
 Les schémas complets des 86 modules sont dans `data/re/packet-schemas.json`.

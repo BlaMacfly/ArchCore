@@ -204,6 +204,7 @@ ARCHCORE_CONF_DIR=config/test archcore sim mastery [compte] [mdp] [personnage]
 ARCHCORE_CONF_DIR=config/test archcore sim partyskill [compteA mdpA persoA compteB mdpB persoB]
 ARCHCORE_CONF_DIR=config/test archcore sim counter [compte] [mdp] [personnage]
 ARCHCORE_CONF_DIR=config/test archcore sim mobskill [compte] [mdp] [personnage]
+ARCHCORE_CONF_DIR=config/test archcore sim convert [compte] [mdp] [personnage]
 ```
 
 `sim mastery` (GmTest, niveau 60) oublie en base Capacitate et Marching Song, se voit refuser Capacitate chez
@@ -213,8 +214,11 @@ Song renforce SimA à côté de GmTest (AGPMSKILL op 4 sur SimA), pas quand SimA
 pose en base Counter Attack niveau 10 sur GmTest (compétence de berserker, retirée à la fin), le passe au
 niveau 1, provoque un Ver vert et attend un coup renvoyé (attaquant = joueur, résultat 12), `/level 1` rendant
 les PV au besoin. `sim mobskill` (GmTest, niveau 40) rejoint Midas, le frappe une fois et attend qu'il lance
-Insanity (op 0 et op 7 du monstre, op 8 sur le joueur avec des dégâts physiques et d'eau), puis la relance
-6 s plus tard.
+Insanity (op 7 du monstre, op 8 sur le joueur avec des dégâts physiques et d'eau), puis la relance
+6 s plus tard. `sim convert` (GmTest, compte MJ) ouvre la fenêtre du forgeron Halo à Anchorville, reçoit une
+Bastard Sword, une pierre d'eau et deux potions de renforcement (`/additem`), ajoute un socket (répété jusqu'à la
+réussite), sertit la pierre (op 7, résultat 0), renforce l'épée à +1 puis +2, se reconnecte et relit l'état
+(+2, 2 sockets, 1 pierre) dans les objets reçus à l'entrée, puis détruit l'épée.
 
 ## Test des extensions ArchRust
 

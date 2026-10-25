@@ -21,6 +21,7 @@ pub mod ai;
 pub mod bank;
 pub mod chat;
 pub mod combat;
+pub mod convert;
 pub mod effects;
 pub mod equipment;
 pub mod gm;
@@ -87,6 +88,8 @@ pub struct WorldCtx {
     pub portals: portal::Portals,
     /// Prix des pages de banque en plus (indice 0 : deuxième page) ; -1 : pas en vente.
     pub bank_slot_prices: Vec<i64>,
+    /// Conversion des objets (ItemConvertTable.txt).
+    pub convert: convert::ConvertTable,
     pub view_radius: f64,
 }
 
@@ -246,6 +249,8 @@ impl Service for WorldService {
                 | ptype::SKILL
                 | ptype::EVENT_SKILL_MASTER
                 | ptype::EVENT_BANK
+                | ptype::ITEM_CONVERT
+                | ptype::EVENT_ITEM_CONVERT
                 | ptype::EVENT_TELEPORT
                 | ptype::GUILD
                 | ptype::EVENT_GUILD
@@ -343,6 +348,8 @@ impl Connection for WorldConn {
             ptype::SKILL => skills::on_packet(ctx, &mut st, self.sid, &p),
             ptype::EVENT_SKILL_MASTER => skills::on_master_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::EVENT_BANK => bank::on_packet(ctx, &mut st, self.sid, &p),
+            ptype::ITEM_CONVERT => convert::on_packet(ctx, &mut st, self.sid, &p).await?,
+            ptype::EVENT_ITEM_CONVERT => convert::on_event(ctx, &st, self.sid, &p),
             ptype::EVENT_TELEPORT => portal::on_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::GUILD => guild::on_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::EVENT_GUILD => guild::on_event(ctx, &st, self.sid, &p),
@@ -431,7 +438,7 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
     // Banque du compte : son argent et ses pages remplacent ceux de la ligne du personnage.
     ch.bank_money = bank.money;
     ch.bank_size = bank.extra_slots as i32;
-    let mut factors = equipment::with_equipment(make_factors(tpl, Some(&ch)), &equipment::worn(&inventory, &ctx.catalog));
+    let mut factors = equipment::with_equipment(make_factors(tpl, Some(&ch)), &equipment::worn(&inventory, &ctx.catalog, &ctx.convert));
     let mut skills = skills::load(&ctx.db, &ctx.skills, ch.id, &mut st.next_skill_id).await?;
     skills::refresh_points(&ctx.skills, &skills, &mut factors);
     skills::sync_passives(&ctx.skills, &mut skills, ch.template_id);
