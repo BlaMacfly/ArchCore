@@ -64,8 +64,9 @@
 
 ## Prochaines étapes
 
-1. Valider la création complète d'un personnage en jeu.
-2. Vérifier la visibilité entre joueurs avec deux vrais clients.
+1. Création complète d'un personnage et visibilité entre deux joueurs : vérifiées le 25 octobre 2026 avec
+   deux clients ArchRust sur le serveur de test (création, entrée à Golundo, refus d'un nom déjà pris,
+   joueurs visibles l'un de l'autre). Reste à les confirmer avec le client Archonia.
 3. Fonctions des PNJ : quêtes à objets d'interaction. Portails : zones de combat entre joueurs (confirmation,
    retour, op 7), refus en combat ou métamorphosé.
 4. Compétences : renvoi de dégâts à l'attaquant, compétences des monstres, compétences de groupe ; maîtrises.

@@ -57,8 +57,9 @@
 
 ## Next steps
 
-1. Verify full character creation in game.
-2. Verify player visibility with two real clients.
+1. Full character creation and visibility between two players: checked on 25 October 2026 with two ArchRust
+   clients on the test server (creation, arrival in Golundo, refusal of a taken name, players visible to each
+   other). Still to confirm with the Archonia client.
 3. NPC functions: quests with interaction objects. Portals: player-versus-player zones (confirmation, return,
    op 7), refusal in combat or while transformed.
 4. Skills: reflecting damage to the attacker, monster skills, party skills; masteries.

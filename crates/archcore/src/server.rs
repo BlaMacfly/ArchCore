@@ -20,6 +20,12 @@ pub async fn run(mode: &str) -> anyhow::Result<()> {
     let locale = crate::locale::Catalog::load(&db, &config.root, &config.world.language).await;
     crate::locale::install(locale.summary.clone());
 
+    // Inscription du monde avant le serveur de connexion : en mode `all`, sa première liste des
+    // mondes porte déjà la bonne adresse (sinon, elle est relue toutes les 60 s).
+    if mode == "world" || mode == "all" {
+        register_world(&db, &config.world).await?;
+    }
+
     if mode == "login" || mode == "all" {
         let svc = Arc::new(crate::login::LoginService::new(db.clone(), templates.clone(), config.clone()));
         svc.refresh_world_list().await?;
@@ -78,5 +84,34 @@ pub async fn run(mode: &str) -> anyhow::Result<()> {
     tokio::signal::ctrl_c().await?;
     info!("arrêt…");
     db.close().await;
+    Ok(())
+}
+
+/// Inscrit ce monde dans la liste du serveur de connexion d'après la configuration :
+/// `WorldServer.Name`, `WorldServer.Group` et `WorldServer.PublicAddress`:`WorldServer.Port`.
+/// La ligne écrite par `db-init` gardait `127.0.0.1:11008` quelle que soit la configuration, si
+/// bien qu'un monde sur un autre port ou une autre machine renvoyait les clients au mauvais endroit.
+async fn register_world(db: &crate::db::Databases, w: &crate::config::WorldConfig) -> anyhow::Result<()> {
+    let address = format!("{}:{}", w.public_address.trim(), w.port);
+    // Le paquet de connexion porte l'adresse sur 23 octets au plus (colonne `world.address`).
+    if address.len() > 23 {
+        anyhow::bail!("WorldServer.PublicAddress : « {address} » dépasse 23 caractères");
+    }
+    let auth = &db.auth;
+    let group_id: u32 = match auth.first("SELECT id FROM server_group WHERE name = ?", (w.group.clone(),)).await? {
+        Some(r) => crate::db::col(&r, "id"),
+        None => {
+            let id: u32 = auth.first("SELECT COALESCE(MAX(id), 0) + 1 AS id FROM server_group", ()).await?.map(|r| crate::db::col(&r, "id")).unwrap_or(1);
+            auth.exec("INSERT INTO server_group (id, name) VALUES (?, ?)", (id, w.group.clone())).await?;
+            id
+        }
+    };
+    if auth.first("SELECT id FROM world WHERE name = ?", (w.name.clone(),)).await?.is_some() {
+        auth.exec("UPDATE world SET group_id = ?, address = ? WHERE name = ?", (group_id, address.clone(), w.name.clone())).await?;
+    } else {
+        let id: u32 = auth.first("SELECT COALESCE(MAX(id), 0) + 1 AS id FROM world", ()).await?.map(|r| crate::db::col(&r, "id")).unwrap_or(1);
+        auth.exec("INSERT INTO world (id, group_id, name, address) VALUES (?, ?, ?, ?)", (id, group_id, w.name.clone(), address.clone())).await?;
+    }
+    info!("[world] inscrit dans la liste des mondes : {} ({}) à {address}", w.name, w.group);
     Ok(())
 }

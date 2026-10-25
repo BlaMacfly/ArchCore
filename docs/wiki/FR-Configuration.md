@@ -40,7 +40,7 @@ défaut, avec un avertissement dans le journal ; une clé inconnue (faute de fra
 | `WorldServer.Port` | `11008` | Port du serveur monde |
 | `WorldServer.Bind` | `0.0.0.0` | Adresse d'écoute |
 | `WorldServer.Name` / `WorldServer.Group` | `ArchCore` | Nom du monde et de son groupe dans la liste des serveurs |
-| `WorldServer.PublicAddress` | `127.0.0.1` | Adresse du monde envoyée au client. À changer pour un serveur accessible depuis Internet |
+| `WorldServer.PublicAddress` | `127.0.0.1` | Adresse du monde envoyée au client. À changer pour un serveur accessible depuis Internet. Au démarrage, le monde inscrit `PublicAddress:Port` dans la table `world`, sous `WorldServer.Name` et `WorldServer.Group` (23 caractères au plus) |
 | `Client.DataDir` | `../client/ArchLord/Game` | Dossier `Game` du client, utilisé par les outils d'import et de traduction |
 | `World.Language` | `fr` | Langue des titres de PNJ (`data/i18n/npc-titles-<langue>.json`) ; `en` les laisse en anglais |
 | `World.ViewRadius` | `8000` | Portée de la discussion normale et des messages d'AddOn `SAY`. PNJ, monstres, joueurs et objets au sol se voient par secteurs (voir [[Protocole réseau|FR-Protocole-reseau]]) |

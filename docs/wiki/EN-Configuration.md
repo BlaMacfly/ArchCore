@@ -40,7 +40,7 @@ unknown key (typo) is reported.
 | `WorldServer.Port` | `11008` | World server port |
 | `WorldServer.Bind` | `0.0.0.0` | Listen address |
 | `WorldServer.Name` / `WorldServer.Group` | `ArchCore` | World and group name in the server list |
-| `WorldServer.PublicAddress` | `127.0.0.1` | World address sent to the client. Change it for a server reachable from the Internet |
+| `WorldServer.PublicAddress` | `127.0.0.1` | World address sent to the client. Change it for a server reachable from the Internet. On startup, the world writes `PublicAddress:Port` to the `world` table, under `WorldServer.Name` and `WorldServer.Group` (23 characters max) |
 | `Client.DataDir` | `../client/ArchLord/Game` | The client's `Game` folder, used by the import and translation tools |
 | `World.Language` | `fr` | NPC title language (`data/i18n/npc-titles-<lang>.json`); `en` keeps them in English |
 | `World.ViewRadius` | `8000` | Range of normal chat and `SAY` AddOn messages. NPCs, monsters, players and ground items are seen by sector (see [[Network protocol|EN-Network-protocol]]) |
