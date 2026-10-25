@@ -47,7 +47,7 @@ Remplie par `archcore import` à partir des tables du client.
 | `skill_level` | `SKILL_CONST.txt` | Valeurs de chaque niveau de chaque compétence (colonnes non vides, en JSON ; groupes `point.`, `percent.`, `magnify.`) |
 | `npc_spawn` | `npc.ini` | 567 PNJ : modèle, nom, position, orientation, fonctions brutes |
 | `client_table` | autres tables `.txt` | Lignes en JSON, pour les tables pas encore modélisées |
-| `monster_spawn` | tables du serveur d'origine (`spawndatatable.txt` + `spawninstancetable.txt`) | 12 802 points d'apparition, 36 960 créatures : modèle, niveau, nombre, réapparition, position, rayon, nom public (`CharacterTemplatePublic.ini`) |
+| `monster_spawn` | tables du serveur d'origine (`spawndatatable.txt` + `spawninstancetable.txt`) | 12 802 points d'apparition, 36 960 créatures : modèle, niveau (celui du client), nombre, réapparition (plage `respawn_sec`–`respawn_max_sec` pour les boss de `UIBoss.xml`), position, rayon, nom public (`CharacterTemplatePublic.ini`) |
 | `map_segment` | `world/node_data` du serveur d'origine | 45 312 secteurs : sol infranchissable et région par segment de 400 unités |
 | `map_height` | `world/b*x.ma2` du client (géométrie du sol) | 46 592 secteurs : hauteur du sol aux 17 × 17 coins de cellule (i16) |
 | `monster_drop` | `itemdroptable.txt` du serveur d'origine | 4 653 objets propres à 550 monstres : quantité, taux sur 100 000 |

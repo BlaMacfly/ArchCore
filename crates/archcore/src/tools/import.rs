@@ -568,6 +568,32 @@ pub fn parse_teleport_fees(text: &str) -> Vec<(String, String, i64)> {
     fees
 }
 
+/// Délais de réapparition des boss de la fenêtre des boss d'Archonia (UIBoss.xml) : (TID, minimum, maximum)
+/// en secondes, de « Spawn Period: 30-45 minutes ». Les boss « Event-based spawn » n'ont pas de délai.
+pub fn parse_boss_periods(xml: &str) -> Vec<(u32, i64, i64)> {
+    let attr = |s: &str, name: &str| -> Option<String> {
+        let at = s.find(&format!("{name}=\""))? + name.len() + 2;
+        Some(s[at..].split('"').next()?.to_string())
+    };
+    let mut out = Vec::new();
+    for boss in xml.split("<Boss ").skip(1) {
+        let boss = boss.split("</Boss>").next().unwrap_or("");
+        let Some(tid) = attr(boss, "TID").and_then(|t| t.trim().parse::<u32>().ok()) else { continue };
+        let Some(period) = boss.find("<SpawnPeriod").and_then(|i| attr(&boss[i..], "Text")) else { continue };
+        let minutes: Vec<i64> = period
+            .trim_start_matches("Spawn Period:")
+            .trim()
+            .trim_end_matches("minutes")
+            .split('-')
+            .filter_map(|m| m.trim().parse().ok())
+            .collect();
+        if let [min, max] = minutes[..] {
+            out.push((tid, min * 60, max.max(min) * 60));
+        }
+    }
+    out
+}
+
 /// Prix des pages de banque en plus (bankslotprice.txt) : (page, prix), -1 pour une page pas en vente.
 pub fn parse_bank_slot_prices(text: &str) -> Vec<(u8, i64)> {
     let (h, rows) = parse_tsv(text);
@@ -650,14 +676,34 @@ async fn import_spawns(db: &Databases, client: &Source, server: &Source) -> anyh
     } else {
         Default::default()
     };
+    // Niveau des monstres : celui de CharacterDataTable.txt du client (Archonia en a relevé certains), le
+    // niveau des tables du serveur seulement à défaut.
+    let levels: std::collections::HashMap<u32, i64> = {
+        let (h, rows) = parse_tsv(&client.read("CharacterDataTable.txt")?);
+        let (t, l) = (h.iter().position(|x| x == "TID"), h.iter().position(|x| x == "LVL"));
+        rows.iter()
+            .filter_map(|r| {
+                let cell = |i: Option<usize>| i.and_then(|i| r.get(i)).map(|s| js_number(s.trim(), 0.0) as i64).unwrap_or(0);
+                (cell(t) > 0 && cell(l) > 0).then(|| (cell(t) as u32, cell(l)))
+            })
+            .collect()
+    };
+    // Délais des boss annoncés par la fenêtre des boss d'Archonia, à la place de ceux des tables du serveur.
+    let periods: std::collections::HashMap<u32, (i64, i64)> =
+        if client.exists("UIBoss.xml") { parse_boss_periods(&client.read("UIBoss.xml")?).into_iter().map(|(t, a, b)| (t, (a, b))).collect() } else { Default::default() };
+    let (mut relevelled, mut timed) = (0, 0);
     let monsters: i64 = rows.iter().map(|r| r.count).sum();
     let out: Vec<Vec<Value>> = rows
         .iter()
         .map(|r| {
             let display: String = public.get(&r.tid).cloned().unwrap_or_default().chars().take(96).collect();
+            let level = levels.get(&r.tid).copied().unwrap_or(r.level);
+            relevelled += (level != r.level) as usize;
+            let (respawn, respawn_max) = periods.get(&r.tid).copied().unwrap_or((r.respawn_sec, 0));
+            timed += periods.contains_key(&r.tid) as usize;
             vec![
-                v(r.id), v(r.key.clone()), v(r.group.clone()), v(r.name.clone()), v(r.tid), v(display), v(r.level), v(r.count), v(r.max_count),
-                v(r.respawn_sec), v(r.rate), v(r.ai_tid), v(r.siege_war), v(r.is_boss),
+                v(r.id), v(r.key.clone()), v(r.group.clone()), v(r.name.clone()), v(r.tid), v(display), v(level), v(r.count), v(r.max_count),
+                v(respawn), v(respawn_max), v(r.rate), v(r.ai_tid), v(r.siege_war), v(r.is_boss),
                 v(r.pos[0]), v(r.pos[1]), v(r.pos[2]), v(r.degree[0]), v(r.degree[1]), v(r.radius),
             ]
         })
@@ -665,11 +711,12 @@ async fn import_spawns(db: &Databases, client: &Source, server: &Source) -> anyh
     let n = replace(
         db,
         "monster_spawn",
-        "INSERT INTO monster_spawn (id,stable_key,group_name,name,tid,display_name,level,count,max_count,respawn_sec,rate,ai_tid,siege_war,is_boss,pos_x,pos_y,pos_z,degree_x,degree_y,radius) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO monster_spawn (id,stable_key,group_name,name,tid,display_name,level,count,max_count,respawn_sec,respawn_max_sec,rate,ai_tid,siege_war,is_boss,pos_x,pos_y,pos_z,degree_x,degree_y,radius) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         out,
     )
     .await?;
     println!("✓ monster_spawn : {n} point(s), {monsters} monstre(s) ; {missing} ligne(s) sans position ignorée(s)");
+    println!("  niveau du client sur {relevelled} point(s) ; délai de la fenêtre des boss (UIBoss.xml) sur {timed} point(s)");
     Ok(())
 }
 
@@ -1048,6 +1095,14 @@ mod tests {
         assert_eq!(fees, vec![("A".to_string(), "B".to_string(), 700)]);
         assert_eq!(parse_bank_slot_prices("Slot\tPrice\t\r\n1\t1000000\t# commentaire\r\n2\t-1\t\r\n"), vec![(1, 1_000_000), (2, -1)]);
         assert_eq!(parse_guild_max_members("\tOr\tCrâne\tID\tNombre\r\n50\t10000\t\t\t\r\n60\t1000000\tX\t7\t2\r\n"), vec![(50, 10_000, 0, 0), (60, 1_000_000, 7, 2)]);
+    }
+
+    #[test]
+    fn delais_de_la_fenetre_des_boss() {
+        let xml = "<UIBoss>\n\t<Boss TID=\"2073\" Category=\"Battlesquare\" Icon=\"14\">\n\t\t<Name Text=\"Basilis (Lv.30)\"/>\n\t\t<SpawnPeriod Text=\"Spawn Period: 30-45 minutes\"/>\n\t</Boss>\n\
+                   \t<Boss TID=\"5794\" Category=\"Firmament\" Icon=\"1\">\n\t\t<SpawnPeriod Text=\"Event-based spawn\"/>\n\t</Boss>\n\
+                   \t<Boss TID=\"5799\" Category=\"Firmament\" Icon=\"2\">\n\t\t<SpawnPeriod Text=\"25-35 minutes\"/> \n\t</Boss>\n</UIBoss>";
+        assert_eq!(parse_boss_periods(xml), vec![(2073, 1800, 2700), (5799, 1500, 2100)]);
     }
 
     #[test]

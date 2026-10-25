@@ -22,7 +22,8 @@
 
 - Créatures : 36 960 monstres placés d'après les tables du serveur d'origine, hors du sol infranchissable,
   avec leurs caractéristiques (niveau, vitesses, PV). Vus et ciblés en jeu lors d'un premier essai ;
-  l'envoi des PV, ajouté depuis, reste à vérifier.
+  l'envoi des PV, ajouté depuis, reste à vérifier. Niveaux repris du client Archonia et réapparition des
+  boss d'après sa fenêtre des boss ; bilan de fidélité dans [[Épisode du jeu|FR-Episode]].
 - Combat au corps à corps contre les monstres : approche, coups (chance de toucher, dégâts selon la
   classe), mort, expérience et montée de niveau (caractéristiques, PV et PM selon GrowUpFactor), cadavre
   puis réapparition. Les monstres frappés

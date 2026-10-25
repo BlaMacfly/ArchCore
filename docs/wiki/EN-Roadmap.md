@@ -22,7 +22,8 @@
 
 - Creatures: 36,960 monsters placed from the original server tables, off blocked ground, with their stats
   (level, speeds, HP). Seen and targeted in game during a first test; sending their HP, added since,
-  remains to be checked.
+  remains to be checked. Levels taken from the Archonia client and boss respawn from its boss window;
+  fidelity report in [[Game episode|EN-Episode]].
 - Melee combat against monsters: approach, hits (hit chance, class-based damage), death, experience and
   level up (stats, HP and MP from GrowUpFactor), corpse then respawn. Monsters that are hit fight back and chase their attacker; player death
   and resurrection in town. Drops: gold and items on the ground, pick-up.

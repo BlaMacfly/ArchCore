@@ -42,6 +42,20 @@ Spookywood Forest, Throne of Fire, Lava Temple Ruins, Guild vs Guild Area…), r
 pass (`battlepass.xml`), the Battle Royale arena, Oreads and Elixirs, the Nightfall armour. ArchCore does
 not program them: they stay out of scope until a decision brings them in.
 
+## Fidelity to Archonia's content: NPCs, quests, monsters
+
+Check of 25 October 2026, Archonia client data and `Archonia.exe`:
+
+| Content | Source in ArchCore | Status |
+|---|---|---|
+| NPCs | Archonia client's `npc.ini` (567 NPCs, positions, functions, shops, quest groups) | ✅ copy of the client |
+| Quests | `questtemplate.ini` of the client's `Ini` folder (53 quests) | ✅ like the client: at start-up, `Archonia.exe` only reads `IniQuestTemplate.ini`, whatever the language. The `ini_ko` table (3,321 quests, those of the original game) is not loaded: group quests missing from it are offered neither by the client nor by ArchCore |
+| Monster stats | Archonia client's `CharacterDataTable.txt` | ✅ copy of the client |
+| Monster level | client's `CharacterDataTable.txt`, instead of the server tables' level | ✅ Archonia raised 70 monsters (MoonElf guards to level 120, Amantorg to level 92…): 1,148 spawn points corrected |
+| Boss respawn | Archonia's boss window (`UIBoss.xml`): delay drawn in the announced range | ✅ 16 points (Battlesquare 30 to 45 min, Asylum and Balor King 30 to 60 min, Chaotic Frontier 20 to 40 min, Shinewood invaders 75 to 90 min) |
+| Monster placement | original server tables (`spawndatatable.txt`, `spawninstancetable.txt`) | 🟡 spawns are handled by Archonia's server and absent from the client; the original game's are used |
+| Archonia's own monsters | — | ⛔ 13 bosses of the boss window (Heaven's Hell, The Shattered Firmament, Purgatory, new Chaotic Frontier and Asylum bosses), 23 quest targets and the 46 rift monster groups (`Rifts.xml`) have no known placement. The client does not give it: they are left out rather than invented |
+
 ## Systems programmed, by episode
 
 | Episode | System | Status in ArchCore |

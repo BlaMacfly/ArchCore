@@ -160,8 +160,10 @@ pub struct Monster {
     pub degree_y: f64,
     pub hp: i32,
     pub max_hp: i32,
-    /// Délai de réapparition après le retrait du cadavre, en secondes.
+    /// Délai de réapparition après le retrait du cadavre, en secondes ; tiré entre `respawn_sec` et
+    /// `respawn_max_sec` quand celui-ci est plus grand (boss de la fenêtre des boss).
     pub respawn_sec: i64,
+    pub respawn_max_sec: i64,
     pub life: Life,
     /// Position d'apparition, où il revient quand il abandonne.
     pub home: Vec3,
@@ -199,6 +201,7 @@ pub struct SpawnPoint {
     pub radius: f64,
     pub max_hp: i32,
     pub respawn_sec: i64,
+    pub respawn_max_sec: i64,
 }
 
 /// Marche d'un monstre : destination, vitesse (dixièmes d'unité par seconde), instant du dernier pas.
@@ -277,6 +280,7 @@ pub fn spawn_point(p: &SpawnPoint, first_cid: u32, blocked: &dyn Fn(f64, f64) ->
                 hp: p.max_hp,
                 max_hp: p.max_hp,
                 respawn_sec: p.respawn_sec,
+                respawn_max_sec: p.respawn_max_sec,
                 life: Life::Alive,
                 home: pos,
                 aggro: Vec::new(),
@@ -297,7 +301,7 @@ impl MonsterRegistry {
         // pas eu les tables du serveur.
         let rows = match db
             .world
-            .rows("SELECT id, tid, display_name, level, count, respawn_sec, pos_x, pos_y, pos_z, degree_x, radius FROM monster_spawn WHERE count > 0 ORDER BY id", ())
+            .rows("SELECT id, tid, display_name, level, count, respawn_sec, respawn_max_sec, pos_x, pos_y, pos_z, degree_x, radius FROM monster_spawn WHERE count > 0 ORDER BY id", ())
             .await
         {
             Ok(rows) => rows,
@@ -332,6 +336,7 @@ impl MonsterRegistry {
                 radius: col(r, "radius"),
                 max_hp: stats.get(&col::<u32>(r, "tid")).map(|s| s.max_hp.max(1)).unwrap_or(1),
                 respawn_sec: col(r, "respawn_sec"),
+                respawn_max_sec: col(r, "respawn_max_sec"),
             })
             .collect();
         let without = points.iter().filter(|p| !stats.contains_key(&p.tid)).count();
@@ -463,7 +468,7 @@ mod tests {
     use archcore_net::{decode_mini, decode_packet};
 
     fn point(id: u32, x: f32, z: f32, count: i64, radius: f64) -> SpawnPoint {
-        SpawnPoint { id, tid: 450, name: "Ver vert".into(), level: 1, count, pos: Vec3::new(x, 0.0, z), degree_x: 0.0, radius, max_hp: 136, respawn_sec: 8 }
+        SpawnPoint { id, tid: 450, name: "Ver vert".into(), level: 1, count, pos: Vec3::new(x, 0.0, z), degree_x: 0.0, radius, max_hp: 136, respawn_sec: 8, respawn_max_sec: 0 }
     }
 
     #[test]

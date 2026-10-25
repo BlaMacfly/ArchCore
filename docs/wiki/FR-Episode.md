@@ -44,6 +44,20 @@ Spookywood Forest, Throne of Fire, Lava Temple Ruins, Guild vs Guild Area…), l
 l'armure Nightfall. ArchCore ne les programme pas : ils restent hors du périmètre tant qu'aucune décision
 ne les y fait entrer.
 
+## Fidélité au contenu d'Archonia : PNJ, quêtes, monstres
+
+Contrôle du 25 octobre 2026, données du client Archonia et `Archonia.exe` :
+
+| Contenu | Source dans ArchCore | État |
+|---|---|---|
+| PNJ | `npc.ini` du client Archonia (567 PNJ, positions, fonctions, boutiques, groupes de quêtes) | ✅ copie du client |
+| Quêtes | `questtemplate.ini` du dossier `Ini` du client (53 quêtes) | ✅ comme le client : au démarrage, `Archonia.exe` ne lit que `IniQuestTemplate.ini`, quelle que soit la langue. La table de `ini_ko` (3 321 quêtes, celles du jeu d'origine) n'est pas chargée : les quêtes des groupes qui n'y figurent pas ne sont proposées ni par le client ni par ArchCore |
+| Caractéristiques des monstres | `CharacterDataTable.txt` du client Archonia | ✅ copie du client |
+| Niveau des monstres | `CharacterDataTable.txt` du client, à la place du niveau des tables du serveur | ✅ Archonia a relevé 70 monstres (gardes MoonElf au niveau 120, Amantorg au niveau 92…) : 1 148 points d'apparition corrigés |
+| Réapparition des boss | fenêtre des boss d'Archonia (`UIBoss.xml`) : délai tiré dans la plage annoncée | ✅ 16 points (Battlesquare 30 à 45 min, Asylum et Balor King 30 à 60 min, Chaotic Frontier 20 à 40 min, envahisseurs de Shinewood 75 à 90 min) |
+| Emplacement des monstres | tables du serveur d'origine (`spawndatatable.txt`, `spawninstancetable.txt`) | 🟡 les apparitions sont gérées par le serveur d'Archonia, absentes du client ; celles du jeu d'origine sont reprises |
+| Monstres propres à Archonia | — | ⛔ 13 boss de la fenêtre des boss (Heaven's Hell, The Shattered Firmament, Purgatory, nouveaux boss de Chaotic Frontier et d'Asylum), 23 cibles de quêtes et les 46 groupes de monstres des failles (`Rifts.xml`) n'ont pas d'emplacement connu. Le client ne le donne pas : ils ne sont pas placés plutôt qu'inventés |
+
 ## Systèmes programmés, par épisode
 
 | Épisode | Système | État dans ArchCore |

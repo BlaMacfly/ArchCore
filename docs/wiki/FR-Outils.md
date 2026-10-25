@@ -249,7 +249,7 @@ serveur d'origine d'ArchLord, à placer dans `data/server-ini` (jamais versionn�
 
 | Fichier | Contenu | Table |
 |---|---|---|
-| `spawndatatable.txt` | Quoi : groupe, modèle et niveau du monstre, nombre, délai de réapparition, guerre de siège | `monster_spawn` |
+| `spawndatatable.txt` | Quoi : groupe, modèle et niveau du monstre, nombre, délai de réapparition, guerre de siège. Le niveau retenu est celui de `CharacterDataTable.txt` du client quand il y figure ; le délai des boss vient de la fenêtre des boss du client (`UIBoss.xml`) | `monster_spawn` |
 | `spawninstancetable.txt` | Où : position, orientation, rayon de chaque point (un nom peut avoir plusieurs positions) | `monster_spawn` |
 | `world/node_data` (à côté ou dans le dossier voisin) | Carte : 16 × 16 segments de 400 unités par secteur, sol infranchissable et région | `map_segment` |
 | `itemdroptable.txt` | Objets propres à chaque monstre : quantité, taux sur 100 000 | `monster_drop` |

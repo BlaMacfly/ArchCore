@@ -46,7 +46,7 @@ Filled by `archcore import` from the client tables.
 | `skill_level` | `SKILL_CONST.txt` | Values of each level of each skill (non-empty columns, as JSON; `point.`, `percent.`, `magnify.` groups) |
 | `npc_spawn` | `npc.ini` | 567 NPCs: template, name, position, orientation, raw functions |
 | `client_table` | other `.txt` tables | Rows as JSON, for tables not modelled yet |
-| `monster_spawn` | original server tables (`spawndatatable.txt` + `spawninstancetable.txt`) | 12,802 spawn points, 36,960 creatures: template, level, count, respawn, position, radius, public name (`CharacterTemplatePublic.ini`) |
+| `monster_spawn` | original server tables (`spawndatatable.txt` + `spawninstancetable.txt`) | 12,802 spawn points, 36,960 creatures: template, level (the client's), count, respawn (`respawn_sec`–`respawn_max_sec` range for the `UIBoss.xml` bosses), position, radius, public name (`CharacterTemplatePublic.ini`) |
 | `map_segment` | original server `world/node_data` | 45,312 sectors: blocked ground and region per 400-unit segment |
 | `map_height` | client `world/b*x.ma2` (ground geometry) | 46,592 sectors: ground height at the 17 × 17 cell corners (i16) |
 | `monster_drop` | original server `itemdroptable.txt` | 4,653 items of 550 monsters: count, rate out of 100,000 |

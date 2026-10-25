@@ -245,7 +245,7 @@ tables, to be placed in `data/server-ini` (never committed) or pointed to with `
 
 | File | Content | Table |
 |---|---|---|
-| `spawndatatable.txt` | What: group, monster template and level, count, respawn delay, siege war | `monster_spawn` |
+| `spawndatatable.txt` | What: group, monster template and level, count, respawn delay, siege war. The level kept is the client's `CharacterDataTable.txt` one when listed there; boss delays come from the client's boss window (`UIBoss.xml`) | `monster_spawn` |
 | `spawninstancetable.txt` | Where: position, orientation, radius of each point (a name may have several positions) | `monster_spawn` |
 | `world/node_data` (next to it or in the sibling folder) | Map: 16 × 16 segments of 400 units per sector, blocked ground and region | `map_segment` |
 | `itemdroptable.txt` | Each monster's own items: count, rate out of 100,000 | `monster_drop` |

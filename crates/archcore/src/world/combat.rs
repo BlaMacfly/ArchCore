@@ -459,7 +459,7 @@ fn life_step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) {
         };
         match m.life {
             Life::Dead { .. } => {
-                m.life = Life::Gone { respawn_at: now + Duration::from_secs(m.respawn_sec.max(MIN_RESPAWN_SEC) as u64) };
+                m.life = Life::Gone { respawn_at: now + Duration::from_secs(respawn_delay(m.respawn_sec, m.respawn_max_sec, &mut rand::thread_rng()) as u64) };
                 let gone = character_remove_packet(cid);
                 for p in st.players.values_mut() {
                     if p.seen_monsters.remove(&cid) {
@@ -555,6 +555,13 @@ pub async fn resurrect(ctx: &WorldCtx, st: &mut WorldState, sid: u32) -> anyhow:
 }
 
 /// Montre un monstre réapparu aux joueurs qui voient son secteur.
+/// Délai de réapparition d'un monstre, en secondes : fixe, ou tiré dans la plage du point quand elle en a
+/// une (boss de la fenêtre des boss d'Archonia) ; jamais moins de `MIN_RESPAWN_SEC`.
+pub fn respawn_delay(min: i64, max: i64, rng: &mut impl Rng) -> i64 {
+    let min = min.max(MIN_RESPAWN_SEC);
+    if max > min { rng.gen_range(min..=max) } else { min }
+}
+
 fn respawn_view(_ctx: &WorldCtx, st: &mut WorldState, cid: u32) {
     let Some(m) = st.monsters.get(cid) else { return };
     let (pos, view) = (m.pos, MonsterRegistry::view_packet(&st.monsters, m));
@@ -573,6 +580,17 @@ mod tests {
 
     fn warrior() -> Attacker {
         Attacker { level: 1, ar: 19, class: 1, str_: 14.0, dex: 11.0, int: 7.0, ..Default::default() }
+    }
+
+    #[test]
+    fn delai_de_reapparition() {
+        let mut rng = rand::rngs::StdRng::seed_from_u64(3);
+        assert_eq!(respawn_delay(8, 0, &mut rng), 8, "délai fixe");
+        assert_eq!(respawn_delay(0, 0, &mut rng), MIN_RESPAWN_SEC, "plancher");
+        for _ in 0..100 {
+            let d = respawn_delay(1800, 2700, &mut rng);
+            assert!((1800..=2700).contains(&d), "30 à 45 minutes : {d}");
+        }
     }
 
     #[test]
