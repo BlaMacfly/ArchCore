@@ -12,7 +12,7 @@
 //! au tueur pendant 30 s, et disparaît au bout de 45 s. Le client demande le ramassage par AGPMITEM op 11
 //! (champ 2 = IID) ; le serveur répond op 12 (champ 1 = 0 réussi, 1 échec) puis crédite l'or ou range l'objet.
 
-use super::items::{item_add, item_count, item_remove, item_status, ItemCatalog};
+use super::items::{item_count, item_remove, item_status, ItemCatalog};
 use super::monsters::MonsterStats;
 use super::{set_money, WorldCtx, WorldState};
 use crate::db::{col, Databases};
@@ -236,6 +236,9 @@ pub struct GroundItem {
     pub owner: u32,
     pub owner_until: Instant,
     pub expire_at: Instant,
+    /// Options et sockets d'un équipement, tirés à la chute.
+    pub options: Vec<u16>,
+    pub sockets: u8,
 }
 
 /// Objets au sol du monde.
@@ -257,7 +260,8 @@ pub fn ground_packet(g: &GroundItem) -> Vec<u8> {
     let s = &schema::ITEM;
     let fm = &mini::ITEM_FIELD;
     let field = build_mini(fm, &Fields::new(fm).with(0, g.pos));
-    build_packet(s, &Fields::new(s).with(0, super::items::item_op::ADD).with(1, FIELD).with(2, g.iid).with(3, g.tid).with(4, g.owner).with(5, g.count).with(6, field))
+    let f = Fields::new(s).with(0, super::items::item_op::ADD).with(1, FIELD).with(2, g.iid).with(3, g.tid).with(4, g.owner).with(5, g.count).with(6, field);
+    build_packet(s, &f.with_opt(20, (!g.options.is_empty()).then(|| super::options::options_mini(&g.options))))
 }
 
 /// AGPMITEM op 12 : résultat d'un ramassage.
@@ -277,7 +281,8 @@ fn dist2d(a: Vec3, b: Vec3) -> f64 {
 }
 
 /// Pose le butin du monstre tué autour de `center`, au nom du joueur `killer`.
-pub fn drop_loot(_ctx: &WorldCtx, st: &mut WorldState, killer: u32, center: Vec3, loot: &[(u32, i64)], catalog: &ItemCatalog, now: Instant) {
+/// `source_level` : niveau de ce qui lâche le butin, pour le tirage des options.
+pub fn drop_loot(ctx: &WorldCtx, st: &mut WorldState, killer: u32, center: Vec3, loot: &[(u32, i64)], catalog: &ItemCatalog, source_level: i64, now: Instant) {
     let Some(owner) = st.players.get(&killer).map(|p| p.ch.id) else { return };
     let mut rng = rand::thread_rng();
     let mut placed = Vec::new();
@@ -290,7 +295,8 @@ pub fn drop_loot(_ctx: &WorldCtx, st: &mut WorldState, killer: u32, center: Vec3
             left -= n;
             let pos = Vec3::new(center.x + rng.gen_range(-SCATTER..SCATTER) as f32, center.y, center.z + rng.gen_range(-SCATTER..SCATTER) as f32);
             let iid = st.ground.alloc();
-            let item = GroundItem { iid, tid, count: n, pos, owner, owner_until: now + OWNERSHIP, expire_at: now + EXPIRE };
+            let (options, sockets) = super::options::generate(catalog, &ctx.options, tid, source_level, &mut rng);
+            let item = GroundItem { iid, tid, count: n, pos, owner, owner_until: now + OWNERSHIP, expire_at: now + EXPIRE, options, sockets };
             st.ground.items.insert(iid, item.clone());
             placed.push(item);
         }
@@ -384,7 +390,16 @@ async fn pick_up(ctx: &WorldCtx, st: &mut WorldState, sid: u32, iid: u32, now: I
         fail(st);
         return Ok(());
     };
-    player.send_raw(if created { item_add(stored.iid, stored.tid, Some(cid), stored.count, item_status::INVENTORY, Some(stored.grid)) } else { item_count(&stored, cid) });
+    if created {
+        player.inventory.set_generated(&ctx.db, stored.iid, &item.options, item.sockets).await?;
+        let stored = player.inventory.get(stored.iid).cloned().unwrap_or(stored);
+        player.send_raw(super::items::item_add_of(&stored, cid, item_status::INVENTORY, Some(stored.grid)));
+        if let Some(c) = super::items::convert_add(&stored, cid) {
+            player.send_raw(c);
+        }
+    } else {
+        player.send_raw(item_count(&stored, cid));
+    }
     take_from_ground(st, iid);
     st.players[&sid].send_raw(pickup_result_packet(pickup_result::SUCCESS, iid, item.tid, item.count));
     let label = ctx.catalog.get(item.tid).map(|d| d.name.clone()).unwrap_or_else(|| format!("TID {}", item.tid));
@@ -399,7 +414,7 @@ pub fn on_kill(ctx: &WorldCtx, st: &mut WorldState, killer: u32, monster: u32, n
     let level = st.players.get(&killer).map(|p| p.factors.status[7]).unwrap_or(1);
     let rates = Rates { gold: st.rates.get("gold"), drop: st.rates.get("drop") };
     let loot = ctx.loot.roll(&mut rand::thread_rng(), &source, level, rates);
-    drop_loot(ctx, st, killer, pos, &loot, &ctx.catalog, now);
+    drop_loot(ctx, st, killer, pos, &loot, &ctx.catalog, source.level, now);
 }
 
 #[cfg(test)]
@@ -467,7 +482,7 @@ mod tests {
     #[test]
     fn paquet_au_sol() {
         let now = Instant::now();
-        let g = GroundItem { iid: GROUND_IID_BASE + 1, tid: GOLD_TID, count: 11, pos: Vec3::new(1.0, 2.0, 3.0), owner: 7, owner_until: now, expire_at: now };
+        let g = GroundItem { iid: GROUND_IID_BASE + 1, tid: GOLD_TID, count: 11, pos: Vec3::new(1.0, 2.0, 3.0), owner: 7, owner_until: now, expire_at: now, options: Vec::new(), sockets: 0 };
         let p = decode_packet(&schema::ITEM, &ground_packet(&g)).unwrap();
         assert_eq!((p.int(0), p.int(1), p.int(2), p.int(3), p.int(4), p.int(5)), (Some(0), Some(FIELD), Some(GROUND_IID_BASE as i64 + 1), Some(268), Some(7), Some(11)));
         let f = decode_mini(&mini::ITEM_FIELD, p.bytes(6).unwrap()).unwrap();

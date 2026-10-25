@@ -632,6 +632,9 @@ pub mod mini {
     /// TID de ce qui remplit les sockets d'un objet (AGPMITEMCONVERT champ 9), dans l'ordre — drapeaux 1.
     pub static ITEM_CONVERT_TIDS: Schema = Schema { name: "AGPMITEMCONVERT_TID", id: 141, flag_len: 1, fields: &rep::<8>(I32) };
 
+    /// Options d'un objet (AGPMITEM champ 20) : TID de 5 options au plus — drapeaux 1.
+    pub static ITEM_OPTION: Schema = Schema { name: "AGPMITEM_OPTION", id: 142, flag_len: 1, fields: &rep::<5>(U16) };
+
     /// Désignation dans AGPMSKILL (type d'objet, identifiant) — drapeaux 1.
     pub static SKILL_BASE: Schema = Schema { name: "AGPMSKILL_BASE", id: 150, flag_len: 1, fields: &[f(I8), f(I32)] };
 

@@ -212,7 +212,8 @@ gives GmTest Counter Attack level 10 in the database (a berserker skill, removed
 when needed. `sim mobskill` (GmTest, level 40) joins Midas, hits it once and waits for it to cast Insanity
 (the monster's op 7, op 8 on the player with physical and water damage), then to cast it again 6 s later.
 `sim convert` (GmTest, GM account) opens the window of Halo the blacksmith in Anchorville, gets a Bastard
-Sword, a water stone and two reinforcement potions (`/additem`), adds a socket (repeated until it succeeds),
+Sword (with 1 to 3 options and its sockets rolled), a water stone and two reinforcement potions (`/additem`),
+adds a socket (repeated until it succeeds),
 sets the stone (op 7, result 0), reinforces the sword to +1 then +2, logs in again and reads the state back
 (+2, 2 sockets, 1 stone) from the items received on entry, then destroys the sword.
 

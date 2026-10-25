@@ -35,6 +35,7 @@ pub mod monsters;
 pub mod npc_events;
 pub mod npc_trade;
 pub mod npcs;
+pub mod options;
 pub mod party;
 pub mod portal;
 pub mod presence;
@@ -54,7 +55,7 @@ use crate::{debug, info, warn};
 use archcore_net::schema::{self, char_mgr_op, chat_type, ext_op, ptype};
 use archcore_net::{build_packet, Fields, Packet, Vec3};
 use async_trait::async_trait;
-use items::{item_add, item_status, Inventory, ItemCatalog};
+use items::{item_status, Inventory, ItemCatalog};
 use npcs::NpcRegistry;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -90,6 +91,8 @@ pub struct WorldCtx {
     pub bank_slot_prices: Vec<i64>,
     /// Conversion des objets (ItemConvertTable.txt).
     pub convert: convert::ConvertTable,
+    /// Options des objets (itemoptiontable.txt) et tables de nombre d'options et de sockets.
+    pub options: options::OptionCatalog,
     pub view_radius: f64,
 }
 
@@ -439,6 +442,7 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
     ch.bank_money = bank.money;
     ch.bank_size = bank.extra_slots as i32;
     let mut factors = equipment::with_equipment(make_factors(tpl, Some(&ch)), &equipment::worn(&inventory, &ctx.catalog, &ctx.convert));
+    ctx.options.apply(&mut factors, &equipment::worn_options(&inventory));
     let mut skills = skills::load(&ctx.db, &ctx.skills, ch.id, &mut st.next_skill_id).await?;
     skills::refresh_points(&ctx.skills, &skills, &mut factors);
     skills::sync_passives(&ctx.skills, &mut skills, ch.template_id);
@@ -702,8 +706,18 @@ pub async fn create_item(ctx: &WorldCtx, st: &mut WorldState, name: &str, tid: u
     if let Some(&sid) = st.by_cid.get(&cid) {
         let stack = ctx.catalog.get(tid).map(|d| d.stack).unwrap_or(1);
         let p = st.players.get_mut(&sid).unwrap();
-        let Some((it, _)) = p.inventory.add(&ctx.db, tid, count, stack, None).await? else { return Ok(Err("full")) };
-        p.send_raw(item_add(it.iid, it.tid, Some(cid), it.count, item_status::INVENTORY, Some(it.grid)));
+        let Some((it, created)) = p.inventory.add(&ctx.db, tid, count, stack, None).await? else { return Ok(Err("full")) };
+        if created {
+            // Comme un objet lâché par une source du niveau de l'objet (1 au moins).
+            let level = ctx.catalog.get(tid).and_then(|d| d.equip.as_ref()).map(|e| e.level.max(1)).unwrap_or(1);
+            let (options, sockets) = options::generate(&ctx.catalog, &ctx.options, tid, level, &mut rand::thread_rng());
+            p.inventory.set_generated(&ctx.db, it.iid, &options, sockets).await?;
+        }
+        let it = p.inventory.get(it.iid).cloned().unwrap_or(it);
+        p.send_raw(items::item_add_of(&it, cid, item_status::INVENTORY, Some(it.grid)));
+        if let Some(c) = items::convert_add(&it, cid) {
+            p.send_raw(c);
+        }
         info!("[mj] {count} × objet {tid} ({item_name}) donné à {ch_name}{note}");
         return Ok(Ok((item_name, ch_name)));
     }

@@ -87,6 +87,11 @@ pub fn worn(inv: &Inventory, catalog: &ItemCatalog, table: &super::convert::Conv
         .collect()
 }
 
+/// TID des options de l'équipement porté.
+pub fn worn_options(inv: &Inventory) -> Vec<u16> {
+    inv.equipment.values().flat_map(|i| i.options.iter().copied()).collect()
+}
+
 /// Facteurs de base auxquels s'ajoute l'équipement porté.
 pub fn with_equipment(mut f: Factors, worn: &[EquipData]) -> Factors {
     for e in worn {
@@ -126,6 +131,7 @@ pub fn recompute_factors(ctx: &WorldCtx, p: &mut Player) {
     let Some(tpl) = ctx.templates.get(p.ch.template_id) else { return };
     let old = p.factors.clone();
     let mut f = with_equipment(make_factors(tpl, Some(&p.ch)), &worn(&p.inventory, &ctx.catalog, &ctx.convert));
+    ctx.options.apply(&mut f, &worn_options(&p.inventory));
     f.point[..5].copy_from_slice(&old.point[..5]);
     f.status[7] = old.status[7];
     f.dirt = old.dirt;
@@ -225,7 +231,7 @@ async fn equip(ctx: &WorldCtx, st: &mut WorldState, sid: u32, iid: u32) -> anyho
     for s in &stored {
         to_viewers(st, sid, &item_remove(s.iid, Some(cid)));
     }
-    to_viewers(st, sid, &item_add(worn_item.iid, worn_item.tid, Some(cid), worn_item.count, item_status::EQUIP, None));
+    to_viewers(st, sid, &super::items::item_add_of(&worn_item, cid, item_status::EQUIP, None));
     refresh_factors(ctx, st, sid);
     info!("[équipement] {name} porte {label} (partie {at}{})", if stored.is_empty() { String::new() } else { format!(", {} objet(s) rangé(s)", stored.len()) });
     Ok(())
@@ -340,19 +346,19 @@ mod tests {
         let shield = EquipData { part: part::HAND_LEFT, kind: 4, hand: 1, ..Default::default() };
         let cat = catalog(&[(1, weapon(1)), (2, shield.clone()), (3, weapon(2))]);
         let mut inv = Inventory::default();
-        inv.equipment.insert(part::HAND_RIGHT, InventoryItem { iid: 10, tid: 1, count: 1, grid: [10, 0, 0], conv: Default::default() });
-        inv.equipment.insert(part::HAND_LEFT, InventoryItem { iid: 11, tid: 2, count: 1, grid: [9, 0, 0], conv: Default::default() });
+        inv.equipment.insert(part::HAND_RIGHT, InventoryItem { iid: 10, tid: 1, count: 1, grid: [10, 0, 0], conv: Default::default(), options: Vec::new() });
+        inv.equipment.insert(part::HAND_LEFT, InventoryItem { iid: 11, tid: 2, count: 1, grid: [9, 0, 0], conv: Default::default(), options: Vec::new() });
         // Arme à une main : seule l'arme en main droite est rangée.
         assert_eq!(displaced(&inv, &cat, &weapon(1), part::HAND_RIGHT), vec![part::HAND_RIGHT]);
         // Arme à deux mains : le bouclier aussi.
         assert_eq!(displaced(&inv, &cat, &weapon(2), part::HAND_RIGHT), vec![part::HAND_RIGHT, part::HAND_LEFT]);
         // Bouclier alors qu'une arme à deux mains est tenue : elle est rangée.
-        inv.equipment.insert(part::HAND_RIGHT, InventoryItem { iid: 12, tid: 3, count: 1, grid: [10, 0, 0], conv: Default::default() });
+        inv.equipment.insert(part::HAND_RIGHT, InventoryItem { iid: 12, tid: 3, count: 1, grid: [10, 0, 0], conv: Default::default(), options: Vec::new() });
         inv.equipment.remove(&part::HAND_LEFT);
         assert_eq!(displaced(&inv, &cat, &shield, part::HAND_LEFT), vec![part::HAND_RIGHT]);
         // Second anneau.
         let ring = EquipData { part: part::RING1, kind: 8, ..Default::default() };
-        inv.equipment.insert(part::RING1, InventoryItem { iid: 13, tid: 4, count: 1, grid: [11, 0, 0], conv: Default::default() });
+        inv.equipment.insert(part::RING1, InventoryItem { iid: 13, tid: 4, count: 1, grid: [11, 0, 0], conv: Default::default(), options: Vec::new() });
         assert_eq!(target_part(&inv, &ring), part::RING2);
     }
 

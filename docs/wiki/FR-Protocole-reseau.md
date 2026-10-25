@@ -315,6 +315,31 @@ si le total tient dans une pile : la source disparaît (op 1), la cible est mise
 **op 17** sépare une pile (quantité au champ 5, case libre au champ 7) : la nouvelle pile arrive par op 0,
 l'ancienne est mise à jour par op 2. **Op 21** détruit un objet de l'inventaire (op 1 en réponse).
 
+## Options des objets (type 0x04, champ 20)
+
+Un équipement peut porter jusqu'à 5 options d'`itemoptiontable.txt` (importée dans `client_table`, avec
+`optionnumdroprate.txt` et `socketnumdroprate.txt` des tables du serveur d'origine). Elles sont tirées quand
+l'objet est créé : butin d'un monstre (niveau de la source = niveau du monstre), `/create` et `/additem`
+(niveau de l'objet). En base : `character_items.option_tids`.
+
+- **Nombre** : entre `MinOption` et `MaxOption` de l'objet, pondéré par `optionnumdroprate.txt` (colonne =
+  `MaxOption`). Les sockets de l'objet neuf se tirent de même entre `MinSocket` et `MaxSocket`
+  (`socketnumdroprate.txt`).
+- **Choix** : un « Type » d'option au hasard, sans remise, parmi ceux qui ont une option admise ; puis une
+  option de ce type au poids (`Probability`, 0 au-delà de 100 000). Admise : la partie de l'objet est cochée
+  (une arme tenue à gauche prend les options d'arme), le rang de l'objet est entre `Rank_Min` (0 vaut 1) et
+  `Rank_Max`, le niveau de la source vaut au moins `Level_limit` (et 1 à 120). Une cellule `Refined` ou
+  `Gacha` non vide (même « 0 »), ou un `CategoryName`, range l'option dans une autre famille, hors butin.
+- **Réseau** : AGPMITEM champ 20, mini-paquet de 5 UINT16 (TID), dans chaque op 0 d'un objet connu
+  (inventaire, équipement vu des autres, banque, échange, objet au sol). Le client applique lui-même les options
+  aux facteurs de l'objet pour l'infobulle (« Additional Ability », `Description` de la table).
+- **Effet** : le serveur ajoute aux facteurs du personnage les options de l'équipement porté. Chaque colonne
+  vise un facteur (dégâts min et max d'un attribut, défense en points ou en taux, PV et PM max, précision,
+  caractéristiques, portée et vitesse d'attaque, vitesse de déplacement) ; `PointType` 0 ajoute la valeur,
+  1 l'applique en pour cent au total, comme toujours `ATK_Speed_bonus`, `Movement_Run_bonus` et
+  `*_Percent`. Les colonnes à déclenchement (Critical, skill_*, bonus_*, Ignore_*, on_hit_*…) ne sont pas
+  encore appliquées.
+
 ## Conversion des objets (types 0x16 et 0x38, AgpmItemConvert et AgpmEventItemConvert)
 
 Règles et codes relevés dans `Archonia.exe` ; chances et valeurs d'`ItemConvertTable.txt` (importée dans
@@ -325,9 +350,10 @@ AGPMITEMCONVERT (drapeaux 2) : 0 op, 1 CID, 2 IID de l'objet, 3 IID de ce qui le
 4 résultat, 5 niveau de renforcement, 6 sockets, 7 sockets remplis, 8 TID ajouté, 9 TID sertis (mini-paquet
 de 8 INT32).
 
-- **op 0** : état d'un objet, envoyé après son AGPMITEM op 0 (entrée en jeu, banque, échange) pour un objet
-  renforcé ou à sockets. Un objet qui reçoit des sockets et n'en a pas d'enregistré en a max(1, `MinSocket`),
-  comme le calcule le client.
+- **op 0** : état d'un objet, envoyé après son AGPMITEM op 0 (entrée en jeu, banque, échange, ramassage,
+  création) pour un objet renforcé ou à sockets. Un objet neuf reçoit ses sockets par tirage (section
+  précédente) ; un objet qui reçoit des sockets et n'en a pas d'enregistré en a max(1, `MinSocket`), comme le
+  calcule le client.
 - **Forgeron** (fonction 22 de npc.ini) : AGPMEVENTITEMCONVERT op 0 (événement, CID) demande la fenêtre,
   op 1 l'accorde. L'ajout de socket et le renforcement exigent un forgeron à portée.
 - **op 2 → op 6, ajout de socket** : arme (sauf lance, `Type` 17), armure, ou « autre » (genres 4, 8, 16,

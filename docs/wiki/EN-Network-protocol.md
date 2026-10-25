@@ -308,6 +308,30 @@ the total fits in one stack: the source disappears (op 1), the target is updated
 splits a stack (count in field 5, free slot in field 7): the new stack arrives with op 0, the old one is
 updated with op 2. **Op 21** destroys an inventory item (op 1 in answer).
 
+## Item options (type 0x04, field 20)
+
+A piece of equipment can carry up to 5 options from `itemoptiontable.txt` (imported into `client_table`, with
+the original server's `optionnumdroprate.txt` and `socketnumdroprate.txt`). They are rolled when the item is
+created: monster loot (source level = the monster's level), `/create` and `/additem` (the item's level).
+Stored in `character_items.option_tids`.
+
+- **Count**: between the item's `MinOption` and `MaxOption`, weighted by `optionnumdroprate.txt` (column =
+  `MaxOption`). A new item's sockets are rolled the same way between `MinSocket` and `MaxSocket`
+  (`socketnumdroprate.txt`).
+- **Choice**: a random option "Type", without repeats, among those with an allowed option; then an option of
+  that type by weight (`Probability`, 0 above 100,000). Allowed: the item's part is ticked (a left-hand weapon
+  takes weapon options), the item's rank is between `Rank_Min` (0 counts as 1) and `Rank_Max`, the source
+  level is at least `Level_limit` (and 1 to 120). A non-empty `Refined` or `Gacha` cell (even "0"), or a
+  `CategoryName`, puts the option in another family, outside loot.
+- **Network**: AGPMITEM field 20, a mini packet of 5 UINT16 (TIDs), in every op 0 of a known item (inventory,
+  equipment seen by others, bank, trade, item on the ground). The client applies the options to the item's
+  factors itself for the tooltip ("Additional Ability", the table's `Description`).
+- **Effect**: the server adds the options of worn equipment to the character's factors. Each column targets a
+  factor (min and max damage of an attribute, defense in points or rate, max HP and MP, accuracy, stats, attack
+  range and speed, movement speed); `PointType` 0 adds the value, 1 applies it as a percentage of the total,
+  as `ATK_Speed_bonus`, `Movement_Run_bonus` and `*_Percent` always do. Triggered columns (Critical, skill_*,
+  bonus_*, Ignore_*, on_hit_*…) are not applied yet.
+
 ## Item conversion (types 0x16 and 0x38, AgpmItemConvert and AgpmEventItemConvert)
 
 Rules and codes read in `Archonia.exe`; chances and values from `ItemConvertTable.txt` (imported into
@@ -317,9 +341,9 @@ Rules and codes read in `Archonia.exe`; chances and values from `ItemConvertTabl
 AGPMITEMCONVERT (2 flag bytes): 0 op, 1 CID, 2 item IID, 3 IID of what converts it (potion, stone), 4 result,
 5 reinforcement level, 6 sockets, 7 filled sockets, 8 added TID, 9 set TIDs (mini packet of 8 INT32).
 
-- **op 0**: an item's state, sent after its AGPMITEM op 0 (entering the game, bank, trade) for a reinforced
-  or socketed item. An item that takes sockets and has none stored has max(1, `MinSocket`), as the client
-  computes it.
+- **op 0**: an item's state, sent after its AGPMITEM op 0 (entering the game, bank, trade, pick-up, creation)
+  for a reinforced or socketed item. A new item gets its sockets by a roll (previous section); an item that
+  takes sockets and has none stored has max(1, `MinSocket`), as the client computes it.
 - **Blacksmith** (npc.ini function 22): AGPMEVENTITEMCONVERT op 0 (event, CID) asks for the window, op 1
   grants it. Adding a socket and reinforcing require a blacksmith in range.
 - **op 2 → op 6, add a socket**: weapon (except lances, `Type` 17), armour, or "other" (kinds 4, 8, 16,

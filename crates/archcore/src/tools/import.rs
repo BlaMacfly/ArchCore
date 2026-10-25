@@ -220,6 +220,14 @@ fn v<T: Into<Value>>(x: T) -> Value {
 
 /// Remplace le contenu d'une table en une transaction : interrompu, l'import laisse la table telle qu'elle
 /// était.
+/// Range un fichier entier dans `client_table` (ligne 0), à la place de l'ancien.
+async fn store_text(db: &Databases, name: &str, text: &str) -> anyhow::Result<()> {
+    db.world.exec("DELETE FROM client_table WHERE name = ?", (name,)).await?;
+    db.world.exec("INSERT INTO client_table (name,row_idx,data) VALUES (?,0,?)", (name, serde_json::Value::String(text.to_string()).to_string())).await?;
+    println!("✓ client_table : {name}");
+    Ok(())
+}
+
 async fn replace(db: &Databases, table: &str, sql: &str, rows: Vec<Vec<Value>>) -> anyhow::Result<usize> {
     let n = rows.len();
     let mut tx = db.world.begin().await?;
@@ -267,6 +275,13 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
             import_map(&db, &d).await?;
             import_loot(&db, &Source(d.clone())).await?;
             import_monster_ai(&db, &Source(d.clone())).await?;
+            // Nombre d'options et de sockets des objets créés (tables du serveur d'origine).
+            let server = Source(d.clone());
+            for name in ["optionnumdroprate.txt", "socketnumdroprate.txt"] {
+                if server.exists(name) {
+                    store_text(&db, name, &server.read(name)?).await?;
+                }
+            }
             finish_run(&db, run).await?;
         }
         None => println!("· monster_spawn : pas de tables du serveur (data/server-ini ou --server), ignoré"),
@@ -935,16 +950,13 @@ async fn import_all(db: &Databases, src: &Source) -> anyhow::Result<()> {
         println!("✓ skill_mastery : {n}");
     }
 
-    // ---------------------------------------------------------------- ItemConvertTable.txt (texte entier)
-    // Plusieurs tableaux à la suite, séparés par des lignes vides : le monde les découpe au chargement.
-    if src.exists("ItemConvertTable.txt") {
-        let text = src.read("ItemConvertTable.txt")?;
-        let rows = vec![vec![v("ItemConvertTable.txt"), v(0u32), v(serde_json::Value::String(text).to_string())]];
-        db.world.exec("DELETE FROM client_table WHERE name = ?", ("ItemConvertTable.txt",)).await?;
-        let mut tx = db.world.begin().await?;
-        tx.exec_batch("INSERT INTO client_table (name,row_idx,data) VALUES (?,?,?)", rows).await?;
-        tx.commit().await?;
-        println!("✓ client_table : ItemConvertTable.txt");
+    // ---------------------------------------------------------------- ItemConvertTable.txt, itemoptiontable.txt
+    // Textes entiers (ItemConvertTable : plusieurs tableaux séparés par des lignes vides) : le monde les lit
+    // au chargement.
+    for name in ["ItemConvertTable.txt", "itemoptiontable.txt"] {
+        if src.exists(name) {
+            store_text(db, name, &src.read(name)?).await?;
+        }
     }
 
     // ---------------------------------------------------------------- questtemplate.ini (tabulé)

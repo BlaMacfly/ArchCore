@@ -216,7 +216,8 @@ niveau 1, provoque un Ver vert et attend un coup renvoyé (attaquant = joueur, r
 les PV au besoin. `sim mobskill` (GmTest, niveau 40) rejoint Midas, le frappe une fois et attend qu'il lance
 Insanity (op 7 du monstre, op 8 sur le joueur avec des dégâts physiques et d'eau), puis la relance
 6 s plus tard. `sim convert` (GmTest, compte MJ) ouvre la fenêtre du forgeron Halo à Anchorville, reçoit une
-Bastard Sword, une pierre d'eau et deux potions de renforcement (`/additem`), ajoute un socket (répété jusqu'à la
+Bastard Sword (avec 1 à 3 options et ses sockets tirés), une pierre d'eau et deux potions de renforcement
+(`/additem`), ajoute un socket (répété jusqu'à la
 réussite), sertit la pierre (op 7, résultat 0), renforce l'épée à +1 puis +2, se reconnecte et relit l'état
 (+2, 2 sockets, 1 pierre) dans les objets reçus à l'entrée, puis détruit l'épée.
 

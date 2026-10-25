@@ -15,7 +15,7 @@
 //! perdu si un joueur se déconnecte, l'échange est alors annulé.
 
 use super::combat;
-use super::items::{item_add, item_remove, item_status, item_update, stored_status, Grid};
+use super::items::{item_remove, item_status, item_update, stored_status, Grid};
 use super::{send_system, WorldCtx, WorldState};
 use crate::{info, warn};
 use archcore_net::schema;
@@ -198,7 +198,7 @@ fn add(ctx: &WorldCtx, st: &mut WorldState, sid: u32, iid: u32) {
     let shown = super::items::InventoryItem { grid, ..item.clone() };
     st.players[&sid].send_raw(item_update(&shown, cid, item_status::TRADE_GRID));
     if let Some(peer) = st.players.get(&mine.peer) {
-        peer.send_raw(item_add(item.iid, item.tid, Some(cid), item.count, item_status::TRADE_GRID, Some(grid)));
+        peer.send_raw(super::items::item_add_of(&item, cid, item_status::TRADE_GRID, Some(grid)));
         if let Some(c) = super::items::convert_add(&item, cid) {
             peer.send_raw(c);
         }
@@ -357,7 +357,7 @@ async fn execute(ctx: &WorldCtx, st: &mut WorldState, a: u32, b: u32) -> anyhow:
         let to = 1 - from;
         let receiver = &st.players[&sids[to]];
         receiver.send_raw(item_remove(item.iid, Some(cids[from])));
-        receiver.send_raw(item_add(item.iid, item.tid, Some(cids[to]), item.count, item_status::INVENTORY, Some(item.grid)));
+        receiver.send_raw(super::items::item_add_of(&item, cids[to], item_status::INVENTORY, Some(item.grid)));
         if let Some(c) = super::items::convert_add(&item, cids[to]) {
             receiver.send_raw(c);
         }

@@ -84,6 +84,14 @@ pub fn item_add(iid: u32, tid: u32, owner: Option<u32>, count: i64, status: i64,
     build_packet(s, &f.with_opt(grid_field(status), grid.map(grid_mini)))
 }
 
+/// AGPMITEM op 0 d'un objet connu, avec ses options (champ 20).
+pub fn item_add_of(i: &InventoryItem, owner: u32, status: i64, grid: Option<Grid>) -> Vec<u8> {
+    let s = &schema::ITEM;
+    let f = Fields::new(s).with(0, item_op::ADD).with(1, status).with(2, i.iid).with(3, i.tid).with(4, owner).with(5, i.count);
+    let f = f.with_opt(grid_field(status), grid.map(grid_mini));
+    build_packet(s, &f.with_opt(20, (!i.options.is_empty()).then(|| super::options::options_mini(&i.options))))
+}
+
 /// AGPMITEM op 1 (retrait).
 pub fn item_remove(iid: u32, owner: Option<u32>) -> Vec<u8> {
     let s = &schema::ITEM;
@@ -186,6 +194,10 @@ pub struct EquipData {
     pub max_socket: i64,
     /// Type d'arme (colonne « Type » : 17 lance).
     pub weapon_type: i64,
+    /// Rang de l'objet (« Rank ») et nombre d'options tirées à sa création (« MinOption », « MaxOption »).
+    pub rank: i64,
+    pub min_option: i64,
+    pub max_option: i64,
 }
 
 /// Préfixe des colonnes élémentaires d'itemdatatable.txt, dans l'ordre des attributs 1 à 8 (« Linghtning »
@@ -223,6 +235,9 @@ impl EquipData {
             min_socket: num("MinSocket"),
             max_socket: num("MaxSocket"),
             weapon_type: num("Type"),
+            rank: num("Rank"),
+            min_option: num("MinOption"),
+            max_option: num("MaxOption"),
         })
     }
 }
@@ -282,10 +297,17 @@ pub struct InventoryItem {
     pub grid: Grid,
     /// Renforcement, sockets et pierres serties.
     pub conv: super::convert::ItemConvert,
+    /// TID des options (5 au plus).
+    pub options: Vec<u16>,
 }
 
 /// Colonnes de conversion lues avec un objet.
-pub const CONVERT_COLUMNS: &str = "convert_level, socket_count, socket_tids";
+pub const CONVERT_COLUMNS: &str = "convert_level, socket_count, socket_tids, option_tids";
+
+/// Options d'une ligne de `character_items` (colonne `option_tids`).
+pub fn options_of(r: &mysql_async::Row) -> Vec<u16> {
+    super::options::options_from_column(&col::<String>(r, "option_tids"))
+}
 
 /// État de conversion d'une ligne de `character_items` (colonnes `CONVERT_COLUMNS`).
 pub fn convert_of(r: &mysql_async::Row) -> super::convert::ItemConvert {
@@ -313,7 +335,7 @@ impl Inventory {
         let mut inv = Inventory { character_id, ..Default::default() };
         for r in &rows {
             let iid: u32 = col(r, "id");
-            let item = InventoryItem { iid, tid: col(r, "template_id"), count: col(r, "count"), grid: [col(r, "layer"), col(r, "row_idx"), col(r, "col_idx")], conv: convert_of(r) };
+            let item = InventoryItem { iid, tid: col(r, "template_id"), count: col(r, "count"), grid: [col(r, "layer"), col(r, "row_idx"), col(r, "col_idx")], conv: convert_of(r), options: options_of(r) };
             if col::<i64>(r, "status") == stored_status::EQUIP {
                 inv.equipment.insert(item.grid[0], item);
             } else {
@@ -385,7 +407,7 @@ impl Inventory {
                 (item.clone(), false)
             }
             Placement::Slot(grid) => {
-                let item = InventoryItem { iid: new_iid, tid, count, grid, conv: Default::default() };
+                let item = InventoryItem { iid: new_iid, tid, count, grid, conv: Default::default(), options: Vec::new() };
                 self.items.insert(new_iid, item.clone());
                 (item, true)
             }
@@ -402,11 +424,11 @@ impl Inventory {
     pub fn add_packets(&self) -> Vec<Vec<u8>> {
         let mut out = Vec::new();
         for i in self.items.values() {
-            out.push(item_add(i.iid, i.tid, Some(self.character_id), i.count, item_status::INVENTORY, Some(i.grid)));
+            out.push(item_add_of(i, self.character_id, item_status::INVENTORY, Some(i.grid)));
             out.extend(convert_add(i, self.character_id));
         }
         for i in self.equipment.values() {
-            out.push(item_add(i.iid, i.tid, Some(self.character_id), i.count, item_status::EQUIP, None));
+            out.push(item_add_of(i, self.character_id, item_status::EQUIP, None));
             out.extend(convert_add(i, self.character_id));
         }
         out
@@ -414,7 +436,7 @@ impl Inventory {
 
     /// Paquets AGPMITEM d'ajout de l'équipement porté (pour le porteur ou ceux qui le voient).
     pub fn equip_packets(&self) -> Vec<Vec<u8>> {
-        self.equipment.values().map(|i| item_add(i.iid, i.tid, Some(self.character_id), i.count, item_status::EQUIP, None)).collect()
+        self.equipment.values().map(|i| item_add_of(i, self.character_id, item_status::EQUIP, None)).collect()
     }
 
     pub fn free_count(&self) -> usize {
@@ -472,6 +494,20 @@ impl Inventory {
         Ok(None)
     }
 
+    /// Enregistre les options et les sockets tirés pour l'objet `iid` de l'inventaire.
+    pub async fn set_generated(&mut self, db: &Databases, iid: u32, options: &[u16], sockets: u8) -> anyhow::Result<()> {
+        if options.is_empty() && sockets == 0 {
+            return Ok(());
+        }
+        let column = super::options::options_column(options);
+        db.characters.exec("UPDATE character_items SET option_tids = ?, socket_count = ? WHERE id = ?", (column, sockets, iid)).await?;
+        if let Some(i) = self.items.get_mut(&iid) {
+            i.options = options.to_vec();
+            i.conv.sockets = sockets;
+        }
+        Ok(())
+    }
+
     /// Objet de l'inventaire posé sur cette case.
     pub fn at(&self, g: Grid) -> Option<&InventoryItem> {
         self.items.values().find(|i| i.grid == g)
@@ -511,7 +547,7 @@ impl Inventory {
                 (INSERT_ITEM, (self.character_id, tid, stored_status::INVENTORY, grid[0], grid[1], grid[2], n).into()),
             ])
             .await? as u32;
-        let part = InventoryItem { iid: new_iid, tid, count: n, grid, conv: Default::default() };
+        let part = InventoryItem { iid: new_iid, tid, count: n, grid, conv: Default::default(), options: Vec::new() };
         self.items.insert(new_iid, part.clone());
         let origin = self.items.get_mut(&iid).unwrap();
         origin.count = left;
@@ -538,7 +574,7 @@ mod tests {
     fn premiere_case_libre() {
         let mut inv = Inventory { character_id: 1, ..Default::default() };
         assert_eq!(inv.free_slot(), Some([0, 0, 0]));
-        inv.items.insert(3, InventoryItem { iid: 3, tid: 190, count: 5, grid: [0, 0, 0], conv: Default::default() });
+        inv.items.insert(3, InventoryItem { iid: 3, tid: 190, count: 5, grid: [0, 0, 0], conv: Default::default(), options: Vec::new() });
         assert_eq!(inv.free_slot(), Some([0, 0, 1]));
         assert_eq!(inv.stack_for(190, 10, 9999), Some(3));
         assert_eq!(inv.stack_for(190, 10, 1), None);
@@ -548,7 +584,7 @@ mod tests {
     #[test]
     fn place_des_objets_ajoutes() {
         let mut inv = Inventory { character_id: 1, ..Default::default() };
-        inv.items.insert(3, InventoryItem { iid: 3, tid: 190, count: 5, grid: [0, 0, 0], conv: Default::default() });
+        inv.items.insert(3, InventoryItem { iid: 3, tid: 190, count: 5, grid: [0, 0, 0], conv: Default::default(), options: Vec::new() });
         assert_eq!(inv.placement(190, 10, 9999, None), Some(Placement::Stack(3, 15)));
         assert_eq!(inv.placement(190, 10, 1, Some([0, 2, 2])), Some(Placement::Slot([0, 2, 2])));
         assert_eq!(inv.placement(191, 1, 1, Some([0, 0, 0])), Some(Placement::Slot([0, 0, 1])), "case voulue occupée");
@@ -563,7 +599,7 @@ mod tests {
     #[test]
     fn case_occupee() {
         let mut inv = Inventory { character_id: 1, ..Default::default() };
-        inv.items.insert(3, InventoryItem { iid: 3, tid: 190, count: 5, grid: [0, 1, 2], conv: Default::default() });
+        inv.items.insert(3, InventoryItem { iid: 3, tid: 190, count: 5, grid: [0, 1, 2], conv: Default::default(), options: Vec::new() });
         assert_eq!(inv.at([0, 1, 2]).map(|i| i.iid), Some(3));
         assert!(inv.at([0, 0, 0]).is_none());
     }
