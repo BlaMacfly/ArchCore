@@ -205,6 +205,7 @@ ARCHCORE_CONF_DIR=config/test archcore sim partyskill [compteA mdpA persoA compt
 ARCHCORE_CONF_DIR=config/test archcore sim counter [compte] [mdp] [personnage]
 ARCHCORE_CONF_DIR=config/test archcore sim mobskill [compte] [mdp] [personnage]
 ARCHCORE_CONF_DIR=config/test archcore sim convert [compte] [mdp] [personnage]
+ARCHCORE_CONF_DIR=config/test archcore sim refinery [compte] [mdp] [personnage]
 ```
 
 `sim mastery` (GmTest, niveau 60) oublie en base Capacitate et Marching Song, se voit refuser Capacitate chez
@@ -219,7 +220,10 @@ Insanity (op 7 du monstre, op 8 sur le joueur avec des dégâts physiques et d'e
 Bastard Sword (avec 1 à 3 options et ses sockets tirés), une pierre d'eau et deux potions de renforcement
 (`/additem`), ajoute un socket (répété jusqu'à la
 réussite), sertit la pierre (op 7, résultat 0) puis une pierre de prière d'attaque (rune, op 8, résultat 1), renforce l'épée à +1 puis +2, se reconnecte et relit l'état
-(+2, sockets, pierre et rune) dans les objets reçus à l'entrée, puis détruit l'épée.
+(+2, sockets, pierre et rune) dans les objets reçus à l'entrée, puis détruit l'épée. `sim refinery` (GmTest, compte MJ) ouvre une sphère d'alchimie, voit refuser une
+potion seule (résultat 2), obtient le devis puis raffine 100 Breath Elemental Stone en 10 Gale Elemental Stone
+(recette 4013, 5000 pièces), refait la recette par son identifiant (op 6), est refusé sans ingrédients
+(résultat 1), puis raffine une White Wing Dagger et ses pierres (recette 183) en dague à une option.
 
 ## Test des extensions ArchRust
 

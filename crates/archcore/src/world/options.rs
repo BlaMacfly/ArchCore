@@ -232,11 +232,17 @@ impl OptionCatalog {
     /// `MinOption`/`MaxOption`, un type au plus de chaque, chaque option au poids parmi celles de son type qui
     /// conviennent à la partie, au rang et au niveau.
     pub fn roll_options(&self, e: &EquipData, level: i64, rng: &mut impl Rng) -> Vec<u16> {
+        let count = roll_count(&self.option_rates, e.min_option, e.max_option, rng);
+        self.pick_options(e, level, count, rng)
+    }
+
+    /// `count` options (5 au plus), une par type, tirées comme celles du butin.
+    pub fn pick_options(&self, e: &EquipData, level: i64, count: i64, rng: &mut impl Rng) -> Vec<u16> {
         let Some(slot) = part_slot(e) else { return Vec::new() };
         if !(1..=120).contains(&level) {
             return Vec::new();
         }
-        let mut count = roll_count(&self.option_rates, e.min_option, e.max_option, rng).min(MAX_OPTIONS as i64);
+        let mut count = count.min(MAX_OPTIONS as i64);
         let mut kinds: Vec<(i64, Vec<&ItemOption>)> = {
             let mut by_kind: HashMap<i64, Vec<&ItemOption>> = HashMap::new();
             for ((kind, s), tids) in &self.pool {

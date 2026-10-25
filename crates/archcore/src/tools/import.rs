@@ -277,7 +277,7 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
             import_monster_ai(&db, &Source(d.clone())).await?;
             // Nombre d'options et de sockets des objets créés (tables du serveur d'origine).
             let server = Source(d.clone());
-            for name in ["optionnumdroprate.txt", "socketnumdroprate.txt"] {
+            for name in ["optionnumdroprate.txt", "socketnumdroprate.txt", "refineryrecipetable.txt"] {
                 if server.exists(name) {
                     store_text(&db, name, &server.read(name)?).await?;
                 }
@@ -953,7 +953,7 @@ async fn import_all(db: &Databases, src: &Source) -> anyhow::Result<()> {
     // ---------------------------------------------------------------- ItemConvertTable.txt, itemoptiontable.txt
     // Textes entiers (ItemConvertTable : plusieurs tableaux séparés par des lignes vides) : le monde les lit
     // au chargement.
-    for name in ["ItemConvertTable.txt", "itemoptiontable.txt", "itemruneattributetable.txt"] {
+    for name in ["ItemConvertTable.txt", "itemoptiontable.txt", "itemruneattributetable.txt", "RefineryItem2.txt"] {
         if src.exists(name) {
             store_text(db, name, &src.read(name)?).await?;
         }

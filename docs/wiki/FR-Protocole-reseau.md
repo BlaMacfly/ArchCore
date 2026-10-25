@@ -391,6 +391,29 @@ de 8 INT32).
 Pas encore gérés : les runes qui donnent une compétence (`Skill_Name`), les pierres de glace, de foudre et de
 venin et les pierres de caractéristiques d'Archonia (`Spirit Type` 6 à 8 et 100 à 106, refusées par le client).
 
+## Raffinage (types 0x4B et 0x3F, AgpmRefinery et AgpmEventRefinery)
+
+Recettes de `RefineryItem2.txt`, la table que lit `Archonia.exe` (5 731 recettes, importée dans
+`client_table` ; à défaut, `refineryrecipetable.txt` des tables du serveur d'origine). Une recette se reconnaît
+à ses ingrédients (`Resource TID`, `Resource Count`), dans n'importe quel ordre ; ses `MakeItem Total` lignes
+sont autant d'issues équiprobables (objet et quantité produits, objet bonus, nombre d'options `Item Option
+Min/Max` et de sockets `Socket Inchant Min/Max` de l'objet produit) ; `Combine Use Price` est son prix en or.
+
+- **Ouverture** : AGPMEVENTREFINERY op 0 (événement, CID) sur un objet du monde de fonction 26 (la sphère
+  d'alchimie des `obj*.ini`, pas un PNJ) ; op 1 l'accorde, le client ouvre `UI_Refinery`.
+- **AGPMREFINERY** (drapeaux 2) : 0 op, 1 CID, 2 identifiant de recette, 3 IID des 20 cases de la grille
+  (INT32[20], 0 = case vide), 4 résultat, 5 TID produit, 6 prix (INT64).
+  - **op 5 → op 5, devis** : la grille désigne une recette, le serveur rend son prix au champ 6.
+  - **op 2, raffinage de la grille** : les objets de la grille, en entier, sont les ingrédients.
+  - **op 6, raffinage d'une recette** : identifiant au champ 2, ingrédients pris dans les piles de l'inventaire.
+  - **op 1, résultat** : 0 réussite (TID produit au champ 5), 1 ingrédients manquants, 2 objets sans recette,
+    4 or insuffisant, 5 inventaire plein. Le client affiche `REFINE_*_ITEM` d'uimessage.
+- **Objet produit** : un équipement reçoit des options (entre `Item Option Min` et `Max`, tirées comme celles du
+  butin) et des sockets (`Socket Inchant Min`/`Max`), ou ceux d'un objet neuf ; il garde de l'équipement fourni
+  (le même modèle, sinon le premier) son renforcement, ses sockets, ses sertissages et ses options selon les
+  colonnes `Keep Reinforcement Level`, `Keep Item Socket Count`, `Keep Socketed Items`, `Keep Item Options`.
+  L'issue « échec » (`MakeItem IsFail`) produit son objet comme les autres : le client ne lit pas la colonne.
+
 ## Potions et régénération (types 0x04 et 0x02)
 
 Le client utilise un objet par AGPMITEM **op 3** (champ 2 = IID). Une potion est un objet utilisable
@@ -747,7 +770,8 @@ pas envoyé `HELLO`. Spécification complète : [[Extensions ArchRust|FR-Extensi
 | 0x3B | Maître des compétences | 0x36 | Banque |
 | 0x31 | Portails de téléportation | 0x15 | Guildes |
 | 0x39 | Gestionnaire de guilde | 0x16 | Conversion des objets |
-| 0x38 | Forgeron (conversion) | | |
+| 0x38 | Forgeron (conversion) | 0x4B | Raffinage |
+| 0x3F | Sphère d'alchimie (raffinage) | | |
 | 0x07 | Échange entre joueurs | 0x3E | Quêtes des PNJ |
 
 Les schémas complets des 86 modules sont dans `data/re/packet-schemas.json`.

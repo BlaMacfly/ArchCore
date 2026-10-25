@@ -46,6 +46,8 @@ pub mod ptype {
     pub const EVENT_GUILD: u8 = 0x39;
     pub const EVENT_BANK: u8 = 0x36;
     pub const ITEM_CONVERT: u8 = 0x16;
+    pub const REFINERY: u8 = 0x4b;
+    pub const EVENT_REFINERY: u8 = 0x3f;
     pub const EVENT_ITEM_CONVERT: u8 = 0x38;
     pub const EVENT_NPC_DIALOG: u8 = 0x37;
     pub const EVENT_SKILL_MASTER: u8 = 0x3b;
@@ -341,6 +343,18 @@ pub static ITEM_CONVERT: Schema = Schema {
     fields: &[f(I8), f(I32), f(I32), f(I32), f(I8), f(I8), f(I8), f(I8), f(I32), f(Packet)],
 };
 
+/// AgpmRefinery (0x4B) — drapeaux 2 : op, CID, paramètre (identifiant de recette), IID des 20 cases de la
+/// grille, résultat, TID produit, prix.
+pub static REFINERY: Schema = Schema {
+    name: "AGPMREFINERY",
+    id: ptype::REFINERY,
+    flag_len: 2,
+    fields: &[f(I8), f(I32), f(I32), fs(I32, 20), f(I32), f(I32), f(I64)],
+};
+
+/// AgpmEventRefinery (0x3F) — drapeaux 1 : op (0 demande, 1 accord), événement (EVENT_BASE), CID du joueur.
+pub static EVENT_REFINERY: Schema = Schema { name: "AGPMEVENTREFINERY", id: ptype::EVENT_REFINERY, flag_len: 1, fields: &[f(I8), f(Packet), f(I32)] };
+
 /// AgpmEventItemConvert (0x38) — drapeaux 1 : op, événement (EVENT_BASE), CID du joueur.
 pub static EVENT_ITEM_CONVERT: Schema = Schema { name: "AGPMEVENTITEMCONVERT", id: ptype::EVENT_ITEM_CONVERT, flag_len: 1, fields: &[f(I8), f(Packet), f(I32)] };
 
@@ -525,7 +539,7 @@ pub static ARCHCORE_EXT: Schema = Schema {
 /// Tous les schémas principaux, pour l'aiguillage par type.
 pub static MAIN: &[&Schema] = &[
     &CONFIG, &CHARACTER, &CHAR_MANAGER, &LOGIN, &TIMER, &WORLD, &CHATTING, &ADMIN, &ITEM, &EVENT_NPC_TRADE,
-    &EVENT_NPC_DIALOG, &EVENT_MANAGER, &SKILL, &EVENT_SKILL_MASTER, &EVENT_TELEPORT, &EVENT_BANK, &ITEM_CONVERT, &EVENT_ITEM_CONVERT, &GUILD, &EVENT_GUILD, &PRIVATE_TRADE, &PARTY, &PARTY_MANAGEMENT, &QUEST, &EVENT_QUEST, &SYSTEM_MESSAGE, &RETURN_TO_LOGIN, &OPT_CHAR_MOVE, &OPT_CHAR_ACTION, &OPT_VIEW,
+    &EVENT_NPC_DIALOG, &EVENT_MANAGER, &SKILL, &EVENT_SKILL_MASTER, &EVENT_TELEPORT, &EVENT_BANK, &ITEM_CONVERT, &EVENT_ITEM_CONVERT, &REFINERY, &EVENT_REFINERY, &GUILD, &EVENT_GUILD, &PRIVATE_TRADE, &PARTY, &PARTY_MANAGEMENT, &QUEST, &EVENT_QUEST, &SYSTEM_MESSAGE, &RETURN_TO_LOGIN, &OPT_CHAR_MOVE, &OPT_CHAR_ACTION, &OPT_VIEW,
     &STARTUP_ENCRYPTION, &ARCHCORE_EXT,
 ];
 

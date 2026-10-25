@@ -379,6 +379,29 @@ AGPMITEMCONVERT (2 flag bytes): 0 op, 1 CID, 2 item IID, 3 IID of what converts 
 Not handled yet: runes that grant a skill (`Skill_Name`), Archonia's ice, lightning and venom stones and stat
 stones (`Spirit Type` 6 to 8 and 100 to 106, refused by the client).
 
+## Refining (types 0x4B and 0x3F, AgpmRefinery and AgpmEventRefinery)
+
+Recipes from `RefineryItem2.txt`, the table `Archonia.exe` reads (5,731 recipes, imported into `client_table`;
+otherwise the original server's `refineryrecipetable.txt`). A recipe is recognised by its ingredients
+(`Resource TID`, `Resource Count`), in any order; its `MakeItem Total` rows are equally likely outcomes (item
+and count made, bonus item, number of options `Item Option Min/Max` and sockets `Socket Inchant Min/Max` of the
+item made); `Combine Use Price` is its gold price.
+
+- **Opening**: AGPMEVENTREFINERY op 0 (event, CID) on a world object with function 26 (the alchemy sphere of
+  the `obj*.ini` files, not an NPC); op 1 grants it, the client opens `UI_Refinery`.
+- **AGPMREFINERY** (2 flag bytes): 0 op, 1 CID, 2 recipe id, 3 IIDs of the grid's 20 cells (INT32[20], 0 = empty
+  cell), 4 result, 5 TID made, 6 price (INT64).
+  - **op 5 → op 5, quote**: the grid names a recipe, the server returns its price in field 6.
+  - **op 2, refine the grid**: the grid's items, whole, are the ingredients.
+  - **op 6, refine a recipe**: id in field 2, ingredients taken from the inventory's stacks.
+  - **op 1, result**: 0 success (TID made in field 5), 1 missing ingredients, 2 items without a recipe,
+    4 not enough gold, 5 inventory full. The client shows uimessage's `REFINE_*_ITEM`.
+- **Item made**: equipment gets options (between `Item Option Min` and `Max`, rolled like loot options) and
+  sockets (`Socket Inchant Min`/`Max`), or those of a new item; it keeps from the equipment supplied (the same
+  model, otherwise the first) its reinforcement, sockets, set items and options according to the `Keep
+  Reinforcement Level`, `Keep Item Socket Count`, `Keep Socketed Items` and `Keep Item Options` columns. The
+  "failure" outcome (`MakeItem IsFail`) makes its item like the others: the client does not read the column.
+
 ## Potions and regeneration (types 0x04 and 0x02)
 
 The client uses an item with AGPMITEM **op 3** (field 2 = IID). A potion is a usable item (`ItemType` 1 in
@@ -718,7 +741,8 @@ Full specification: [[ArchRust extensions|EN-ArchRust-extensions]].
 | 0x3B | Skill master | 0x36 | Bank |
 | 0x31 | Teleport portals | 0x15 | Guilds |
 | 0x39 | Guild manager | 0x16 | Item conversion |
-| 0x38 | Blacksmith (conversion) | | |
+| 0x38 | Blacksmith (conversion) | 0x4B | Refining |
+| 0x3F | Alchemy sphere (refining) | | |
 | 0x07 | Trading between players | 0x3E | NPC quests |
 
 Full schemas for the 86 modules are in `data/re/packet-schemas.json`.

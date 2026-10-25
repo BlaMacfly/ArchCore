@@ -24,6 +24,7 @@
 //!   archcore sim gm [compte] [mdp] [perso]                    commandes MJ d'ArchCore : /speed (×5, refus au-delà de 10, retour) et /additem ; compte MJ
 //!   archcore sim status [compte] [mdp] [perso]                état spécial : Shield Bash étourdit un Ver vert (champ 17), puis l'état retombe ; compte MJ, personnage GmEffets
 //!   archcore sim effects [compte] [mdp] [perso]               passive (défense), renforcement (vitesse d'attaque), zone, affaiblissement d'un Ver vert ; compte MJ, personnage GmEffets
+//!   archcore sim refinery [compte] [mdp] [perso]              sphère d'alchimie : refus, devis et raffinage de la grille, raffinage d'une recette ; compte MJ
 //!   archcore sim convert [compte] [mdp] [perso]               forgeron Halo : socket, pierre d'eau, renforcement +2, état relu à la reconnexion ; compte MJ
 //! ```
 //! À lancer contre un serveur de test (`ARCHCORE_CONF_DIR`) : les personnages sont créés au besoin,
@@ -83,6 +84,7 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         Some("partyskill") => Box::pin(party_skill(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("mastery") => Box::pin(mastery(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("convert") => Box::pin(convert(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
+        Some("refinery") => Box::pin(refinery(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol|bag|skill|effects|status|bank|portal|guild|gm|trade|party|quest|mobskill|counter|partyskill|mastery [arguments]"),
     }
 }
@@ -1889,6 +1891,80 @@ async fn convert(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> 
     w.world.expect_where(|q| q.is(it, Some(1)) && q.int(2) == Some(sword), 3000, "épée détruite").await?;
     println!("
 conversion : OK");
+    Ok(())
+}
+
+/// Raffinage (recette 4013 de RefineryItem2.txt : 100 Breath Elemental Stone → 10 Gale Elemental Stone, 5000
+/// pièces) : ouverture d'une sphère d'alchimie (fonction 26), refus d'une grille sans recette, devis et
+/// raffinage de la grille, puis raffinage de la même recette par son identifiant. Compte MJ.
+async fn refinery(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
+    use archcore_net::packet::Value;
+    const BREATH: i64 = 244;
+    const GALE: i64 = 245;
+    const POTION: i64 = 190;
+    let cfg = crate::config::load()?;
+    let (it, ch, rf, ev, eb) = (&schema::ITEM, &schema::CHATTING, &schema::REFINERY, &schema::EVENT_REFINERY, &mini::EVENT_BASE);
+    let say = |cid: u32, text: &str| Fields::new(ch).with(0, 0).with(1, cid).with(2, chat_type::NORMAL).with(6, crate::tools::to_cp1252(text));
+    let grid = |iids: &[i64]| Value::List((0..20).map(|i| Value::Int(iids.get(i).copied().unwrap_or(0))).collect());
+
+    step(&format!("{char_name} entre en jeu et ouvre une sphère d'alchimie"));
+    let mut w = enter_world(&cfg, user, pass, char_name, "").await?;
+    let me = w.cid as i64;
+    let event = build_mini(eb, &Fields::new(eb).with(0, 1).with(1, 1).with(3, 26));
+    w.world.send(ev, Fields::new(ev).with(0, 0).with(1, event).with(2, w.cid)).await?;
+    w.world.expect_where(|q| q.is(ev, Some(1)), 3000, "fenêtre de raffinage").await?;
+    println!("  ✓ fenêtre accordée");
+    w.world.send(ch, say(w.cid, "/money 100000")).await?;
+
+    step("refus : une potion seule");
+    w.world.send(ch, say(w.cid, &format!("/additem {POTION} 1"))).await?;
+    let potion = w.world.expect_where(|q| q.is(it, None) && q.int(3) == Some(POTION) && q.int(1) == Some(2), 3000, "potion").await?.int(2).unwrap_or(0);
+    w.world.send(rf, Fields::new(rf).with(0, 5).with(1, me).with(3, grid(&[potion]))).await?;
+    let r = w.world.expect_where(|q| q.is(rf, Some(1)), 3000, "refus").await?;
+    anyhow::ensure!(r.int(4) == Some(2), "refus : résultat {:?}", r.int(4));
+    println!("  ✓ résultat 2 (pas de recette)");
+
+    step("devis et raffinage de la grille");
+    w.world.send(ch, say(w.cid, &format!("/additem {BREATH} 100"))).await?;
+    let stones = w.world.expect_where(|q| q.is(it, None) && q.int(3) == Some(BREATH) && q.int(1) == Some(2), 3000, "pierres").await?;
+    let (stones, have) = (stones.int(2).unwrap_or(0), stones.int(5).unwrap_or(0));
+    anyhow::ensure!(have == 100, "{have} pierre(s) Breath dans la pile (100 attendues : vider l'inventaire de GmTest)");
+    w.world.send(rf, Fields::new(rf).with(0, 5).with(1, me).with(3, grid(&[stones]))).await?;
+    let q = w.world.expect_where(|q| q.is(rf, Some(5)), 3000, "devis").await?;
+    anyhow::ensure!(q.int(6) == Some(5000), "prix {:?}", q.int(6));
+    println!("  ✓ devis : 5000 pièces");
+    w.world.send(rf, Fields::new(rf).with(0, 2).with(1, me).with(2, 0).with(3, grid(&[stones]))).await?;
+    let r = w.world.expect_where(|q| q.is(rf, Some(1)), 3000, "résultat").await?;
+    anyhow::ensure!(r.int(4) == Some(0) && r.int(5) == Some(GALE), "résultat {:?}, TID {:?}", r.int(4), r.int(5));
+    println!("  ✓ réussite : Gale Elemental Stone");
+
+    step("raffinage par recette (4013)");
+    w.world.send(ch, say(w.cid, &format!("/additem {BREATH} 100"))).await?;
+    w.world.expect_where(|q| q.is(it, None) && q.int(3) == Some(BREATH), 3000, "pierres").await?;
+    w.world.send(rf, Fields::new(rf).with(0, 6).with(1, me).with(2, 4013)).await?;
+    let r = w.world.expect_where(|q| q.is(rf, Some(1)), 3000, "résultat").await?;
+    anyhow::ensure!(r.int(4) == Some(0) && r.int(5) == Some(GALE), "résultat {:?}, TID {:?}", r.int(4), r.int(5));
+    println!("  ✓ réussite");
+    w.world.send(rf, Fields::new(rf).with(0, 6).with(1, me).with(2, 4013)).await?;
+    let r = w.world.expect_where(|q| q.is(rf, Some(1)), 3000, "refus").await?;
+    anyhow::ensure!(r.int(4) == Some(1), "sans ingrédients : résultat {:?}", r.int(4));
+    println!("  ✓ sans ingrédients : résultat 1");
+
+    step("recette d'équipement (183) : White Wing Dagger et ses pierres → dague à une option");
+    for tid in [258, 262, 266, 2118, 5429] {
+        w.world.send(ch, say(w.cid, &format!("/additem {tid} 1"))).await?;
+        w.world.expect_where(|q| q.is(it, None) && q.int(3) == Some(tid), 3000, "ingrédient").await?;
+    }
+    w.world.send(rf, Fields::new(rf).with(0, 6).with(1, me).with(2, 183)).await?;
+    let dagger = w.world.expect_where(|q| q.is(it, Some(0)) && q.int(3) == Some(5429) && q.int(1) == Some(2), 3000, "dague produite").await?;
+    let opts = dagger.fields().bytes(20).and_then(|b| decode_mini(&mini::ITEM_OPTION, b).ok()).map(|o| (0..5).filter_map(|i| o.int(i)).collect::<Vec<_>>()).unwrap_or_default();
+    let r = w.world.expect_where(|q| q.is(rf, Some(1)), 3000, "résultat").await?;
+    anyhow::ensure!(r.int(4) == Some(0) && opts.len() == 1, "résultat {:?}, options {opts:?}", r.int(4));
+    println!("  ✓ dague produite, option {opts:?}");
+    w.world.send(it, Fields::new(it).with(0, 21).with(2, dagger.int(2).unwrap_or(0))).await?;
+    w.world.send(it, Fields::new(it).with(0, 21).with(2, potion)).await?;
+    println!("
+raffinage : OK");
     Ok(())
 }
 

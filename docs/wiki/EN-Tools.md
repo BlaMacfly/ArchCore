@@ -201,6 +201,7 @@ ARCHCORE_CONF_DIR=config/test archcore sim partyskill [userA passA charA userB p
 ARCHCORE_CONF_DIR=config/test archcore sim counter [user] [pass] [character]
 ARCHCORE_CONF_DIR=config/test archcore sim mobskill [user] [pass] [character]
 ARCHCORE_CONF_DIR=config/test archcore sim convert [user] [pass] [character]
+ARCHCORE_CONF_DIR=config/test archcore sim refinery [user] [pass] [character]
 ```
 
 `sim mastery` (GmTest, level 60) forgets Capacitate and Marching Song in the database, is refused Capacitate
@@ -215,7 +216,10 @@ when needed. `sim mobskill` (GmTest, level 40) joins Midas, hits it once and wai
 Sword (with 1 to 3 options and its sockets rolled), a water stone and two reinforcement potions (`/additem`),
 adds a socket (repeated until it succeeds),
 sets the stone (op 7, result 0) then an attack prayer stone (rune, op 8, result 1), reinforces the sword to +1 then +2, logs in again and reads the state back
-(+2, sockets, stone and rune) from the items received on entry, then destroys the sword.
+(+2, sockets, stone and rune) from the items received on entry, then destroys the sword. `sim refinery` (GmTest, GM account) opens an alchemy sphere, is refused a lone potion
+(result 2), gets the quote then refines 100 Breath Elemental Stones into 10 Gale Elemental Stones (recipe 4013,
+5000 gold), refines the recipe again by its id (op 6), is refused without ingredients (result 1), then refines a
+White Wing Dagger and its stones (recipe 183) into a dagger with one option.
 
 ## ArchRust extensions test
 

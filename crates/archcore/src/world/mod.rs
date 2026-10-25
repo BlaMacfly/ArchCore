@@ -40,6 +40,7 @@ pub mod party;
 pub mod portal;
 pub mod presence;
 pub mod quests;
+pub mod refinery;
 pub mod recovery;
 pub mod regions;
 pub mod sector;
@@ -93,6 +94,8 @@ pub struct WorldCtx {
     pub convert: convert::ConvertTable,
     /// Options des objets (itemoptiontable.txt) et tables de nombre d'options et de sockets.
     pub options: options::OptionCatalog,
+    /// Recettes de raffinage (refineryrecipetable.txt).
+    pub recipes: refinery::Recipes,
     pub view_radius: f64,
 }
 
@@ -254,6 +257,8 @@ impl Service for WorldService {
                 | ptype::EVENT_BANK
                 | ptype::ITEM_CONVERT
                 | ptype::EVENT_ITEM_CONVERT
+                | ptype::REFINERY
+                | ptype::EVENT_REFINERY
                 | ptype::EVENT_TELEPORT
                 | ptype::GUILD
                 | ptype::EVENT_GUILD
@@ -353,6 +358,8 @@ impl Connection for WorldConn {
             ptype::EVENT_BANK => bank::on_packet(ctx, &mut st, self.sid, &p),
             ptype::ITEM_CONVERT => convert::on_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::EVENT_ITEM_CONVERT => convert::on_event(ctx, &st, self.sid, &p),
+            ptype::REFINERY => refinery::on_packet(ctx, &mut st, self.sid, &p).await?,
+            ptype::EVENT_REFINERY => refinery::on_event(&st, self.sid, &p),
             ptype::EVENT_TELEPORT => portal::on_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::GUILD => guild::on_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::EVENT_GUILD => guild::on_event(ctx, &st, self.sid, &p),
