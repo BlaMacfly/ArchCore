@@ -42,8 +42,10 @@ pub const LEASH: f64 = 10_000.0;
 pub const PLAYER_HIT_RANGE: f64 = 50.0;
 /// Marge de portée, pour les positions arrondies.
 const REACH_TOLERANCE: f64 = 50.0;
-/// Vitesse d'un monstre sans vitesse connue (unités par seconde) ; déplacement le plus long compté.
-const DEFAULT_SPEED: f64 = 300.0;
+/// Vitesses d'un personnage sans vitesse connue, en dixièmes d'unité par seconde, comme le client Archonia
+/// (4000 à la marche, 12000 à la course) ; déplacement le plus long compté.
+const DEFAULT_WALK: i32 = 4_000;
+const DEFAULT_RUN: i32 = 12_000;
 const MAX_TRAVEL: Duration = Duration::from_secs(4);
 /// Patrouille : intervalle tiré entre ces bornes, départs au plus par tour, essais pour trouver un endroit libre.
 const PATROL_MIN: Duration = Duration::from_secs(15);
@@ -85,10 +87,14 @@ pub fn choose_target(st: &WorldState, m: &Monster) -> Option<u32> {
         .map(|a| a.cid)
 }
 
-/// Temps de trajet d'un monstre sur `distance` unités, d'après sa vitesse de course.
-fn travel(distance: f64, run: i32) -> Duration {
-    let speed = if run > 0 { run as f64 / 10.0 } else { DEFAULT_SPEED };
-    Duration::from_secs_f64(distance / speed).min(MAX_TRAVEL)
+/// Vitesse en dixièmes d'unité par seconde : celle du monstre, sinon celle d'Archonia par défaut.
+fn tenths(speed: i32, fast: bool) -> i32 {
+    if speed > 0 { speed } else if fast { DEFAULT_RUN } else { DEFAULT_WALK }
+}
+
+/// Temps de trajet d'un monstre sur `distance` unités : `10000 / vitesse × distance` ms, comme le client.
+fn travel(distance: f64, speed: i32, fast: bool) -> Duration {
+    Duration::from_secs_f64(distance / (tenths(speed, fast) as f64 / 10.0)).min(MAX_TRAVEL)
 }
 
 /// Déplace le monstre jusqu'à `dest` (chez les joueurs qui le voient), en courant ou en marchant ; rend le
@@ -116,9 +122,8 @@ fn go(map: &WorldMap, st: &mut WorldState, cid: u32, dest: Vec3, speed: i32, fas
     for sid in combat::viewers(st, cid) {
         st.players[&sid].send(mv, fields.clone());
     }
-    let tenths = if speed > 0 { speed as f64 } else { DEFAULT_SPEED * 10.0 };
-    st.monsters.walking.insert(cid, Walk { dest, speed: tenths, at: Instant::now() });
-    travel(combat::dist2d(from, dest), speed)
+    st.monsters.walking.insert(cid, Walk { dest, speed: tenths(speed, fast) as f64, at: Instant::now(), fast });
+    travel(combat::dist2d(from, dest), speed, fast)
 }
 
 /// Fait avancer les monstres en marche. Quand l'un change de secteur, il apparaît chez les joueurs qui voient
@@ -144,7 +149,7 @@ pub fn walk_step(map: &WorldMap, st: &mut WorldState, now: Instant) {
         let Some(m) = st.monsters.get(cid) else { continue };
         let view = super::monsters::MonsterRegistry::view_packet(&st.monsters, m);
         let mv = &schema::OPT_CHAR_MOVE;
-        let fields = Fields::new(mv).with(0, cid).with(1, next).with(2, w.dest).with(5, if arrived { 0x04 } else { combat::MOVE_FAST }).with(6, 0);
+        let fields = Fields::new(mv).with(0, cid).with(1, next).with(2, w.dest).with(5, if arrived { 0x04 } else if w.fast { combat::MOVE_FAST } else { 0 }).with(6, 0);
         for p in st.players.values_mut().filter(|p| p.in_game) {
             if super::sector::sees(p.view_pos, next) && p.seen_monsters.insert(cid) {
                 p.send_raw(view.clone());
@@ -327,8 +332,9 @@ mod tests {
 
     #[test]
     fn duree_de_trajet() {
-        assert_eq!(travel(385.0, 3850), Duration::from_secs(1));
-        assert_eq!(travel(300.0, 0), Duration::from_secs(1), "vitesse inconnue");
-        assert_eq!(travel(1e9, 3850), MAX_TRAVEL);
+        assert_eq!(travel(385.0, 3850, true), Duration::from_secs(1));
+        assert_eq!(travel(1200.0, 0, true), Duration::from_secs(1), "course inconnue : 12000");
+        assert_eq!(travel(400.0, 0, false), Duration::from_secs(1), "marche inconnue : 4000");
+        assert_eq!(travel(1e9, 3850, true), MAX_TRAVEL);
     }
 }

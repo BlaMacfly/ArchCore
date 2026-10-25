@@ -105,7 +105,9 @@ jusqu'à 10 000 unités environ, et un retrait à la sortie des 3 × 3 secteurs 
 sous ses yeux. Ils y apparaissent (vue optimisée op 1, paquet
 personnage op 0, objet op 0) ou en disparaissent (AGPMCHARACTER op 3 « retrait de la vue », objet op 1) quand lui ou eux
 changent de secteur. Le serveur suit la marche du joueur entre deux paquets de déplacement, d'après sa
-vitesse (dixièmes d'unité par seconde : 2000 en marche, 5000 en course pour un humain). Les retraits passent par l'op 3 (« retrait de la vue »), comme le serveur d'origine : l'op 2 supprime le personnage aussitôt, tandis que l'op 3 passe d'abord par les fonctions de vue du client, qui peuvent différer la suppression.
+vitesse (dixièmes d'unité par seconde : 2000 en marche, 5000 en course pour un humain). C'est la règle du client
+Archonia : un trajet dure `10000 / vitesse × distance` ms, avec le facteur de statut 8 en marche et 9 en course
+(drapeau 0x10 du déplacement, plafond 60 000) ; une vitesse inconnue vaut 4000 en marche et 12 000 en course. Les retraits passent par l'op 3 (« retrait de la vue »), comme le serveur d'origine : l'op 2 supprime le personnage aussitôt, tandis que l'op 3 passe d'abord par les fonctions de vue du client, qui peuvent différer la suppression.
 
 ## Fonctions des PNJ (types 0x3C et 0x37)
 

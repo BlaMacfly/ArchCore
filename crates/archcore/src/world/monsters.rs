@@ -210,6 +210,8 @@ pub struct Walk {
     pub dest: Vec3,
     pub speed: f64,
     pub at: Instant,
+    /// À la course (drapeau 0x10), sinon à la marche.
+    pub fast: bool,
 }
 
 /// Monstres du monde, avec une grille X/Z pour retrouver vite ceux qui sont à portée.
