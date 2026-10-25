@@ -103,12 +103,12 @@ World.ExitOnRestart = 0
 
 Limites actuelles :
 
-- Les taux sont enregistrés mais pas encore appliqués : il n'y a pas encore de monstres, de butin
-  ni de gain d'expérience.
+- Les taux d'expérience, d'or et de butin s'appliquent ; ceux du butin unique, du charisme, du
+  prestige et le bonus de discussion sont gardés mais sans effet, faute des systèmes correspondants.
 - Les interdictions de discussion sont gardées en mémoire et disparaissent au redémarrage.
 - Avec `/create`, le dernier nombre (« non échangeable ») n'est pas encore enregistré.
-- À vérifier avec le vrai client : l'animation de mort de `/kill`, et l'altitude après `/move`.
-  Le serveur garde l'altitude actuelle, faute de carte des hauteurs.
+- À vérifier avec le vrai client : l'animation de mort de `/kill`. Après `/move`, le MJ est posé à la
+  hauteur du sol (`map_height`) ; hors de la carte des hauteurs, il garde son altitude.
 - Le client envoie lui-même `/move` quand on tape un numéro de point de passage dans la discussion.
 
 ## 4. Liste des commandes

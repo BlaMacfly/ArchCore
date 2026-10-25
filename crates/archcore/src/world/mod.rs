@@ -755,7 +755,9 @@ pub async fn chat_ban(ctx: &WorldCtx, st: &mut WorldState, name: &str, minutes: 
 /// Téléporte un joueur en (x, z). Sans y, garde l'altitude actuelle.
 pub async fn teleport(ctx: &WorldCtx, st: &mut WorldState, sid: u32, x: f64, y: Option<f64>, z: f64) -> anyhow::Result<Vec3> {
     let Some(p) = st.players.get_mut(&sid) else { anyhow::bail!("joueur absent") };
-    let pos = Vec3::new(x as f32, y.unwrap_or(p.ch.pos_y) as f32, z as f32);
+    // Sans altitude donnée : la hauteur du sol (map_height), sinon l'altitude actuelle.
+    let y = y.or_else(|| ctx.map.height(x, z).map(f64::from)).unwrap_or(p.ch.pos_y);
+    let pos = Vec3::new(x as f32, y as f32, z as f32);
     p.ch.set_pos(pos);
     let mv = &schema::OPT_CHAR_MOVE;
     p.send(mv, Fields::new(mv).with(0, p.ch.id).with(1, pos).with(2, pos).with(5, MOVE_STOP_SYNC).with(6, 0));

@@ -102,11 +102,12 @@ World.ExitOnRestart = 0
 
 Current limits:
 
-- Rates are stored but not applied yet: there are no monsters, loot or experience gains yet.
+- Experience, gold and loot rates apply; unique loot, charisma, prestige and the chat bonus are kept
+  but have no effect, the matching systems being absent.
 - Chat mutes are kept in memory and are lost on restart.
 - With `/create`, the last number ("untradable") is not stored yet.
-- To check with the real client: the `/kill` death animation, and the altitude after `/move`.
-  The server keeps the current altitude, having no height map.
+- To check with the real client: the `/kill` death animation. After `/move`, the GM is put at ground
+  height (`map_height`); outside the height map, they keep their altitude.
 - The client itself sends `/move` when a waypoint number is typed in the chat.
 
 ## 4. Command list
