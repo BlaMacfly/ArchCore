@@ -1796,6 +1796,7 @@ async fn convert(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> 
     const SWORD: i64 = 2; // Bastard Sword : rang 10, 1 socket au départ
     const STONE: i64 = 201; // Water Elemental Stone, rang 1
     const POTION: i64 = 486; // Reinforcement Potion
+    const RUNE: i64 = 463; // Attack Prayer Stone<Lv1> : arme, 100 %, option « Damage +1 »
     const STOP: i64 = 0x04;
     let cfg = crate::config::load()?;
     let (it, ch, mv, ic, ev, eb) = (&schema::ITEM, &schema::CHATTING, &schema::OPT_CHAR_MOVE, &schema::ITEM_CONVERT, &schema::EVENT_ITEM_CONVERT, &mini::EVENT_BASE);
@@ -1822,7 +1823,7 @@ async fn convert(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> 
     step("épée, pierre d'eau et deux potions de renforcement");
     let mut made = Vec::new();
     let mut first = 0;
-    for (tid, n) in [(SWORD, 1), (STONE, 1), (POTION, 2)] {
+    for (tid, n) in [(SWORD, 1), (STONE, 1), (POTION, 2), (RUNE, 1)] {
         w.world.send(ch, say(w.cid, &format!("/additem {tid} {n}"))).await?;
         let added = w.world.expect_where(|q| q.is(it, Some(0)) && q.int(3) == Some(tid) && q.int(1) == Some(2), 3000, "objet ajouté").await?;
         let iid = added.int(2).unwrap_or(0);
@@ -1837,7 +1838,7 @@ async fn convert(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> 
         }
         made.push(iid);
     }
-    let (sword, stone, potion) = (made[0], made[1], made[2]);
+    let (sword, stone, potion, rune) = (made[0], made[1], made[2], made[3]);
 
     step("ajout de socket");
     let mut sockets = 0;
@@ -1861,6 +1862,12 @@ async fn convert(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> 
     w.world.expect_where(|q| q.is(it, Some(1)) && q.int(2) == Some(stone), 3000, "pierre consommée").await?;
     println!("  ✓ sertie, pierre consommée");
 
+    step("rune");
+    w.world.send(ic, Fields::new(ic).with(0, 3).with(1, me).with(2, sword).with(3, rune)).await?;
+    let r = w.world.expect_where(|q| q.is(ic, Some(8)) && q.int(2) == Some(sword), 3000, "réponse rune").await?;
+    anyhow::ensure!(r.int(4) == Some(1) && r.int(7) == Some(2) && r.int(8) == Some(RUNE), "rune : résultat {:?}, {:?} remplie(s), TID {:?}", r.int(4), r.int(7), r.int(8));
+    println!("  ✓ rune sertie (2 sockets remplis)");
+
     step("renforcement +1 puis +2");
     for level in 1..=2 {
         w.world.send(ic, Fields::new(ic).with(0, 1).with(1, me).with(2, sword).with(3, potion)).await?;
@@ -1876,8 +1883,8 @@ async fn convert(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> 
     tokio::time::sleep(Duration::from_millis(500)).await;
     let mut w = enter_world(&cfg, user, pass, char_name, "").await?;
     let state = w.converts.iter().find(|c| c.0 == sword).copied();
-    anyhow::ensure!(state == Some((sword, 2, sockets, 1)), "état relu : {state:?}");
-    println!("  ✓ +2, {sockets} sockets, 1 pierre");
+    anyhow::ensure!(state == Some((sword, 2, sockets, 2)), "état relu : {state:?}");
+    println!("  ✓ +2, {sockets} sockets, 1 pierre et 1 rune");
     w.world.send(it, Fields::new(it).with(0, 21).with(2, sword)).await?;
     w.world.expect_where(|q| q.is(it, Some(1)) && q.int(2) == Some(sword), 3000, "épée détruite").await?;
     println!("

@@ -218,8 +218,8 @@ Insanity (op 7 du monstre, op 8 sur le joueur avec des dégâts physiques et d'e
 6 s plus tard. `sim convert` (GmTest, compte MJ) ouvre la fenêtre du forgeron Halo à Anchorville, reçoit une
 Bastard Sword (avec 1 à 3 options et ses sockets tirés), une pierre d'eau et deux potions de renforcement
 (`/additem`), ajoute un socket (répété jusqu'à la
-réussite), sertit la pierre (op 7, résultat 0), renforce l'épée à +1 puis +2, se reconnecte et relit l'état
-(+2, 2 sockets, 1 pierre) dans les objets reçus à l'entrée, puis détruit l'épée.
+réussite), sertit la pierre (op 7, résultat 0) puis une pierre de prière d'attaque (rune, op 8, résultat 1), renforce l'épée à +1 puis +2, se reconnecte et relit l'état
+(+2, sockets, pierre et rune) dans les objets reçus à l'entrée, puis détruit l'épée.
 
 ## Test des extensions ArchRust
 

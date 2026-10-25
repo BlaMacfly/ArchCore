@@ -953,7 +953,7 @@ async fn import_all(db: &Databases, src: &Source) -> anyhow::Result<()> {
     // ---------------------------------------------------------------- ItemConvertTable.txt, itemoptiontable.txt
     // Textes entiers (ItemConvertTable : plusieurs tableaux séparés par des lignes vides) : le monde les lit
     // au chargement.
-    for name in ["ItemConvertTable.txt", "itemoptiontable.txt"] {
+    for name in ["ItemConvertTable.txt", "itemoptiontable.txt", "itemruneattributetable.txt"] {
         if src.exists(name) {
             store_text(db, name, &src.read(name)?).await?;
         }

@@ -365,8 +365,16 @@ AGPMITEMCONVERT (2 flag bytes): 0 op, 1 CID, 2 item IID, 3 IID of what converts 
   "Destroy" (8). Full 2, unsuitable item 3, wrong potion 9. Each level adds "Weapon Increase" to a weapon's
   physical damage, "Armor Increase" to the physical defense of the rest, levels adding up.
 
-Not handled yet: runes (op 3 → op 8), Archonia's ice, lightning and venom stones and stat stones
-(`Spirit Type` 6 to 8 and 100 to 106, refused by the client).
+- **op 3 → op 8, rune**: a rune (an item of `itemruneattributetable.txt`, imported into `client_table`) into an
+  inventory item whose part is ticked for it (same columns as options) and that has a free socket; refusals:
+  2 unknown rune, 3 full, 6 item below `Mount_Restriction_Level`, 7 part refused, 8 a rune with the same
+  `ANTI Number` already set. Success (1) from `Success_Rate`, always with `AlwaysSuccess`; otherwise a second
+  roll in "Socket Slot Fail" at index set items + 1: 9 no loss, 10 set items lost, 11 back to +0 and set items
+  lost, 12 item destroyed. The rune is used up either way. A set rune gives the wearer the options of its
+  `OptionTID` (itemdatatable.txt). A rune sent with op 4 is recognised by its table and handled as a rune.
+
+Not handled yet: runes that grant a skill (`Skill_Name`), Archonia's ice, lightning and venom stones and stat
+stones (`Spirit Type` 6 to 8 and 100 to 106, refused by the client).
 
 ## Potions and regeneration (types 0x04 and 0x02)
 

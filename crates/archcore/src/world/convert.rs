@@ -14,7 +14,10 @@
 //!     8 Socket Slot Success  n-ième socket : chance (arme, armure, autre)
 //!     9 Socket Slot Fail     n-ième socket, échec : sans perte, sockets vidés, remis à zéro, détruit
 //!                            (arme, armure, autre)
-//!   État d'un objet : niveau de renforcement, nombre de sockets, TID des pierres serties (8 au plus).
+//!   Runes (itemruneattributetable.txt) : parties admises, « Success_Rate » (ou « AlwaysSuccess »),
+//!        « Mount_Restriction_Level » (niveau d'objet minimal), « ANTI Number » (deux runes du même numéro ne
+//!        vont pas ensemble). Une rune sertie apporte à l'objet les options de son « OptionTID ».
+//!   État d'un objet : niveau de renforcement, nombre de sockets, TID des pierres et runes serties (8 au plus).
 //! ```
 //! Le renforcement d'une arme ajoute aux dégâts physiques min et max la somme des bonus d'arme des niveaux
 //! atteints ; celui d'une armure ou d'un bouclier, à la défense physique. Une pierre d'esprit ajoute sa
@@ -79,6 +82,37 @@ pub struct ConvertTable {
     /// Indice = numéro du socket ajouté (0 inutilisé) ; chance par catégorie.
     pub socket_success: Vec<[u32; 3]>,
     pub socket_fail: Vec<[SocketFail; 3]>,
+    /// Runes par TID (itemruneattributetable.txt).
+    pub runes: std::collections::HashMap<u32, Rune>,
+}
+
+/// Une ligne d'itemruneattributetable.txt.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Rune {
+    /// Numéro d'exclusion (« ANTI Number »), 0 : aucun.
+    pub anti: i64,
+    /// Parties admises, bits dans l'ordre des options (`options::part_slot`).
+    pub parts: u16,
+    pub success: u32,
+    pub always: bool,
+    /// Niveau d'objet minimal (« Mount_Restriction_Level »).
+    pub min_level: i64,
+}
+
+/// Lit itemruneattributetable.txt (en-tête, puis une rune par ligne).
+pub fn parse_runes(text: &str) -> std::collections::HashMap<u32, Rune> {
+    const PARTS: [&str; 9] = ["Upper_Body", "Lower_Body", "Weapon", "Shield", "Head", "Ring", "Necklace", "Shoes", "Gloves"];
+    let mut lines = text.lines().map(|l| l.trim_end_matches('\r').split('\t').map(|c| c.trim().to_string()).collect::<Vec<_>>());
+    let Some(header) = lines.next() else { return Default::default() };
+    let at = |row: &[String], name: &str| header.iter().position(|h| h == name).and_then(|i| row.get(i).cloned()).unwrap_or_default();
+    let mut out = std::collections::HashMap::new();
+    for r in lines {
+        let Ok(tid) = at(&r, "TID").parse::<u32>() else { continue };
+        let n = |name: &str| at(&r, name).parse::<f64>().unwrap_or(0.0) as i64;
+        let parts = PARTS.iter().enumerate().filter(|(_, p)| !at(&r, p).is_empty()).fold(0u16, |m, (i, _)| m | 1 << i);
+        out.insert(tid, Rune { anti: n("ANTI Number"), parts, success: n("Success_Rate").max(0) as u32, always: n("AlwaysSuccess") != 0, min_level: n("Mount_Restriction_Level") });
+    }
+    out
 }
 
 fn num(cells: &[String], i: usize) -> i64 {
@@ -177,11 +211,13 @@ impl ConvertTable {
     pub async fn load(db: &crate::db::Databases) -> anyhow::Result<Self> {
         let row = db.world.first("SELECT data FROM client_table WHERE name = 'ItemConvertTable.txt' AND row_idx = 0", ()).await?;
         let text = row.and_then(|r| serde_json::from_str::<String>(&crate::db::col::<String>(&r, "data")).ok()).unwrap_or_default();
-        let t = Self::parse(&text);
+        let mut t = Self::parse(&text);
+        let runes = db.world.first("SELECT data FROM client_table WHERE name = 'itemruneattributetable.txt' AND row_idx = 0", ()).await?;
+        t.runes = parse_runes(&runes.and_then(|r| serde_json::from_str::<String>(&crate::db::col::<String>(&r, "data")).ok()).unwrap_or_default());
         if text.is_empty() {
             crate::warn!("conversion : ItemConvertTable.txt absente de client_table (lancer archcore import)");
         } else {
-            crate::info!("conversion : {} niveau(x) de renforcement, {} rang(s) de pierre", t.levels.iter().filter(|l| l.weapon > 0 || l.armor > 0).count(), t.stones.iter().filter(|s| s.weapon_value > 0).count());
+            crate::info!("conversion : {} niveau(x) de renforcement, {} rang(s) de pierre, {} rune(s)", t.levels.iter().filter(|l| l.weapon > 0 || l.armor > 0).count(), t.stones.iter().filter(|s| s.weapon_value > 0).count(), t.runes.len());
         }
         Ok(t)
     }
@@ -287,10 +323,12 @@ pub mod op {
     pub const ADD: i64 = 0;
     pub const REQUEST_PHYSICAL: i64 = 1;
     pub const REQUEST_SOCKET: i64 = 2;
+    pub const REQUEST_RUNE: i64 = 3;
     pub const REQUEST_SPIRIT_STONE: i64 = 4;
     pub const RESPONSE_PHYSICAL: i64 = 5;
     pub const RESPONSE_SOCKET: i64 = 6;
     pub const RESPONSE_SPIRIT_STONE: i64 = 7;
+    pub const RESPONSE_RUNE: i64 = 8;
 }
 
 /// AGPMITEMCONVERT de l'état d'un objet : op 0 (ajout) ou une réponse, avec son résultat et le TID ajouté.
@@ -338,6 +376,58 @@ pub mod result {
     pub const DESTROY: i64 = 8;
     /// Socket : objet qui n'en reçoit pas ; renforcement : mauvais catalyseur.
     pub const IMPROPER: i64 = 9;
+}
+
+/// Résultats d'un sertissage de rune (op 8).
+pub mod rune_result {
+    pub const SUCCESS: i64 = 1;
+    pub const INVALID_RUNE: i64 = 2;
+    pub const FULL: i64 = 3;
+    pub const LOW_ITEM_LEVEL: i64 = 6;
+    pub const IMPROPER_PART: i64 = 7;
+    pub const ALREADY_ANTI: i64 = 8;
+    pub const KEEP: i64 = 9;
+    pub const INIT_SAME: i64 = 10;
+    pub const INIT: i64 = 11;
+    pub const DESTROY: i64 = 12;
+}
+
+/// Vérifie qu'une rune peut être sertie ; rend sa ligne, ou le refus.
+pub fn check_rune<'a>(t: &'a ConvertTable, e: &EquipData, c: &ItemConvert, rune_tid: u32) -> Result<&'a Rune, i64> {
+    let Some(rune) = t.runes.get(&rune_tid) else { return Err(rune_result::INVALID_RUNE) };
+    match super::options::part_slot(e) {
+        Some(slot) if rune.parts & (1 << slot) != 0 => {}
+        _ => return Err(rune_result::IMPROPER_PART),
+    }
+    if c.filled.len() >= sockets_of(e, c) as usize {
+        return Err(rune_result::FULL);
+    }
+    if e.level < rune.min_level {
+        return Err(rune_result::LOW_ITEM_LEVEL);
+    }
+    if rune.anti != 0 && c.filled.iter().filter_map(|f| t.runes.get(f)).any(|r| r.anti == rune.anti) {
+        return Err(rune_result::ALREADY_ANTI);
+    }
+    Ok(rune)
+}
+
+/// Tirage d'un sertissage de rune : réussite selon « Success_Rate » (toujours avec « AlwaysSuccess ») ;
+/// sinon un second tirage dans « Socket Slot Fail » à l'indice sertissages + 1 (sans perte, sertissages
+/// perdus, objet remis à zéro, détruit).
+pub fn rune_roll(t: &ConvertTable, rune: &Rune, cat: Category, filled: usize, mut roll: impl FnMut() -> u32) -> i64 {
+    if rune.always || roll() < rune.success {
+        return rune_result::SUCCESS;
+    }
+    let f = t.socket_fail.get(filled + 1).map(|r| r[cat as usize]).unwrap_or_default();
+    let r = roll();
+    let mut acc = 0;
+    for (part, code) in [(f.keep, rune_result::KEEP), (f.clear, rune_result::INIT_SAME), (f.reset, rune_result::INIT), (f.destroy, rune_result::DESTROY)] {
+        acc += part;
+        if r < acc {
+            return code;
+        }
+    }
+    rune_result::KEEP
 }
 
 /// Rangs de pierre qu'accepte un objet : ligne `PhysicalRank` de la première section (la dernière au-delà).
@@ -429,7 +519,12 @@ pub fn physical_roll(t: &ConvertTable, rank: usize, next: usize, mut roll: impl 
 pub async fn on_packet(ctx: &super::WorldCtx, st: &mut super::WorldState, sid: u32, p: &archcore_net::Packet) -> anyhow::Result<()> {
     let (iid, other) = (p.int(2).unwrap_or(0) as u32, p.int(3).unwrap_or(0) as u32);
     match p.int(0) {
-        Some(op::REQUEST_SPIRIT_STONE) => spirit_stone(ctx, st, sid, iid, other).await,
+        Some(op::REQUEST_RUNE) => rune(ctx, st, sid, iid, other).await,
+        // Une rune posée depuis certains sacs arrive comme une pierre d'esprit : on la reconnaît à sa table.
+        Some(op::REQUEST_SPIRIT_STONE) => {
+            let is_rune = st.players.get(&sid).and_then(|p| p.inventory.get(other)).is_some_and(|i| ctx.convert.runes.contains_key(&i.tid));
+            if is_rune { rune(ctx, st, sid, iid, other).await } else { spirit_stone(ctx, st, sid, iid, other).await }
+        }
         Some(op::REQUEST_SOCKET) => add_socket(ctx, st, sid, iid).await,
         Some(op::REQUEST_PHYSICAL) => physical(ctx, st, sid, iid, other).await,
         other => {
@@ -517,6 +612,51 @@ async fn spirit_stone(ctx: &super::WorldCtx, st: &mut super::WorldState, sid: u3
     p.send_raw(state_packet(op::RESPONSE_SPIRIT_STONE, cid, iid, &conv, Some(result), Some(stone.tid)));
     consume_one(ctx, p, stone_iid).await?;
     crate::info!("[conversion] {} sertit la pierre {} dans l'objet {iid} : {}", p.ch.name, stone.tid, if ok { "réussi" } else { "échec" });
+    Ok(())
+}
+
+/// Sertit la rune `rune_iid` dans l'objet `iid` de l'inventaire ; la rune est consommée dans tous les cas.
+async fn rune(ctx: &super::WorldCtx, st: &mut super::WorldState, sid: u32, iid: u32, rune_iid: u32) -> anyhow::Result<()> {
+    use rand::Rng;
+    let Some(p) = st.players.get_mut(&sid) else { return Ok(()) };
+    let cid = p.ch.id;
+    let (Some(item), Some(rune_item)) = (p.inventory.get(iid).cloned(), p.inventory.get(rune_iid).cloned()) else { return Ok(()) };
+    let Some(e) = ctx.catalog.get(item.tid).and_then(|d| d.equip.as_ref()) else { return Ok(()) };
+    let mut conv = item.conv.clone();
+    conv.sockets = sockets_of(e, &conv);
+    let rune = match check_rune(&ctx.convert, e, &conv, rune_item.tid) {
+        Ok(r) => r,
+        Err(why) => {
+            p.send_raw(state_packet(op::RESPONSE_RUNE, cid, iid, &conv, Some(why), Some(rune_item.tid)));
+            return Ok(());
+        }
+    };
+    let cat = socket_category(e).unwrap_or(Category::Other);
+    let outcome = {
+        let mut rng = rand::thread_rng();
+        rune_roll(&ctx.convert, rune, cat, conv.filled.len(), || rng.gen_range(0..100))
+    };
+    match outcome {
+        rune_result::SUCCESS => conv.filled.push(rune_item.tid),
+        rune_result::INIT_SAME => conv.filled.clear(),
+        rune_result::INIT => {
+            conv.level = 0;
+            conv.filled.clear();
+        }
+        _ => {}
+    }
+    p.send_raw(state_packet(op::RESPONSE_RUNE, cid, iid, &conv, Some(outcome), Some(rune_item.tid)));
+    if outcome == rune_result::DESTROY {
+        p.inventory.remove(&ctx.db, iid).await?;
+        p.send_raw(super::items::item_remove(iid, Some(cid)));
+    } else {
+        save(ctx, p, iid, &conv).await?;
+        if matches!(outcome, rune_result::INIT_SAME | rune_result::INIT) {
+            p.send_raw(state_packet(op::ADD, cid, iid, &conv, None, None));
+        }
+    }
+    consume_one(ctx, p, rune_iid).await?;
+    crate::info!("[conversion] {} sertit la rune {} dans l'objet {iid} : résultat {outcome}", p.ch.name, rune_item.tid);
     Ok(())
 }
 
@@ -646,6 +786,32 @@ mod tests {
         let mail = EquipData { kind: KIND_ARMOR, defense: 5, ..Default::default() };
         let e = effective(&t, &mail, &c, stone);
         assert_eq!((e.defense, e.spirit_defense[1]), (11, 21));
+    }
+
+    #[test]
+    fn runes() {
+        let mut t = ConvertTable::parse(TABLE);
+        t.runes = parse_runes("Item_Name\tTID\tANTI Number\tUpper_Body\tWeapon\tSuccess_Rate\tAlwaysSuccess\tMount_Restriction_Level\r\n\
+            Attack\t463\t\t\tO\t100\t\t1\r\n\
+            Anti A\t470\t7\t\tO\t60\t\t1\r\n\
+            Anti B\t471\t7\t\tO\t60\t1\t1\r\n\
+            Body\t480\t\tO\t\t90\t\t50\r\n");
+        assert_eq!(t.runes[&471], Rune { anti: 7, parts: 0b100, success: 60, always: true, min_level: 1 });
+        let open = ItemConvert { sockets: 3, ..Default::default() };
+        let sword = EquipData { level: 10, part: 10, ..weapon(3) };
+        assert!(check_rune(&t, &sword, &open, 463).is_ok());
+        assert_eq!(check_rune(&t, &sword, &open, 999).err(), Some(rune_result::INVALID_RUNE));
+        assert_eq!(check_rune(&t, &sword, &open, 480).err(), Some(rune_result::IMPROPER_PART));
+        let mail = EquipData { kind: KIND_ARMOR, part: 2, level: 10, ..Default::default() };
+        assert_eq!(check_rune(&t, &mail, &open, 480).err(), Some(rune_result::LOW_ITEM_LEVEL));
+        assert_eq!(check_rune(&t, &sword, &ItemConvert { sockets: 3, filled: vec![470], ..Default::default() }, 471).err(), Some(rune_result::ALREADY_ANTI));
+        assert_eq!(check_rune(&t, &sword, &ItemConvert { sockets: 1, filled: vec![463], ..Default::default() }, 463).err(), Some(rune_result::FULL));
+        let seq = |v: Vec<u32>| { let mut it = v.into_iter(); move || it.next().unwrap_or(99) };
+        assert_eq!(rune_roll(&t, &t.runes[&471], Category::Weapon, 0, seq(vec![99])), rune_result::SUCCESS, "toujours");
+        assert_eq!(rune_roll(&t, &t.runes[&470], Category::Weapon, 1, seq(vec![59])), rune_result::SUCCESS);
+        // Deuxième sertissage raté sur un « autre » : 50 % sans perte, 50 % sertissages perdus.
+        assert_eq!(rune_roll(&t, &t.runes[&470], Category::Other, 1, seq(vec![60, 49])), rune_result::KEEP);
+        assert_eq!(rune_roll(&t, &t.runes[&470], Category::Other, 1, seq(vec![60, 50])), rune_result::INIT_SAME);
     }
 
     #[test]

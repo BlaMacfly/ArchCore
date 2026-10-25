@@ -87,9 +87,13 @@ pub fn worn(inv: &Inventory, catalog: &ItemCatalog, table: &super::convert::Conv
         .collect()
 }
 
-/// TID des options de l'équipement porté.
-pub fn worn_options(inv: &Inventory) -> Vec<u16> {
-    inv.equipment.values().flat_map(|i| i.options.iter().copied()).collect()
+/// TID des options de l'équipement porté : les siennes, puis celles des runes serties (« OptionTID » ; une
+/// pierre d'esprit n'en a pas).
+pub fn worn_options(inv: &Inventory, catalog: &ItemCatalog) -> Vec<u16> {
+    inv.equipment
+        .values()
+        .flat_map(|i| i.options.iter().copied().chain(i.conv.filled.iter().filter_map(|t| catalog.get(*t)).flat_map(|d| d.option_tids.iter().copied())))
+        .collect()
 }
 
 /// Facteurs de base auxquels s'ajoute l'équipement porté.
@@ -131,7 +135,7 @@ pub fn recompute_factors(ctx: &WorldCtx, p: &mut Player) {
     let Some(tpl) = ctx.templates.get(p.ch.template_id) else { return };
     let old = p.factors.clone();
     let mut f = with_equipment(make_factors(tpl, Some(&p.ch)), &worn(&p.inventory, &ctx.catalog, &ctx.convert));
-    ctx.options.apply(&mut f, &worn_options(&p.inventory));
+    ctx.options.apply(&mut f, &worn_options(&p.inventory, &ctx.catalog));
     f.point[..5].copy_from_slice(&old.point[..5]);
     f.status[7] = old.status[7];
     f.dirt = old.dirt;
@@ -324,7 +328,7 @@ mod tests {
     fn catalog(entries: &[(u32, EquipData)]) -> ItemCatalog {
         let mut c = ItemCatalog::default();
         for (tid, e) in entries {
-            c.items.insert(*tid, ItemData { tid: *tid, name: format!("objet {tid}"), npc_price: 0, pc_price: 0, stack: 1, equip: Some(e.clone()), potion: None, scroll: None, stone: None, usable_type: 0 });
+            c.items.insert(*tid, ItemData { tid: *tid, name: format!("objet {tid}"), npc_price: 0, pc_price: 0, stack: 1, equip: Some(e.clone()), potion: None, scroll: None, stone: None, usable_type: 0, option_tids: Vec::new() });
         }
         c
     }

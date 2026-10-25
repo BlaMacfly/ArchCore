@@ -146,6 +146,14 @@ pub struct ItemData {
     /// Type d'un consommable (« Type » quand « ItemType » vaut 1 : 2 pierre d'esprit, 8 potion de
     /// renforcement, 9 rune), 0 sinon.
     pub usable_type: i64,
+    /// Options fixes (« OptionTID ») : celles qu'une rune apporte à l'objet où elle est sertie.
+    pub option_tids: Vec<u16>,
+}
+
+/// Options fixes d'un objet (colonne « OptionTID », séparées par « ; »).
+pub fn option_tids_of(raw: &serde_json::Value) -> Vec<u16> {
+    let text = raw.get("OptionTID").and_then(|v| v.as_str()).unwrap_or("");
+    text.split(';').filter_map(|t| t.trim().parse::<u16>().ok()).filter(|t| *t > 0).take(super::options::MAX_OPTIONS).collect()
 }
 
 /// Type d'un consommable (colonnes « ItemType » 1 et « Type »).
@@ -268,7 +276,8 @@ impl ItemCatalog {
                 let scroll = raw.as_ref().and_then(super::travel::Scroll::from_raw);
                 let stone = raw.as_ref().and_then(stone_of);
                 let usable_type = raw.as_ref().map(usable_type_of).unwrap_or(0);
-                (tid, ItemData { tid, name: col(r, "name"), npc_price: col(r, "npc_price"), pc_price: col(r, "pc_price"), stack: col::<i64>(r, "stack").max(1), equip, potion, scroll, stone, usable_type })
+                let option_tids = raw.as_ref().map(option_tids_of).unwrap_or_default();
+                (tid, ItemData { tid, name: col(r, "name"), npc_price: col(r, "npc_price"), pc_price: col(r, "pc_price"), stack: col::<i64>(r, "stack").max(1), equip, potion, scroll, stone, usable_type, option_tids })
             })
             .collect();
         let lists = db.world.rows("SELECT template_id, tid, count FROM npc_trade_list ORDER BY template_id, idx", ()).await?;

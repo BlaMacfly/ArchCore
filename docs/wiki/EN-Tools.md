@@ -214,8 +214,8 @@ when needed. `sim mobskill` (GmTest, level 40) joins Midas, hits it once and wai
 `sim convert` (GmTest, GM account) opens the window of Halo the blacksmith in Anchorville, gets a Bastard
 Sword (with 1 to 3 options and its sockets rolled), a water stone and two reinforcement potions (`/additem`),
 adds a socket (repeated until it succeeds),
-sets the stone (op 7, result 0), reinforces the sword to +1 then +2, logs in again and reads the state back
-(+2, 2 sockets, 1 stone) from the items received on entry, then destroys the sword.
+sets the stone (op 7, result 0) then an attack prayer stone (rune, op 8, result 1), reinforces the sword to +1 then +2, logs in again and reads the state back
+(+2, sockets, stone and rune) from the items received on entry, then destroys the sword.
 
 ## ArchRust extensions test
 

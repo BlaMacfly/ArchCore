@@ -376,8 +376,17 @@ de 8 INT32).
   9. Chaque niveau ajoute « Weapon Increase » aux dégâts physiques d'une arme, « Armor Increase » à la
   défense physique du reste, en cumulant les niveaux.
 
-Pas encore gérés : les runes (op 3 → op 8), les pierres de glace, de foudre et de venin et les pierres de
-caractéristiques d'Archonia (`Spirit Type` 6 à 8 et 100 à 106, refusées par le client).
+- **op 3 → op 8, rune** : une rune (objet d'`itemruneattributetable.txt`, importée dans `client_table`)
+  dans un objet de l'inventaire dont la partie est cochée pour elle (mêmes colonnes que les options) et qui a
+  un socket libre ; refus : 2 rune inconnue, 3 plein, 6 objet sous `Mount_Restriction_Level`, 7 partie
+  refusée, 8 rune du même `ANTI Number` déjà sertie. Réussite (1) selon `Success_Rate`, toujours avec
+  `AlwaysSuccess` ; sinon second tirage dans « Socket Slot Fail » à l'indice sertissages + 1 : 9 sans perte,
+  10 sertissages perdus, 11 retour à +0 et sertissages perdus, 12 objet détruit. La rune est consommée dans tous
+  les cas. Une rune sertie apporte au porteur les options de son `OptionTID` (itemdatatable.txt). Une rune
+  envoyée par l'op 4 est reconnue à sa table et traitée comme une rune.
+
+Pas encore gérés : les runes qui donnent une compétence (`Skill_Name`), les pierres de glace, de foudre et de
+venin et les pierres de caractéristiques d'Archonia (`Spirit Type` 6 à 8 et 100 à 106, refusées par le client).
 
 ## Potions et régénération (types 0x04 et 0x02)
 

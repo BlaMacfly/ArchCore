@@ -442,7 +442,7 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
     ch.bank_money = bank.money;
     ch.bank_size = bank.extra_slots as i32;
     let mut factors = equipment::with_equipment(make_factors(tpl, Some(&ch)), &equipment::worn(&inventory, &ctx.catalog, &ctx.convert));
-    ctx.options.apply(&mut factors, &equipment::worn_options(&inventory));
+    ctx.options.apply(&mut factors, &equipment::worn_options(&inventory, &ctx.catalog));
     let mut skills = skills::load(&ctx.db, &ctx.skills, ch.id, &mut st.next_skill_id).await?;
     skills::refresh_points(&ctx.skills, &skills, &mut factors);
     skills::sync_passives(&ctx.skills, &mut skills, ch.template_id);
