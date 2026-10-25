@@ -44,12 +44,14 @@ Filled by `archcore import` from the client tables.
 | `quest_template` | `questtemplate.ini` | Quests (non-empty columns, as JSON) |
 | `quest_group` | `questgroup.ini` | NPC groups: quests offered and handed in |
 | `skill_level` | `SKILL_CONST.txt` | Values of each level of each skill (non-empty columns, as JSON; `point.`, `percent.`, `magnify.` groups) |
+| `skill_mastery` | `SkillMastery_High.txt`, `SkillMastery_Heroic.txt` | Mastery trees: class (template TID), skill, tree (1 high, 2 heroic), required skills `[[TID, points]…]`, total of points spent |
 | `npc_spawn` | `npc.ini` | 567 NPCs: template, name, position, orientation, raw functions |
 | `client_table` | other `.txt` tables | Rows as JSON, for tables not modelled yet |
 | `monster_spawn` | original server tables (`spawndatatable.txt` + `spawninstancetable.txt`) | 12,802 spawn points, 36,960 creatures: template, level (the client's), count, respawn (`respawn_sec`–`respawn_max_sec` range for the `UIBoss.xml` bosses), position, radius, public name (`CharacterTemplatePublic.ini`) |
 | `map_segment` | original server `world/node_data` | 45,312 sectors: blocked ground and region per 400-unit segment |
 | `map_height` | client `world/b*x.ma2` (ground geometry) | 46,592 sectors: ground height at the 17 × 17 cell corners (i16) |
 | `monster_drop` | original server `itemdroptable.txt` | 4,653 items of 550 monsters: count, rate out of 100,000 |
+| `monster_ai` | original server `aidatatable.txt` | 7,674 AIs (3,289 with skills), named by `monster_spawn.ai_tid`: non-empty columns as JSON, repeated columns numbered (`Skill1`, `SkillCondition1`, `SkillCount1`…) |
 | `drop_group` | original server `groupdroprate.txt` | 28 drop groups; each group's items come from `item_data` (GroupID, DropRank, DropRate) |
 | `drop_rank_rate` | original server `droprankrate.txt` | Item ranks (percent) by the monster's drop rank |
 | `region_template` | `RegionTemplate.ini` | 331 regions: name, parent region, Type field, safety (33 safe) |

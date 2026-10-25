@@ -12,7 +12,7 @@ named by `ARCHCORE_CONF_DIR` (see [[Configuration|EN-Configuration]]).
 | `archcore decrypt [source] [destination]` | Decrypts `Game/ini` (RC4, MD5("1111")) into `data/client-ini` |
 | `archcore import [folder] [--server folder]` | Imports `data/client-ini` into `archcore_world` (CP949 → UTF-8) and the ground height from the Game folder's `world/b*x.ma2` (`map_height`, a few minutes); with the original server tables (`--server`, or `data/server-ini` if it exists), also imports monster spawns and the server map; finally applies the `content/*.sql` content layer and records each source in `import_run` |
 | `archcore content` | Applies the `content/*.sql` content layer to the world database again, without reimporting (see [[Database\|EN-Database]]) |
-| `archcore sim client\|move\|shop\|addon\|lang\|combat\|equip\|potion\|scroll\|patrol\|bag\|skill\|effects\|bank\|portal\|guild\|gm\|trade\|quest …` | Simulated clients (see below) |
+| `archcore sim client\|move\|shop\|addon\|lang\|combat\|equip\|potion\|scroll\|patrol\|bag\|skill\|effects\|bank\|portal\|guild\|gm\|trade\|quest\|mobskill\|counter\|partyskill\|mastery …` | Simulated clients (see below) |
 | `archcore i18n strings [Game]` | Lists the texts still in English in `data/i18n/pending-en.json` |
 | `archcore i18n coverage [Game]` | Measures how much of `ini_fr` is translated |
 | `archcore i18n apply [--ascii] [--dry]` | Applies the translation memory to the client (see [[Translation|EN-Translation]]) |
@@ -195,6 +195,23 @@ The same character (`GmEffets`, level 25) learns Shield Bash from Black if neede
 Worms, with `/recast` and `/level` between tries, until a stun lands (30 % chance, 25 tries at most): the
 worm switches to state 0x1 (AGPMCHARACTER op 1, field 17), then back to 0 after 3 s.
 
+```bash
+ARCHCORE_CONF_DIR=config/test archcore sim mastery [user] [pass] [character]
+ARCHCORE_CONF_DIR=config/test archcore sim partyskill [userA passA charA userB passB charB]
+ARCHCORE_CONF_DIR=config/test archcore sim counter [user] [pass] [character]
+ARCHCORE_CONF_DIR=config/test archcore sim mobskill [user] [pass] [character]
+```
+
+`sim mastery` (GmTest, level 60) forgets Capacitate and Marching Song in the database, is refused Capacitate
+at Black's ("Marching Song at level 4 required"), learns Marching Song, upgrades it three times, then learns
+Capacitate. `sim partyskill` (GmTest, given Marching Song in the database, and SimA) forms a party: Marching
+Song strengthens SimA next to GmTest (AGPMSKILL op 4 on SimA), not when SimA is 3000 units away. `sim counter`
+gives GmTest Counter Attack level 10 in the database (a berserker skill, removed at the end), sets it to level
+1, provokes a Green Worm and waits for a hit sent back (attacker = player, result 12), `/level 1` restoring HP
+when needed. `sim mobskill` (GmTest, level 40) joins Midas, hits it once and waits for it to cast Insanity
+(the monster's op 0 and op 7, op 8 on the player with physical and water damage), then to cast it again 6 s
+later.
+
 ## ArchRust extensions test
 
 ```bash
@@ -251,6 +268,7 @@ tables, to be placed in `data/server-ini` (never committed) or pointed to with `
 | `itemdroptable.txt` | Each monster's own items: count, rate out of 100,000 | `monster_drop` |
 | `groupdroprate.txt` | Drop groups: rate, `DropMeditation` sensitivity, level bonus | `drop_group` |
 | `droprankrate.txt` | Item ranks given by the monster's drop rank | `drop_rank_rate` |
+| `aidatatable.txt` | Monster AI: skills cast (TID;level), HP condition, number of casts, normal hits | `monster_ai` |
 
 ```bash
 archcore db-init

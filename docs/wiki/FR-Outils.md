@@ -12,7 +12,7 @@ dossier désigné par `ARCHCORE_CONF_DIR` (voir [[Configuration|FR-Configuration
 | `archcore decrypt [source] [destination]` | Déchiffre `Game/ini` (RC4, MD5(« 1111 »)) vers `data/client-ini` |
 | `archcore import [dossier] [--server dossier]` | Importe `data/client-ini` dans `archcore_world` (CP949 → UTF-8) et la hauteur du sol depuis `world/b*x.ma2` du dossier Game (`map_height`, quelques minutes) ; avec les tables du serveur d'origine (`--server`, ou `data/server-ini` s'il existe), importe aussi les apparitions de monstres et la carte serveur ; applique enfin la couche de contenu `content/*.sql` et note chaque source dans `import_run` |
 | `archcore content` | Réapplique la couche de contenu `content/*.sql` à la base monde, sans réimporter (voir [[Base de données\|FR-Base-de-donnees]]) |
-| `archcore sim client\|move\|shop\|addon\|lang\|combat\|equip\|potion\|scroll\|patrol\|bag\|skill\|effects\|bank\|portal\|guild\|gm\|trade\|quest …` | Clients simulés (voir plus bas) |
+| `archcore sim client\|move\|shop\|addon\|lang\|combat\|equip\|potion\|scroll\|patrol\|bag\|skill\|effects\|bank\|portal\|guild\|gm\|trade\|quest\|mobskill\|counter\|partyskill\|mastery …` | Clients simulés (voir plus bas) |
 | `archcore i18n strings [Game]` | Liste les textes encore en anglais dans `data/i18n/pending-en.json` |
 | `archcore i18n coverage [Game]` | Mesure la part déjà traduite de `ini_fr` |
 | `archcore i18n apply [--ascii] [--dry]` | Applique la mémoire de traduction au client (voir [[Traduction|FR-Traduction]]) |
@@ -199,6 +199,23 @@ des Vers verts, avec `/recast` et `/level` entre deux essais, jusqu'à un étour
 chances, 25 essais au plus) : le ver passe à l'état 0x1 (AGPMCHARACTER op 1, champ 17), puis revient à 0
 au bout de 3 s.
 
+```bash
+ARCHCORE_CONF_DIR=config/test archcore sim mastery [compte] [mdp] [personnage]
+ARCHCORE_CONF_DIR=config/test archcore sim partyskill [compteA mdpA persoA compteB mdpB persoB]
+ARCHCORE_CONF_DIR=config/test archcore sim counter [compte] [mdp] [personnage]
+ARCHCORE_CONF_DIR=config/test archcore sim mobskill [compte] [mdp] [personnage]
+```
+
+`sim mastery` (GmTest, niveau 60) oublie en base Capacitate et Marching Song, se voit refuser Capacitate chez
+Black (« il faut Marching Song au niveau 4 »), apprend Marching Song, l'améliore trois fois, puis apprend
+Capacitate. `sim partyskill` (GmTest, qui reçoit Marching Song en base, et SimA) forme un groupe : Marching
+Song renforce SimA à côté de GmTest (AGPMSKILL op 4 sur SimA), pas quand SimA est à 3000 unités. `sim counter`
+pose en base Counter Attack niveau 10 sur GmTest (compétence de berserker, retirée à la fin), le passe au
+niveau 1, provoque un Ver vert et attend un coup renvoyé (attaquant = joueur, résultat 12), `/level 1` rendant
+les PV au besoin. `sim mobskill` (GmTest, niveau 40) rejoint Midas, le frappe une fois et attend qu'il lance
+Insanity (op 0 et op 7 du monstre, op 8 sur le joueur avec des dégâts physiques et d'eau), puis la relance
+6 s plus tard.
+
 ## Test des extensions ArchRust
 
 ```bash
@@ -255,6 +272,7 @@ serveur d'origine d'ArchLord, à placer dans `data/server-ini` (jamais versionn�
 | `itemdroptable.txt` | Objets propres à chaque monstre : quantité, taux sur 100 000 | `monster_drop` |
 | `groupdroprate.txt` | Groupes de butin : taux, sensibilité à `DropMeditation`, bonus par niveau | `drop_group` |
 | `droprankrate.txt` | Rangs d'objets donnés selon le rang de butin du monstre | `drop_rank_rate` |
+| `aidatatable.txt` | IA des monstres : compétences lancées (TID;niveau), condition sur les PV, nombre de lancements, coups normaux | `monster_ai` |
 
 ```bash
 archcore db-init

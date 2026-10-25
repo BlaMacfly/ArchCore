@@ -9,6 +9,9 @@
 //! Apparition côté client : la même vue optimisée (0x42, op 1) que les PNJ, sans fonctions d'événement, mais
 //! avec les facteurs du monstre (niveau, vitesses, PV) tirés de CharacterDataTable.txt : sans eux le client
 //! le croit à 0 PV.
+//!
+//! IA : chaque point d'apparition désigne une IA (`ai_tid`, table `monster_ai`) qui donne les compétences du
+//! monstre (`monster_skills.rs`).
 
 use super::npcs::Translator;
 use crate::character::{factors_mini, Factors};
@@ -68,6 +71,9 @@ pub struct MonsterStats {
     /// Rang de butin (« DropRank ») et multiplicateur des groupes sensibles (« DropMeditation »).
     pub drop_rank: i32,
     pub drop_meditation: f64,
+    /// Dégâts élémentaires (min, max), dans l'ordre des éléments des compétences : magie, eau, feu, terre, air,
+    /// poison, foudre, glace.
+    pub spirit: [(i32, i32); 8],
 }
 
 impl MonsterStats {
@@ -104,6 +110,7 @@ impl MonsterStats {
                 Some(serde_json::Value::String(t)) => t.trim().parse().unwrap_or(1.0),
                 _ => 1.0,
             },
+            spirit: ["Magic", "Water", "Fire", "Earth", "Air", "Poison", "Thunder", "Ice"].map(|e| (n(&format!("{e} Min_Damage")), n(&format!("{e} Max_Damage")))),
         }
     }
 
@@ -176,6 +183,8 @@ pub struct Monster {
     /// Rayon de promenade autour du point d'apparition, et prochaine promenade.
     pub roam: f64,
     pub patrol_at: Instant,
+    /// IA du point d'apparition (0 : aucune).
+    pub ai_tid: u32,
 }
 
 impl Monster {
@@ -202,6 +211,7 @@ pub struct SpawnPoint {
     pub max_hp: i32,
     pub respawn_sec: i64,
     pub respawn_max_sec: i64,
+    pub ai_tid: u32,
 }
 
 /// Marche d'un monstre : destination, vitesse (dixièmes d'unité par seconde), instant du dernier pas.
@@ -232,6 +242,10 @@ pub struct MonsterRegistry {
     pub walking: HashMap<u32, Walk>,
     /// Monstres posés sur le sol (point d'apparition sans hauteur) : leur hauteur suit le terrain.
     pub grounded: std::collections::HashSet<u32>,
+    /// IA par TID (`monster_ai`), état de leurs compétences pendant la vie de chaque monstre, incantations.
+    pub ai: HashMap<u32, super::monster_skills::MonsterAi>,
+    pub skill_state: HashMap<u32, super::monster_skills::SkillState>,
+    pub casts: HashMap<u32, super::monster_skills::MonsterCast>,
     by_cid: HashMap<u32, usize>,
     grid: HashMap<(i64, i64), Vec<usize>>,
 }
@@ -291,6 +305,7 @@ pub fn spawn_point(p: &SpawnPoint, first_cid: u32, blocked: &dyn Fn(f64, f64) ->
                 scan_at: now,
                 roam: r,
                 patrol_at: now + std::time::Duration::from_millis(rng.gen_range(0..45_000)),
+                ai_tid: p.ai_tid,
             }
         })
         .collect()
@@ -303,7 +318,7 @@ impl MonsterRegistry {
         // pas eu les tables du serveur.
         let rows = match db
             .world
-            .rows("SELECT id, tid, display_name, level, count, respawn_sec, respawn_max_sec, pos_x, pos_y, pos_z, degree_x, radius FROM monster_spawn WHERE count > 0 ORDER BY id", ())
+            .rows("SELECT id, tid, display_name, level, count, respawn_sec, respawn_max_sec, ai_tid, pos_x, pos_y, pos_z, degree_x, radius FROM monster_spawn WHERE count > 0 ORDER BY id", ())
             .await
         {
             Ok(rows) => rows,
@@ -339,11 +354,24 @@ impl MonsterRegistry {
                 max_hp: stats.get(&col::<u32>(r, "tid")).map(|s| s.max_hp.max(1)).unwrap_or(1),
                 respawn_sec: col(r, "respawn_sec"),
                 respawn_max_sec: col(r, "respawn_max_sec"),
+                ai_tid: col::<i64>(r, "ai_tid").max(0) as u32,
             })
             .collect();
         let without = points.iter().filter(|p| !stats.contains_key(&p.tid)).count();
         let mut reg = Self::from_points(&points, &|x, z| map.is_blocked(x, z));
         reg.stats = stats;
+        // IA des points (aidatatable.txt) ; la table manque tant que `archcore import --server` ne l'a pas remplie.
+        match db.world.rows("SELECT tid, data FROM monster_ai", ()).await {
+            Ok(rows) => {
+                for r in &rows {
+                    let data = serde_json::from_str::<serde_json::Value>(&col::<String>(r, "data")).unwrap_or_default();
+                    reg.ai.insert(col(r, "tid"), super::monster_skills::MonsterAi::from_data(&data));
+                }
+            }
+            Err(e) => crate::warn!("IA des monstres non chargée ({e:#}) : lancer `archcore db-init` puis `archcore import --server …`"),
+        }
+        let skilled = reg.monsters.iter().filter(|m| reg.ai.get(&m.ai_tid).is_some_and(|a| !a.skills.is_empty())).count();
+        info!("IA des monstres : {} ; {skilled} monstre(s) avec des compétences", reg.ai.len());
         // Points sans hauteur (la plupart) : chaque monstre est posé sur le sol du client.
         let flat: std::collections::HashSet<u32> = points.iter().filter(|p| p.pos.y == 0.0).map(|p| p.id).collect();
         for m in reg.monsters.iter_mut().filter(|m| flat.contains(&m.spawn_id)) {
@@ -395,6 +423,11 @@ impl MonsterRegistry {
             self.grid.entry(to).or_default().push(i);
         }
         self.monsters[i].pos = pos;
+    }
+
+    /// IA d'un monstre, si son point en a une.
+    pub fn ai_of(&self, cid: u32) -> Option<&super::monster_skills::MonsterAi> {
+        self.get(cid).and_then(|m| self.ai.get(&m.ai_tid))
     }
 
     /// Somme des modificateurs des effets portés par un monstre.
@@ -470,7 +503,7 @@ mod tests {
     use archcore_net::{decode_mini, decode_packet};
 
     fn point(id: u32, x: f32, z: f32, count: i64, radius: f64) -> SpawnPoint {
-        SpawnPoint { id, tid: 450, name: "Ver vert".into(), level: 1, count, pos: Vec3::new(x, 0.0, z), degree_x: 0.0, radius, max_hp: 136, respawn_sec: 8, respawn_max_sec: 0 }
+        SpawnPoint { id, tid: 450, name: "Ver vert".into(), level: 1, count, pos: Vec3::new(x, 0.0, z), degree_x: 0.0, radius, max_hp: 136, respawn_sec: 8, respawn_max_sec: 0, ai_tid: 4500 }
     }
 
     #[test]

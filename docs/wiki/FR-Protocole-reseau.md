@@ -368,7 +368,10 @@ doublés. Une cible de niveau supérieur retire 5 % par niveau d'écart (80 % au
 que la part physique ; chaque part fait au moins 1.
 
 **Cibles et zones.** Une compétence vise des ennemis si le chiffre des unités de son champ `target` vaut
-1 ; sinon elle s'applique à son lanceur (pas encore de groupes). Le champ `range` donne la zone : au-delà
+1 ; sinon elle s'applique à son lanceur. Une compétence de groupe (champ `range` 303 : sphère autour du lanceur,
+réservée aux membres de son groupe ; Marching Song, Combat Echo, Battle Cry…) touche aussi les membres de son
+groupe vivants et en jeu à moins de `area_r` du lanceur (700 unités pour Marching Song) : même soin, même
+effet, annoncé par AGPMSKILL op 4 sur chacun. Le champ `range` donne la zone : au-delà
 de 1000, elle est centrée sur la cible, sinon sur le lanceur ; centaines 3 : sphère de rayon `area_r`
 (mètres), 4 : boîte du lanceur vers la cible (`area_f1` de long, `area_f2` de large ; 600 × 300 par
 défaut). Les monstres de la zone sont touchés comme la cible, les plus proches d'abord
@@ -416,9 +419,42 @@ joueur esquive (résultat 7). `convert_type` 1 ou 2 change un coup reçu en PV o
 `skill_rate`, sinon `special_status_rate` ; part `damage_convert_hp` ou `damage_convert_mp` des
 dégâts) : résultat 1, puis les facteurs du joueur (op 1, champ 7).
 
-Restent à faire : renvoi de dégâts à l'attaquant, défense ignorée (bits 4 et 8 de
-`reflect_melee_attack`), critiques des compétences, purges et compétences de groupe ; les monstres ne
-lancent pas encore de compétences.
+**Renvoi des dégâts (contre-attaque).** `defense_melee_attack` 2 (Counter Attack, passive des berserkers :
+2 % au niveau 1, 11 % au niveau 10) renvoie à son auteur, avec la chance `skill_rate`, les dégâts d'un coup
+de monstre qui touche ou qui est bloqué : AGPMOPTIMIZEDCHARACTION avec le joueur pour attaquant, le monstre
+pour cible, le résultat **12** (contre-attaque ; valeur de l'énumération des résultats, à confirmer dans `Archonia.exe`) et les facteurs du monstre (PV restants, dégâts en négatif) ;
+le monstre peut en mourir, l'expérience revient alors au joueur. Le bit 1 de `reflect_melee_attack` (renvoi
+des dégâts reçus) n'est porté par aucune compétence des données d'Archonia.
+
+**Maîtrises.** `SkillMastery_High.txt` (compétences supérieures) et `SkillMastery_Heroic.txt` (compétences
+héroïques) rangent les compétences en arbres, par modèle de classe (96 guerrier humain… 1722 slayer, d'après
+`SkillMasteryEvolution.txt`). Chaque compétence d'un arbre exige jusqu'à trois autres compétences à un niveau
+donné (colonnes ConditionA à C, « TID;points », le client affiche « %s Skill %d Points Requirement ») et un
+total de points dépensés (ConditionD : points de compétence dans l'arbre supérieur, « All Skills %d Points
+Requirement », points héroïques dans l'arbre héroïque, « Total Heroic Skill Points Required ») ; les points
+d'une compétence sont son niveau. Faute de quoi l'apprentissage est refusé : message système puis
+AGPMEVENTSKILLMASTER op 6, résultat 1. Capacitate (525) exige ainsi Marching Song (526) au niveau 4.
+
+**Compétences des monstres.** Chaque point d'apparition désigne une IA (`MobAITID` de
+`spawndatatable.txt`, table `monster_ai` tirée d'`aidatatable.txt` des tables du serveur d'origine) : jusqu'à
+cinq compétences « SkillN » (TID;niveau), chacune avec une condition sur les PV (« HP;100%;이하 » : au plus
+100 % du maximum) et un nombre de lancements (« 무한 » sans limite, « 횟수;1 » une fois par vie) ;
+« UseNormalAttack » 0 interdit les coups normaux. Une compétence offensive prête (relance écoulée, condition
+remplie, cible à sa portée : `range`, rayon d'une zone autour du monstre, sinon portée du monstre) part à la
+place d'un coup normal, ou de la poursuite quand la cible est déjà à sa portée : AGPMSKILL **op 0** (la
+compétence, propriétaire = monstre, pour que le client la connaisse ; à confirmer dans `Archonia.exe`) puis **op 7** (lancement) aux joueurs qui voient le monstre ; au bout de
+l'incantation, **op 8** (cible = joueur, PV restants, dégâts en négatif) aux joueurs qui voient la cible. Les
+dégâts suivent la formule des compétences des joueurs, à partir des dégâts physiques et élémentaires du
+monstre (`CharacterDataTable.txt`) ; une zone touche les joueurs voisins ; effet durable, dégâts sur la durée
+(AGPMCHARACTER op 1 à chaque coup) et états spéciaux prennent sur chaque cible. Un monstre étourdi, gelé ou
+endormi perd son incantation ; une cible partie à plus de 5000 unités (limite de la poursuite) y échappe. Une compétence sans SKILL_SPEC, sans incantation ni relance, qui affaiblit
+(`buff_type` 1 : « <MOB>Water Elemental Skill »…) accompagne les coups normaux qui touchent, avec la chance
+`skill_rate`. Les tables ne disent pas à quel rythme le serveur d'origine lançait ces compétences : ArchCore
+lance chacune dès qu'elle est prête. Midas (TID 40, IA 403) lance ainsi Insanity (181) toutes les 6 s.
+
+Restent à faire : défense ignorée (bits 4 et 8 de `reflect_melee_attack`), critiques des compétences,
+purges, partage des dégâts (`divide` : Divine Protection, Martyr's Mark) ; gain des points héroïques et de
+charisme, que les compétences héroïques exigent aussi.
 
 ## Portails de téléportation (type 0x31, AgpmEventTeleport)
 

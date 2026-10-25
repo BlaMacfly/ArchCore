@@ -45,6 +45,7 @@ Remplie par `archcore import` à partir des tables du client.
 | `quest_template` | `questtemplate.ini` | Quêtes (colonnes non vides, en JSON) |
 | `quest_group` | `questgroup.ini` | Groupes de PNJ : quêtes proposées et rendues |
 | `skill_level` | `SKILL_CONST.txt` | Valeurs de chaque niveau de chaque compétence (colonnes non vides, en JSON ; groupes `point.`, `percent.`, `magnify.`) |
+| `skill_mastery` | `SkillMastery_High.txt`, `SkillMastery_Heroic.txt` | Arbres de maîtrise : classe (TID du modèle), compétence, arbre (1 supérieur, 2 héroïque), compétences exigées `[[TID, points]…]`, total de points dépensés |
 | `npc_spawn` | `npc.ini` | 567 PNJ : modèle, nom, position, orientation, fonctions brutes |
 | `client_table` | autres tables `.txt` | Lignes en JSON, pour les tables pas encore modélisées |
 | `monster_spawn` | tables du serveur d'origine (`spawndatatable.txt` + `spawninstancetable.txt`) | 12 802 points d'apparition, 36 960 créatures : modèle, niveau (celui du client), nombre, réapparition (plage `respawn_sec`–`respawn_max_sec` pour les boss de `UIBoss.xml`), position, rayon, nom public (`CharacterTemplatePublic.ini`) |
@@ -53,6 +54,7 @@ Remplie par `archcore import` à partir des tables du client.
 | `monster_drop` | `itemdroptable.txt` du serveur d'origine | 4 653 objets propres à 550 monstres : quantité, taux sur 100 000 |
 | `drop_group` | `groupdroprate.txt` du serveur d'origine | 28 groupes de butin ; les objets de chaque groupe viennent d'`item_data` (GroupID, DropRank, DropRate) |
 | `drop_rank_rate` | `droprankrate.txt` du serveur d'origine | Rangs d'objets (pour cent) selon le rang de butin du monstre |
+| `monster_ai` | `aidatatable.txt` du serveur d'origine | 7 674 IA (3 289 avec des compétences), désignées par `monster_spawn.ai_tid` : colonnes non vides en JSON, les colonnes répétées numérotées (`Skill1`, `SkillCondition1`, `SkillCount1`…) |
 | `region_template` | `RegionTemplate.ini` | 331 régions : nom, région parente, champ Type, sûreté (33 sûres) |
 | `resurrection_point` | `obj*.ini` (événement 19, type 1) | 62 points de résurrection : région, position, race et classe admises |
 | `teleport_point` | `TeleportPoint.ini` | 301 points de téléportation : rayon d'arrivée, races admises, groupes (arrivée, destinations) |

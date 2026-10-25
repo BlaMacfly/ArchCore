@@ -74,7 +74,7 @@ Contrôle du 25 octobre 2026, données du client Archonia et `Archonia.exe` :
 | 6 | Dragon Scion jouable | 🟡 données et compétences présentes ; création à confirmer en jeu |
 | 7 | Niveau 120, Heaven's Hell | 🟡 barème et monstres chargés ; siège revu à faire |
 | 8 | Shrines et pièces de Shrine | ⏳ à faire |
-| — | Maîtrises, compétences héroïques | ⏳ à faire |
+| — | Maîtrises (arbres des compétences supérieures et héroïques), compétences des monstres et de groupe | 🟡 validées au simulateur ; points héroïques et de charisme à faire |
 
 L'ordre de rattrapage suit la [[feuille de route|FR-Feuille-de-route]] : guildes, puis sièges, puis
 pouvoirs de l'ArchLord et Shrines.

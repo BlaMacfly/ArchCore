@@ -2,7 +2,8 @@
 //! (`data/client-ini`) dans `archcore_world`. Les fichiers sont en CP949 (coréen) ; ils sont convertis en
 //! UTF-8. Avec `--server` (par défaut `data/server-ini` s'il existe), importe aussi, depuis les tables du
 //! serveur d'origine, les apparitions de monstres (`spawndatatable.txt`, `spawninstancetable.txt`), la carte
-//! (`world/node_data`) et le butin (`itemdroptable.txt`, `groupdroprate.txt`, `droprankrate.txt`).
+//! (`world/node_data`), le butin (`itemdroptable.txt`, `groupdroprate.txt`, `droprankrate.txt`) et l'IA des
+//! monstres (`aidatatable.txt` : compétences qu'ils lancent).
 
 use crate::db::Databases;
 use mysql_async::prelude::Queryable;
@@ -265,6 +266,7 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
             import_spawns(&db, &src, &Source(d.clone())).await?;
             import_map(&db, &d).await?;
             import_loot(&db, &Source(d.clone())).await?;
+            import_monster_ai(&db, &Source(d.clone())).await?;
             finish_run(&db, run).await?;
         }
         None => println!("· monster_spawn : pas de tables du serveur (data/server-ini ou --server), ignoré"),
@@ -619,6 +621,56 @@ pub fn parse_guild_max_members(text: &str) -> Vec<(i64, i64, i64, i64)> {
         .collect()
 }
 
+/// aidatatable.txt (tables du serveur) : (TID de l'IA, nom, colonnes non vides). Les colonnes répétées
+/// (SkillCondition, SkillCount après chaque SkillN) prennent le numéro de la compétence qui les précède.
+pub fn parse_monster_ai(text: &str) -> Vec<(u32, String, serde_json::Value)> {
+    let (header, rows) = parse_tsv(text);
+    let mut seen: HashMap<String, u32> = HashMap::new();
+    let header: Vec<String> = header
+        .iter()
+        .map(|h| {
+            let n = seen.entry(h.clone()).or_insert(0);
+            *n += 1;
+            if header.iter().filter(|x| *x == h).count() > 1 { format!("{h}{n}") } else { h.clone() }
+        })
+        .collect();
+    rows.iter()
+        .filter_map(|r| {
+            let tid = r.first().and_then(|t| t.trim().parse::<u32>().ok())?;
+            let o = row_object(&header, r, 1);
+            let name = o.get("NAME").and_then(|n| n.as_str()).unwrap_or("").chars().take(128).collect();
+            Some((tid, name, serde_json::Value::Object(o)))
+        })
+        .collect()
+}
+
+/// SkillMastery_High.txt (arbre 1) ou SkillMastery_Heroic.txt (arbre 2) : une ligne par classe (son TID seul en
+/// colonne 0), puis ses compétences (TID en colonne 1, nom, ConditionA à C « TID;points », ConditionD
+/// « total; »). Rend (classe, compétence, exigences, total).
+pub fn parse_masteries(text: &str) -> Vec<(u32, u32, Vec<(u32, u32)>, i64)> {
+    let (_, rows) = parse_tsv(text);
+    let mut class = None;
+    let mut out = Vec::new();
+    for r in &rows {
+        let cell = |i: usize| r.get(i).map(|s| s.trim()).unwrap_or("");
+        if !cell(0).is_empty() {
+            // Une valeur qui n'est pas un TID (« 10004;4 ») ne commence pas de classe.
+            class = cell(0).parse::<u32>().ok();
+            continue;
+        }
+        let (Some(class), Ok(skill)) = (class, cell(1).parse::<u32>()) else { continue };
+        let requires = (3..=5)
+            .filter_map(|i| {
+                let mut p = cell(i).split(';');
+                Some((p.next()?.trim().parse().ok()?, p.next()?.trim().parse().ok()?))
+            })
+            .collect();
+        let total = cell(6).split(';').next().and_then(|t| t.trim().parse().ok()).unwrap_or(0);
+        out.push((class, skill, requires, total));
+    }
+    out
+}
+
 async fn import_loot(db: &Databases, server: &Source) -> anyhow::Result<()> {
     if server.exists("itemdroptable.txt") {
         let rows = parse_monster_drops(&server.read("itemdroptable.txt")?);
@@ -662,6 +714,19 @@ async fn import_loot(db: &Databases, server: &Source) -> anyhow::Result<()> {
         let n = replace(db, "drop_rank_rate", "INSERT INTO drop_rank_rate (monster_rank,rates) VALUES (?,?)", out).await?;
         println!("✓ drop_rank_rate : {n}");
     }
+    Ok(())
+}
+
+async fn import_monster_ai(db: &Databases, server: &Source) -> anyhow::Result<()> {
+    if !server.exists("aidatatable.txt") {
+        println!("· monster_ai : pas d'aidatatable.txt dans les tables du serveur, ignoré");
+        return Ok(());
+    }
+    let rows = parse_monster_ai(&server.read("aidatatable.txt")?);
+    let skilled = rows.iter().filter(|(_, _, d)| d.get("Skill1").is_some()).count();
+    let out: Vec<Vec<Value>> = rows.into_iter().map(|(tid, name, data)| vec![v(tid), v(name), v(data.to_string())]).collect();
+    let n = replace(db, "monster_ai", "INSERT IGNORE INTO monster_ai (tid,name,data) VALUES (?,?,?)", out).await?;
+    println!("✓ monster_ai : {n} ({skilled} avec des compétences)");
     Ok(())
 }
 
@@ -853,6 +918,21 @@ async fn import_all(db: &Databases, src: &Source) -> anyhow::Result<()> {
         let out: Vec<Vec<Value>> = levels.into_iter().map(|(tid, level, consts)| vec![v(tid), v(level), v(consts.to_string())]).collect();
         let n = replace(db, "skill_level", "INSERT INTO skill_level (tid,level,consts) VALUES (?,?,?)", out).await?;
         println!("✓ skill_level : {n} ({missing_const} nom(s) sans modèle)");
+    }
+
+    // ---------------------------------------------------------------- SkillMastery_High.txt, SkillMastery_Heroic.txt
+    if src.exists("SkillMastery_High.txt") || src.exists("SkillMastery_Heroic.txt") {
+        let mut out: Vec<Vec<Value>> = Vec::new();
+        for (tree, file) in [(1, "SkillMastery_High.txt"), (2, "SkillMastery_Heroic.txt")] {
+            if !src.exists(file) {
+                continue;
+            }
+            for (class, skill, requires, total) in parse_masteries(&src.read(file)?) {
+                out.push(vec![v(class), v(skill), v(tree), v(json!(requires).to_string()), v(total)]);
+            }
+        }
+        let n = replace(db, "skill_mastery", "INSERT IGNORE INTO skill_mastery (class_tid,skill_tid,tree,requires,total_points) VALUES (?,?,?,?,?)", out).await?;
+        println!("✓ skill_mastery : {n}");
     }
 
     // ---------------------------------------------------------------- questtemplate.ini (tabulé)
@@ -1095,6 +1175,28 @@ mod tests {
         assert_eq!(fees, vec![("A".to_string(), "B".to_string(), 700)]);
         assert_eq!(parse_bank_slot_prices("Slot\tPrice\t\r\n1\t1000000\t# commentaire\r\n2\t-1\t\r\n"), vec![(1, 1_000_000), (2, -1)]);
         assert_eq!(parse_guild_max_members("\tOr\tCrâne\tID\tNombre\r\n50\t10000\t\t\t\r\n60\t1000000\tX\t7\t2\r\n"), vec![(50, 10_000, 0, 0), (60, 1_000_000, 7, 2)]);
+    }
+
+    #[test]
+    fn ia_des_monstres_et_maitrises() {
+        let ai = "TID\tNAME\tUseNormalAttack\tSkill1\tSkillCondition\tSkillCount\tSkill2\tSkillCondition\tSkillCount\tGuard\r\n\
+                  2750\tChef\t1\t179;1\tHP;100%;이하\t무한;\t195;1\tHP;50%;이하\t횟수;1\t\r\n\
+                  100000\tGarde\t0\t\t\t\t\t\t\t고정\r\n";
+        let rows = parse_monster_ai(ai);
+        assert_eq!(rows.len(), 2);
+        let (tid, name, d) = &rows[0];
+        assert_eq!((*tid, name.as_str()), (2750, "Chef"));
+        assert_eq!((d["Skill1"].as_str(), d["SkillCondition2"].as_str(), d["SkillCount2"].as_str()), (Some("179;1"), Some("HP;50%;이하"), Some("횟수;1")));
+        assert!(d.get("SkillCondition").is_none(), "colonnes répétées numérotées");
+        assert_eq!(rows[1].2["UseNormalAttack"].as_str(), Some("0"));
+        let high = "Class TID\tSkill TID\tSkill Name\tConditionA\tConditionB\tConditionC\tConditionD\r\n\
+                    96\t\t\t\t\t\t\r\n\
+                    \t526\tChant\t\t\t\t\r\n\
+                    \t558\tBouclier\t525;2\t527;2\t\t\r\n\
+                    10004;4\t\t\t\t\t\t\r\n\
+                    1722\t\t\t\t\t\t\r\n\
+                    \t1237\tCourage\t1189;1\t1236;3\t\t30;\r\n";
+        assert_eq!(parse_masteries(high), vec![(96, 526, vec![], 0), (96, 558, vec![(525, 2), (527, 2)], 0), (1722, 1237, vec![(1189, 1), (1236, 3)], 30)]);
     }
 
     #[test]

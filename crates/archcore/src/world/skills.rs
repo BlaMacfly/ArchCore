@@ -22,8 +22,11 @@
 //! sphère autour de la cible ou du lanceur, rayon `area_r` ; boîte vers la cible, `area_f1` × `area_f2`),
 //! sur les monstres voisins ; effets durables, dégâts sur la durée et soins (`effects.rs`) ; passives,
 //! appliquées tant que la compétence est connue ; états spéciaux (étourdissement, sommeil…), posés sur la
-//! cible selon leur chance, et effets de combat (critiques, blocage, dégâts changés en PV ou PM). Les
-//! compétences amies ne visent que leur lanceur (pas de groupes).
+//! cible selon leur chance, et effets de combat (critiques, blocage, dégâts changés en PV ou PM, contre-attaque).
+//! Les compétences amies visent leur lanceur ; celles de groupe (zone 303 de SKILL_SPEC), aussi les membres de
+//! son groupe dans leur rayon `area_r`. Maîtrises : une compétence des arbres supérieur et héroïque
+//! (SkillMastery_High.txt, SkillMastery_Heroic.txt) ne s'apprend qu'avec les compétences qu'elle exige à leur
+//! niveau et assez de points dépensés en tout.
 
 use super::combat::{self, Attacker, Defender};
 use super::effects::{self, DotSpec, Effect, Heal, Mods};
@@ -136,6 +139,8 @@ pub struct SkillLevel {
     pub classes: u16,
     pub require_level: i32,
     pub require_point: i32,
+    /// Points héroïques exigés (compétences héroïques).
+    pub require_heroic: i32,
     pub learn_cost: i64,
     pub upgrade_cost: i64,
     pub cost_hp: i32,
@@ -162,6 +167,10 @@ pub struct SkillLevel {
     pub status: u64,
     pub status_rate: f64,
     pub status_ms: u64,
+    /// Chance de la compétence (`skill_rate`) et affaiblissement (`buff_type` 1) : servent aux compétences des
+    /// monstres sans SKILL_SPEC, posées sur la cible d'un coup.
+    pub rate: f64,
+    pub debuff: bool,
 }
 
 /// Champs de SKILL_SPEC qui règlent les valeurs d'un niveau.
@@ -170,6 +179,8 @@ pub struct Spec {
     pub melee_attack: i64,
     pub reflect_melee_attack: i64,
     pub convert_type: i64,
+    /// defense_melee_attack (2 : contre-attaque).
+    pub defense_melee_attack: i64,
     pub status: u64,
     pub offensive: bool,
 }
@@ -196,6 +207,7 @@ impl SkillLevel {
             classes,
             require_level: num("require_level") as i32,
             require_point: num("require_point") as i32,
+            require_heroic: num("require_heroic_point") as i32,
             learn_cost: num("skill_cost") as i64,
             upgrade_cost: num("skill_upgrade_cost") as i64,
             cost_hp: num("cost_hp") as i32,
@@ -217,6 +229,8 @@ impl SkillLevel {
             status: sp.status,
             status_rate: if sp.offensive { num("skill_rate") } else { 0.0 },
             status_ms: if sp.status & effects::status::STUN != 0 && num("stun_time") > 0.0 { num("stun_time") } else { num("duration").max(0.0) } as u64,
+            rate: num("skill_rate"),
+            debuff: num("buff_type") == 1.0,
         }
     }
 
@@ -255,6 +269,9 @@ fn combat_mods(c: &serde_json::Value, sp: &Spec) -> Mods {
     }
     if sp.status & effects::status::STUN_PROTECT != 0 {
         m.stun_protect += rate;
+    }
+    if sp.defense_melee_attack == 2 {
+        m.counter += rate;
     }
     m
 }
@@ -361,11 +378,29 @@ impl SkillTemplate {
     pub fn can_upgrade(&self) -> bool {
         matches!(self.upgradable, 1 | 3)
     }
+    /// Compétence de groupe : amie, en sphère autour du lanceur réservée aux membres de son groupe (zone 303).
+    pub fn party(&self) -> bool {
+        !self.offensive() && self.range_code % 1000 == 303
+    }
+}
+
+/// Place d'une compétence dans un arbre de maîtrise (SkillMastery_High.txt, SkillMastery_Heroic.txt).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Mastery {
+    /// Classe de l'arbre (indice de `CLASS_COLUMNS`), `None` si son modèle est inconnu.
+    pub class: Option<usize>,
+    pub heroic: bool,
+    /// Compétences exigées : (TID, points), les points d'une compétence étant son niveau.
+    pub requires: Vec<(u32, u32)>,
+    /// Points dépensés en tout : points de compétence, ou points héroïques dans l'arbre héroïque.
+    pub total: i32,
 }
 
 #[derive(Default)]
 pub struct SkillCatalog {
     skills: HashMap<u32, SkillTemplate>,
+    /// Arbres de maîtrise, par TID de compétence (une compétence peut figurer dans l'arbre de plusieurs classes).
+    masteries: HashMap<u32, Vec<Mastery>>,
 }
 
 impl SkillCatalog {
@@ -387,6 +422,7 @@ impl SkillCatalog {
                     melee_attack: int("melee_attack"),
                     reflect_melee_attack: int("reflect_melee_attack"),
                     convert_type: int("convert_type"),
+                    defense_melee_attack: int("defense_melee_attack"),
                     status: effects::parse_status(raw_status),
                     offensive: int("target") % 10 == 1,
                 },
@@ -416,12 +452,38 @@ impl SkillCatalog {
             }
         }
         let damage = skills.values().filter(|s| s.instant_damage()).count();
-        info!("compétences : {} ({damage} à dégâts immédiats)", skills.len());
-        Ok(SkillCatalog { skills })
+        // Maîtrises : la classe de l'arbre vient de la race et de la classe de son modèle (CharacterDataTable).
+        let mut masteries: HashMap<u32, Vec<Mastery>> = HashMap::new();
+        let sql = "SELECT m.skill_tid, m.tree, m.requires, m.total_points, JSON_VALUE(d.data, '$.Race') AS race, JSON_VALUE(d.data, '$.Class') AS class \
+                   FROM skill_mastery m LEFT JOIN character_data_table d ON d.tid = m.class_tid";
+        match db.world.rows(sql, ()).await {
+            Ok(rows) => {
+                for r in &rows {
+                    let int = |k: &str| col::<Option<String>>(r, k).and_then(|v| v.trim().parse::<i32>().ok()).unwrap_or(0);
+                    let requires: Vec<(u32, u32)> = serde_json::from_str(&col::<String>(r, "requires")).unwrap_or_default();
+                    let m = Mastery { class: class_column(int("race"), int("class")), heroic: col::<i32>(r, "tree") == 2, requires, total: col(r, "total_points") };
+                    masteries.entry(col(r, "skill_tid")).or_default().push(m);
+                }
+            }
+            Err(_) => warn!("maîtrises non chargées : lancer `archcore db-init` puis `archcore import`"),
+        }
+        info!("compétences : {} ({damage} à dégâts immédiats), {} dans les arbres de maîtrise", skills.len(), masteries.len());
+        Ok(SkillCatalog { skills, masteries })
     }
 
     pub fn get(&self, tid: u32) -> Option<&SkillTemplate> {
         self.skills.get(&tid)
+    }
+
+    /// Place de la compétence dans l'arbre de la classe `class_col` (ou dans le seul arbre qui la porte).
+    pub fn mastery(&self, tid: u32, class_col: Option<usize>) -> Option<&Mastery> {
+        let list = self.masteries.get(&tid)?;
+        list.iter().find(|m| m.class.is_some() && m.class == class_col).or_else(|| (list.len() == 1).then(|| &list[0]))
+    }
+
+    #[cfg(test)]
+    pub fn insert_mastery(&mut self, tid: u32, m: Mastery) {
+        self.masteries.entry(tid).or_default().push(m);
     }
 
     #[cfg(test)]
@@ -483,6 +545,26 @@ impl PlayerSkills {
             .filter_map(|s| catalog.get(s.tid).map(|t| (1..=s.level).filter_map(|n| t.level(n)).map(|l| l.require_point).sum::<i32>()))
             .sum()
     }
+
+    /// Points héroïques dépensés, de la même façon.
+    pub fn spent_heroic(&self, catalog: &SkillCatalog) -> i32 {
+        self.list
+            .iter()
+            .filter_map(|s| catalog.get(s.tid).map(|t| (1..=s.level).filter_map(|n| t.level(n)).map(|l| l.require_heroic).sum::<i32>()))
+            .sum()
+    }
+}
+
+/// Ce qui manque pour apprendre une compétence de son arbre de maîtrise, sinon `None`.
+pub fn mastery_unmet(catalog: &SkillCatalog, skills: &PlayerSkills, m: &Mastery) -> Option<String> {
+    for &(tid, points) in &m.requires {
+        if skills.by_tid(tid).is_none_or(|s| s.level < points) {
+            let name = catalog.get(tid).map(|t| t.name.clone()).unwrap_or_else(|| format!("la compétence {tid}"));
+            return Some(format!("il faut {name} au niveau {points}"));
+        }
+    }
+    let (spent, what) = if m.heroic { (skills.spent_heroic(catalog), "points héroïques") } else { (skills.spent(catalog), "points de compétence") };
+    (spent < m.total).then(|| format!("il faut {} {what} dépensés en tout ({spent} pour l'instant)", m.total))
 }
 
 /// Compétences d'un personnage : « Normal Attack » puis celles de la base.
@@ -782,13 +864,20 @@ async fn complete(ctx: &WorldCtx, st: &mut WorldState, sid: u32, cast: Cast, now
     }
     let (caster_tid, me) = (p.ch.template_id, p.dest.unwrap_or_else(|| p.ch.pos()));
     if !t.offensive() {
-        // Compétence amie : son lanceur (soin, renforcement).
-        if !lv.heal.is_empty() {
-            effects::heal(&mut st.players.get_mut(&sid).unwrap().factors, &lv.heal);
-            super::equipment::refresh_factors(ctx, st, sid);
+        // Compétence amie : son lanceur (soin, renforcement) et, pour une compétence de groupe, les membres de son
+        // groupe dans la zone.
+        let mut friends = vec![sid];
+        if t.party() {
+            friends.extend(party_near(st, sid, me, lv.area_r));
         }
-        if lv.leaves_effect(lv.status) {
-            add_player_effect(ctx, st, sid, new_effect(&owned, lv, caster_tid, lv.status, None, now));
+        for friend in friends {
+            if !lv.heal.is_empty() {
+                effects::heal(&mut st.players.get_mut(&friend).unwrap().factors, &lv.heal);
+                super::equipment::refresh_factors(ctx, st, friend);
+            }
+            if lv.leaves_effect(lv.status) {
+                add_player_effect(ctx, st, friend, new_effect(&owned, lv, caster_tid, lv.status, None, now));
+            }
         }
         return Ok(());
     }
@@ -949,6 +1038,19 @@ pub fn add_player_effect(ctx: &WorldCtx, st: &mut WorldState, sid: u32, e: Effec
     super::equipment::refresh_factors(ctx, st, sid);
 }
 
+/// Sessions des autres membres du groupe de `sid`, en jeu, vivants et à moins de `radius` de `center`.
+pub fn party_near(st: &WorldState, sid: u32, center: Vec3, radius: f64) -> Vec<u32> {
+    let Some(cid) = st.players.get(&sid).map(|p| p.ch.id) else { return Vec::new() };
+    let Some(party) = st.parties.party_of(cid) else { return Vec::new() };
+    party
+        .members
+        .iter()
+        .filter(|m| **m != cid)
+        .filter_map(|m| st.by_cid.get(m).copied())
+        .filter(|s| st.players.get(s).is_some_and(|p| p.in_game && !p.dead && combat::dist2d(p.dest.unwrap_or_else(|| p.ch.pos()), center) <= radius))
+        .collect()
+}
+
 /// Retire les effets non passifs d'un joueur (mort) ; rend vrai s'il en avait.
 pub fn clear_player_effects(st: &mut WorldState, sid: u32) -> bool {
     let Some(p) = st.players.get_mut(&sid) else { return false };
@@ -969,12 +1071,36 @@ async fn effects_step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) -> anyh
             continue;
         }
         let cid = p.ch.id;
+        // Dégâts sur la durée posés par un monstre : coups dus avant l'expiration.
+        let mut ticks: Vec<Vec<(usize, i32)>> = Vec::new();
+        for e in p.skills.effects.iter_mut() {
+            let end = e.ends_at.unwrap_or(now);
+            if let Some(d) = e.dot.as_mut() {
+                while d.next_at <= now && d.next_at <= end {
+                    ticks.push(d.damages.clone());
+                    d.next_at += d.interval;
+                }
+            }
+        }
         let gone = effects::expire(&mut p.skills.effects, now);
         if !gone.is_empty() {
             for e in &gone {
                 combat::send_around(st, sid, &effects::remove_packet(cid, e));
             }
             super::equipment::refresh_factors(ctx, st, sid);
+        }
+        for damages in ticks {
+            let Some(p) = st.players.get_mut(&sid).filter(|p| !p.dead) else { break };
+            let total: i32 = damages.iter().map(|(_, d)| *d).sum();
+            let hp = (p.factors.point[POINT_HP] - total).max(0);
+            p.factors.point[POINT_HP] = hp;
+            super::recovery::in_combat(&mut p.timers, now);
+            let mp = p.factors.point[1];
+            let c = &schema::CHARACTER;
+            combat::send_around(st, sid, &build_packet(c, &Fields::new(c).with(0, 1).with(1, cid).with(7, result_factors(hp, mp, &damages))));
+            if hp == 0 {
+                combat::player_death(st, sid);
+            }
         }
         sync_player_status(st, sid, now);
     }
@@ -1110,6 +1236,11 @@ pub async fn learn(ctx: &WorldCtx, st: &mut WorldState, sid: u32, tid: u32) -> a
         return Ok(learn_result::ALREADY_LEARNED);
     }
     if p.skills.list.len() >= MAX_SKILLS {
+        return Ok(learn_result::FAIL);
+    }
+    if let Some(why) = ctx.skills.mastery(tid, class_col).and_then(|m| mastery_unmet(&ctx.skills, &p.skills, m)) {
+        info!("[maître] {} ne peut pas apprendre {} : {why}", p.ch.name, t.name);
+        send_system(st, sid, &format!("Impossible d'apprendre {} : {why}.", t.name));
         return Ok(learn_result::FAIL);
     }
     if let Some((code, why)) = missing(p, lv, lv.learn_cost) {
@@ -1281,6 +1412,40 @@ mod tests {
         assert_eq!((reflection.mods.to_mp_rate, reflection.mods.to_mp), (14.0, 25.0));
         let protect = SkillLevel::with_spec(&serde_json::json!({ "skill_rate": "100", "duration": "180000" }), &Spec { status: effects::status::STUN_PROTECT, ..Default::default() });
         assert_eq!((protect.mods.stun_protect, protect.status_rate), (100.0, 0.0), "sur soi, l'état prend toujours");
+    }
+
+    #[test]
+    fn contre_attaque_et_groupe() {
+        let counter = SkillLevel::with_spec(&serde_json::json!({ "skill_rate": "11", "duration": "5000" }), &Spec { defense_melee_attack: 2, ..Default::default() });
+        assert_eq!(counter.mods.counter, 11.0, "Counter Attack niveau 10");
+        assert_eq!(SkillLevel::with_spec(&serde_json::json!({ "skill_rate": "11" }), &Spec { defense_melee_attack: 4, ..Default::default() }).mods.counter, 0.0);
+        let marching = SkillTemplate { target: 100, range_code: 303, ..Default::default() };
+        assert!(marching.party() && !marching.needs_target());
+        assert!(!SkillTemplate { target: 100, range_code: 1, ..Default::default() }.party(), "sur soi seul");
+        assert!(!SkillTemplate { target: 1, range_code: 303, ..Default::default() }.party(), "offensive");
+    }
+
+    #[test]
+    fn maitrises() {
+        let mut catalog = SkillCatalog::default();
+        let lv = |point: i32, heroic: i32| SkillLevel { require_point: point, require_heroic: heroic, ..Default::default() };
+        catalog.insert(SkillTemplate { tid: 526, name: "Marching Song".into(), levels: vec![lv(1, 0); 5], ..Default::default() });
+        catalog.insert(SkillTemplate { tid: 1437, name: "Shield of the Front".into(), levels: vec![lv(2, 2); 5], ..Default::default() });
+        let knight = class_column(1, 1);
+        catalog.insert_mastery(525, Mastery { class: knight, heroic: false, requires: vec![(526, 4)], total: 0 });
+        catalog.insert_mastery(1440, Mastery { class: knight, heroic: true, requires: vec![(1437, 3)], total: 19 });
+        let mut skills = PlayerSkills { list: vec![Owned { id: 1, tid: 526, level: 3, ready_at: None }], ..Default::default() };
+        let capacitate = catalog.mastery(525, knight).unwrap();
+        assert_eq!(mastery_unmet(&catalog, &skills, capacitate).as_deref(), Some("il faut Marching Song au niveau 4"));
+        skills.list[0].level = 4;
+        assert_eq!(mastery_unmet(&catalog, &skills, capacitate), None);
+        // Arbre héroïque : Shield of the Front niveau 3 (6 points héroïques) ne suffit pas, il en faut 19 en tout.
+        skills.list.push(Owned { id: 2, tid: 1437, level: 3, ready_at: None });
+        let judgement = catalog.mastery(1440, knight).unwrap();
+        assert_eq!(skills.spent_heroic(&catalog), 6);
+        assert!(mastery_unmet(&catalog, &skills, judgement).is_some_and(|w| w.contains("19 points héroïques")));
+        assert!(catalog.mastery(1440, class_column(2, 1)).is_some(), "seul arbre qui la porte");
+        assert!(catalog.mastery(222, knight).is_none(), "hors des arbres");
     }
 
     #[test]

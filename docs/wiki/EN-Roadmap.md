@@ -32,7 +32,9 @@
   regeneration. Teleport scrolls (town, round trip, destination); monster patrols. Resurrection at the point of
   the last safe region crossed; item stacks split, merged, destroyed. Skills: learning and upgrading at
   trainers, skill points, casting; damage, areas, buffs and debuffs, damage over time, heals, passives;
-  special states (stun, sleep, slow…), critical hits, block, damage turned into HP or MP.
+  special states (stun, sleep, slow…), critical hits, block, damage turned into HP or MP, counter attack (damage sent back to the monster); party skills;
+  masteries (required skills of the high and heroic trees); monster skills (AI from the original server tables:
+  casting, damage, effects, on-hit procs).
   Parties (invitation, members, leader, kick, experience sharing, chat). Guilds (creation at guild managers, invitation, joining, leaving, kicking, disbanding, notice, chat). Account bank (items, money, extra pages) and trading between players. Teleport portals (paid trips between linked points). Quests: taking, progress (monsters, quest
   items), completion and rewards, abandoning. See
   [[Network protocol|EN-Network-protocol]].
@@ -62,7 +64,9 @@
    other). Still to confirm with the Archonia client.
 3. NPC functions: quests with interaction objects. Portals: player-versus-player zones (confirmation, return,
    op 7), refusal in combat or while transformed.
-4. Skills: reflecting damage to the attacker, monster skills, party skills; masteries.
+4. Skills: damage reflection (counter attack), monster skills, party skills and masteries validated with the
+   simulator on 25 October 2026, to be confirmed in game. Still to do: damage sharing (Divine Protection, Martyr's
+   Mark), dispels, ignored defense and earning heroic and charisma points.
 5. Combat: elemental item damage. Items: refining, conversion.
 6. Guilds: guild battles, alliances and hostilities, guild marks, sub-master and handover, enlarging, guild
    list, warehouse. In ArchRust: guild name above heads, whispers.

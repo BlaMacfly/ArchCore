@@ -77,7 +77,11 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         Some("potion") => Box::pin(potion(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("equip") => Box::pin(equip(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("combat") => Box::pin(combat(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "Green Worm"))).await,
-        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol|bag|skill|effects|status|bank|portal|guild|gm|trade|party|quest [arguments]"),
+        Some("mobskill") => Box::pin(monster_skill(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
+        Some("counter") => Box::pin(counter_attack(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
+        Some("partyskill") => Box::pin(party_skill(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
+        Some("mastery") => Box::pin(mastery(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
+        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol|bag|skill|effects|status|bank|portal|guild|gm|trade|party|quest|mobskill|counter|partyskill|mastery [arguments]"),
     }
 }
 
@@ -2172,6 +2176,338 @@ async fn skill(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
     w.world.expect_where(|q| system(q) && q.fields().text(6).is_some_and(|t| t.contains(&format!("niveau {level}"))), 3000, "niveau rétabli").await?;
     println!("  ✓ niveau {level} rétabli ({me:#x})");
     println!("\ncompétences : OK");
+    Ok(())
+}
+
+/// Identifiant en base d'un personnage, par son nom.
+async fn character_id(db: &crate::db::Databases, name: &str) -> anyhow::Result<u32> {
+    let row = db.characters.first("SELECT id FROM characters WHERE name = ?", (name.to_string(),)).await?;
+    row.map(|r| crate::db::col::<u32>(&r, "id")).ok_or_else(|| anyhow::anyhow!("personnage {name} absent de la base"))
+}
+
+/// Va voir Black, maître des compétences des guerriers humains (sud d'Anchorville) ; rend son événement.
+async fn trainer_event(w: &mut InWorld) -> anyhow::Result<Vec<u8>> {
+    const TRAINER: Vec3 = Vec3 { x: -480_700.0, y: 5_070.0, z: -62_100.0 };
+    let (mv, ov) = (&schema::OPT_CHAR_MOVE, &schema::OPT_VIEW);
+    w.world.send(mv, Fields::new(mv).with(0, w.cid).with(1, TRAINER).with(2, TRAINER).with(5, 0x04).with(6, 0)).await?;
+    let mut trainer = w.npcs.iter().find(|n| n.1.ends_with(" Black")).map(|n| n.0);
+    while let Ok(p) = w.world.expect_where(|q| q.is(ov, Some(1)), 1500, "PNJ").await {
+        if let Ok(view) = decode_mini(&mini::OPT_VIEW_CHAR, p.fields().bytes(1).unwrap_or_default()) {
+            if view.text(2).is_some_and(|n| n.ends_with(" Black")) {
+                trainer = view.int(0);
+            }
+        }
+    }
+    let trainer = trainer.ok_or_else(|| anyhow::anyhow!("maître Black introuvable"))?;
+    let eb = &mini::EVENT_BASE;
+    Ok(build_mini(eb, &Fields::new(eb).with(0, 3).with(1, trainer).with(3, 25)))
+}
+
+/// AGPMSKILL op 7 : lancer la compétence `id` sur `target`.
+fn cast_fields(id: i64, target: i64) -> Fields {
+    let (k, sb, sa) = (&schema::SKILL, &mini::SKILL_BASE, &mini::SKILL_ACTION);
+    let act = build_mini(sa, &Fields::new(sa).with(0, 0).with(1, build_mini(sb, &Fields::new(sb).with(0, 3).with(1, target))));
+    Fields::new(k).with(0, 7).with(1, id).with(6, act)
+}
+
+/// Personnage désigné par le mini « base » du champ `field` d'un paquet AGPMSKILL (propriétaire, lanceur).
+fn skill_owner(q: &Recv, field: usize) -> Option<i64> {
+    q.fields().bytes(field).and_then(|b| decode_mini(&mini::SKILL_BASE, b).ok()).and_then(|b| b.int(1))
+}
+
+/// Compétences d'un monstre : Midas (sud-est d'Anchorville) lance Insanity (TID 181, IA 403 d'aidatatable.txt) sur
+/// le joueur qui l'a frappé : AGPMSKILL op 0 et op 7 (lanceur = Midas), puis op 8 (cible = joueur, dégâts).
+async fn monster_skill(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
+    const MIDAS: Vec3 = Vec3 { x: -456_503.0, y: 0.0, z: -100_787.0 };
+    const INSANITY: i64 = 181;
+    let cfg = crate::config::load()?;
+    let (k, ch, act, mv, ov) = (&schema::SKILL, &schema::CHATTING, &schema::OPT_CHAR_ACTION, &schema::OPT_CHAR_MOVE, &schema::OPT_VIEW);
+    step(&format!("{char_name} entre en jeu"));
+    let mut w = enter_world(&cfg, user, pass, char_name, "").await?;
+    let me = w.cid as i64;
+    let say = |cid: u32, text: &str| Fields::new(ch).with(0, 0).with(1, cid).with(2, chat_type::NORMAL).with(6, crate::tools::to_cp1252(text));
+    let system = |q: &Recv| q.ptype == ch.id && q.int(2) == Some(chat_type::SYSTEM);
+    let level = w.level.max(1);
+    w.world.send(ch, say(w.cid, "/invincible 0")).await?;
+    w.world.expect_where(system, 3000, "invincibilité levée").await?;
+    w.world.send(ch, say(w.cid, "/level 40")).await?;
+    w.world.expect_where(system, 3000, "niveau 40").await?;
+
+    step("rejoindre Midas");
+    let spot = Vec3::new(MIDAS.x + 300.0, MIDAS.y, MIDAS.z);
+    w.world.send(ch, say(w.cid, &format!("/move {},{}", spot.x, spot.z))).await?;
+    let deadline = std::time::Instant::now() + Duration::from_secs(90);
+    // Déjà en vue à l'entrée si le personnage était resté près de lui.
+    let seen = w.monsters.iter().find(|m| m.tid == 40 && m.hp > 0).map(|m| m.cid as i64);
+    let midas = if let Some(cid) = seen { cid } else { loop {
+        let wait = deadline.saturating_duration_since(std::time::Instant::now()).as_millis() as u64;
+        anyhow::ensure!(wait > 0, "Midas vivant introuvable (réapparition en cours ?)");
+        let p = w.world.expect_where(|q| q.is(ov, Some(1)), wait, "Midas en vue").await?;
+        if let Ok(view) = decode_mini(&mini::OPT_VIEW_CHAR, p.fields().bytes(1).unwrap_or_default()) {
+            if view.int(1) == Some(40) && view.bytes(5).and_then(factors_hp).unwrap_or(0) > 0 {
+                break view.int(0).unwrap_or(0);
+            }
+        }
+    } };
+    println!("  ✓ Midas en vue ({midas:#x})");
+
+    step("frapper Midas, puis s'arrêter");
+    w.world.send(act, Fields::new(act).with(0, w.cid).with(1, midas).with(6, 1)).await?;
+    w.world.expect_where(|q| q.is(act, None) && q.int(0) == Some(me) && q.int(1) == Some(midas), 15_000, "premier coup").await?;
+    w.world.send(mv, Fields::new(mv).with(0, w.cid).with(1, spot).with(2, spot).with(5, 0x04).with(6, 0)).await?;
+
+    step("Midas lance Insanity");
+    let cast = loop {
+        let q = w.world.expect_where(|q| q.is(k, Some(7)) && skill_owner(q, 2) == Some(midas) || q.is(act, None) && q.int(0) == Some(midas), 30_000, "lancement de Midas").await?;
+        if q.ptype == k.id {
+            break q;
+        }
+        // Coup normal reçu : les PV sont remis au plein au besoin.
+        if q.fields().bytes(3).and_then(factors_hp).is_some_and(|hp| hp < 400) {
+            w.world.send(ch, say(w.cid, "/level 40")).await?;
+        }
+    };
+    let cast_at = std::time::Instant::now();
+    anyhow::ensure!(cast.int(4) == Some(INSANITY), "compétence lancée : TID {:?}", cast.int(4));
+    let id = cast.int(1).unwrap_or(0);
+    let a = decode_mini(&mini::SKILL_ACTION, cast.fields().bytes(6).unwrap_or_default())?;
+    let target = a.bytes(1).and_then(|b| decode_mini(&mini::SKILL_BASE, b).ok()).and_then(|b| b.int(1));
+    anyhow::ensure!(target == Some(me), "cible du lancement {target:?}");
+    println!("  ✓ op 7 : Insanity (identifiant {id}), incantation {} ms, relance {} ms, sur {char_name}", o(a.int(5)), o(a.int(7)));
+    let hit = w.world.expect_where(|q| q.is(k, Some(8)) && q.int(1) == Some(id), 5000, "résultat").await?;
+    let a = decode_mini(&mini::SKILL_ACTION, hit.fields().bytes(6).unwrap_or_default())?;
+    let shown = decode_mini(&mini::CHAR_FACTORS, a.bytes(2).unwrap_or_default()).ok().and_then(|f| f.bytes(0).and_then(|b| decode_mini(&mini::CHAR_FACTORS, b).ok()));
+    let points = shown.and_then(|f| f.bytes(3).and_then(|b| decode_mini(&mini::FACTOR_POINT, b).ok())).ok_or_else(|| anyhow::anyhow!("résultat sans facteurs"))?;
+    let (physical, water) = (-points.int(9).unwrap_or(0), -points.int(11).unwrap_or(0));
+    anyhow::ensure!(physical > 0 && water > 0, "dégâts physiques {physical}, eau {water}");
+    println!("  ✓ op 8 sur {char_name} : {physical} dégât(s) physiques et {water} d'eau, {} PV restants", o(points.int(0)));
+
+    step("relance au bout de 6 s");
+    loop {
+        let q = w.world.expect_where(|q| q.is(k, Some(7)) && q.int(1) == Some(id) || q.is(act, None) && q.int(0) == Some(midas), 20_000, "second lancement").await?;
+        if q.ptype == k.id {
+            break;
+        }
+        if q.fields().bytes(3).and_then(factors_hp).is_some_and(|hp| hp < 400) {
+            w.world.send(ch, say(w.cid, "/level 40")).await?;
+        }
+    }
+    // Relance comptée depuis le début de l'incantation précédente.
+    let s = cast_at.elapsed().as_secs_f64();
+    anyhow::ensure!(s >= 5.5, "relancée au bout de {s:.1} s (relance 6 s)");
+    println!("  ✓ relancée {s:.1} s après le premier lancement");
+
+    // Remise en état : loin de Midas, niveau d'origine.
+    w.world.send(ch, say(w.cid, "/invincible 1")).await?;
+    let home = cfg.world.start_positions.get("1").map(|p| Vec3::new(p.x as f32, p.y as f32, p.z as f32)).unwrap_or(w.start);
+    w.world.send(ch, say(w.cid, &format!("/move {},{}", home.x, home.z))).await?;
+    w.world.send(ch, say(w.cid, "/invincible 0")).await?;
+    w.world.send(ch, say(w.cid, &format!("/level {level}"))).await?;
+    w.world.expect_where(|q| system(q) && q.fields().text(6).is_some_and(|t| t.contains(&format!("niveau {level}"))), 5000, "niveau rétabli").await?;
+    println!("\ncompétences des monstres : OK");
+    Ok(())
+}
+
+/// Contre-attaque (Counter Attack niveau 10 : 11 % de chances) : un Ver vert frappe le joueur, qui lui renvoie les
+/// dégâts du coup (AGPMOPTIMIZEDCHARACTION, attaquant = joueur, résultat 12). La compétence est posée en base pour
+/// l'essai (elle est réservée aux berserkers orcs), puis retirée.
+async fn counter_attack(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
+    const HUNT: Vec3 = Vec3 { x: -466_468.0, y: 4_700.0, z: -50_010.0 };
+    const COUNTER: i64 = 61;
+    const RESULT_COUNTER: i64 = 12;
+    let cfg = crate::config::load()?;
+    let (ch, act, mv, ov) = (&schema::CHATTING, &schema::OPT_CHAR_ACTION, &schema::OPT_CHAR_MOVE, &schema::OPT_VIEW);
+    step("préparation : Counter Attack niveau 10 en base");
+    let db = crate::db::Databases::new(&cfg.database);
+    let id = character_id(&db, char_name).await?;
+    db.characters.exec("INSERT INTO character_skills (character_id, skill_tid, level) VALUES (?, ?, 10) ON DUPLICATE KEY UPDATE level = 10", (id, COUNTER)).await?;
+
+    step(&format!("{char_name} entre en jeu"));
+    let mut w = enter_world(&cfg, user, pass, char_name, "").await?;
+    let me = w.cid as i64;
+    anyhow::ensure!(w.skills.iter().any(|s| s.1 == COUNTER), "Counter Attack absente : {:?}", w.skills);
+    let say = |cid: u32, text: &str| Fields::new(ch).with(0, 0).with(1, cid).with(2, chat_type::NORMAL).with(6, crate::tools::to_cp1252(text));
+    let system = |q: &Recv| q.ptype == ch.id && q.int(2) == Some(chat_type::SYSTEM);
+    let level = w.level.max(1);
+    w.world.send(ch, say(w.cid, "/invincible 0")).await?;
+    w.world.expect_where(system, 3000, "invincibilité levée").await?;
+    // Au niveau 1, les coups du ver touchent presque toujours ; /level rend les PV.
+    w.world.send(ch, say(w.cid, "/level 1")).await?;
+    w.world.expect_where(system, 3000, "niveau 1").await?;
+
+    step("provoquer un Ver vert");
+    w.world.send(mv, Fields::new(mv).with(0, w.cid).with(1, HUNT).with(2, HUNT).with(5, 0x04).with(6, 0)).await?;
+    let near = |p: Vec3| (((p.x - HUNT.x) as f64).powi(2) + ((p.z - HUNT.z) as f64).powi(2)).sqrt() <= 3000.0;
+    let mut worm = w.monsters.iter().find(|m| m.name == "Green Worm" && m.hp > 0 && near(m.pos)).map(|m| m.cid as i64);
+    while let Ok(p) = w.world.expect_where(|q| q.is(ov, Some(1)), if worm.is_none() { 5000 } else { 1500 }, "monstres").await {
+        if let Ok(view) = decode_mini(&mini::OPT_VIEW_CHAR, p.fields().bytes(1).unwrap_or_default()) {
+            if worm.is_none() && view.text(2).as_deref() == Some("Green Worm") && view.bytes(5).and_then(factors_hp).unwrap_or(0) > 0 {
+                worm = view.int(0);
+            }
+        }
+    }
+    let worm = worm.ok_or_else(|| anyhow::anyhow!("aucun Ver vert en vue"))?;
+    w.world.send(act, Fields::new(act).with(0, w.cid).with(1, worm).with(6, 1)).await?;
+    w.world.expect_where(|q| q.is(act, None) && q.int(0) == Some(me) && q.int(1) == Some(worm), 15_000, "premier coup").await?;
+    // Arrêt sur place : le joueur ne frappe plus, le ver riposte.
+    let here = w.monsters.iter().find(|m| m.cid as i64 == worm).map(|m| m.pos).unwrap_or(HUNT);
+    w.world.send(mv, Fields::new(mv).with(0, w.cid).with(1, here).with(2, here).with(5, 0x04).with(6, 0)).await?;
+
+    step("attendre une contre-attaque");
+    let (mut taken, t0) = (0, std::time::Instant::now());
+    let back = loop {
+        anyhow::ensure!(t0.elapsed() < Duration::from_secs(180), "aucune contre-attaque en {taken} coup(s) reçu(s)");
+        let q = match w.world.expect_where(|q| q.is(act, None) && (q.int(0) == Some(worm) || q.int(0) == Some(me)), 20_000, "coups").await {
+            Ok(q) => q,
+            Err(_) => {
+                // Le ver a oublié le joueur (30 s sans coup) : un coup de rappel.
+                w.world.send(act, Fields::new(act).with(0, w.cid).with(1, worm).with(6, 1)).await?;
+                let _ = w.world.expect_where(|q| q.is(act, None) && q.int(0) == Some(me), 5000, "coup de rappel").await;
+                w.world.send(mv, Fields::new(mv).with(0, w.cid).with(1, here).with(2, here).with(5, 0x04).with(6, 0)).await?;
+                continue;
+            }
+        };
+        if q.int(0) == Some(me) && q.int(2) == Some(RESULT_COUNTER) {
+            break q;
+        }
+        if q.int(0) == Some(worm) && q.int(2) == Some(5) {
+            taken += 1;
+            if q.fields().bytes(3).and_then(factors_hp).is_some_and(|hp| hp < 60) {
+                w.world.send(ch, say(w.cid, "/level 1")).await?;
+            }
+        }
+    };
+    anyhow::ensure!(back.int(1) == Some(worm), "contre-attaque sur {:?}", back.int(1));
+    let left = back.fields().bytes(3).and_then(factors_hp);
+    println!("  ✓ contre-attaque après {taken} coup(s) reçu(s) : dégâts renvoyés au ver, {} PV restants", o(left));
+
+    // Remise en état : compétence retirée de la base, niveau d'origine.
+    db.characters.exec("DELETE FROM character_skills WHERE character_id = ? AND skill_tid = ?", (id, COUNTER)).await?;
+    db.close().await;
+    w.world.send(ch, say(w.cid, &format!("/level {level}"))).await?;
+    w.world.expect_where(|q| system(q) && q.fields().text(6).is_some_and(|t| t.contains(&format!("niveau {level}"))), 5000, "niveau rétabli").await?;
+    println!("\ncontre-attaque : OK");
+    Ok(())
+}
+
+/// Compétence de groupe : Marching Song (TID 526, zone 303 de 700 unités) de GmTest renforce SimA, membre de son
+/// groupe à côté de lui (AGPMSKILL op 4 sur SimA), mais pas quand SimA est loin.
+async fn party_skill(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> anyhow::Result<()> {
+    const SPOT: Vec3 = Vec3 { x: -476_000.0, y: 4_422.0, z: -61_000.0 };
+    const MARCHING_SONG: i64 = 526;
+    let cfg = crate::config::load()?;
+    let (k, ch, mv, pm) = (&schema::SKILL, &schema::CHATTING, &schema::OPT_CHAR_MOVE, &schema::PARTY_MANAGEMENT);
+    step(&format!("préparation : {ca} connaît Marching Song"));
+    let db = crate::db::Databases::new(&cfg.database);
+    let id = character_id(&db, ca).await?;
+    db.characters.exec("INSERT IGNORE INTO character_skills (character_id, skill_tid, level) VALUES (?, ?, 1)", (id, MARCHING_SONG)).await?;
+    db.close().await;
+
+    step(&format!("{ca} et {cb} entrent en jeu et forment un groupe"));
+    let mut a = enter_world(&cfg, ua, pa, ca, "A-").await?;
+    let mut b = enter_world(&cfg, ub, pb, cb, "B-").await?;
+    for w in [&mut a, &mut b] {
+        let cid = w.cid;
+        w.world.send(mv, Fields::new(mv).with(0, cid).with(1, SPOT).with(2, SPOT).with(5, 0x04).with(6, 0)).await?;
+    }
+    let (acid, bcid) = (a.cid as i64, b.cid as i64);
+    let song = a.skills.iter().find(|s| s.1 == MARCHING_SONG).map(|s| s.0).ok_or_else(|| anyhow::anyhow!("Marching Song absente"))?;
+    a.world.send(pm, Fields::new(pm).with(0, 0).with(1, acid).with(2, bcid)).await?;
+    b.world.expect_where(|q| q.is(pm, Some(0)), 3000, "invitation").await?;
+    b.world.send(pm, Fields::new(pm).with(0, 2).with(1, bcid).with(2, acid)).await?;
+    a.world.expect_where(|q| q.is(pm, Some(2)), 3000, "groupe formé").await?;
+    println!("  ✓ groupe formé");
+    let say = |cid: u32, text: &str| Fields::new(ch).with(0, 0).with(1, cid).with(2, chat_type::NORMAL).with(6, crate::tools::to_cp1252(text));
+    let system = |q: &Recv| q.ptype == ch.id && q.int(2) == Some(chat_type::SYSTEM);
+    let level = a.level.max(1);
+    let on = |q: &Recv, who: i64| q.is(k, Some(4)) && q.int(1) == Some(song) && skill_owner(q, 2) == Some(who);
+
+    step(&format!("{ca} chante Marching Song à côté de {cb}"));
+    a.world.send(ch, say(a.cid, "/level 50")).await?;
+    a.world.expect_where(system, 3000, "niveau 50").await?;
+    a.world.send(ch, say(a.cid, "/recast")).await?;
+    a.world.expect_where(system, 3000, "relance").await?;
+    a.world.send(k, cast_fields(song, acid)).await?;
+    a.world.expect_where(|q| on(q, acid), 8000, "effet sur le lanceur").await?;
+    b.world.expect_where(|q| on(q, bcid), 3000, "effet sur le membre du groupe").await?;
+    println!("  ✓ effet posé sur {ca} et sur {cb} (AGPMSKILL op 4)");
+
+    step(&format!("{cb} s'éloigne : seul {ca} est renforcé"));
+    let far = Vec3::new(SPOT.x + 3000.0, SPOT.y, SPOT.z);
+    b.world.send(mv, Fields::new(mv).with(0, b.cid).with(1, far).with(2, far).with(5, 0x04).with(6, 0)).await?;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    a.world.send(ch, say(a.cid, "/recast")).await?;
+    a.world.expect_where(system, 3000, "relance").await?;
+    a.world.send(ch, say(a.cid, "/level 50")).await?;
+    a.world.expect_where(system, 3000, "PM rendus").await?;
+    a.world.send(k, cast_fields(song, acid)).await?;
+    a.world.expect_where(|q| on(q, acid), 8000, "effet sur le lanceur").await?;
+    anyhow::ensure!(b.world.expect_where(|q| on(q, bcid), 1500, "effet hors de portée").await.is_err(), "{cb} renforcé à 3000 unités");
+    println!("  ✓ {cb}, à 3000 unités (rayon 700), n'est pas renforcé");
+
+    // Remise en état : groupe quitté, niveau d'origine.
+    a.world.send(pm, Fields::new(pm).with(0, 3).with(1, acid)).await?;
+    a.world.send(ch, say(a.cid, &format!("/level {level}"))).await?;
+    a.world.expect_where(|q| system(q) && q.fields().text(6).is_some_and(|t| t.contains(&format!("niveau {level}"))), 5000, "niveau rétabli").await?;
+    println!("\ncompétences de groupe : OK");
+    Ok(())
+}
+
+/// Maîtrises (SkillMastery_High.txt) : Capacitate (TID 525) exige Marching Song (526) au niveau 4. Refusée tant que
+/// Marching Song est au niveau 1, apprise une fois Marching Song améliorée trois fois.
+async fn mastery(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
+    const CAPACITATE: i64 = 525;
+    const MARCHING_SONG: i64 = 526;
+    let cfg = crate::config::load()?;
+    let (k, sm, ch, c) = (&schema::SKILL, &schema::EVENT_SKILL_MASTER, &schema::CHATTING, &schema::CHARACTER);
+    step("préparation : ni Capacitate ni Marching Song");
+    let db = crate::db::Databases::new(&cfg.database);
+    let id = character_id(&db, char_name).await?;
+    db.characters.exec("DELETE FROM character_skills WHERE character_id = ? AND skill_tid IN (525, 526)", (id,)).await?;
+    db.close().await;
+
+    step(&format!("{char_name} entre en jeu, niveau 60"));
+    let mut w = enter_world(&cfg, user, pass, char_name, "").await?;
+    let say = |cid: u32, text: &str| Fields::new(ch).with(0, 0).with(1, cid).with(2, chat_type::NORMAL).with(6, crate::tools::to_cp1252(text));
+    let system = |q: &Recv| q.ptype == ch.id && q.int(2) == Some(chat_type::SYSTEM);
+    let level = w.level.max(1);
+    w.world.send(ch, say(w.cid, "/level 60")).await?;
+    w.world.expect_where(system, 3000, "niveau 60").await?;
+    w.world.send(ch, say(w.cid, "/money 2000000")).await?;
+    w.world.expect_where(|q| q.is(c, Some(1)) && q.int(8) == Some(2_000_000), 3000, "argent").await?;
+    let event = trainer_event(&mut w).await?;
+    let master = |op: i64| Fields::new(sm).with(0, op).with(1, event.clone()).with(2, w.cid);
+
+    step("Capacitate sans Marching Song au niveau 4 : refusée");
+    w.world.send(sm, master(1).with(4, CAPACITATE)).await?;
+    let why = w.world.expect_where(|q| system(q) && q.fields().text(6).is_some_and(|t| t.contains("Capacitate")), 3000, "raison du refus").await?;
+    w.world.expect_where(|q| q.is(sm, Some(6)) && q.int(4) == Some(CAPACITATE) && q.int(5) == Some(1), 3000, "refus").await?;
+    let text = why.fields().text(6).unwrap_or_default();
+    anyhow::ensure!(text.contains("Marching Song au niveau 4"), "raison : {text}");
+    println!("  ✓ refusée : {text}");
+
+    step("Marching Song apprise puis améliorée au niveau 4");
+    w.world.send(sm, master(1).with(4, MARCHING_SONG)).await?;
+    let add = w.world.expect_where(|q| q.is(k, Some(0)) && q.int(4) == Some(MARCHING_SONG), 3000, "Marching Song apprise").await?;
+    let song = add.int(1).unwrap_or(0);
+    w.world.expect_where(|q| q.is(sm, Some(6)) && q.int(5) == Some(0), 3000, "apprise").await?;
+    for n in 2..=4 {
+        w.world.send(sm, master(2).with(3, song)).await?;
+        let up = w.world.expect_where(|q| q.is(k, Some(2)) && q.int(1) == Some(song) || system(q), 3000, "amélioration").await?;
+        anyhow::ensure!(up.ptype == k.id, "amélioration refusée : {}", up.fields().text(6).unwrap_or_default());
+        anyhow::ensure!(skill_info(up.packet.as_ref().unwrap()).2 == n, "niveau {} au lieu de {n}", skill_info(up.packet.as_ref().unwrap()).2);
+    }
+    println!("  ✓ Marching Song au niveau 4");
+
+    step("Capacitate : apprise");
+    w.world.send(sm, master(1).with(4, CAPACITATE)).await?;
+    w.world.expect_where(|q| q.is(k, Some(0)) && q.int(4) == Some(CAPACITATE), 3000, "Capacitate apprise").await?;
+    w.world.expect_where(|q| q.is(sm, Some(6)) && q.int(4) == Some(CAPACITATE) && q.int(5) == Some(0), 3000, "résultat").await?;
+    println!("  ✓ apprise");
+
+    w.world.send(ch, say(w.cid, &format!("/level {level}"))).await?;
+    w.world.expect_where(|q| system(q) && q.fields().text(6).is_some_and(|t| t.contains(&format!("niveau {level}"))), 5000, "niveau rétabli").await?;
+    println!("\nmaîtrises : OK");
     Ok(())
 }
 

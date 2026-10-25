@@ -72,7 +72,7 @@ Check of 25 October 2026, Archonia client data and `Archonia.exe`:
 | 6 | Playable Dragon Scion | 🟡 data and skills present; creation to confirm in game |
 | 7 | Level 120, Heaven's Hell | 🟡 table and monsters loaded; renewed sieges to do |
 | 8 | Shrines and Shrine coins | ⏳ to do |
-| — | Masteries, heroic skills | ⏳ to do |
+| — | Masteries (high and heroic skill trees), monster and party skills | 🟡 validated with the simulator; heroic and charisma points to do |
 
 The catch-up order follows the [[roadmap|EN-Roadmap]]: guilds, then sieges, then ArchLord powers and
 Shrines.

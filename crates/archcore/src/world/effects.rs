@@ -15,7 +15,9 @@
 //!   Combat : melee_attack 106, 109, 110 ajoutent « skill_rate » à la chance de coup critique et « critical »
 //!             aux dégâts critiques (en pour cent) ; reflect_melee_attack 2 (bouclier) ajoute « skill_rate » à
 //!             la chance de bloquer, comme « point.physical_block » ; convert_type 1 et 2 changent un coup reçu
-//!             en PV ou en PM (chance « skill_rate », sinon « special_status_rate » ; part « damage_convert_* »).
+//!             en PV ou en PM (chance « skill_rate », sinon « special_status_rate » ; part « damage_convert_* ») ;
+//!             defense_melee_attack 2 (contre-attaque) renvoie à son auteur, avec la chance « skill_rate », les
+//!             dégâts d'un coup de monstre reçu.
 //!   Paquets : AGPMSKILL op 4 (effet ajouté : identifiant de la compétence, porteur, champ 8 = mini SKILL_BUFF
 //!             TID, durée, TID du lanceur) et op 5 (effet retiré : TID), aux joueurs qui voient le porteur.
 //! ```
@@ -142,6 +144,8 @@ pub struct Mods {
     pub to_mp: f64,
     /// Chance d'échapper à l'étourdissement (pour cent).
     pub stun_protect: f64,
+    /// Contre-attaque : chance (pour cent) de renvoyer à son auteur les dégâts d'un coup reçu.
+    pub counter: f64,
 }
 
 /// Soin à l'application : PV et PM fixes et pour cent du maximum.
@@ -221,6 +225,7 @@ impl Mods {
         self.to_mp_rate += o.to_mp_rate;
         self.to_mp += o.to_mp;
         self.stun_protect += o.stun_protect;
+        self.counter += o.counter;
     }
 }
 
@@ -255,9 +260,12 @@ pub struct Dot {
     pub damages: Vec<(usize, i32)>,
     pub interval: Duration,
     pub next_at: Instant,
-    /// Session du lanceur, à qui revient la victime.
+    /// Session du lanceur, à qui revient la victime (`MONSTER_CASTER` : un monstre).
     pub caster_sid: u32,
 }
+
+/// Lanceur d'un effet posé par un monstre (aucune session n'a ce numéro).
+pub const MONSTER_CASTER: u32 = 0;
 
 /// Un effet porté par un personnage ou un monstre.
 #[derive(Clone, Debug, PartialEq)]
@@ -337,6 +345,11 @@ pub fn guard(rng: &mut impl rand::Rng, m: &Mods, status: u64, damage: i32) -> Gu
         return Guard::ToMp((damage as f64 * m.to_mp / 100.0) as i32);
     }
     Guard::Hit
+}
+
+/// Contre-attaque déclenchée par un coup reçu, selon la chance des effets.
+pub fn counter(rng: &mut impl rand::Rng, m: &Mods) -> bool {
+    m.counter > 0.0 && rng.gen_range(0.0..100.0) < m.counter
 }
 
 /// AGPMCHARACTER op 1 : états spéciaux de `cid`.

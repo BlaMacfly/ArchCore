@@ -360,7 +360,10 @@ target removes 5 % per level of difference (80 % at most); armour only reduces t
 is at least 1.
 
 **Targets and areas.** A skill targets enemies if the units digit of its `target` field is 1; otherwise it
-applies to its caster (no parties yet). The `range` field gives the area: above 1000 it is centred on the
+applies to its caster. A party skill (`range` field 303: sphere around the caster, restricted to its party
+members; Marching Song, Combat Echo, Battle Cry…) also reaches the caster's living, in-game party members
+within `area_r` of the caster (700 units for Marching Song): same heal, same effect, announced by AGPMSKILL
+op 4 on each of them. The `range` field gives the area: above 1000 it is centred on the
 target, otherwise on the caster; hundreds 3: sphere of radius `area_r` (metres), 4: box from the caster
 towards the target (`area_f1` long, `area_f2` wide; 600 × 300 by default). Monsters in the area are hit
 like the target, nearest first (`max_target_num`, otherwise 12 at most). An area around the caster is cast
@@ -404,8 +407,40 @@ normal attacks, the player evades (result 7). `convert_type` 1 or 2 turns a hit 
 back (chance `skill_rate`, otherwise `special_status_rate`; share `damage_convert_hp` or
 `damage_convert_mp` of the damage): result 1, then the player's factors (op 1, field 7).
 
-Still to do: reflecting damage back to the attacker, ignored defense (bits 4 and 8 of
-`reflect_melee_attack`), skill criticals, dispels and party skills; monsters do not cast skills yet.
+**Damage reflection (counter attack).** `defense_melee_attack` 2 (Counter Attack, a berserker passive: 2 % at
+level 1, 11 % at level 10) sends the damage of a monster's hit that lands or is blocked back to its author,
+with the `skill_rate` chance: AGPMOPTIMIZEDCHARACTION with the player as attacker, the monster as target,
+result **12** (counter attack; value from the result enumeration, to be confirmed in `Archonia.exe`) and the monster's factors (remaining HP, damage as a negative); the monster may
+die of it, the experience then goes to the player. Bit 1 of `reflect_melee_attack` (reflecting the damage
+taken) is carried by no skill in the Archonia data.
+
+**Masteries.** `SkillMastery_High.txt` (high skills) and `SkillMastery_Heroic.txt` (heroic skills) arrange
+skills in trees, per class template (96 human warrior… 1722 slayer, from `SkillMasteryEvolution.txt`). Each
+skill of a tree requires up to three other skills at a given level (ConditionA to C columns, "TID;points"; the
+client shows "%s Skill %d Points Requirement") and a total of points spent (ConditionD: skill points in the
+high tree, "All Skills %d Points Requirement", heroic points in the heroic tree, "Total Heroic Skill Points
+Required"); a skill's points are its level. Otherwise learning is refused: a system message, then
+AGPMEVENTSKILLMASTER op 6, result 1. Capacitate (525) thus requires Marching Song (526) at level 4.
+
+**Monster skills.** Each spawn point names an AI (`MobAITID` of `spawndatatable.txt`, `monster_ai` table
+taken from `aidatatable.txt` of the original server tables): up to five "SkillN" skills (TID;level), each
+with a HP condition ("HP;100%;이하": at most 100 % of the maximum) and a number of casts ("무한" unlimited,
+"횟수;1" once per life); "UseNormalAttack" 0 forbids normal hits. A ready offensive skill (recast elapsed,
+condition met, target within its reach: `range`, radius of an area around the monster, otherwise the
+monster's range) is cast instead of a normal hit, or instead of chasing when the target is already within its
+reach: AGPMSKILL **op 0** (the skill, owner = monster, so that the client knows it; to be confirmed in `Archonia.exe`) then **op 7** (cast) to the players who see the monster;
+at the end of the cast time, **op 8** (target = player, remaining HP, damage as negatives) to the players who
+see the target. Damage follows the players' skill formula, from the monster's physical and elemental damage
+(`CharacterDataTable.txt`); an area hits the nearby players; lasting effect, damage over time (AGPMCHARACTER
+op 1 on each tick) and special states take hold on each target. A stunned, frozen or sleeping monster loses its
+cast; a target gone more than 5000 units away (the chase limit) escapes it. A skill without SKILL_SPEC, cast time or recast that weakens (`buff_type` 1: "<MOB>Water Elemental
+Skill"…) comes with the normal hits that land, with the `skill_rate` chance. The tables do not say how often
+the original server cast these skills: ArchCore casts each one as soon as it is ready. Midas (TID 40, AI 403)
+thus casts Insanity (181) every 6 s.
+
+Still to do: ignored defense (bits 4 and 8 of `reflect_melee_attack`), skill criticals, dispels, damage
+sharing (`divide`: Divine Protection, Martyr's Mark); earning heroic and charisma points, which heroic skills
+also require.
 
 ## Teleport portals (type 0x31, AgpmEventTeleport)
 

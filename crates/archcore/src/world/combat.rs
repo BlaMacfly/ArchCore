@@ -32,6 +32,7 @@ pub mod result {
     pub const CRITICAL: i64 = 6;
     pub const EVADE: i64 = 7;
     pub const BLOCK: i64 = 9;
+    pub const COUNTER_ATTACK: i64 = 12;
 }
 
 /// Classes (champ « type » des facteurs, 3e valeur) ; les autres, dont le guerrier (1), frappent à la force.
@@ -240,7 +241,12 @@ pub async fn step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) -> anyhow::
     }
     super::presence::move_step(ctx, st, now);
     ai::walk_step(&ctx.map, st, now);
-    ai::step(ctx, st, now);
+    for (sid, cid) in ai::step(ctx, st, now) {
+        // Tué par une contre-attaque (une seule fois, même si plusieurs joueurs ont contre-attaqué).
+        if st.monsters.get(cid).is_some_and(|m| m.is_alive() && m.hp == 0) {
+            kill(ctx, st, sid, cid, now).await?;
+        }
+    }
     ai::patrol_step(ctx, st, now);
     life_step(ctx, st, now);
     super::loot::expire(st, now);
@@ -361,6 +367,9 @@ pub(super) async fn kill(ctx: &WorldCtx, st: &mut WorldState, killer_sid: u32, c
     target.target = None;
     st.monsters.engaged.remove(&cid);
     st.monsters.effects.remove(&cid);
+    // Compétences de l'IA : relances et lancements comptés repartent de zéro à la réapparition.
+    st.monsters.skill_state.remove(&cid);
+    st.monsters.casts.remove(&cid);
     let target = st.monsters.get_mut(cid).unwrap();
     let (tid, name) = (target.tid, target.name.clone());
     st.monsters.pending.insert(cid);

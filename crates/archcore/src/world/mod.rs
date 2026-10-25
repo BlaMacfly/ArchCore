@@ -29,6 +29,7 @@ pub mod items;
 pub mod lang;
 pub mod loot;
 pub mod map;
+pub mod monster_skills;
 pub mod monsters;
 pub mod npc_events;
 pub mod npc_trade;

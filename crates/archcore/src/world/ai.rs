@@ -13,7 +13,9 @@
 //! États spéciaux : étourdi, gelé ou endormi, un monstre ne bouge ni ne frappe ; immobilisé, il ne poursuit
 //! pas ; sous « attaque interdite » ou la peur, il ne frappe pas. Il ignore les joueurs invincibles ou
 //! invisibles. Le coup d'un monstre peut être esquivé, bloqué ou changé en PV ou PM selon les effets du
-//! joueur (`effects::guard`), et réveille un joueur endormi.
+//! joueur (`effects::guard`), et réveille un joueur endormi. Un joueur qui contre-attaque (Counter Attack) lui
+//! renvoie, avec sa chance, les dégâts du coup reçu (résultat 12). Le monstre lance aussi les compétences de son
+//! IA (`monster_skills.rs`) à la place d'un coup normal ou de la poursuite.
 //!
 //! Patrouille : un monstre (type « monstre ») au repos, vu par au moins un joueur et dont le point a un rayon,
 //! marche toutes les 15 à 45 s vers un endroit tiré au hasard dans ce rayon, hors sol infranchissable ; au plus
@@ -22,6 +24,7 @@
 use super::combat::{self, Attacker, Defender};
 use super::effects::{self, status, Guard};
 use super::map::WorldMap;
+use super::monster_skills;
 use super::monsters::{Aggro, Monster, Walk};
 use super::{WorldCtx, WorldState};
 use crate::debug;
@@ -197,12 +200,18 @@ pub fn patrol_step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) {
     }
 }
 
-/// Un pas d'IA pour tous les monstres engagés.
-pub fn step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) {
+/// Un pas d'IA pour tous les monstres engagés. Rend les monstres tués par une contre-attaque : (session du
+/// joueur, monstre), à achever par `combat::kill`.
+pub fn step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) -> Vec<(u32, u32)> {
+    monster_skills::step(ctx, st, now);
     let engaged: Vec<u32> = st.monsters.engaged.iter().copied().collect();
+    let mut killed = Vec::new();
     for cid in engaged {
-        monster_step(&ctx.map, st, cid, now);
+        if let Some(k) = monster_step(ctx, st, cid, now) {
+            killed.push(k);
+        }
     }
+    killed
 }
 
 fn disengage(st: &mut WorldState, cid: u32) {
@@ -213,13 +222,15 @@ fn disengage(st: &mut WorldState, cid: u32) {
     st.monsters.engaged.remove(&cid);
 }
 
-fn monster_step(map: &WorldMap, st: &mut WorldState, cid: u32, now: Instant) {
+fn monster_step(ctx: &WorldCtx, st: &mut WorldState, cid: u32, now: Instant) -> Option<(u32, u32)> {
+    let map = &ctx.map;
     let Some(m) = st.monsters.get(cid).cloned() else {
         st.monsters.engaged.remove(&cid);
-        return;
+        return None;
     };
     if !m.is_alive() {
-        return disengage(st, cid);
+        disengage(st, cid);
+        return None;
     }
     let stats = st.monsters.stats_of(m.tid);
     // Trop loin de chez lui : ramené d'un coup, soigné.
@@ -230,14 +241,14 @@ fn monster_step(map: &WorldMap, st: &mut WorldState, cid: u32, now: Instant) {
             m.hp = m.max_hp;
         }
         debug!("[ia] {} ({cid:#x}) trop loin de son point : ramené", m.name);
-        return;
+        return None;
     }
     if now < m.ready_at {
-        return;
+        return None;
     }
     let state = st.monsters.status(cid, now);
     if state & status::HELPLESS != 0 {
-        return;
+        return None;
     }
     let aggro: Vec<Aggro> = m.aggro.iter().copied().filter(|a| a.until > now).collect();
     if aggro.is_empty() {
@@ -247,7 +258,7 @@ fn monster_step(map: &WorldMap, st: &mut WorldState, cid: u32, now: Instant) {
             let t = walk(map, st, cid, m.home, stats.run);
             st.monsters.get_mut(cid).unwrap().ready_at = now + t;
         }
-        return;
+        return None;
     }
     let mut target = m.target;
     let valid = |t: u32| st.by_cid.get(&t).and_then(|sid| st.players.get(sid)).is_some_and(|p| p.in_game && !p.dead);
@@ -264,17 +275,23 @@ fn monster_step(map: &WorldMap, st: &mut WorldState, cid: u32, now: Instant) {
             mm.scan_at = now + SCAN_INTERVAL;
         }
     }
-    let Some(tcid) = target else { return };
+    let Some(tcid) = target else { return None };
     let sid = st.by_cid[&tcid];
     let p = &st.players[&sid];
+    let shielded = p.invincible_until.is_some_and(|t| now < t);
     // Position actuelle de la cible (suivie par le serveur), pas sa destination : le monstre vise le joueur, pas
     // l'endroit où il va.
     let ppos = p.ch.pos();
     let reach = stats.range.max(50) as f64 + PLAYER_HIT_RANGE;
     let distance = combat::dist2d(m.pos, ppos);
     if distance > reach + REACH_TOLERANCE {
+        // Une compétence qui porte déjà jusqu'à la cible part à la place de la poursuite.
+        if let Some(slot) = (!shielded).then(|| monster_skills::ready_skill(ctx, st, &m, distance, now)).flatten() {
+            monster_skills::begin(ctx, st, cid, slot, tcid, ppos, now);
+            return None;
+        }
         if state & status::NO_MOVE != 0 {
-            return;
+            return None;
         }
         // Poursuite : jusqu'au bord de la portée.
         let k = ((distance - reach * 0.8) / distance).max(0.0) as f32;
@@ -283,11 +300,16 @@ fn monster_step(map: &WorldMap, st: &mut WorldState, cid: u32, now: Instant) {
         let t = walk(map, st, cid, dest, run);
         debug!("[ia] {} ({cid:#x}) poursuit : {distance:.0} unités, vers {:.0}, {:.0} en {:.1} s", m.name, dest.x, dest.z, t.as_secs_f64());
         st.monsters.get_mut(cid).unwrap().ready_at = now + t;
-        return;
+        return None;
     }
-    if p.invincible_until.is_some_and(|t| now < t) || state & status::NO_ATTACK != 0 {
+    if let Some(slot) = (!shielded).then(|| monster_skills::ready_skill(ctx, st, &m, distance, now)).flatten() {
+        monster_skills::begin(ctx, st, cid, slot, tcid, ppos, now);
+        return None;
+    }
+    let normal = st.monsters.ai_of(cid).is_none_or(|a| a.normal_attack);
+    if shielded || state & status::NO_ATTACK != 0 || !normal {
         st.monsters.get_mut(cid).unwrap().ready_at = now + SCAN_INTERVAL;
-        return;
+        return None;
     }
     let mods = st.monsters.mods(cid);
     let (min_damage, max_damage) = super::effects::monster_damage(stats.min_damage, stats.max_damage, &mods);
@@ -299,9 +321,14 @@ fn monster_step(map: &WorldMap, st: &mut WorldState, cid: u32, now: Instant) {
     st.monsters.get_mut(cid).unwrap().ready_at = now + Duration::from_millis(60_000 / speed);
     // Qui frappe s'arrête (le client arrête aussi le monstre au début de son coup).
     st.monsters.walking.remove(&cid);
+    let mut countered = 0;
     if outcome == combat::result::SUCCESS {
         let p = st.players.get_mut(&sid).unwrap();
-        let guard = effects::guard(&mut rng, &effects::total(&p.skills.effects), p.skills.status_sent, damage);
+        let mods = effects::total(&p.skills.effects);
+        let guard = effects::guard(&mut rng, &mods, p.skills.status_sent, damage);
+        if matches!(guard, Guard::Hit | Guard::Block) && effects::counter(&mut rng, &mods) {
+            countered = damage;
+        }
         match guard {
             Guard::Hit => {
                 effects::lift_status(&mut p.skills.effects, status::SLEEP);
@@ -324,6 +351,29 @@ fn monster_step(map: &WorldMap, st: &mut WorldState, cid: u32, now: Instant) {
     }
     debug!("[ia] {} ({cid:#x}) frappe : résultat {outcome}, {damage} dégât(s)", m.name);
     combat::hit_player(st, sid, cid, outcome, damage);
+    if outcome == combat::result::SUCCESS && damage > 0 {
+        monster_skills::on_hit(ctx, st, cid, sid, now);
+    }
+    if countered > 0 {
+        return counter(st, sid, cid, countered, now);
+    }
+    None
+}
+
+/// Contre-attaque : les dégâts du coup reçu reviennent au monstre, annoncés comme un coup du joueur
+/// (AGPMOPTIMIZEDCHARACTION, résultat 12) ; rend (session, monstre) si le monstre en meurt.
+fn counter(st: &mut WorldState, sid: u32, cid: u32, damage: i32, now: Instant) -> Option<(u32, u32)> {
+    let pcid = st.players.get(&sid).filter(|p| p.in_game && !p.dead)?.ch.id;
+    let m = st.monsters.get_mut(cid).filter(|m| m.is_alive())?;
+    m.hp = (m.hp - damage).max(0);
+    let (hp, tid, name) = (m.hp, m.tid, m.name.clone());
+    st.monsters.wake(cid);
+    let max_mp = st.monsters.stats_of(tid).max_mp;
+    let watchers = combat::viewers(st, cid);
+    combat::broadcast(st, &watchers, &combat::action_packet(pcid, cid, combat::result::COUNTER_ATTACK, Some(combat::damage_factors(hp, max_mp, damage))));
+    add_aggro(st, cid, pcid, damage as u64, now);
+    debug!("[ia] contre-attaque sur {name} ({cid:#x}) : {damage} dégât(s) renvoyé(s), {hp} PV");
+    (hp == 0).then_some((sid, cid))
 }
 
 #[cfg(test)]
