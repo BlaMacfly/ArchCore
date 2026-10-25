@@ -48,8 +48,8 @@
 - Client ArchRust (branche `client`) : combat (attaque, coups, mort, résurrection, butin), groupes, autres
   joueurs, inventaire et équipement, PNJ (dialogue, boutique, banque et achat de pages, quêtes), compétences
   (instructeurs, lancement, barre de raccourcis), portails de téléportation (fenêtre et chargement d'origine),
-  guildes (greffier, fenêtres de création, de dissolution et de guilde, membres) et discussion de guilde et de
-  groupe, packs de ressources graphismes et sons (activés, ordonnés et vérifiés depuis les Options ; voir le
+  guildes (greffier, fenêtres de création, de dissolution et de guilde, membres, nom de guilde au-dessus des têtes) et discussion de
+  guilde et de groupe, chuchotements (barre privée, `/w`, `/r`, bouton de la fenêtre de guilde), packs de ressources graphismes et sons (activés, ordonnés et vérifiés depuis les Options ; voir le
   [guide](https://github.com/BlaMacfly/ArchCore/blob/client/ArchRust/docs/PACKS-DE-RESSOURCES.md)), fenêtres d'origine d'Archonia à la place des fenêtres provisoires (confirmations,
   séparation de pile, achat, banque, groupe, menus principaux, sélection et création du personnage, options),
   vitesse de déplacement comme Archonia (`/speed` du MJ visible) ; validés contre ArchCore par des essais sans affichage et des captures du
@@ -74,7 +74,7 @@
    Martyr's Mark), les purges, la défense ignorée et le gain des points héroïques et de charisme.
 5. Combat : dégâts élémentaires des objets. Objets : raffinage, conversion.
 6. Guildes : combats de guildes, alliances et hostilités, emblèmes, second et passation, agrandissement, liste
-   des guildes, entrepôt. Dans ArchRust : nom de guilde au-dessus des têtes, chuchotement.
+   des guildes, entrepôt.
 7. Reconnexion automatique (type 0x63).
 8. Commandes MJ restantes de la page [[Administration|FR-Administration]] (arène, événements, failles…).
 9. Fin de la traduction : environ 54 000 textes restants.

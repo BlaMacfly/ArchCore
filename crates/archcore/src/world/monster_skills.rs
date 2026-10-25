@@ -6,9 +6,9 @@
 //!        (« HP;100%;이하 » : PV au plus à 100 % du maximum ; « 이상 » : au moins) et son nombre « SkillCountN »
 //!        (« 무한 » : sans limite ; « 횟수;1 » : une fois par vie). « UseNormalAttack » 0 : pas de coup normal.
 //!   Lancement : une compétence offensive prête (relance écoulée, condition remplie, cible à portée) part à la
-//!        place d'un coup normal, ou de la poursuite si la cible est déjà à sa portée : AGPMSKILL op 0 (la
-//!        compétence, propriétaire = monstre) puis op 7 (lancement) aux joueurs qui voient le monstre. Au bout de
-//!        l'incantation, op 8 (résultat : PV restants, dégâts en négatif) aux joueurs qui voient chaque cible.
+//!        place d'un coup normal, ou de la poursuite si la cible est déjà à sa portée : AGPMSKILL op 7
+//!        (lancement, TID au champ 4) aux joueurs qui voient le monstre, sans op 0 : comme pour le lancement
+//!        d'un autre joueur, le client n'a pas à connaître la compétence. Au bout de l'incantation, op 8 (résultat : PV restants, dégâts en négatif) aux joueurs qui voient chaque cible.
 //!   Effet : dégâts comme ceux d'un joueur, à partir des dégâts physiques et élémentaires du monstre ; zone sur
 //!        les joueurs voisins ; effet durable, dégâts sur la durée et états spéciaux sur chaque cible.
 //!   Coups chargés : une compétence sans SKILL_SPEC, sans incantation ni relance, qui affaiblit (« buff_type »
@@ -160,8 +160,8 @@ pub fn ready_skill(ctx: &WorldCtx, st: &WorldState, m: &Monster, distance: f64, 
     (!ready.is_empty()).then(|| ready[rand::thread_rng().gen_range(0..ready.len())])
 }
 
-/// Commence l'incantation de la compétence `slot` sur le joueur `target` : coût de la relance, AGPMSKILL op 0
-/// et op 7 aux joueurs qui voient le monstre.
+/// Commence l'incantation de la compétence `slot` sur le joueur `target` : coût de la relance, AGPMSKILL op 7
+/// aux joueurs qui voient le monstre.
 pub fn begin(ctx: &WorldCtx, st: &mut WorldState, cid: u32, slot: usize, target: u32, target_pos: Vec3, now: Instant) {
     let Some(s) = st.monsters.ai_of(cid).and_then(|a| a.skills.get(slot).copied()) else { return };
     let Some((t, lv)) = ctx.skills.get(s.tid).and_then(|t| Some((t, t.level(s.level)?))) else { return };
@@ -177,9 +177,7 @@ pub fn begin(ctx: &WorldCtx, st: &mut WorldState, cid: u32, slot: usize, target:
     if let Some(m) = st.monsters.get_mut(cid) {
         m.ready_at = complete_at;
     }
-    // Un paquet par trame : la compétence, puis son lancement.
     let viewers = combat::viewers(st, cid);
-    combat::broadcast(st, &viewers, &skills::add_packet(cid, &owned));
     combat::broadcast(st, &viewers, &skills::cast_packet(cid, &owned, target, target_pos, lv));
     debug!("[ia] {cid:#x} lance {} niveau {} sur {target:#x} (incantation {} ms)", t.name, s.level, lv.cast_ms);
 }

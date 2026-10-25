@@ -2216,7 +2216,7 @@ fn skill_owner(q: &Recv, field: usize) -> Option<i64> {
 }
 
 /// Compétences d'un monstre : Midas (sud-est d'Anchorville) lance Insanity (TID 181, IA 403 d'aidatatable.txt) sur
-/// le joueur qui l'a frappé : AGPMSKILL op 0 et op 7 (lanceur = Midas), puis op 8 (cible = joueur, dégâts).
+/// le joueur qui l'a frappé : AGPMSKILL op 7 (lanceur = Midas), puis op 8 (cible = joueur, dégâts).
 async fn monster_skill(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
     const MIDAS: Vec3 = Vec3 { x: -456_503.0, y: 0.0, z: -100_787.0 };
     const INSANITY: i64 = 181;

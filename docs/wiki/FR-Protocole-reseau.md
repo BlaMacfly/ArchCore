@@ -422,7 +422,7 @@ dégâts) : résultat 1, puis les facteurs du joueur (op 1, champ 7).
 **Renvoi des dégâts (contre-attaque).** `defense_melee_attack` 2 (Counter Attack, passive des berserkers :
 2 % au niveau 1, 11 % au niveau 10) renvoie à son auteur, avec la chance `skill_rate`, les dégâts d'un coup
 de monstre qui touche ou qui est bloqué : AGPMOPTIMIZEDCHARACTION avec le joueur pour attaquant, le monstre
-pour cible, le résultat **12** (contre-attaque ; valeur de l'énumération des résultats, à confirmer dans `Archonia.exe`) et les facteurs du monstre (PV restants, dégâts en négatif) ;
+pour cible, le résultat **12** (contre-attaque : `Archonia.exe` affiche alors la mention « C.Attack! » d'`IM_attack.png`) et les facteurs du monstre (PV restants, dégâts en négatif) ;
 le monstre peut en mourir, l'expérience revient alors au joueur. Le bit 1 de `reflect_melee_attack` (renvoi
 des dégâts reçus) n'est porté par aucune compétence des données d'Archonia.
 
@@ -441,8 +441,9 @@ cinq compétences « SkillN » (TID;niveau), chacune avec une condition sur les 
 100 % du maximum) et un nombre de lancements (« 무한 » sans limite, « 횟수;1 » une fois par vie) ;
 « UseNormalAttack » 0 interdit les coups normaux. Une compétence offensive prête (relance écoulée, condition
 remplie, cible à sa portée : `range`, rayon d'une zone autour du monstre, sinon portée du monstre) part à la
-place d'un coup normal, ou de la poursuite quand la cible est déjà à sa portée : AGPMSKILL **op 0** (la
-compétence, propriétaire = monstre, pour que le client la connaisse ; à confirmer dans `Archonia.exe`) puis **op 7** (lancement) aux joueurs qui voient le monstre ; au bout de
+place d'un coup normal, ou de la poursuite quand la cible est déjà à sa portée : AGPMSKILL **op 7**
+(lancement, TID au champ 4) aux joueurs qui voient le monstre, sans op 0 : la liste des compétences (op 0) ne
+va qu'à leur propriétaire, et le client joue le lancement d'un personnage vu d'après ce seul paquet ; au bout de
 l'incantation, **op 8** (cible = joueur, PV restants, dégâts en négatif) aux joueurs qui voient la cible. Les
 dégâts suivent la formule des compétences des joueurs, à partir des dégâts physiques et élémentaires du
 monstre (`CharacterDataTable.txt`) ; une zone touche les joueurs voisins ; effet durable, dégâts sur la durée

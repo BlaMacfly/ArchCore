@@ -410,7 +410,7 @@ back (chance `skill_rate`, otherwise `special_status_rate`; share `damage_conver
 **Damage reflection (counter attack).** `defense_melee_attack` 2 (Counter Attack, a berserker passive: 2 % at
 level 1, 11 % at level 10) sends the damage of a monster's hit that lands or is blocked back to its author,
 with the `skill_rate` chance: AGPMOPTIMIZEDCHARACTION with the player as attacker, the monster as target,
-result **12** (counter attack; value from the result enumeration, to be confirmed in `Archonia.exe`) and the monster's factors (remaining HP, damage as a negative); the monster may
+result **12** (counter attack: `Archonia.exe` then shows the "C.Attack!" mention from `IM_attack.png`) and the monster's factors (remaining HP, damage as a negative); the monster may
 die of it, the experience then goes to the player. Bit 1 of `reflect_melee_attack` (reflecting the damage
 taken) is carried by no skill in the Archonia data.
 
@@ -428,7 +428,7 @@ with a HP condition ("HP;100%;이하": at most 100 % of the maximum) and a numbe
 "횟수;1" once per life); "UseNormalAttack" 0 forbids normal hits. A ready offensive skill (recast elapsed,
 condition met, target within its reach: `range`, radius of an area around the monster, otherwise the
 monster's range) is cast instead of a normal hit, or instead of chasing when the target is already within its
-reach: AGPMSKILL **op 0** (the skill, owner = monster, so that the client knows it; to be confirmed in `Archonia.exe`) then **op 7** (cast) to the players who see the monster;
+reach: AGPMSKILL **op 7** (cast, TID in field 4) to the players who see the monster, without op 0: the skill list (op 0) only goes to its owner, and the client plays the cast of a character in view from this packet alone;
 at the end of the cast time, **op 8** (target = player, remaining HP, damage as negatives) to the players who
 see the target. Damage follows the players' skill formula, from the monster's physical and elemental damage
 (`CharacterDataTable.txt`); an area hits the nearby players; lasting effect, damage over time (AGPMCHARACTER
