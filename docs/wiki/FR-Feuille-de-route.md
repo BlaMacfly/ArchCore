@@ -50,7 +50,9 @@
   (instructeurs, lancement, barre de raccourcis), portails de téléportation (fenêtre et chargement d'origine),
   guildes (greffier, fenêtres de création, de dissolution et de guilde, membres) et discussion de guilde et de
   groupe, packs de ressources graphismes et sons (activés, ordonnés et vérifiés depuis les Options ; voir le
-  [guide](https://github.com/BlaMacfly/ArchCore/blob/client/ArchRust/docs/PACKS-DE-RESSOURCES.md)) ; validés contre ArchCore par des essais sans affichage et des captures du
+  [guide](https://github.com/BlaMacfly/ArchCore/blob/client/ArchRust/docs/PACKS-DE-RESSOURCES.md)), fenêtres d'origine d'Archonia à la place des fenêtres provisoires (confirmations,
+  séparation de pile, achat, banque, groupe, menus principaux, sélection et création du personnage, options),
+  vitesse de déplacement comme Archonia (`/speed` du MJ visible) ; validés contre ArchCore par des essais sans affichage et des captures du
   client graphique, à confirmer en jeu.
 
 - Visibilité entre joueurs : déplacement relayé aux joueurs proches, apparition et disparition
