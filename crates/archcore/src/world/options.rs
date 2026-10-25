@@ -17,6 +17,8 @@
 //!            l'objet pour l'affichage ; ceux du personnage viennent du serveur, qui ajoute les options portées.
 //!            Les colonnes à déclenchement (Critical, skill_*, bonus_*, Ignore_*, on_hit_*…) ne sont pas
 //!            appliquées.
+//!   Options liées : un objet unique cite des groupes (« Link_id » d'itemdatatable.txt) ; chaque groupe donne
+//!            l'option dont « Level_min » ≤ niveau du porteur ≤ « Level_max », ajoutée comme les autres.
 //!   Réseau : AGPMITEM champ 20, mini-paquet de 5 UINT16 (TID des options).
 //! ```
 //! Règles relevées dans `Archonia.exe` (lecteur de la table, application des options, tirage partagé).
@@ -32,9 +34,9 @@ pub const MAX_OPTIONS: usize = 5;
 const PART_COLUMNS: [&str; 9] = ["Upper_Body", "Lower_Body", "Weapon", "Shield", "Head", "Ring", "Necklace", "Shoes", "Gloves"];
 
 /// Colonnes qui décrivent l'option, pas ses effets.
-const META_COLUMNS: [&str; 22] = [
+const META_COLUMNS: [&str; 25] = [
     "tid", "Description", "Upper_Body", "Lower_Body", "Weapon", "Shield", "Head", "Ring", "Necklace", "Shoes", "Gloves", "Refined", "Gacha", "Type",
-    "CategoryName", "PointType", "Item_Level_Min", "Item_Level_Max", "Level_limit", "Rank_Min", "Rank_Max", "Probability",
+    "CategoryName", "PointType", "Item_Level_Min", "Item_Level_Max", "Level_limit", "Rank_Min", "Rank_Max", "Probability", "Link_id", "Level_min", "Level_max",
 ];
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -51,6 +53,9 @@ pub struct ItemOption {
     pub level_limit: i64,
     /// Famille à part (« CategoryName » renseigné).
     pub category: bool,
+    /// Groupe d'options liées (« Link_id ») et niveaux du porteur où celle-ci vaut (« Level_min », « Level_max »).
+    pub link: i64,
+    pub link_level: (i64, i64),
     pub probability: u64,
     /// « PointType » 1 : valeurs en pour cent.
     pub percent: bool,
@@ -75,6 +80,8 @@ pub struct OptionCatalog {
     pub options: HashMap<u16, ItemOption>,
     /// Options du butin par (type, partie).
     pool: HashMap<(i64, usize), Vec<u16>>,
+    /// Options liées par groupe (« Link_id »).
+    links: HashMap<i64, Vec<u16>>,
     pub option_rates: CountRates,
     pub socket_rates: CountRates,
 }
@@ -194,6 +201,8 @@ impl OptionCatalog {
                 rank_max: num(cell(&header, r, "Rank_Max")) as i64,
                 level_limit: num(cell(&header, r, "Level_limit")) as i64,
                 category: !cell(&header, r, "CategoryName").is_empty(),
+                link: num(cell(&header, r, "Link_id")) as i64,
+                link_level: (num(cell(&header, r, "Level_min")) as i64, num(cell(&header, r, "Level_max")) as i64),
                 probability: Some(num(cell(&header, r, "Probability")) as u64).filter(|p| *p <= 100_000).unwrap_or(0),
                 percent: !matches!(cell(&header, r, "PointType"), "" | "0"),
                 stats,
@@ -203,12 +212,20 @@ impl OptionCatalog {
                     c.pool.entry((o.kind, slot)).or_default().push(tid);
                 }
             }
+            if o.link > 0 {
+                c.links.entry(o.link).or_default().push(tid);
+            }
             c.options.insert(tid, o);
         }
-        for list in c.pool.values_mut() {
+        for list in c.pool.values_mut().chain(c.links.values_mut()) {
             list.sort_unstable();
         }
         c
+    }
+
+    /// Option du groupe lié `link` pour un porteur de niveau `level` (« Level_min » ≤ niveau ≤ « Level_max »).
+    pub fn linked(&self, link: i64, level: i64) -> Option<u16> {
+        self.links.get(&link)?.iter().copied().find(|t| self.options.get(t).is_some_and(|o| level >= o.link_level.0 && level <= o.link_level.1))
     }
 
     /// Options tirées pour un équipement neuf lâché par une source de niveau `level` (1 à 120) : nombre selon
@@ -439,6 +456,16 @@ mod tests {
         f.damage_max[0] = 7;
         c.apply(&mut f, &[10, 20, 40]);
         assert_eq!((f.damage_min[0], f.damage_max[0], f.point_max[0]), (7, 9, 165));
+    }
+
+    #[test]
+    fn options_liees() {
+        let table = "tid\tDescription\tType\tLink_id\tLevel_min\tLevel_max\tSkillBlockRate\r\n\
+            2021\tSkill Block +2%\t\t3\t1\t10\t2\r\n\
+            2022\tSkill Block +3%\t\t3\t11\t20\t3\r\n";
+        let c = OptionCatalog::parse(table, "", "");
+        assert_eq!((c.linked(3, 1), c.linked(3, 15), c.linked(3, 30), c.linked(4, 5)), (Some(2021), Some(2022), None, None));
+        assert!(c.options[&2021].stats.iter().all(|(k, _)| k == "SkillBlockRate"));
     }
 
     #[test]

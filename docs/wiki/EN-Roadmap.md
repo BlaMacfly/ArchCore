@@ -71,7 +71,7 @@
 5. Item conversion (sockets, spirit stones, reinforcement) and elemental damage on normal hits: checked with
    the simulator on 25 October 2026, still to confirm in game; item options (rolled on creation, effect on the
    wearer); runes. Skill-granting runes, Archonia's ice, lightning, venom and stat stones,
-   triggered options, unique items' options (`Link_id`) and refining remain.
+   triggered options and refining remain; unique items' linked options (`Link_id`) done.
 6. Guilds: guild battles, alliances and hostilities, guild marks, sub-master and handover, enlarging, guild
    list, warehouse.
 7. Automatic reconnection (type 0x63).

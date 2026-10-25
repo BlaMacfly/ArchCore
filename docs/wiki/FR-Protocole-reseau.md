@@ -339,6 +339,9 @@ l'objet est créé : butin d'un monstre (niveau de la source = niveau du monstre
   1 l'applique en pour cent au total, comme toujours `ATK_Speed_bonus`, `Movement_Run_bonus` et
   `*_Percent`. Les colonnes à déclenchement (Critical, skill_*, bonus_*, Ignore_*, on_hit_*…) ne sont pas
   encore appliquées.
+- **Options liées** : un objet unique cite des groupes d'options (`Link_id` d'itemdatatable.txt, séparés par
+  « ; ») ; pour chaque groupe, le porteur reçoit l'option dont `Level_min` ≤ son niveau ≤ `Level_max`. Rien
+  n'est envoyé : le client les retrouve lui-même pour l'infobulle.
 
 ## Conversion des objets (types 0x16 et 0x38, AgpmItemConvert et AgpmEventItemConvert)
 

@@ -331,6 +331,9 @@ Stored in `character_items.option_tids`.
   range and speed, movement speed); `PointType` 0 adds the value, 1 applies it as a percentage of the total,
   as `ATK_Speed_bonus`, `Movement_Run_bonus` and `*_Percent` always do. Triggered columns (Critical, skill_*,
   bonus_*, Ignore_*, on_hit_*…) are not applied yet.
+- **Linked options**: a unique item lists option groups (`Link_id` in itemdatatable.txt, separated by ";"); for
+  each group the wearer gets the option whose `Level_min` ≤ their level ≤ `Level_max`. Nothing is sent: the
+  client finds them itself for the tooltip.
 
 ## Item conversion (types 0x16 and 0x38, AgpmItemConvert and AgpmEventItemConvert)
 

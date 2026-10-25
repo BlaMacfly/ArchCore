@@ -75,8 +75,8 @@
 5. Conversion des objets (sockets, pierres d'esprit, renforcement) et dégâts élémentaires des coups normaux :
    validés au simulateur le 25 octobre 2026, à confirmer en jeu ; options des objets (tirage à la création,
    effet sur le porteur) ; runes. Restent les runes qui donnent une compétence, les pierres de glace, de foudre, de
-   venin et de caractéristiques d'Archonia, les options à déclenchement, les options des objets uniques
-   (`Link_id`) et le raffinage.
+   venin et de caractéristiques d'Archonia, les options à déclenchement et le raffinage ; options
+   liées des objets uniques (`Link_id`) faites.
 6. Guildes : combats de guildes, alliances et hostilités, emblèmes, second et passation, agrandissement, liste
    des guildes, entrepôt.
 7. Reconnexion automatique (type 0x63).

@@ -87,13 +87,18 @@ pub fn worn(inv: &Inventory, catalog: &ItemCatalog, table: &super::convert::Conv
         .collect()
 }
 
-/// TID des options de l'équipement porté : les siennes, puis celles des runes serties (« OptionTID » ; une
-/// pierre d'esprit n'en a pas).
-pub fn worn_options(inv: &Inventory, catalog: &ItemCatalog) -> Vec<u16> {
-    inv.equipment
-        .values()
-        .flat_map(|i| i.options.iter().copied().chain(i.conv.filled.iter().filter_map(|t| catalog.get(*t)).flat_map(|d| d.option_tids.iter().copied())))
-        .collect()
+/// TID des options de l'équipement porté par un personnage de niveau `level` : les siennes, celles des runes
+/// serties (« OptionTID » ; une pierre d'esprit n'en a pas) et les options liées de l'objet à ce niveau.
+pub fn worn_options(inv: &Inventory, catalog: &ItemCatalog, options: &super::options::OptionCatalog, level: i64) -> Vec<u16> {
+    let mut out = Vec::new();
+    for i in inv.equipment.values() {
+        out.extend(i.options.iter().copied());
+        out.extend(i.conv.filled.iter().filter_map(|t| catalog.get(*t)).flat_map(|d| d.option_tids.iter().copied()));
+        if let Some(e) = catalog.get(i.tid).and_then(|d| d.equip.as_ref()) {
+            out.extend(e.link_ids.iter().filter_map(|l| options.linked(*l, level)));
+        }
+    }
+    out
 }
 
 /// Facteurs de base auxquels s'ajoute l'équipement porté.
@@ -135,7 +140,7 @@ pub fn recompute_factors(ctx: &WorldCtx, p: &mut Player) {
     let Some(tpl) = ctx.templates.get(p.ch.template_id) else { return };
     let old = p.factors.clone();
     let mut f = with_equipment(make_factors(tpl, Some(&p.ch)), &worn(&p.inventory, &ctx.catalog, &ctx.convert));
-    ctx.options.apply(&mut f, &worn_options(&p.inventory, &ctx.catalog));
+    ctx.options.apply(&mut f, &worn_options(&p.inventory, &ctx.catalog, &ctx.options, p.ch.level as i64));
     f.point[..5].copy_from_slice(&old.point[..5]);
     f.status[7] = old.status[7];
     f.dirt = old.dirt;

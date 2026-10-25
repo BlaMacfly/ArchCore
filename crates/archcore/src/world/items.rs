@@ -206,6 +206,8 @@ pub struct EquipData {
     pub rank: i64,
     pub min_option: i64,
     pub max_option: i64,
+    /// Groupes d'options liées (« Link_id », séparés par « ; ») d'un objet unique.
+    pub link_ids: Vec<i64>,
 }
 
 /// Préfixe des colonnes élémentaires d'itemdatatable.txt, dans l'ordre des attributs 1 à 8 (« Linghtning »
@@ -246,6 +248,7 @@ impl EquipData {
             rank: num("Rank"),
             min_option: num("MinOption"),
             max_option: num("MaxOption"),
+            link_ids: text("Link_id").split(';').filter_map(|t| t.trim().parse::<i64>().ok()).filter(|t| *t > 0).collect(),
         })
     }
 }
