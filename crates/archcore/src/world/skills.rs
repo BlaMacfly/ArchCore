@@ -1648,11 +1648,31 @@ pub async fn set_charisma(ctx: &WorldCtx, st: &mut WorldState, sid: u32, points:
     Ok(())
 }
 
+/// D'où vient un gain de charisme. Archonia n'en définit aucune règle de gain : le serveur d'origine le donnait en
+/// combat entre joueurs et, selon les règles de région (`MobCharismaDrop`, `PVPCharismaDrop` de
+/// `RegionPerculiarity.xml`, aucune active dans le fichier du client), sur les monstres. Seule la commande MJ existe.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CharismaSource {
+    Gm,
+    Boss,
+}
+
+/// Bonus de charisme (pour cent) des effets d'un joueur qui portent sur un gain de cette source : Charisma Double et
+/// Event Additional Charisma sur tout gain, Boss Additional Charisma sur ceux d'un boss seulement.
+pub fn charisma_bonus(catalog: &SkillCatalog, effects: &[Effect], source: CharismaSource) -> f64 {
+    effects
+        .iter()
+        .filter(|e| e.mods.charisma_bonus != 0.0)
+        .filter(|e| source == CharismaSource::Boss || !catalog.get(e.tid).is_some_and(|t| t.name.starts_with("Boss ")))
+        .map(|e| e.mods.charisma_bonus)
+        .sum()
+}
+
 /// Charisme gagné : `base` multiplié par le taux du serveur (`Rate.Charisma`, `/SetCharisma`) et majoré des bonus
-/// des effets du joueur (« bonus_charisma_add_rate » : Charisma Double, Boss Additional Charisma…). Rend le gain.
-pub async fn gain_charisma(ctx: &WorldCtx, st: &mut WorldState, sid: u32, base: u32) -> anyhow::Result<u32> {
+/// des effets du joueur qui portent sur cette source (« bonus_charisma_add_rate »). Rend le gain.
+pub async fn gain_charisma(ctx: &WorldCtx, st: &mut WorldState, sid: u32, base: u32, source: CharismaSource) -> anyhow::Result<u32> {
     let Some(p) = st.players.get(&sid) else { return Ok(0) };
-    let gain = charisma_gain(base, st.rates.get("charisma"), effects::of_player(p).charisma_bonus);
+    let gain = charisma_gain(base, st.rates.get("charisma"), charisma_bonus(&ctx.skills, &p.skills.effects, source));
     let total = p.ch.charisma.saturating_add(gain);
     set_charisma(ctx, st, sid, total).await?;
     Ok(gain)
@@ -1878,6 +1898,13 @@ mod tests {
         f.status[4] = 250;
         assert_eq!(charisma_points(&f), 250);
         assert_eq!((charisma_gain(10, 1.0, 0.0), charisma_gain(10, 2.0, 100.0), charisma_gain(7, 1.0, 200.0)), (10, 40, 21), "taux et Charisma Double");
+        // Boss Additional Charisma ne porte que sur les gains d'un boss ; Charisma Double sur tous.
+        let mut catalog = SkillCatalog::default();
+        catalog.insert(SkillTemplate { tid: 1619, name: "Charisma Double".into(), ..Default::default() });
+        catalog.insert(SkillTemplate { tid: 4393, name: "Boss Additional Charisma".into(), ..Default::default() });
+        let buff = |tid: u32, pct: f64| new_effect(&Owned { id: 1, tid, level: 1, ready_at: None }, &SkillLevel { duration_ms: 1000, mods: Mods { charisma_bonus: pct, ..Default::default() }, ..Default::default() }, 96, 0, None, Instant::now());
+        let on = [buff(1619, 100.0), buff(4393, 200.0)];
+        assert_eq!((charisma_bonus(&catalog, &on, CharismaSource::Gm), charisma_bonus(&catalog, &on, CharismaSource::Boss)), (100.0, 300.0));
     }
 
     #[test]

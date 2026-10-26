@@ -76,7 +76,7 @@
 4. Compétences : renvoi de dégâts (contre-attaque), compétences des monstres, compétences de groupe et maîtrises
    validés au simulateur le 25 octobre 2026 ; partage des dégâts (Divine Protection, Martyr's Mark), purges
    (Antimagic, Cure, Disentangle…), défense ignorée (Lethal Attack, Stunner), points héroïques gagnés au niveau et
-   charisme (enregistré, dépensé par les compétences héroïques, gagné par `/charisma` faute de combat entre joueurs)
+   charisme (enregistré, dépensé par les compétences héroïques ; son gain attend le combat entre joueurs, `/charisma` en attendant)
    validés au simulateur le 26 octobre 2026 ; tout reste à confirmer en jeu. Restent les critiques des compétences.
 5. Conversion des objets (sockets, pierres d'esprit, renforcement) et dégâts élémentaires des coups normaux :
    validés au simulateur le 25 octobre 2026, à confirmer en jeu ; options des objets (tirage à la création,

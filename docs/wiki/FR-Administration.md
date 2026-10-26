@@ -82,7 +82,7 @@ la discussion comme messages système.
 | `/last_refine` | 3 | Relance la dernière recette raffinée avec succès depuis la connexion (« Use last refine recipe » du panneau), comme l'op 6 du client : ingrédients pris dans l'inventaire, or payé, résultat dans la fenêtre de raffinage. Refusée sans raffinage réussi |
 | `/level <niveau> ["nom"]` | 3 | Fixe le niveau du personnage connecté (1 à 120) : expérience remise à zéro, PV et PM rendus, points de compétence recalculés ; sans nom, sur soi. Commande propre à ArchCore |
 | `/money <montant> ["nom"]` | 3 | Fixe l'or du personnage connecté (de 0 à 1 000 000 000) ; sans nom, sur soi. Commande propre à ArchCore |
-| `/charisma <points> ["nom"]` | 3 | Donne des points de charisme au personnage connecté (1 à 1 000 000, multipliés par le taux `Rate.Charisma` et les bonus de charisme de ses effets) ; sans nom, à soi. Commande propre à ArchCore, en attendant le combat entre joueurs |
+| `/charisma <points> ["nom"]` | 3 | Donne des points de charisme au personnage connecté (1 à 1 000 000, multipliés par le taux `Rate.Charisma` et les bonus de charisme de ses effets, sauf celui des boss) ; sans nom, à soi. Commande propre à ArchCore (Archonia n'en a pas), en attendant le combat entre joueurs |
 | `/announce_restart <minutes> <secondes>` | 3 | Annonce à tous les joueurs, rappel chaque minute, compte à rebours sur les dernières secondes. `0 0` annule |
 | `/move x,z` | 1 | Téléporte le MJ en (x, z) et envoie les PNJ du nouvel endroit |
 

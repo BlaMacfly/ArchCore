@@ -621,9 +621,12 @@ passives restent.
 **Points héroïques et charisme.** Les points héroïques (facteurs « dirt », indice 7) se gagnent au niveau : 1 au
 niveau 90, puis 2 par niveau jusqu'au 110 et 3 jusqu'au 120 (71 en tout), moins les `require_heroic_point` des
 niveaux appris. Le charisme est le facteur de statut 4, en points bruts (0 à 1 000 000, `characters.charisma`) ;
-`Archonia.exe` ne contient aucune règle de gain (le serveur d'origine le donnait en combat entre joueurs) : ArchCore
-le fait gagner par `/charisma` (taux `Rate.Charisma` et bonus `bonus_charisma_add_rate` des effets, comme Charisma
-Double), et l'apprentissage ou l'amélioration d'un niveau héroïque le dépense (`require_charisma_point`), comme le
+`Archonia.exe` ne contient aucune règle de gain : le serveur d'origine le donnait en combat entre joueurs et, selon
+les règles de région `MobCharismaDrop` et `PVPCharismaDrop` d'`iniRegionPerculiarity.xml` que lit le client, sur les
+monstres ; le fichier d'Archonia n'en active aucune et ne donne aucun montant. Le gain attend donc le combat entre
+joueurs ; en attendant, la commande d'ArchCore `/charisma` le donne (taux `Rate.Charisma` et bonus
+`bonus_charisma_add_rate` des effets qui portent sur ce gain : Charisma Double oui, Boss Additional Charisma
+seulement sur un boss), et l'apprentissage ou l'amélioration d'un niveau héroïque le dépense (`require_charisma_point`), comme le
 retour arrière du client le laisse voir. Faute de points héroïques ou de charisme, l'apprentissage répond 6 ou 7
 (codes du contrôle du client, que sa fenêtre n'affiche pas : un message système les accompagne) et
 l'amélioration (op 3, champ 5) 3 ou 4 (1 argent, 2 points de compétence), que le client affiche.

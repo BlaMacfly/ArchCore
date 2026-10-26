@@ -449,7 +449,7 @@ async fn run(world: &Arc<World>, st: &mut WorldState, sid: u32, cmd: &CommandDef
             if !(1..=1_000_000).contains(&points) {
                 return Ok(err("points entre 1 et 1 000 000"));
             }
-            let gain = super::skills::gain_charisma(ctx, st, target, points as u32).await?;
+            let gain = super::skills::gain_charisma(ctx, st, target, points as u32, super::skills::CharismaSource::Gm).await?;
             let p = &st.players[&target];
             info!("[mj] {} donne {gain} point(s) de charisme à {}", st.players[&sid].ch.name, p.ch.name);
             Ok(format!("{} gagne {gain} point(s) de charisme ({} en tout).", p.ch.name, p.ch.charisma))

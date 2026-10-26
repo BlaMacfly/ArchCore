@@ -591,9 +591,12 @@ Each removed effect goes out in AGPMSKILL **op 5**; passives stay.
 
 **Heroic points and charisma.** Heroic points ("dirt" factors, index 7) are earned with levels: 1 at level 90, then
 2 per level up to 110 and 3 up to 120 (71 in all), minus the `require_heroic_point` of the learned levels. Charisma
-is status factor 4, in raw points (0 to 1,000,000, `characters.charisma`); `Archonia.exe` holds no rule to earn it
-(the original server gave it in player-versus-player fights): ArchCore grants it with `/charisma` (rate
-`Rate.Charisma` and the effects' `bonus_charisma_add_rate` bonus, such as Charisma Double), and learning or upgrading
+is status factor 4, in raw points (0 to 1,000,000, `characters.charisma`); `Archonia.exe` holds no rule to earn it:
+the original server gave it in player-versus-player fights and, under the `MobCharismaDrop` and `PVPCharismaDrop`
+region rules of `iniRegionPerculiarity.xml` read by the client, on monsters; Archonia's file enables none and gives no
+amount. Earning it therefore waits for player-versus-player fights; meanwhile ArchCore's own `/charisma` command
+grants it (rate `Rate.Charisma` and the `bonus_charisma_add_rate` bonus of the effects that apply to that gain:
+Charisma Double yes, Boss Additional Charisma only on a boss), and learning or upgrading
 a heroic level spends it (`require_charisma_point`), as the client's rollback shows. Without enough heroic points or
 charisma, learning answers 6 or 7 (codes of the client's check, which its window does not show: a system message
 comes with them) and upgrading (op 3, field 5) 3 or 4 (1 money, 2 skill points), which the client shows.

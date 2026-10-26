@@ -71,7 +71,7 @@
 4. Skills: damage reflection (counter attack), monster skills, party skills and masteries validated with the
    simulator on 25 October 2026; damage sharing (Divine Protection, Martyr's Mark), dispels (Antimagic, Cure,
    Disentangle…), ignored defense (Lethal Attack, Stunner), heroic points earned with levels and charisma (saved, spent
-   by heroic skills, granted by `/charisma` for lack of player-versus-player fights) validated with the simulator on
+   by heroic skills; earning it waits for player-versus-player fights, `/charisma` meanwhile) validated with the simulator on
    26 October 2026; all to be confirmed in game. Skill criticals remain.
 5. Item conversion (sockets, spirit stones, reinforcement) and elemental damage on normal hits: checked with
    the simulator on 25 October 2026, still to confirm in game; item options (rolled on creation, effect on the
