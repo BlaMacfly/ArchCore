@@ -52,7 +52,9 @@
   guilde et de groupe, chuchotements (barre privée, `/w`, `/r`, bouton de la fenêtre de guilde), packs de ressources graphismes et sons (activés, ordonnés et vérifiés depuis les Options ; voir le
   [guide](https://github.com/BlaMacfly/ArchCore/blob/client/ArchRust/docs/PACKS-DE-RESSOURCES.md)), fenêtres d'origine d'Archonia à la place des fenêtres provisoires (confirmations,
   séparation de pile, achat, banque, groupe, menus principaux, sélection et création du personnage, options),
-  vitesse de déplacement comme Archonia (`/speed` du MJ visible) ; validés contre ArchCore par des essais sans affichage et des captures du
+  vitesse de déplacement comme Archonia (`/speed` du MJ visible), potions bues automatiquement sous le seuil
+  des curseurs des jauges, options GFX, Affichage et Fonction branchées, AddOns activables, textes du client dans
+  la langue choisie ; validés contre ArchCore par des essais sans affichage et des captures du
   client graphique, à confirmer en jeu.
 
 - Visibilité entre joueurs : déplacement relayé aux joueurs proches, apparition et disparition

@@ -51,7 +51,8 @@
   window button), graphics and sound resource packs (enabled,
   ordered and checked from the Options; see the [guide](https://github.com/BlaMacfly/ArchCore/blob/client/ArchRust/docs/RESOURCE-PACKS.en.md)), original Archonia windows instead of the temporary ones (confirmations, stack split,
   buying, bank, party, main menus, character select and creation, options), movement speed like Archonia (the
-  GM's `/speed` visible); verified against ArchCore by headless runs and screenshots of the graphical client, to confirm in game.
+  GM's `/speed` visible), potions drunk automatically below the gauge sliders' threshold, GFX, Display and
+  Function options wired, AddOns that can be toggled, client texts in the chosen language; verified against ArchCore by headless runs and screenshots of the graphical client, to confirm in game.
 - Player visibility: movement relayed to nearby players, appearing and disappearing by distance.
 - Chat within view range, and whispers.
 - GM level sent to the "Admin Commands" panel.
