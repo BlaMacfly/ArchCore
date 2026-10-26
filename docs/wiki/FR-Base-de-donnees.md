@@ -20,7 +20,7 @@ Toutes sont en `utf8mb4`.
 
 | Table | Contenu |
 |---|---|
-| `characters` | Compte, emplacement, nom unique, modèle (TID), niveau, expérience, PV/PM/PE, position, argent, banque, coiffure, visage, suppression logique |
+| `characters` | Compte, emplacement, nom unique, modèle (TID), niveau, expérience, PV/PM/PE, position, argent, banque, coiffure, visage, charisme, suppression logique |
 | `character_items` | Objets : statut 0 inventaire, 1 équipé, 2 banque (rattaché au personnage qui l'a déposé) |
 | `character_quests` | Quêtes en cours (compteurs des monstres A et B) et terminées |
 | `account_bank` | Banque du compte : argent, pages en plus de la première (créée à la première entrée, avec l'argent que les personnages avaient en banque) |
@@ -45,7 +45,7 @@ Remplie par `archcore import` à partir des tables du client.
 | `skill_spec` | `SKILL_SPEC.txt` | Nature de chaque compétence (colonnes non vides, en JSON) |
 | `quest_template` | `questtemplate.ini` | Quêtes (colonnes non vides, en JSON) |
 | `quest_group` | `questgroup.ini` | Groupes de PNJ : quêtes proposées et rendues |
-| `skill_level` | `SKILL_CONST.txt` | Valeurs de chaque niveau de chaque compétence (colonnes non vides, en JSON ; groupes `point.`, `percent.`, `magnify.`) |
+| `skill_level` | `SKILL_CONST.txt`, `Skill_Const2.txt` | Valeurs de chaque niveau de chaque compétence (colonnes non vides, en JSON ; groupes `point.`, `percent.`, `magnify.` ; celles de `Skill_Const2.txt`, suffixées de « 2 », sous `point2.`, `percent2.`…) |
 | `skill_mastery` | `SkillMastery_High.txt`, `SkillMastery_Heroic.txt` | Arbres de maîtrise : classe (TID du modèle), compétence, arbre (1 supérieur, 2 héroïque), compétences exigées `[[TID, points]…]`, total de points dépensés |
 | `npc_spawn` | `npc.ini` | 567 PNJ : modèle, nom, position, orientation, fonctions brutes |
 | `client_table` | autres tables `.txt` | Lignes en JSON, pour les tables pas encore modélisées |

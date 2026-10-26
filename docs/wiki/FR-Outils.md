@@ -269,6 +269,27 @@ potion seule (résultat 2), obtient le devis puis raffine 100 Breath Elemental S
 (recette 4013, 5000 pièces), refait la recette par son identifiant (op 6), est refusé sans ingrédients
 (résultat 1), puis raffine une White Wing Dagger et ses pierres (recette 183) en dague à une option.
 
+```bash
+ARCHCORE_CONF_DIR=config/test archcore sim heroic [compte] [mdp] [personnage]
+ARCHCORE_CONF_DIR=config/test archcore sim divide [compteA mdpA persoA compteB mdpB persoB]
+ARCHCORE_CONF_DIR=config/test archcore sim dispel [compte] [mdp] [personnage]
+ARCHCORE_CONF_DIR=config/test archcore sim ignore [compte] [mdp] [personnage]
+ARCHCORE_CONF_DIR=config/test archcore sim rune [compte] [mdp] [personnage]
+ARCHCORE_CONF_DIR=config/test archcore sim trigger [compte] [mdp] [personnage]
+```
+
+Compétences et objets (`tools/sim/competences.rs`, GmTest, compte MJ ; compétences et objets posés en base puis
+retirés). `sim heroic` passe aux niveaux 89, 100 et 120 et lit les points héroïques (facteurs « dirt », indice 7 :
+0, 21, 71), gagne 300 points de charisme par `/charisma 300` (statut 4) et les relit après reconnexion.
+`sim divide` donne Martyr's Mark niveau 7 à GmTest, forme un groupe avec SimA, lance la compétence (effet sur les
+deux) ; un Ver vert frappe SimA, GmTest prend 40 % du coup (AGPMCHARACTER op 1). `sim dispel` pose Blade Sting
+niveau 10 sur un Ver vert, puis Antimagic (niveau 100 pour ses 500 PM) le lui retire (AGPMSKILL op 5) bien avant
+ses 33 s. `sim ignore` sertit en base une pierre d'eau dans une Short Sword : contre un ver résistant à 50 %, la
+part d'eau d'un coup vaut 3, puis 4 sous Stunner niveau 20 (48 % des résistances ignorées). `sim rune` sertit en
+base une pierre de prière de glace (TID 588) et frappe jusqu'au déclenchement de Cold Prayer Stone <Small>
+(AGPMSKILL op 8, dégâts de glace, puis op 4 : ralentissement). `sim trigger` donne à l'épée l'option 5658
+(28 % d'étourdir 3 s) et frappe jusqu'à un ver étourdi (champ 17), état levé 3 s plus tard.
+
 ## Test des extensions ArchRust
 
 ```bash

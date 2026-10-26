@@ -101,6 +101,22 @@ pub fn worn_options(inv: &Inventory, catalog: &ItemCatalog, options: &super::opt
     out
 }
 
+/// Effets de combat de l'équipement porté : options à déclenchement (les mêmes que `worn_options`) et
+/// compétences des runes serties, retrouvées par leur nom dans le catalogue des compétences.
+pub fn worn_gear(ctx: &WorldCtx, inv: &Inventory, level: i64) -> super::options::Gear {
+    let mut g = ctx.options.gear(&worn_options(inv, &ctx.catalog, &ctx.options, level));
+    for i in inv.equipment.values() {
+        for rune in i.conv.filled.iter().filter_map(|t| ctx.convert.runes.get(t)) {
+            let Some((name, skill_level, rate)) = &rune.skill else { continue };
+            match ctx.skills.by_name(name) {
+                Some(tid) => g.rune_skills.push((tid, *skill_level, *rate)),
+                None => debug!("[équipement] compétence de rune inconnue : {name}"),
+            }
+        }
+    }
+    g
+}
+
 /// Facteurs de base auxquels s'ajoute l'équipement porté.
 pub fn with_equipment(mut f: Factors, worn: &[EquipData]) -> Factors {
     for e in worn {
@@ -141,6 +157,7 @@ pub fn recompute_factors(ctx: &WorldCtx, p: &mut Player) {
     let old = p.factors.clone();
     let mut f = with_equipment(make_factors(tpl, Some(&p.ch)), &worn(&p.inventory, &ctx.catalog, &ctx.convert));
     ctx.options.apply(&mut f, &worn_options(&p.inventory, &ctx.catalog, &ctx.options, p.ch.level as i64));
+    p.gear = worn_gear(ctx, &p.inventory, p.ch.level as i64);
     f.point[..5].copy_from_slice(&old.point[..5]);
     f.status[7] = old.status[7];
     f.dirt = old.dirt;

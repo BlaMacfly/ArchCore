@@ -15,8 +15,10 @@
 //!            ajoute la valeur, 1 l'applique en pour cent ; ATK_Speed_bonus, Movement_Run_bonus et les
 //!            « *_Percent » sont toujours en pour cent. Le client ajoute lui-même les options aux facteurs de
 //!            l'objet pour l'affichage ; ceux du personnage viennent du serveur, qui ajoute les options portées.
-//!            Les colonnes à déclenchement (Critical, skill_*, bonus_*, Ignore_*, on_hit_*…) ne sont pas
-//!            appliquées.
+//!            Options à déclenchement (« skill_type ») : 1 critique, 2 étourdissement, 3 coup reçu changé en PV,
+//!            4 régénération, 5 blessure, 6 esquive ; avec « Ignore_Physical_Defense_Rate » et
+//!            « Ignore_Attribute_Defense_Rate », elles forment les effets de combat de l'équipement (`Gear`), joués
+//!            par le combat. Les colonnes bonus_*, on_hit_*… ne sont pas appliquées.
 //!   Options liées : un objet unique cite des groupes (« Link_id » d'itemdatatable.txt) ; chaque groupe donne
 //!            l'option dont « Level_min » ≤ niveau du porteur ≤ « Level_max », ajoutée comme les autres.
 //!   Réseau : AGPMITEM champ 20, mini-paquet de 5 UINT16 (TID des options).
@@ -353,12 +355,118 @@ const EFFECTS: &[(&str, &[Target], bool)] = {
     ]
 };
 
+/// Sortes d'options à déclenchement (colonne « skill_type »).
+pub mod trigger {
+    /// Coup critique : chance « skill_rate », dégâts « Critical » (pour cent d'un coup normal) ; sans chance,
+    /// « Critical » s'ajoute aux dégâts critiques.
+    pub const CRITICAL: i64 = 1;
+    /// Étourdit la cible d'un coup : chance, durée « stun_time ».
+    pub const STUN: i64 = 2;
+    /// Change une part d'un coup reçu en PV : chance, part « damage_convert_hp ».
+    pub const DRAIN: i64 = 3;
+    /// Rend « regen_hp » PV et « regen_mp » PM toutes les 10 s.
+    pub const REGEN: i64 = 4;
+    /// Blesse la cible d'un coup : chance, dégâts de la colonne de leur élément chaque seconde pendant « duration ».
+    pub const WOUND: i64 = 5;
+    /// Esquive (« evade_rate ») : chance d'éviter un coup.
+    pub const EVADE: i64 = 6;
+}
+
+/// Colonnes de dégâts d'une option qui blesse, et leur indice dans le résultat d'un coup.
+const WOUND_COLUMNS: [(&str, usize); 9] = [
+    ("PhysicalDamage", 9),
+    ("MagicDamage", 10),
+    ("WaterDamage", 11),
+    ("FireDamage", 12),
+    ("EarthDamage", 13),
+    ("AirDamage", 14),
+    ("PoisonDamage", 15),
+    ("LinghtningDamage", 16),
+    ("IceDamage", 17),
+];
+
+/// Dégâts sur la durée qu'une option pose sur la cible d'un coup.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Wound {
+    pub rate: f64,
+    pub duration_ms: u64,
+    /// (indice dans le résultat, dégâts par seconde).
+    pub damages: Vec<(usize, i32)>,
+}
+
+/// Effets de combat de l'équipement porté : options à déclenchement, défense ignorée, compétences des runes.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Gear {
+    /// Critiques, coups reçus changés en PV, esquive, défense ignorée.
+    pub mods: super::effects::Mods,
+    /// Étourdissements de la cible d'un coup : (chance, durée en ms).
+    pub stuns: Vec<(f64, u64)>,
+    pub wounds: Vec<Wound>,
+    /// Rendus toutes les 10 s, en combat aussi.
+    pub regen_hp: i32,
+    pub regen_mp: i32,
+    /// Compétences des runes serties (« Skill_Name », « Skill_Level », « Skill_Rate ») : (TID, niveau, chance).
+    pub rune_skills: Vec<(u32, u32, f64)>,
+}
+
+impl ItemOption {
+    fn stat(&self, column: &str) -> f64 {
+        self.stats.iter().find(|(c, _)| c == column).map(|(_, v)| *v).unwrap_or(0.0)
+    }
+    /// Option à déclenchement (« skill_type ») : ses colonnes de dégâts ne s'ajoutent pas aux facteurs.
+    pub fn trigger(&self) -> i64 {
+        self.stat("skill_type") as i64
+    }
+}
+
 impl OptionCatalog {
+    /// Effets de combat des options `tids`.
+    pub fn gear(&self, tids: &[u16]) -> Gear {
+        let mut g = Gear::default();
+        for o in tids.iter().filter_map(|t| self.options.get(t)) {
+            let (rate, crit) = (o.stat("skill_rate"), o.stat("Critical"));
+            match o.trigger() {
+                trigger::CRITICAL if rate > 0.0 => {
+                    g.mods.crit_rate += rate;
+                    g.mods.crit_dmg = g.mods.crit_dmg.max(crit);
+                }
+                trigger::CRITICAL => g.mods.crit_dmg += crit,
+                trigger::STUN if rate > 0.0 => {
+                    let ms = if o.stat("stun_time") > 0.0 { o.stat("stun_time") } else { o.stat("duration") };
+                    g.stuns.push((rate, ms.max(0.0) as u64));
+                }
+                trigger::DRAIN if rate > 0.0 => {
+                    g.mods.to_hp_rate += rate;
+                    g.mods.to_hp = g.mods.to_hp.max(o.stat("damage_convert_hp"));
+                }
+                trigger::REGEN => {
+                    g.regen_hp += o.stat("regen_hp") as i32;
+                    g.regen_mp += o.stat("regen_mp") as i32;
+                }
+                trigger::WOUND if rate > 0.0 => {
+                    let damages: Vec<(usize, i32)> = WOUND_COLUMNS.iter().map(|(c, i)| (*i, o.stat(c) as i32)).filter(|(_, d)| *d > 0).collect();
+                    if !damages.is_empty() {
+                        // « dot_damage_time », lu après « duration », la remplace (`Archonia.exe`) : c'est la durée totale.
+                        let ms = if o.stat("dot_damage_time") > 0.0 { o.stat("dot_damage_time") } else { o.stat("duration") };
+                        g.wounds.push(Wound { rate, duration_ms: ms.max(0.0) as u64, damages });
+                    }
+                }
+                trigger::EVADE => g.mods.dodge += o.stat("evade_rate").max(o.stat("dodge_rate")),
+                // Sans « skill_type », « Critical » seul donne une chance de coup critique (« Critical Hit Rate +1% »).
+                0 if crit > 0.0 => g.mods.crit_rate += crit,
+                _ => {}
+            }
+            g.mods.ignore_defense += o.stat("Ignore_Physical_Defense_Rate");
+            g.mods.ignore_resist += o.stat("Ignore_Attribute_Defense_Rate");
+        }
+        g
+    }
+
     /// Ajoute aux facteurs d'un personnage les options de son équipement porté : d'abord les valeurs, puis les
-    /// pourcentages, appliqués au total.
+    /// pourcentages, appliqués au total. Les dégâts d'une option qui blesse sont ceux de sa blessure, pas un bonus.
     pub fn apply(&self, f: &mut crate::character::Factors, tids: &[u16]) {
         let mut percent: Vec<(Target, f64)> = Vec::new();
-        for o in tids.iter().filter_map(|t| self.options.get(t)) {
+        for o in tids.iter().filter_map(|t| self.options.get(t)).filter(|o| o.trigger() != trigger::WOUND) {
             for (column, value) in &o.stats {
                 let Some((_, targets, always_pct)) = EFFECTS.iter().find(|(c, _, _)| c == column) else { continue };
                 for t in *targets {
@@ -462,6 +570,33 @@ mod tests {
         f.damage_max[0] = 7;
         c.apply(&mut f, &[10, 20, 40]);
         assert_eq!((f.damage_min[0], f.damage_max[0], f.point_max[0]), (7, 9, 165));
+    }
+
+    #[test]
+    fn options_a_declenchement() {
+        let table = "tid\tDescription\tType\tPhysicalDamage\tPoisonDamage\tskill_type\tduration\tskill_rate\tCritical\tstun_time\tdamage_convert_hp\tregen_hp\tregen_mp\tdot_damage_time\tevade_rate\tdodge_rate\tIgnore_Physical_Defense_Rate\r\n\
+            2151\t1% chance on hit to strike your target for 110% damage.\t22\t\t\t1\t\t1\t110\r\n\
+            890\tIncreases Critical Hit Damage by +50%\t145\t\t\t1\t\t\t50\r\n\
+            2161\t1% chance on hit to stun your target for 1 sec.\t23\t\t\t2\t\t1\t\t1000\r\n\
+            2171\t4% chance when hit to convert 10% of damage taken into restored health.\t24\t\t\t3\t\t4\t\t\t10\r\n\
+            2181\tHP Recovery +20 every 10 sec\t25\t\t\t4\t\t\t\t\t\t20\r\n\
+            888\tMana Recovery +200 every 10 sec\t145\t\t\t4\t\t\t\t\t\t\t200\r\n\
+            2325\tpoison wound\t39\t\t60\t5\t6000\t4\t\t\t\t\t\t6000\r\n\
+            2253\tDodge +4%\t42\t\t\t6\t\t\t\t\t\t\t\t\t4\t4\r\n\
+            13822\tCritical Hit Rate +1%\t55\t\t\t\t\t\t1\r\n\
+            50\tIgnore Defense +5%\t60\t3\t\t\t\t\t\t\t\t\t\t\t\t\t5\r\n";
+        let c = OptionCatalog::parse(table, "", "");
+        let g = c.gear(&[2151, 890, 2161, 2171, 2181, 888, 2325, 2253, 13822, 50]);
+        assert_eq!((g.mods.crit_rate, g.mods.crit_dmg), (2.0, 160.0), "1 % + 1 % de chance ; 110 % puis +50 %");
+        assert_eq!(g.stuns, vec![(1.0, 1000)]);
+        assert_eq!((g.mods.to_hp_rate, g.mods.to_hp), (4.0, 10.0));
+        assert_eq!((g.regen_hp, g.regen_mp), (20, 200));
+        assert_eq!(g.wounds, vec![Wound { rate: 4.0, duration_ms: 6000, damages: vec![(15, 60)] }]);
+        assert_eq!((g.mods.dodge, g.mods.ignore_defense), (4.0, 5.0));
+        // Les dégâts d'une blessure ne s'ajoutent pas aux facteurs ; ceux d'une option ordinaire, si.
+        let mut f = crate::character::Factors::default();
+        c.apply(&mut f, &[2325, 50]);
+        assert_eq!((f.damage_min[6], f.damage_min[0]), (0, 3));
     }
 
     #[test]

@@ -69,12 +69,16 @@
 3. NPC functions: quests with interaction objects. Portals: disabled points (op 5 field 5) and siege war
    trips; refusal while transformed to check once transformation exists.
 4. Skills: damage reflection (counter attack), monster skills, party skills and masteries validated with the
-   simulator on 25 October 2026, to be confirmed in game. Still to do: damage sharing (Divine Protection, Martyr's
-   Mark), dispels, ignored defense and earning heroic and charisma points.
+   simulator on 25 October 2026; damage sharing (Divine Protection, Martyr's Mark), dispels (Antimagic, Cure,
+   Disentangle…), ignored defense (Lethal Attack, Stunner), heroic points earned with levels and charisma (saved, spent
+   by heroic skills, granted by `/charisma` for lack of player-versus-player fights) validated with the simulator on
+   26 October 2026; all to be confirmed in game. Skill criticals remain.
 5. Item conversion (sockets, spirit stones, reinforcement) and elemental damage on normal hits: checked with
    the simulator on 25 October 2026, still to confirm in game; item options (rolled on creation, effect on the
-   wearer); runes. Skill-granting runes, Archonia's ice, lightning, venom and stat stones,
-   triggered options remain; unique items' linked options (`Link_id`) and refining (alchemy sphere, quote, grid and
+   wearer); runes; skill runes (ice, lightning and poison prayer stones) and triggered options (critical, stun,
+   wound, HP returned, regeneration, evasion, ignored defense) validated with the simulator on 26 October 2026, to be
+   confirmed in game; Archonia's ice, lightning, venom and stat stones refused as the client does; unique items'
+   linked options (`Link_id`) and refining (alchemy sphere, quote, grid and
    recipes) done.
 6. Guilds: guild battles, alliances and hostilities, guild warehouse.
 7. Automatic reconnection: to be confirmed with the Archonia client.

@@ -185,6 +185,9 @@ pub struct Player {
     pub last_recipe: Option<u32>,
     /// Multiplicateur de la vitesse de déplacement réglé par /speed (1 : normal), oublié à la déconnexion.
     pub gm_speed: i32,
+    /// Effets de combat de l'équipement porté (options à déclenchement, runes à compétence), recalculés avec
+    /// les facteurs.
+    pub gear: options::Gear,
 }
 
 impl Player {
@@ -479,6 +482,7 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
     ch.bank_size = bank.extra_slots as i32;
     let mut factors = equipment::with_equipment(make_factors(tpl, Some(&ch)), &equipment::worn(&inventory, &ctx.catalog, &ctx.convert));
     ctx.options.apply(&mut factors, &equipment::worn_options(&inventory, &ctx.catalog, &ctx.options, ch.level as i64));
+    let gear = equipment::worn_gear(ctx, &inventory, ch.level as i64);
     let mut skills = skills::load(&ctx.db, &ctx.skills, ch.id, &mut st.next_skill_id).await?;
     skills::refresh_points(&ctx.skills, &skills, &mut factors);
     skills::sync_passives(&ctx.skills, &mut skills, ch.template_id);
@@ -556,6 +560,7 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
             last_recipe: None,
             gm_speed: 1,
             ui_status,
+            gear,
         },
     );
     st.by_cid.insert(cid, s.id());

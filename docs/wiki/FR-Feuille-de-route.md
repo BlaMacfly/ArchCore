@@ -74,13 +74,16 @@
 3. Fonctions des PNJ : quêtes à objets d'interaction. Portails : points désactivés (champ 5 de l'op 5) et
    trajets des guerres de siège ; refus des métamorphosés à vérifier quand la métamorphose existera.
 4. Compétences : renvoi de dégâts (contre-attaque), compétences des monstres, compétences de groupe et maîtrises
-   validés au simulateur le 25 octobre 2026, à confirmer en jeu. Restent le partage des dégâts (Divine Protection,
-   Martyr's Mark), les purges, la défense ignorée et le gain des points héroïques et de charisme.
+   validés au simulateur le 25 octobre 2026 ; partage des dégâts (Divine Protection, Martyr's Mark), purges
+   (Antimagic, Cure, Disentangle…), défense ignorée (Lethal Attack, Stunner), points héroïques gagnés au niveau et
+   charisme (enregistré, dépensé par les compétences héroïques, gagné par `/charisma` faute de combat entre joueurs)
+   validés au simulateur le 26 octobre 2026 ; tout reste à confirmer en jeu. Restent les critiques des compétences.
 5. Conversion des objets (sockets, pierres d'esprit, renforcement) et dégâts élémentaires des coups normaux :
    validés au simulateur le 25 octobre 2026, à confirmer en jeu ; options des objets (tirage à la création,
-   effet sur le porteur) ; runes. Restent les runes qui donnent une compétence, les pierres de glace, de foudre, de
-   venin et de caractéristiques d'Archonia et les options à déclenchement ; options liées des objets
-   uniques (`Link_id`) et raffinage (sphère d'alchimie, devis, grille et recettes) faits.
+   effet sur le porteur) ; runes ; runes à compétence (pierres de prière de glace, de foudre, de poison) et options à
+   déclenchement (critique, étourdissement, blessure, PV rendus, régénération, esquive, défense ignorée) validées au
+   simulateur le 26 octobre 2026, à confirmer en jeu ; pierres de glace, de foudre, de venin et de caractéristiques
+   d'Archonia refusées comme par le client ; options liées des objets uniques (`Link_id`) et raffinage (sphère d'alchimie, devis, grille et recettes) faits.
 6. Guildes : combats de guildes, alliances et hostilités, entrepôt.
 7. Reconnexion automatique : à confirmer avec le client Archonia.
 8. Commandes MJ restantes de la page [[Administration|FR-Administration]] : elles attendent leurs systèmes

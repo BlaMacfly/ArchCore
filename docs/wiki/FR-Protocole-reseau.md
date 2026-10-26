@@ -337,11 +337,21 @@ l'objet est créé : butin d'un monstre (niveau de la source = niveau du monstre
   vise un facteur (dégâts min et max d'un attribut, défense en points ou en taux, PV et PM max, précision,
   caractéristiques, portée et vitesse d'attaque, vitesse de déplacement) ; `PointType` 0 ajoute la valeur,
   1 l'applique en pour cent au total, comme toujours `ATK_Speed_bonus`, `Movement_Run_bonus` et
-  `*_Percent`. Les colonnes à déclenchement (Critical, skill_*, bonus_*, Ignore_*, on_hit_*…) ne sont pas
-  encore appliquées.
+  `*_Percent`.
 - **Options liées** : un objet unique cite des groupes d'options (`Link_id` d'itemdatatable.txt, séparés par
   « ; ») ; pour chaque groupe, le porteur reçoit l'option dont `Level_min` ≤ son niveau ≤ `Level_max`. Rien
   n'est envoyé : le client les retrouve lui-même pour l'infobulle.
+- **Options à déclenchement** (colonne `skill_type`, lue par `Archonia.exe` sans calcul côté client) : 1 coup
+  critique (chance `skill_rate`, dégâts `Critical` en pour cent d'un coup normal ; sans chance, `Critical`
+  s'ajoute aux dégâts critiques ; sans `skill_type`, `Critical` seul est une chance), 2 étourdissement de la
+  cible d'un coup qui touche (chance, `stun_time` ou à défaut `duration` en ms), 3 coup reçu changé en PV
+  (chance, part `damage_convert_hp`), 4 régénération (`regen_hp`, `regen_mp` toutes les 10 s, en combat aussi),
+  5 blessure de la cible (chance ; dégâts de la colonne de leur élément chaque seconde pendant
+  `dot_damage_time`, qui remplace `duration` ; ces dégâts ne s'ajoutent pas aux facteurs), 6 esquive
+  (`evade_rate` : chance d'éviter un coup de monstre, résultat 7). `Ignore_Physical_Defense_Rate` et
+  `Ignore_Attribute_Defense_Rate` s'ajoutent à la défense ignorée (section Compétences). L'étourdissement
+  part dans l'état du monstre (AGPMCHARACTER op 1, champ 17), la blessure dans ses PV (op 1) ; aucun paquet
+  d'effet ne les annonce.
 
 ## Conversion des objets (types 0x16 et 0x38, AgpmItemConvert et AgpmEventItemConvert)
 
@@ -387,9 +397,16 @@ de 8 INT32).
   10 sertissages perdus, 11 retour à +0 et sertissages perdus, 12 objet détruit. La rune est consommée dans tous
   les cas. Une rune sertie apporte au porteur les options de son `OptionTID` (itemdatatable.txt). Une rune
   envoyée par l'op 4 est reconnue à sa table et traitée comme une rune.
+- **Runes à compétence** : les pierres de prière de glace, de foudre et de poison (`Skill_Name`, `Skill_Level`,
+  `Skill_Rate` d'itemruneattributetable.txt ; le client relie la compétence par son nom) lancent leur compétence
+  sur la cible d'un coup normal qui touche, avec la chance `Skill_Rate` (4 à 6 %) : AGPMSKILL **op 8** (lanceur
+  = joueur, TID de la compétence, dégâts élémentaires fixes du niveau moins la résistance de la cible), puis
+  **op 4** de l'effet du niveau (Cold Prayer Stone : ralentissement de 15 % pendant 5 s ; Lightning : étourdi
+  3 s ; Deadly Poison : poison toutes les 3 s pendant 30 s).
 
-Pas encore gérés : les runes qui donnent une compétence (`Skill_Name`), les pierres de glace, de foudre et de
-venin et les pierres de caractéristiques d'Archonia (`Spirit Type` 6 à 8 et 100 à 106, refusées par le client).
+Pierres d'Archonia : le contrôle du client (`Spirit Type` 1 à 5, rang 1 à 5) refuse les pierres de poison (6),
+de foudre (7), de glace (8) et de caractéristiques (100 à 106), qui n'ont pas de `Rank` ; ArchCore les refuse de
+même (op 7, résultat 2).
 
 ## Raffinage (types 0x4B et 0x3F, AgpmRefinery et AgpmEventRefinery)
 
@@ -574,9 +591,44 @@ endormi perd son incantation ; une cible partie à plus de 5000 unités (limite 
 `skill_rate`. Les tables ne disent pas à quel rythme le serveur d'origine lançait ces compétences : ArchCore
 lance chacune dès qu'elle est prête. Midas (TID 40, IA 403) lance ainsi Insanity (181) toutes les 6 s.
 
-Restent à faire : défense ignorée (bits 4 et 8 de `reflect_melee_attack`), critiques des compétences,
-purges, partage des dégâts (`divide` : Divine Protection, Martyr's Mark) ; gain des points héroïques et de
-charisme, que les compétences héroïques exigent aussi.
+**Défense ignorée.** Les bits 4 et 8 de `reflect_melee_attack` (au-delà des valeurs exactes 1 et 2) font
+ignorer, tant que dure l'effet, une part de la défense physique (Lethal Attack, Paint With Blood) ou des
+résistances élémentaires (Stunner, Testament) de la cible des coups du porteur ; les montants viennent de
+`Skill_Const2.txt` (`ignore_physical_defence_percent2`, `ignore_attribute_defence_percent2`, importés avec les
+niveaux de `SKILL_CONST.txt` sous le préfixe `percent2.`), auxquels s'ajoutent les options
+`Ignore_*_Defense_Rate` de l'équipement. Les résistances élémentaires des monstres (`Magic Res.`, `Water Res.`…
+de `CharacterDataTable.txt`, 100 % au plus) réduisent désormais la part élémentaire des coups et des
+compétences des joueurs. Stunner niveau 20 (48 %) fait ainsi passer la part d'eau d'un coup contre un Ver vert
+(50 %) de 3 à 4.
+
+**Partage des dégâts.** La colonne `divide` de `SKILL_SPEC.txt` (bits relevés dans le lecteur d'`Archonia.exe`,
+sens d'après les infobulles) : 1 dégâts élémentaires, 2 dégâts physiques, 4 absorbés par les invocations, 8
+dégâts héroïques, 16 pris par le lanceur. Divine Protection (17) et Martyr's Mark (18), compétences de groupe,
+posent sur leur lanceur et les membres de son groupe proches un effet : tant qu'il dure, chaque coup de monstre
+reçu par un membre fait prendre au lanceur, s'il est en jeu et vivant, `divide_rate` pour cent (10 à 50) de sa
+part élémentaire ou physique (le client affiche « Party Damage Absorption Rate »). Le lanceur perd ces PV
+(AGPMCHARACTER op 1, facteurs du résultat) et peut en mourir. Dangerous Position (8, dégâts héroïques) et Crown of
+Madness (6, invocations) n'ont rien à partager dans ArchCore.
+
+**Purges.** La colonne `dispel_magic` (modulo 10000 ; 10000 et plus : purge répétée) : 2 (valeur exacte)
+affaiblissements, 4 étourdissements, 8 ralentissements, 16 tous les effets, 32 invisibilité, 64 effets à état
+spécial. Une compétence amie purge ses cibles (Assistance et Disentangle, `target` 10, peuvent viser un autre
+joueur à portée), une offensive purge le monstre touché (Antimagic) et aussi son lanceur si les centaines de
+`target` valent 1 (Bow of Meditation). Cure (10002) pose un effet qui, toutes les `interval` ms et avec la chance
+`skill_rate`, retire les affaiblissements de son porteur. Chaque effet retiré part en AGPMSKILL **op 5** ; les
+passives restent.
+
+**Points héroïques et charisme.** Les points héroïques (facteurs « dirt », indice 7) se gagnent au niveau : 1 au
+niveau 90, puis 2 par niveau jusqu'au 110 et 3 jusqu'au 120 (71 en tout), moins les `require_heroic_point` des
+niveaux appris. Le charisme est le facteur de statut 4, en points bruts (0 à 1 000 000, `characters.charisma`) ;
+`Archonia.exe` ne contient aucune règle de gain (le serveur d'origine le donnait en combat entre joueurs) : ArchCore
+le fait gagner par `/charisma` (taux `Rate.Charisma` et bonus `bonus_charisma_add_rate` des effets, comme Charisma
+Double), et l'apprentissage ou l'amélioration d'un niveau héroïque le dépense (`require_charisma_point`), comme le
+retour arrière du client le laisse voir. Faute de points héroïques ou de charisme, l'apprentissage répond 6 ou 7
+(codes du contrôle du client, que sa fenêtre n'affiche pas : un message système les accompagne) et
+l'amélioration (op 3, champ 5) 3 ou 4 (1 argent, 2 points de compétence), que le client affiche.
+
+Restent à faire : critiques des compétences.
 
 ## Portails de téléportation (type 0x31, AgpmEventTeleport)
 

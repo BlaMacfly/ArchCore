@@ -329,11 +329,19 @@ Stored in `character_items.option_tids`.
 - **Effect**: the server adds the options of worn equipment to the character's factors. Each column targets a
   factor (min and max damage of an attribute, defense in points or rate, max HP and MP, accuracy, stats, attack
   range and speed, movement speed); `PointType` 0 adds the value, 1 applies it as a percentage of the total,
-  as `ATK_Speed_bonus`, `Movement_Run_bonus` and `*_Percent` always do. Triggered columns (Critical, skill_*,
-  bonus_*, Ignore_*, on_hit_*…) are not applied yet.
+  as `ATK_Speed_bonus`, `Movement_Run_bonus` and `*_Percent` always do.
 - **Linked options**: a unique item lists option groups (`Link_id` in itemdatatable.txt, separated by ";"); for
   each group the wearer gets the option whose `Level_min` ≤ their level ≤ `Level_max`. Nothing is sent: the
   client finds them itself for the tooltip.
+- **Triggered options** (`skill_type` column, read by `Archonia.exe` with no client-side computation): 1 critical
+  hit (chance `skill_rate`, damage `Critical` as a percentage of a normal hit; without a chance, `Critical` adds to
+  critical damage; without `skill_type`, `Critical` alone is a chance), 2 stuns the target of a landed hit (chance,
+  `stun_time`, or else `duration`, in ms), 3 turns a received hit into HP (chance, share `damage_convert_hp`),
+  4 regeneration (`regen_hp`, `regen_mp` every 10 s, in combat too), 5 wounds the target (chance; damage from the
+  column of its element every second for `dot_damage_time`, which overrides `duration`; this damage is not added
+  to the factors), 6 evasion (`evade_rate`: chance to avoid a monster hit, result 7). `Ignore_Physical_Defense_Rate`
+  and `Ignore_Attribute_Defense_Rate` add to the ignored defense (Skills section). The stun goes out in the
+  monster's state (AGPMCHARACTER op 1, field 17), the wound in its HP (op 1); no effect packet announces them.
 
 ## Item conversion (types 0x16 and 0x38, AgpmItemConvert and AgpmEventItemConvert)
 
@@ -376,8 +384,14 @@ AGPMITEMCONVERT (2 flag bytes): 0 op, 1 CID, 2 item IID, 3 IID of what converts 
   lost, 12 item destroyed. The rune is used up either way. A set rune gives the wearer the options of its
   `OptionTID` (itemdatatable.txt). A rune sent with op 4 is recognised by its table and handled as a rune.
 
-Not handled yet: runes that grant a skill (`Skill_Name`), Archonia's ice, lightning and venom stones and stat
-stones (`Spirit Type` 6 to 8 and 100 to 106, refused by the client).
+- **Skill runes**: the ice, lightning and poison prayer stones (`Skill_Name`, `Skill_Level`, `Skill_Rate` of
+  itemruneattributetable.txt; the client links the skill by its name) cast their skill on the target of a landed
+  normal hit, with the `Skill_Rate` chance (4 to 6 %): AGPMSKILL **op 8** (caster = player, skill TID, the
+  level's fixed elemental damage minus the target's resistance), then **op 4** for the level's effect (Cold Prayer
+  Stone: 15 % slow for 5 s; Lightning: stunned 3 s; Deadly Poison: poison every 3 s for 30 s).
+
+Archonia's stones: the client's check (`Spirit Type` 1 to 5, rank 1 to 5) refuses the poison (6), lightning (7),
+ice (8) and stat (100 to 106) stones, which have no `Rank`; ArchCore refuses them too (op 7, result 2).
 
 ## Refining (types 0x4B and 0x3F, AgpmRefinery and AgpmEventRefinery)
 
@@ -551,9 +565,40 @@ Skill"…) comes with the normal hits that land, with the `skill_rate` chance. T
 the original server cast these skills: ArchCore casts each one as soon as it is ready. Midas (TID 40, AI 403)
 thus casts Insanity (181) every 6 s.
 
-Still to do: ignored defense (bits 4 and 8 of `reflect_melee_attack`), skill criticals, dispels, damage
-sharing (`divide`: Divine Protection, Martyr's Mark); earning heroic and charisma points, which heroic skills
-also require.
+**Ignored defense.** Bits 4 and 8 of `reflect_melee_attack` (beyond the exact values 1 and 2) make the wearer's
+hits ignore, while the effect lasts, part of the target's physical defense (Lethal Attack, Paint With Blood) or
+elemental resistances (Stunner, Testament); the amounts come from `Skill_Const2.txt`
+(`ignore_physical_defence_percent2`, `ignore_attribute_defence_percent2`, imported with the `SKILL_CONST.txt`
+levels under the `percent2.` prefix), plus the equipment's `Ignore_*_Defense_Rate` options. Monsters' elemental
+resistances (`Magic Res.`, `Water Res.`… in `CharacterDataTable.txt`, 100 % at most) now reduce the elemental part
+of players' hits and skills. Stunner level 20 (48 %) thus raises the water part of a hit against a Green Worm
+(50 %) from 3 to 4.
+
+**Damage sharing.** The `divide` column of `SKILL_SPEC.txt` (bits read from `Archonia.exe`'s parser, meaning from
+the tooltips): 1 elemental damage, 2 physical damage, 4 absorbed by summons, 8 heroic damage, 16 taken by the
+caster. Divine Protection (17) and Martyr's Mark (18), party skills, put an effect on their caster and the nearby
+party members: while it lasts, each monster hit taken by a member makes the caster, when in game and alive, take
+`divide_rate` percent (10 to 50) of its elemental or physical part (the client shows "Party Damage Absorption
+Rate"). The caster loses those HP (AGPMCHARACTER op 1, result factors) and may die from them. Dangerous Position
+(8, heroic damage) and Crown of Madness (6, summons) have nothing to share in ArchCore.
+
+**Dispels.** The `dispel_magic` column (modulo 10000; 10000 and more: repeated dispel): 2 (exact value) debuffs,
+4 stuns, 8 slows, 16 every effect, 32 invisibility, 64 effects with a special state. A friendly skill dispels its
+targets (Assistance and Disentangle, `target` 10, can aim at another player in range), an offensive one the
+monster it hits (Antimagic) and also its caster when the hundreds of `target` are 1 (Bow of Meditation). Cure
+(10002) leaves an effect that, every `interval` ms and with the `skill_rate` chance, removes its wearer's debuffs.
+Each removed effect goes out in AGPMSKILL **op 5**; passives stay.
+
+**Heroic points and charisma.** Heroic points ("dirt" factors, index 7) are earned with levels: 1 at level 90, then
+2 per level up to 110 and 3 up to 120 (71 in all), minus the `require_heroic_point` of the learned levels. Charisma
+is status factor 4, in raw points (0 to 1,000,000, `characters.charisma`); `Archonia.exe` holds no rule to earn it
+(the original server gave it in player-versus-player fights): ArchCore grants it with `/charisma` (rate
+`Rate.Charisma` and the effects' `bonus_charisma_add_rate` bonus, such as Charisma Double), and learning or upgrading
+a heroic level spends it (`require_charisma_point`), as the client's rollback shows. Without enough heroic points or
+charisma, learning answers 6 or 7 (codes of the client's check, which its window does not show: a system message
+comes with them) and upgrading (op 3, field 5) 3 or 4 (1 money, 2 skill points), which the client shows.
+
+Still to do: skill criticals.
 
 ## Teleport portals (type 0x31, AgpmEventTeleport)
 

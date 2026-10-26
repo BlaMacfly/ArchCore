@@ -146,6 +146,17 @@ pub struct Mods {
     pub stun_protect: f64,
     /// Contre-attaque : chance (pour cent) de renvoyer à son auteur les dégâts d'un coup reçu.
     pub counter: f64,
+    /// Défense ignorée par les coups du porteur (pour cent) : défense physique, résistances élémentaires.
+    pub ignore_defense: f64,
+    pub ignore_resist: f64,
+    /// Partage des dégâts : part (pour cent) des dégâts physiques et élémentaires reçus que prend le lanceur
+    /// de l'effet.
+    pub share_physical: f64,
+    pub share_spirit: f64,
+    /// Chance d'esquiver un coup (pour cent).
+    pub dodge: f64,
+    /// Charisme gagné en plus (pour cent, « bonus_charisma_add_rate » : Charisma Double…).
+    pub charisma_bonus: f64,
 }
 
 /// Soin à l'application : PV et PM fixes et pour cent du maximum.
@@ -192,6 +203,7 @@ impl Mods {
             movement_pct: pc("movement"),
             atk_speed_pct: pc("atk_speed"),
             block: p("physical_block"),
+            charisma_bonus: num(c, "bonus_charisma_add_rate"),
             ..Default::default()
         }
     }
@@ -226,6 +238,12 @@ impl Mods {
         self.to_mp += o.to_mp;
         self.stun_protect += o.stun_protect;
         self.counter += o.counter;
+        self.ignore_defense += o.ignore_defense;
+        self.ignore_resist += o.ignore_resist;
+        self.share_physical += o.share_physical;
+        self.share_spirit += o.share_spirit;
+        self.dodge += o.dodge;
+        self.charisma_bonus += o.charisma_bonus;
     }
 }
 
@@ -282,6 +300,78 @@ pub struct Effect {
     /// États spéciaux posés, jusqu'à `status_until` (`None` : tant que dure l'effet).
     pub status: u64,
     pub status_until: Option<Instant>,
+    /// Session du lanceur (`MONSTER_CASTER` : un monstre, ou personne à qui revenir).
+    pub caster_sid: u32,
+    /// Purge répétée tant que dure l'effet (Cure).
+    pub purge: Option<Purge>,
+}
+
+/// Purge répétée : sortes d'effets retirés (bits de `dispel`), chance à chaque fois, période.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Purge {
+    pub kinds: u64,
+    pub rate: f64,
+    pub interval: Duration,
+    pub next_at: Instant,
+}
+
+/// Sortes d'effets qu'une purge retire (colonne dispel_magic de SKILL_SPEC, modulo 10000 ; 10000 et plus :
+/// purge répétée).
+pub mod dispel {
+    /// 2 (valeur exacte) : affaiblissements.
+    pub const DEBUFFS: u64 = 0x2;
+    pub const STUN: u64 = 0x4;
+    pub const SLOW: u64 = 0x8;
+    /// Tous les effets, renforcements comme affaiblissements.
+    pub const ALL: u64 = 0x10;
+    pub const TRANSPARENT: u64 = 0x20;
+    /// Effets qui posent un état spécial.
+    pub const SPECIAL: u64 = 0x40;
+    /// Valeur de la colonne au-delà de laquelle la purge se répète.
+    pub const REPEAT: i64 = 10000;
+}
+
+/// Sortes d'une valeur de dispel_magic ; vrai si la purge se répète.
+pub fn parse_dispel(v: i64) -> (u64, bool) {
+    let repeat = v >= dispel::REPEAT;
+    let v = (v % dispel::REPEAT).max(0) as u64;
+    (if v == dispel::DEBUFFS { dispel::DEBUFFS } else { v & !dispel::DEBUFFS }, repeat)
+}
+
+/// Un effet est retiré par une purge de ces sortes ; `hostile` : il affaiblit son porteur. Les passives restent.
+pub fn dispels(e: &Effect, kinds: u64, hostile: bool) -> bool {
+    use dispel::*;
+    if e.ends_at.is_none() || kinds == 0 {
+        return false;
+    }
+    kinds & ALL != 0
+        || kinds & DEBUFFS != 0 && hostile
+        || kinds & STUN != 0 && e.status & status::STUN != 0
+        || kinds & SLOW != 0 && (e.status & status::SLOW != 0 || hostile && e.mods.movement_pct < 0.0)
+        || kinds & TRANSPARENT != 0 && e.status & (status::TRANSPARENT | status::HALF_TRANSPARENT) != 0
+        || kinds & SPECIAL != 0 && e.status != 0
+}
+
+/// Retire d'une liste les effets qu'une purge retire ; les rend.
+pub fn purge(effects: &mut Vec<Effect>, kinds: u64, hostile: impl Fn(&Effect) -> bool) -> Vec<Effect> {
+    let (gone, keep): (Vec<Effect>, Vec<Effect>) = std::mem::take(effects).into_iter().partition(|e| dispels(e, kinds, hostile(e)));
+    *effects = keep;
+    gone
+}
+
+/// Part d'un coup reçu que prend un autre personnage (partage des dégâts) : (dégâts gardés, dégâts pris).
+pub fn share(parts: &[(usize, i32)], physical_pct: f64, spirit_pct: f64) -> (Vec<(usize, i32)>, i32) {
+    let mut taken = 0;
+    let kept = parts
+        .iter()
+        .map(|&(i, d)| {
+            let pct = if i == super::combat::RESULT_PHYSICAL { physical_pct } else { spirit_pct }.clamp(0.0, 100.0);
+            let t = (d as f64 * pct / 100.0) as i32;
+            taken += t;
+            (i, d - t)
+        })
+        .collect();
+    (kept, taken)
 }
 
 /// Somme des modificateurs d'une liste d'effets.
@@ -290,6 +380,13 @@ pub fn total(effects: &[Effect]) -> Mods {
     for e in effects {
         m.add(&e.mods);
     }
+    m
+}
+
+/// Modificateurs de combat d'un joueur : ses effets et ceux de son équipement (options, runes).
+pub fn of_player(p: &super::Player) -> Mods {
+    let mut m = total(&p.skills.effects);
+    m.add(&p.gear.mods);
     m
 }
 
@@ -335,6 +432,9 @@ pub fn guard(rng: &mut impl rand::Rng, m: &Mods, status: u64, damage: i32) -> Gu
         return Guard::Evade;
     }
     let mut roll = |rate: f64| rate > 0.0 && rng.gen_range(0.0..100.0) < rate.min(80.0);
+    if roll(m.dodge) {
+        return Guard::Evade;
+    }
     if roll(m.block) {
         return Guard::Block;
     }
@@ -453,7 +553,7 @@ mod tests {
     use rand::SeedableRng;
 
     fn effect(tid: u32, mods: Mods, ends_at: Option<Instant>) -> Effect {
-        Effect { skill_id: 1, tid, level: 1, caster_tid: 96, duration_ms: 1000, ends_at, mods, dot: None, status: 0, status_until: None }
+        Effect { skill_id: 1, tid, level: 1, caster_tid: 96, duration_ms: 1000, ends_at, mods, dot: None, status: 0, status_until: None, caster_sid: MONSTER_CASTER, purge: None }
     }
 
     #[test]
@@ -548,6 +648,47 @@ mod tests {
         let mana = Mods { to_mp_rate: 100.0, to_mp: 25.0, ..Default::default() };
         let got: Vec<Guard> = (0..50).map(|_| guard(&mut rng, &mana, 0, 40)).collect();
         assert!(got.contains(&Guard::ToMp(10)) && got.contains(&Guard::Hit));
+    }
+
+    #[test]
+    fn purges() {
+        assert_eq!(parse_dispel(2), (dispel::DEBUFFS, false), "Cure des monstres");
+        assert_eq!(parse_dispel(10002), (dispel::DEBUFFS, true), "Cure : répétée");
+        assert_eq!(parse_dispel(12), (dispel::STUN | dispel::SLOW, false), "Assistance, Disentangle");
+        assert_eq!(parse_dispel(16), (dispel::ALL, false), "Antimagic");
+        assert_eq!(parse_dispel(0), (0, false));
+        let now = Instant::now();
+        let later = Some(now + Duration::from_secs(9));
+        let stun = Effect { status: status::STUN, ..effect(1, Mods::default(), later) };
+        let slow = effect(2, Mods { movement_pct: -15.0, ..Default::default() }, later);
+        let buff = effect(3, Mods { defense: 5.0, ..Default::default() }, later);
+        let passive = effect(4, Mods { defense: 1.0, ..Default::default() }, None);
+        let hostile = |e: &Effect| e.tid <= 2;
+        let mut list = vec![stun.clone(), slow.clone(), buff.clone(), passive.clone()];
+        assert_eq!(purge(&mut list, dispel::STUN, hostile).iter().map(|e| e.tid).collect::<Vec<_>>(), vec![1]);
+        assert_eq!(purge(&mut list, dispel::SLOW, hostile).iter().map(|e| e.tid).collect::<Vec<_>>(), vec![2], "ralentissement sans état : par la vitesse");
+        assert!(purge(&mut list, dispel::DEBUFFS, hostile).is_empty(), "plus d'affaiblissement");
+        assert_eq!(purge(&mut list, dispel::ALL, hostile).iter().map(|e| e.tid).collect::<Vec<_>>(), vec![3], "la passive reste");
+        assert_eq!(list.len(), 1);
+        let mut list = vec![stun, slow, buff];
+        assert_eq!(purge(&mut list, dispel::DEBUFFS, hostile).len(), 2, "Cure : les deux affaiblissements");
+    }
+
+    #[test]
+    fn partage_des_degats() {
+        // Martyr's Mark niveau 7 : 40 % des dégâts physiques ; Divine Protection niveau 1 : 10 % des élémentaires.
+        let parts = [(super::super::combat::RESULT_PHYSICAL, 50), (12, 20)];
+        assert_eq!(share(&parts, 40.0, 0.0), (vec![(9, 30), (12, 20)], 20));
+        assert_eq!(share(&parts, 0.0, 10.0), (vec![(9, 50), (12, 18)], 2));
+        assert_eq!(share(&parts, 0.0, 0.0), (parts.to_vec(), 0));
+    }
+
+    #[test]
+    fn esquive_de_l_equipement() {
+        let mut rng = rand::rngs::StdRng::seed_from_u64(5);
+        let agile = Mods { dodge: 30.0, ..Default::default() };
+        let n = (0..10_000).filter(|_| guard(&mut rng, &agile, 0, 30) == Guard::Evade).count();
+        assert!((2700..3300).contains(&n), "esquive de 30 % : {n} sur 10 000");
     }
 
     #[test]

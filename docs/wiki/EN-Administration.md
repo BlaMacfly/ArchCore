@@ -81,6 +81,7 @@ messages. ArchCore's replies are in French.
 | `/last_refine` | 3 | Runs again the last recipe refined successfully since login (the panel's "Use last refine recipe"), like the client's op 6: ingredients taken from the inventory, gold paid, result in the refining window. Refused without a successful refine |
 | `/level <level> ["name"]` | 3 | Sets the online character's level (1 to 120): experience reset, HP and MP restored, skill points recomputed; without a name, on yourself. ArchCore-specific command |
 | `/money <amount> ["name"]` | 3 | Sets the online character's gold (0 to 1,000,000,000); without a name, on yourself. ArchCore-specific command |
+| `/charisma <points> ["name"]` | 3 | Gives charisma points to the online character (1 to 1,000,000, multiplied by the `Rate.Charisma` rate and the charisma bonuses of its effects); without a name, to yourself. ArchCore-specific command, until player-versus-player fights exist |
 | `/announce_restart <minutes> <seconds>` | 3 | Announces to every player, reminds every minute, counts down the last seconds. `0 0` cancels |
 | `/move x,z` | 1 | Teleports the GM to (x, z) and sends the NPCs of the new spot |
 
@@ -191,6 +192,7 @@ Example: `/SetExp 2.0`, then `/GetExp` to check.
 | ✅ `/additem <TID> [count]` | Adds an item to your own inventory (ArchCore addition, not in the panel) |
 | ✅ `/speed <1-10>` | Multiplies your movement speed (ArchCore addition, not in the panel) |
 | ✅ `/money <amount> ["name"]` | Sets an online character's gold (ArchCore addition, not in the panel) |
+| ✅ `/charisma <points> ["name"]` | Gives charisma points to an online character (ArchCore addition, not in the panel) |
 | ✅ `/level <level> ["name"]` | Sets an online character's level (ArchCore addition, not in the panel) |
 | ✅ `/questreset <TID>` | Clears a quest from the GM's journal (ArchCore addition, not in the panel) |
 | ✅ `/recast` | Resets the GM's skill recast delays (ArchCore addition, not in the panel) |

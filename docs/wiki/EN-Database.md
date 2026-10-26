@@ -19,7 +19,7 @@ ArchCore uses three main MariaDB databases, plus a log database, created and upd
 
 | Table | Content |
 |---|---|
-| `characters` | Account, slot, unique name, template (TID), level, experience, HP/MP/SP, position, money, bank, hair, face, soft delete |
+| `characters` | Account, slot, unique name, template (TID), level, experience, HP/MP/SP, position, money, bank, hair, face, charisma, soft delete |
 | `character_items` | Items: status 0 inventory, 1 equipped, 2 bank (attached to the character who deposited it) |
 | `character_quests` | Quests in progress (monster A and B counters) and completed |
 | `account_bank` | Account bank: money, pages beyond the first (created on first entry, with the money the characters had in the bank) |
@@ -44,7 +44,7 @@ Filled by `archcore import` from the client tables.
 | `skill_spec` | `SKILL_SPEC.txt` | Each skill's nature (non-empty columns, as JSON) |
 | `quest_template` | `questtemplate.ini` | Quests (non-empty columns, as JSON) |
 | `quest_group` | `questgroup.ini` | NPC groups: quests offered and handed in |
-| `skill_level` | `SKILL_CONST.txt` | Values of each level of each skill (non-empty columns, as JSON; `point.`, `percent.`, `magnify.` groups) |
+| `skill_level` | `SKILL_CONST.txt`, `Skill_Const2.txt` | Values of each level of each skill (non-empty columns, as JSON; `point.`, `percent.`, `magnify.` groups; those of `Skill_Const2.txt`, suffixed with "2", under `point2.`, `percent2.`…) |
 | `skill_mastery` | `SkillMastery_High.txt`, `SkillMastery_Heroic.txt` | Mastery trees: class (template TID), skill, tree (1 high, 2 heroic), required skills `[[TID, points]…]`, total of points spent |
 | `npc_spawn` | `npc.ini` | 567 NPCs: template, name, position, orientation, raw functions |
 | `client_table` | other `.txt` tables | Rows as JSON, for tables not modelled yet |

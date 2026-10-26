@@ -263,6 +263,27 @@ sets the stone (op 7, result 0) then an attack prayer stone (rune, op 8, result 
 5000 gold), refines the recipe again by its id (op 6), is refused without ingredients (result 1), then refines a
 White Wing Dagger and its stones (recipe 183) into a dagger with one option.
 
+```bash
+ARCHCORE_CONF_DIR=config/test archcore sim heroic [user] [pass] [character]
+ARCHCORE_CONF_DIR=config/test archcore sim divide [userA passA charA userB passB charB]
+ARCHCORE_CONF_DIR=config/test archcore sim dispel [user] [pass] [character]
+ARCHCORE_CONF_DIR=config/test archcore sim ignore [user] [pass] [character]
+ARCHCORE_CONF_DIR=config/test archcore sim rune [user] [pass] [character]
+ARCHCORE_CONF_DIR=config/test archcore sim trigger [user] [pass] [character]
+```
+
+Skills and items (`tools/sim/competences.rs`, GmTest, GM account; skills and items set in the database, then
+removed). `sim heroic` goes to levels 89, 100 and 120 and reads the heroic points ("dirt" factors, index 7: 0,
+21, 71), earns 300 charisma points with `/charisma 300` (status 4) and reads them back after logging in again.
+`sim divide` gives GmTest Martyr's Mark level 7, forms a party with SimA and casts the skill (effect on both); a
+Green Worm hits SimA and GmTest takes 40 % of the hit (AGPMCHARACTER op 1). `sim dispel` puts Blade Sting level
+10 on a Green Worm, then Antimagic (level 100 for its 500 MP) removes it (AGPMSKILL op 5) long before its 33 s.
+`sim ignore` sets a water stone into a Short Sword in the database: against a worm with 50 % resistance, the
+water part of a hit is 3, then 4 under Stunner level 20 (48 % of resistances ignored). `sim rune` sets an ice
+prayer stone (TID 588) in the database and hits until Cold Prayer Stone <Small> fires (AGPMSKILL op 8, ice
+damage, then op 4: slow). `sim trigger` gives the sword option 5658 (28 % chance to stun for 3 s) and hits until
+a worm is stunned (field 17), the state lifting 3 s later.
+
 ## ArchRust extensions test
 
 ```bash

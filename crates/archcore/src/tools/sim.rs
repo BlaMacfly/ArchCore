@@ -33,6 +33,7 @@
 //!   archcore sim effects [compte] [mdp] [perso]               passive (défense), renforcement (vitesse d'attaque), zone, affaiblissement d'un Ver vert ; compte MJ, personnage GmEffets
 //!   archcore sim refinery [compte] [mdp] [perso]              sphère d'alchimie : refus, devis et raffinage de la grille, raffinage d'une recette ; compte MJ
 //!   archcore sim convert [compte] [mdp] [perso]               forgeron Halo : socket, pierre d'eau, renforcement +2, état relu à la reconnexion ; compte MJ
+//!   archcore sim heroic|divide|dispel|ignore|rune|trigger      compétences et objets (voir `sim/competences.rs`) ; compte MJ
 //! ```
 //! À lancer contre un serveur de test (`ARCHCORE_CONF_DIR`) : les personnages sont créés au besoin,
 //! déplacés, et `sim shop` leur donne 1000 pièces d'or.
@@ -48,6 +49,7 @@ use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
+mod competences;
 mod guilds;
 mod lang;
 mod last_refine;
@@ -103,6 +105,12 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         Some("mastery") => Box::pin(mastery(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("convert") => Box::pin(convert(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("refinery") => Box::pin(refinery(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
+        Some("heroic") => Box::pin(competences::heroic(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
+        Some("divide") => Box::pin(competences::divide(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
+        Some("dispel") => Box::pin(competences::dispel(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
+        Some("ignore") => Box::pin(competences::ignore(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
+        Some("rune") => Box::pin(competences::rune(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
+        Some("trigger") => Box::pin(competences::trigger(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol|bag|skill|effects|status|bank|portal|pvp|reconnect|lastrefine|guild|guildstage|guildmark|guildlead|gm|trade|party|quest|mobskill|counter|partyskill|mastery [arguments]"),
     }
 }
@@ -2391,8 +2399,12 @@ async fn skill(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
 
     step("améliorer Dual Slash");
     w.world.send(sm, master(2).with(3, id)).await?;
-    let r = w.world.expect_where(|q| q.is(k, Some(2)) && q.int(1) == Some(id) || system(q), 3000, "amélioration").await?;
-    if r.ptype == k.id {
+    // Niveau monté (AGPMSKILL op 2), refus avec un code (op 3 : 1 argent, 2 points…) ou message système.
+    let refused = |q: &Recv| q.is(sm, Some(3)) && q.int(3) == Some(id) && q.int(5).is_some_and(|r| r != 0);
+    let r = w.world.expect_where(|q| q.is(k, Some(2)) && q.int(1) == Some(id) || refused(q) || system(q), 3000, "amélioration").await?;
+    if refused(&r) {
+        println!("  ✓ refusée (code {})", o(r.int(5)));
+    } else if r.ptype == k.id {
         w.world.expect_where(|q| q.is(sm, Some(3)) && q.int(3) == Some(id), 3000, "réponse d'amélioration").await?;
         println!("  ✓ niveau {}", skill_info(r.packet.as_ref().unwrap()).2);
     } else {

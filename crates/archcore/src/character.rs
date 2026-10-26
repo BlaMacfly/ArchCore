@@ -27,7 +27,6 @@ pub struct Template {
     pub str_: f32,
     pub intel: f32,
     pub dex: f32,
-    pub cha: f32,
     pub luk: f32,
     pub wis: f32,
     pub movement: i32,
@@ -103,7 +102,6 @@ impl Template {
             str_: col(r, "str"),
             intel: col(r, "intel"),
             dex: col(r, "dex"),
-            cha: col(r, "cha"),
             luk: col(r, "luk"),
             wis: col(r, "wis"),
             movement: col(r, "movement"),
@@ -204,6 +202,9 @@ impl Templates {
     }
 }
 
+/// Charisme au plus (borne du client, `SetCharisma`).
+pub const MAX_CHARISMA: u32 = 1_000_000;
+
 /// Ligne de la table `characters`.
 #[derive(Clone, Debug, Default)]
 pub struct CharacterRow {
@@ -226,6 +227,8 @@ pub struct CharacterRow {
     pub face: i32,
     pub bank_size: i32,
     pub option_flag: u32,
+    /// Points de charisme (0 à 1 000 000).
+    pub charisma: u32,
 }
 
 impl CharacterRow {
@@ -250,6 +253,7 @@ impl CharacterRow {
             face: col(r, "face"),
             bank_size: col(r, "bank_size"),
             option_flag: col(r, "option_flag"),
+            charisma: col(r, "charisma"),
         }
     }
 
@@ -301,7 +305,7 @@ pub fn make_factors(tpl: &Template, row: Option<&CharacterRow>) -> Factors {
     let exp = row.map(|r| r.exp).unwrap_or(0);
     let mut f = Factors::default();
     f.status = [
-        stat(g.con, tpl.con), stat(g.str_, tpl.str_), stat(g.intel, tpl.intel), stat(g.dex, tpl.dex), stat(g.cha, tpl.cha),
+        stat(g.con, tpl.con), stat(g.str_, tpl.str_), stat(g.intel, tpl.intel), stat(g.dex, tpl.dex), row.map(|r| r.charisma.min(MAX_CHARISMA) as i32).unwrap_or(0),
         stat(0, tpl.luk), stat(g.wis, tpl.wis), level, tpl.movement, tpl.movement_fast, 0, 0, 0,
     ];
     f.ftype = [tpl.race, tpl.gender, tpl.class];
@@ -472,7 +476,7 @@ mod tests {
             growth[24] = lv25;
         }
         Template {
-            tid: 96, race: 1, gender: 1, class: 1, level: 1, con: 13.0, str_: 14.0, intel: 7.0, dex: 11.0, cha: 10.0, wis: 7.0,
+            tid: 96, race: 1, gender: 1, class: 1, level: 1, con: 13.0, str_: 14.0, intel: 7.0, dex: 11.0, wis: 7.0,
             hp: 90, mp: 46, sp: 74, ar: 19, dr: 13, growth, ..Default::default()
         }
     }
@@ -484,8 +488,8 @@ mod tests {
     #[test]
     fn croissance_niveau_1() {
         let f = make_factors(&human_warrior(25), Some(&at(1)));
-        // CON, FOR, INT, DEX, CHA (absent de la table : celui du modèle), CHANCE, SAG, niveau.
-        assert_eq!(f.status[..8], [1500, 1700, 600, 1200, 1000, 0, 600, 1]);
+        // CON, FOR, INT, DEX, CHA (points de charisme, bruts), CHANCE, SAG, niveau.
+        assert_eq!(f.status[..8], [1500, 1700, 600, 1200, 0, 0, 600, 1]);
         assert_eq!(f.point_max[..3], [120, 32, 65], "PV, PM, PE max de la table, pas du modèle (90, 46, 74)");
         assert_eq!(f.point[..3], [120, 32, 65], "personnage neuf : points pleins");
         assert_eq!((f.point_max[8], f.point_max[9], f.defense_point[0]), (19, 13, 3), "précision et esquive du modèle, défense de la table");
@@ -495,7 +499,7 @@ mod tests {
     fn croissance_niveau_25() {
         let tpl = human_warrior(25);
         let f = make_factors(&tpl, Some(&at(25)));
-        assert_eq!(f.status[..8], [5700, 7300, 3000, 5900, 1000, 0, 2000, 25]);
+        assert_eq!(f.status[..8], [5700, 7300, 3000, 5900, 0, 0, 2000, 25]);
         assert_eq!(f.point_max[..3], [456, 108, 318]);
         assert_eq!(f.defense_point[0], 4);
         // Points enregistrés gardés tant qu'ils ne sont pas nuls.

@@ -83,6 +83,9 @@ pub struct Attacker {
     pub int: f64,
     pub min_damage: f64,
     pub max_damage: f64,
+    /// Défense physique et résistances élémentaires de la cible ignorées (pour cent).
+    pub ignore_defense: f64,
+    pub ignore_resist: f64,
 }
 
 /// Côté défenseur.
@@ -91,12 +94,40 @@ pub struct Defender {
     pub level: i32,
     pub dr: i32,
     pub defense: f64,
+    /// Résistances élémentaires (pour cent, dans l'ordre des attributs 1 à 8), déjà plafonnées : 80 pour un
+    /// joueur, 100 pour un monstre.
+    pub resist: [i32; 8],
+}
+
+impl Defender {
+    /// Un joueur : niveau, esquive (DR), défense physique, résistances (80 % au plus).
+    pub fn of_player(f: &crate::character::Factors) -> Self {
+        Defender { level: f.status[7], dr: f.point_max[9], defense: f.defense_point[0] as f64, resist: spirit_resist(f).map(|r| r.clamp(0, 80)) }
+    }
+
+    /// Un monstre : défense physique sous ses effets, résistances de CharacterDataTable (100 % au plus).
+    pub fn of_monster(level: i32, s: &super::monsters::MonsterStats, m: &super::effects::Mods) -> Self {
+        Defender { level, dr: 0, defense: super::effects::monster_defense(s.ac, m), resist: s.resist.map(|r| r.clamp(0, 100)) }
+    }
 }
 
 impl Attacker {
+    /// Cible vue par cet attaquant : défense physique et résistances diminuées de la part qu'il ignore.
+    pub fn pierce(&self, d: &Defender) -> Defender {
+        let keep = |pct: f64| (100.0 - pct.clamp(0.0, 100.0)) / 100.0;
+        Defender {
+            defense: d.defense * keep(self.ignore_defense),
+            resist: d.resist.map(|r| (r as f64 * keep(self.ignore_resist)).round() as i32),
+            ..*d
+        }
+    }
+
     pub fn of_player(p: &Player) -> Self {
         let f = &p.factors;
+        let m = super::effects::of_player(p);
         Attacker {
+            ignore_defense: m.ignore_defense,
+            ignore_resist: m.ignore_resist,
             level: f.status[7],
             ar: f.point_max[8],
             class: f.ftype[2],
@@ -343,15 +374,15 @@ async fn attack_step(ctx: &WorldCtx, st: &mut WorldState, sid: u32, now: Instant
     }
 
     let attacker = Attacker::of_player(p);
-    let defender = Defender { level: m.level as i32, dr: 0, defense: super::effects::monster_defense(stats.ac, &st.monsters.mods(m.cid)) };
+    let defender = attacker.pierce(&Defender::of_monster(m.level as i32, &stats, &st.monsters.mods(m.cid)));
     let (outcome, parts) = {
         let mut rng = rand::thread_rng();
         let (outcome, damage) = strike(&mut rng, &attacker, &defender);
-        let (outcome, damage) = super::effects::critical(&mut rng, &super::effects::total(&p.skills.effects), outcome, damage);
+        let (outcome, damage) = super::effects::critical(&mut rng, &super::effects::of_player(p), outcome, damage);
         let mut parts = vec![(RESULT_PHYSICAL, damage)];
         if damage > 0 {
             let chance = spirit_chance(true, attacker.level, m.level as i32);
-            parts.extend(spirit_hits(&mut rng, chance, &spirit_ranges(&p.factors), &[0; 8], false));
+            parts.extend(spirit_hits(&mut rng, chance, &spirit_ranges(&p.factors), &defender.resist, false));
         }
         (outcome, parts)
     };
@@ -379,6 +410,8 @@ async fn attack_step(ctx: &WorldCtx, st: &mut WorldState, sid: u32, now: Instant
     debug!("[combat] {name} → {} : résultat {outcome}, {damage} dégât(s), {hp}/{} PV", m.name, m.max_hp);
     if hp == 0 {
         kill(ctx, st, sid, m.cid, now).await?;
+    } else if damage > 0 {
+        super::skills::gear_procs(ctx, st, sid, m.cid, now).await?;
     }
     Ok(())
 }
@@ -550,8 +583,48 @@ fn life_step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) {
     }
 }
 
-/// Le joueur `sid` reçoit le coup d'un monstre : PV, diffusion (à lui et à ceux qui le voient), mort.
+/// Partage des dégâts : chaque effet du joueur `sid` posé par un autre joueur (Divine Protection, Martyr's Mark)
+/// fait prendre à ce lanceur, s'il est en jeu et vivant, sa part des dégâts physiques ou élémentaires du coup.
+/// Le lanceur perd ces PV (AGPMCHARACTER op 1, facteurs du résultat, à lui et à ceux qui le voient) et peut en
+/// mourir. Rend les dégâts qui restent au joueur.
+pub fn divert(st: &mut WorldState, sid: u32, parts: &[(usize, i32)]) -> Vec<(usize, i32)> {
+    let Some(p) = st.players.get(&sid) else { return parts.to_vec() };
+    let shares: Vec<(u32, f64, f64)> = p
+        .skills
+        .effects
+        .iter()
+        .filter(|e| e.caster_sid != sid && e.caster_sid != super::effects::MONSTER_CASTER && (e.mods.share_physical > 0.0 || e.mods.share_spirit > 0.0))
+        .map(|e| (e.caster_sid, e.mods.share_physical, e.mods.share_spirit))
+        .collect();
+    let mut left = parts.to_vec();
+    for (caster, physical, spirit) in shares {
+        if !st.players.get(&caster).is_some_and(|c| c.in_game && !c.dead) {
+            continue;
+        }
+        let (kept, taken) = super::effects::share(&left, physical, spirit);
+        if taken <= 0 {
+            continue;
+        }
+        left = kept;
+        let c = st.players.get_mut(&caster).unwrap();
+        super::recovery::in_combat(&mut c.timers, Instant::now());
+        let hp = (c.factors.point[POINT_HP] - taken).max(0);
+        c.factors.point[POINT_HP] = hp;
+        let (ccid, mp, name) = (c.ch.id, c.factors.point[1], c.ch.name.clone());
+        let cs = &schema::CHARACTER;
+        send_around(st, caster, &build_packet(cs, &Fields::new(cs).with(0, 1).with(1, ccid).with(7, parts_factors(hp, mp, &[(RESULT_PHYSICAL, taken)]))));
+        debug!("[combat] {name} prend {taken} dégât(s) d'un membre de son groupe : {hp} PV");
+        if hp == 0 {
+            player_death(st, caster);
+        }
+    }
+    left
+}
+
+/// Le joueur `sid` reçoit le coup d'un monstre : part des dégâts prise par un protecteur (`divert`), PV,
+/// diffusion (à lui et à ceux qui le voient), mort.
 pub fn hit_player(st: &mut WorldState, sid: u32, monster: u32, outcome: i64, parts: &[(usize, i32)]) {
+    let parts = &divert(st, sid, parts);
     let damage: i32 = parts.iter().map(|(_, d)| d).sum();
     let Some(p) = st.players.get_mut(&sid) else { return };
     super::recovery::in_combat(&mut p.timers, Instant::now());
@@ -661,7 +734,7 @@ mod tests {
 
     #[test]
     fn chance_de_toucher() {
-        let worm = Defender { level: 1, dr: 0, defense: 2.0 };
+        let worm = Defender { level: 1, dr: 0, defense: 2.0, ..Default::default() };
         assert_eq!(hit_chance(&warrior(), &worm), 95, "plafond");
         assert_eq!(hit_chance(&warrior(), &Defender { level: 5, ..worm }), 62, "90 - 7 × 4");
         assert_eq!(hit_chance(&warrior(), &Defender { level: 30, ..worm }), 10, "plancher");
@@ -678,7 +751,7 @@ mod tests {
         assert!((lo - (15.0 * 2.0 / 9.0 + 12.0 / 9.0)).abs() < 1e-9);
         // Défense supérieure aux dégâts : 1 PV quand même.
         let mut rng = rand::rngs::StdRng::seed_from_u64(1);
-        let tough = Defender { level: 1, dr: 0, defense: 50.0 };
+        let tough = Defender { level: 1, dr: 0, defense: 50.0, ..Default::default() };
         for _ in 0..50 {
             let (r, d) = strike(&mut rng, &warrior(), &tough);
             assert!(r == result::MISS && d == 0 || r == result::SUCCESS && d == 1);
@@ -686,9 +759,29 @@ mod tests {
     }
 
     #[test]
+    fn defense_ignoree() {
+        let mut resist = [0; 8];
+        resist[0] = 50;
+        let boar = Defender { level: 5, dr: 0, defense: 20.0, resist };
+        // Lethal Attack niveau 1 : 5 % de la défense ; Stunner niveau 1 : 10 % des résistances.
+        let a = Attacker { ignore_defense: 5.0, ignore_resist: 10.0, ..warrior() };
+        let seen = a.pierce(&boar);
+        assert_eq!((seen.defense, seen.resist[0], seen.level), (19.0, 45, 5));
+        assert_eq!(warrior().pierce(&boar), boar);
+        assert_eq!(Attacker { ignore_defense: 300.0, ..warrior() }.pierce(&boar).defense, 0.0, "jamais en dessous de zéro");
+        // Résistances d'un monstre (CharacterDataTable : « Magic Res. »…) et d'un joueur (80 % au plus).
+        let stats = super::super::monsters::MonsterStats { ac: 7, resist: [50, 50, 50, 0, 0, 0, 0, 120], ..Default::default() };
+        let d = Defender::of_monster(5, &stats, &super::super::effects::Mods::default());
+        assert_eq!((d.defense, d.resist[0], d.resist[7]), (7.0, 50, 100));
+        let mut f = crate::character::Factors::default();
+        f.defense_point[2] = 95;
+        assert_eq!(Defender::of_player(&f).resist[1], 80);
+    }
+
+    #[test]
     fn chance_de_toucher_d_un_monstre() {
         let worm = Attacker { level: 1, ar: 21, ..Default::default() };
-        let player = Defender { level: 1, dr: 13, defense: 0.0 };
+        let player = Defender { level: 1, dr: 13, defense: 0.0, ..Default::default() };
         assert_eq!(monster_hit_chance(&worm, &player), 89, "1/2 × 21/34 × 290");
         assert_eq!(monster_hit_chance(&Attacker { ar: 0, ..worm }, &player), 30, "plancher");
         assert_eq!(monster_hit_chance(&Attacker { ar: 0, ..worm }, &Defender { level: 11, ..player }), 55, "85 - 3 × 10");

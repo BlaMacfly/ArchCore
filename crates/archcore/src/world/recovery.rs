@@ -7,7 +7,8 @@
 //! par op 4 : TID au champ 3, utilisateur aux champs 4 et 12, délai de réutilisation (ms) au champ 18.
 //!
 //! Hors combat (aucun coup donné ni reçu depuis 10 s), un joueur vivant regagne toutes les 10 s 1,5 % de ses
-//! PV et PM maximum, plus son taux de récupération, plus 5.
+//! PV et PM maximum, plus son taux de récupération, plus 5. Les options de régénération de son équipement
+//! (« regen_hp », « regen_mp ») lui rendent aussi leurs points toutes les 10 s, en combat compris.
 
 use super::items::{item_count, item_remove, ItemCatalog};
 use super::{WorldCtx, WorldState};
@@ -171,10 +172,18 @@ pub fn regen_step(st: &mut WorldState, now: Instant) {
             continue;
         }
         p.timers.regen_at = now + REGEN_INTERVAL;
+        // Options de régénération de l'équipement : en combat aussi.
+        let before = (p.factors.point[POINT_HP], p.factors.point[POINT_MP]);
+        p.factors.point[POINT_HP] = (p.factors.point[POINT_HP] + p.gear.regen_hp.max(0)).min(p.factors.point_max[0]);
+        p.factors.point[POINT_MP] = (p.factors.point[POINT_MP] + p.gear.regen_mp.max(0)).min(p.factors.point_max[1]);
+        let geared = before != (p.factors.point[POINT_HP], p.factors.point[POINT_MP]);
         if now < p.timers.combat_until {
+            if geared {
+                changed.push(*sid);
+            }
             continue;
         }
-        if regenerate(&mut p.factors) {
+        if regenerate(&mut p.factors) || geared {
             changed.push(*sid);
         }
     }

@@ -16,12 +16,17 @@
 //!                            (arme, armure, autre)
 //!   Runes (itemruneattributetable.txt) : parties admises, « Success_Rate » (ou « AlwaysSuccess »),
 //!        « Mount_Restriction_Level » (niveau d'objet minimal), « ANTI Number » (deux runes du même numéro ne
-//!        vont pas ensemble). Une rune sertie apporte à l'objet les options de son « OptionTID ».
+//!        vont pas ensemble). Une rune sertie apporte à l'objet les options de son « OptionTID ». Une rune à
+//!        compétence (« Skill_Name », « Skill_Level », « Skill_Rate » : pierres de prière de glace, de foudre, de
+//!        poison) la lance sur la cible d'un coup qui touche, avec sa chance (`skills::gear_procs`).
 //!   État d'un objet : niveau de renforcement, nombre de sockets, TID des pierres et runes serties (8 au plus).
 //! ```
 //! Le renforcement d'une arme ajoute aux dégâts physiques min et max la somme des bonus d'arme des niveaux
 //! atteints ; celui d'une armure ou d'un bouclier, à la défense physique. Une pierre d'esprit ajoute sa
-//! valeur aux dégâts de son élément (arme) ou à la résistance de son élément (armure).
+//! valeur aux dégâts de son élément (arme) ou à la résistance de son élément (armure). Comme le contrôle du
+//! client (`Archonia.exe`), seules les pierres de type 1 à 5 (magie, eau, feu, terre, air) et de rang 1 à 5 se
+//! sertissent : celles qu'Archonia ajoute (6 poison, 7 foudre, 8 glace, 100 à 106 caractéristiques), sans rang,
+//! sont refusées (résultat 2).
 
 /// Nombre de niveaux de renforcement et de rangs de pierre.
 pub const MAX_LEVEL: usize = 16;
@@ -97,6 +102,9 @@ pub struct Rune {
     pub always: bool,
     /// Niveau d'objet minimal (« Mount_Restriction_Level »).
     pub min_level: i64,
+    /// Compétence que donne la rune sertie (« Skill_Name », « Skill_Level », « Skill_Rate » : chance qu'elle parte
+    /// sur un coup qui touche).
+    pub skill: Option<(String, u32, f64)>,
 }
 
 /// Lit itemruneattributetable.txt (en-tête, puis une rune par ligne).
@@ -110,7 +118,9 @@ pub fn parse_runes(text: &str) -> std::collections::HashMap<u32, Rune> {
         let Ok(tid) = at(&r, "TID").parse::<u32>() else { continue };
         let n = |name: &str| at(&r, name).parse::<f64>().unwrap_or(0.0) as i64;
         let parts = PARTS.iter().enumerate().filter(|(_, p)| !at(&r, p).is_empty()).fold(0u16, |m, (i, _)| m | 1 << i);
-        out.insert(tid, Rune { anti: n("ANTI Number"), parts, success: n("Success_Rate").max(0) as u32, always: n("AlwaysSuccess") != 0, min_level: n("Mount_Restriction_Level") });
+        let skill_name = at(&r, "Skill_Name");
+        let skill = (!skill_name.is_empty()).then(|| (skill_name, n("Skill_Level").max(1) as u32, at(&r, "Skill_Rate").parse::<f64>().unwrap_or(0.0)));
+        out.insert(tid, Rune { anti: n("ANTI Number"), parts, success: n("Success_Rate").max(0) as u32, always: n("AlwaysSuccess") != 0, min_level: n("Mount_Restriction_Level"), skill });
     }
     out
 }
@@ -766,6 +776,13 @@ mod tests {
         assert_eq!(check_stone(&t, &weapon(3), &open, (2, 2)), Ok(2));
         assert_eq!(check_stone(&t, &weapon(3), &open, (2, 3)), Err(stone_result::INVALID_STONE), "rang refusé par la ligne 3");
         assert_eq!(check_stone(&t, &weapon(3), &open, (7, 1)), Err(stone_result::INVALID_STONE), "foudre : le client refuse");
+        // Pierres d'Archonia : poison (6), glace (8) et caractéristiques (100 à 106), sans « Rank » : refusées comme par
+        // le contrôle du client (Spirit Type 1 à 5, rang 1 à 5).
+        for kind in [6, 8, 100, 101, 102, 103, 106] {
+            assert_eq!(check_stone(&t, &weapon(3), &open, (kind, 0)), Err(stone_result::INVALID_STONE), "type {kind}");
+            assert_eq!(check_stone(&t, &weapon(3), &open, (kind, 1)), Err(stone_result::INVALID_STONE), "type {kind} de rang 1");
+        }
+        assert_eq!(check_stone(&t, &weapon(3), &open, (2, 0)), Err(stone_result::INVALID_STONE), "pierre d'eau sans rang");
         // Objet neuf : un socket (max(1, MinSocket)), puis plein.
         assert_eq!(check_stone(&t, &weapon(3), &ItemConvert::default(), (2, 1)), Ok(1));
         assert_eq!(check_stone(&t, &weapon(3), &ItemConvert { filled: vec![201], ..Default::default() }, (2, 1)), Err(stone_result::FULL));
@@ -773,6 +790,17 @@ mod tests {
         assert_eq!(check_stone(&t, &ring, &open, (2, 1)), Err(stone_result::IMPROPER_ITEM));
         let lance = EquipData { weapon_type: WEAPON_LANCE, ..weapon(3) };
         assert_eq!(check_stone(&t, &lance, &open, (2, 1)), Err(stone_result::IMPROPER_ITEM));
+    }
+
+    #[test]
+    fn runes_a_competence() {
+        let text = "Item_Name\tTID\tANTI Number\tSecondCategory\tSkill_Name\tSkill_Level\tSkill_Rate\tUpper_Body\tLower_Body\tWeapon\tShield\tHead\tRing\tNecklace\tShoes\tGloves\tSuccess_Rate\r\n\
+            Cold Prayer Stone<Lv1>\t588\t\t32\tCold Prayer Stone <Small>\t1\t4\t\t\tO\t\t\t\t\t\t\t100\r\n\
+            Attack Prayer Stone<Lv1>\t463\t\t32\t\t\t\t\t\tO\t\t\t\t\t\t\t100\r\n";
+        let runes = parse_runes(text);
+        assert_eq!(runes[&588].skill, Some(("Cold Prayer Stone <Small>".to_string(), 1, 4.0)));
+        assert_eq!((runes[&588].parts, runes[&588].success), (0b100, 100));
+        assert_eq!(runes[&463].skill, None);
     }
 
     #[test]
@@ -796,7 +824,7 @@ mod tests {
             Anti A\t470\t7\t\tO\t60\t\t1\r\n\
             Anti B\t471\t7\t\tO\t60\t1\t1\r\n\
             Body\t480\t\tO\t\t90\t\t50\r\n");
-        assert_eq!(t.runes[&471], Rune { anti: 7, parts: 0b100, success: 60, always: true, min_level: 1 });
+        assert_eq!(t.runes[&471], Rune { anti: 7, parts: 0b100, success: 60, always: true, min_level: 1, skill: None });
         let open = ItemConvert { sockets: 3, ..Default::default() };
         let sword = EquipData { level: 10, part: 10, ..weapon(3) };
         assert!(check_rune(&t, &sword, &open, 463).is_ok());

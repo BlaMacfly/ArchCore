@@ -146,11 +146,12 @@ pub fn parse_skill_specs(text: &str, tids: &HashMap<String, u32>) -> (Vec<(u32, 
 }
 
 /// SKILL_CONST.txt : le nom figure sur la première ligne d'une compétence, les niveaux suivants le laissent
-/// vide. Rend (tid, niveau, colonnes) et le nombre de noms sans modèle.
+/// vide. Rend (tid, niveau, colonnes) et le nombre de noms sans modèle. Skill_Const2.txt a la même forme, ses
+/// colonnes finissant par « 2 » (`skill_level2`, `ignore_physical_defence_percent2`…).
 pub fn parse_skill_levels(text: &str, tids: &HashMap<String, u32>) -> (Vec<(u32, u32, serde_json::Value)>, usize) {
     let (header, rows) = parse_tsv(text);
     let header = group_columns(&header);
-    let level_col = header.iter().position(|h| h == "skill_level").unwrap_or(1);
+    let level_col = header.iter().position(|h| h == "skill_level" || h == "skill_level2").unwrap_or(1);
     let (mut out, mut missing, mut current) = (Vec::new(), 0, None);
     for r in &rows {
         let name = r.first().map(|n| n.trim()).unwrap_or("");
@@ -163,9 +164,31 @@ pub fn parse_skill_levels(text: &str, tids: &HashMap<String, u32>) -> (Vec<(u32,
         let (Some(tid), Some(level)) = (current, r.get(level_col).and_then(|l| l.trim().parse::<u32>().ok())) else { continue };
         let mut o = row_object(&header, r, 1);
         o.remove("skill_level");
+        o.remove("skill_level2");
         out.push((tid, level, serde_json::Value::Object(o)));
     }
     (out, missing)
+}
+
+/// Ajoute aux niveaux de SKILL_CONST.txt les colonnes de Skill_Const2.txt du même niveau ; rend le nombre de
+/// niveaux complétés.
+pub fn merge_skill_levels(levels: &mut [(u32, u32, serde_json::Value)], more: Vec<(u32, u32, serde_json::Value)>) -> usize {
+    let mut extra: HashMap<(u32, u32), serde_json::Map<String, serde_json::Value>> = HashMap::new();
+    for (tid, level, v) in more {
+        if let serde_json::Value::Object(o) = v {
+            extra.entry((tid, level)).or_default().extend(o);
+        }
+    }
+    let mut n = 0;
+    for (tid, level, v) in levels.iter_mut() {
+        if let (Some(o), serde_json::Value::Object(target)) = (extra.remove(&(*tid, *level)), v) {
+            if !o.is_empty() {
+                target.extend(o);
+                n += 1;
+            }
+        }
+    }
+    n
 }
 
 /// questtemplate.ini (tabulé, une quête par ligne) : (tid, nom, colonnes). Une quête répétée garde sa
@@ -979,7 +1002,11 @@ async fn import_all(db: &Databases, src: &Source) -> anyhow::Result<()> {
     if src.exists("SKILLTEMPLATE.ini") && src.exists("SKILL_SPEC.txt") && src.exists("SKILL_CONST.txt") {
         let tids = skill_tids(&src.read("SKILLTEMPLATE.ini")?);
         let (specs, missing_spec) = parse_skill_specs(&src.read("SKILL_SPEC.txt")?, &tids);
-        let (levels, missing_const) = parse_skill_levels(&src.read("SKILL_CONST.txt")?, &tids);
+        let (mut levels, missing_const) = parse_skill_levels(&src.read("SKILL_CONST.txt")?, &tids);
+        if src.exists("Skill_Const2.txt") {
+            let (more, _) = parse_skill_levels(&src.read("Skill_Const2.txt")?, &tids);
+            println!("✓ Skill_Const2.txt : {} niveau(x) complété(s)", merge_skill_levels(&mut levels, more));
+        }
         let out: Vec<Vec<Value>> = specs.into_iter().map(|(tid, name, spec)| vec![v(tid), v(name), v(spec.to_string())]).collect();
         let n = replace(db, "skill_spec", "INSERT INTO skill_spec (tid,name,spec) VALUES (?,?,?)", out).await?;
         println!("✓ skill_spec : {n} ({missing_spec} nom(s) sans modèle)");
@@ -1211,6 +1238,18 @@ mod tests {
         assert_eq!(js_number("0x10", 7.0), 16.0);
         assert_eq!(js_number("abc", 7.0), 7.0);
         assert_eq!(js_number("1.5", 7.0), 1.5);
+    }
+
+    #[test]
+    fn niveaux_de_competence_et_skill_const2() {
+        let tids: HashMap<String, u32> = [("Lethal Attack".to_string(), 30)].into_iter().collect();
+        let (mut levels, missing) = parse_skill_levels("name\tskill_level\tduration\r\nLethal Attack\t1\t396000\r\n\t2\t402000\r\nInconnue\t1\t5\r\n", &tids);
+        assert_eq!((levels.len(), missing), (2, 1));
+        let (more, _) = parse_skill_levels("name2\tskill_level2\tignore_physical_defence_percent2\r\nLethal Attack\t1\t5\r\n\t2\t\r\n", &tids);
+        assert_eq!(merge_skill_levels(&mut levels, more), 1, "le niveau 2 n'a rien en plus");
+        assert_eq!(levels[0].2.get("ignore_physical_defence_percent2").and_then(|v| v.as_str()), Some("5"));
+        assert_eq!(levels[0].2.get("duration").and_then(|v| v.as_str()), Some("396000"));
+        assert!(levels[1].2.get("skill_level2").is_none());
     }
 
     #[test]

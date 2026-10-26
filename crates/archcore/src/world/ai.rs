@@ -314,7 +314,7 @@ fn monster_step(ctx: &WorldCtx, st: &mut WorldState, cid: u32, now: Instant) -> 
     let mods = st.monsters.mods(cid);
     let (min_damage, max_damage) = super::effects::monster_damage(stats.min_damage, stats.max_damage, &mods);
     let attacker = Attacker { level: m.level as i32, ar: stats.ar, min_damage, max_damage, ..Default::default() };
-    let defender = Defender { level: p.factors.status[7], dr: p.factors.point_max[9], defense: p.factors.defense_point[0] as f64 };
+    let defender = Defender::of_player(&p.factors);
     let mut rng = rand::thread_rng();
     let (mut outcome, physical) = combat::strike_at(&mut rng, combat::monster_hit_chance(&attacker, &defender), &attacker, &defender);
     let mut parts = vec![(combat::RESULT_PHYSICAL, physical)];

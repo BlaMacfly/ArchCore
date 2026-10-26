@@ -265,6 +265,7 @@ pub static COMMANDS: &[CommandDef] = &[
     CommandDef { name: "last_refine", level: 3, args: Some(&[]), usage: "/last_refine" },
     CommandDef { name: "level", level: 3, args: Some(&["int", "name?"]), usage: "/level <niveau> \"nom\"" },
     CommandDef { name: "money", level: 3, args: Some(&["int", "name?"]), usage: "/money <montant> \"nom\"" },
+    CommandDef { name: "charisma", level: 3, args: Some(&["int", "name?"]), usage: "/charisma <points> \"nom\"" },
     CommandDef { name: "announce_restart", level: 3, args: Some(&["int", "int?"]), usage: "/announce_restart <minutes> <secondes>" },
     CommandDef { name: "move", level: 1, args: None, usage: "/move x,z" },
 ];
@@ -437,6 +438,21 @@ async fn run(world: &Arc<World>, st: &mut WorldState, sid: u32, cmd: &CommandDef
             }
             set_money(ctx, st, target, amount).await?;
             Ok(format!("{} a maintenant {amount} pièce(s) d'or.", st.players[&target].ch.name))
+        }
+        "charisma" => {
+            let points = a[0].int().unwrap_or(-1);
+            let target = match a[1].name() {
+                Some(n) => st.by_name(n),
+                None => Some(sid),
+            };
+            let Some(target) = target else { return Ok(err(format!("personnage absent du monde : {}", a[1].name().unwrap_or("")))) };
+            if !(1..=1_000_000).contains(&points) {
+                return Ok(err("points entre 1 et 1 000 000"));
+            }
+            let gain = super::skills::gain_charisma(ctx, st, target, points as u32).await?;
+            let p = &st.players[&target];
+            info!("[mj] {} donne {gain} point(s) de charisme à {}", st.players[&sid].ch.name, p.ch.name);
+            Ok(format!("{} gagne {gain} point(s) de charisme ({} en tout).", p.ch.name, p.ch.charisma))
         }
         "questreset" => {
             let tid = a[0].int().unwrap_or(0) as u32;

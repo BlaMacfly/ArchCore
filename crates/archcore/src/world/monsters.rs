@@ -74,6 +74,8 @@ pub struct MonsterStats {
     /// Dégâts élémentaires (min, max), dans l'ordre des éléments des compétences : magie, eau, feu, terre, air,
     /// poison, foudre, glace.
     pub spirit: [(i32, i32); 8],
+    /// Résistances élémentaires (pour cent), même ordre.
+    pub resist: [i32; 8],
 }
 
 impl MonsterStats {
@@ -111,6 +113,7 @@ impl MonsterStats {
                 _ => 1.0,
             },
             spirit: ["Magic", "Water", "Fire", "Earth", "Air", "Poison", "Thunder", "Ice"].map(|e| (n(&format!("{e} Min_Damage")), n(&format!("{e} Max_Damage")))),
+            resist: ["Magic", "Water", "Fire", "Earth", "Air", "Poison", "Thunder", "Ice"].map(|e| n(&format!("{e} Res."))),
         }
     }
 

@@ -246,10 +246,11 @@ fn hit_player(ctx: &WorldCtx, st: &mut WorldState, m: &Monster, t: &SkillTemplat
     let mods = st.monsters.mods(m.cid);
     let (min_damage, max_damage) = effects::monster_damage(stats.min_damage, stats.max_damage, &mods);
     let attacker = Attacker { level: m.level as i32, ar: stats.ar, min_damage, max_damage, ..Default::default() };
-    let defender = Defender { level: p.factors.status[7], dr: p.factors.point_max[9], defense: p.factors.defense_point[0] as f64 };
+    let defender = Defender::of_player(&p.factors);
     let spirit = stats.spirit.map(|(lo, hi)| (lo as f64, hi.max(lo) as f64));
     let mut rng = rand::thread_rng();
     let damages = if t.instant_damage() && !shielded { skills::skill_damage(&mut rng, &attacker, &spirit, &defender, lv) } else { Vec::new() };
+    let damages = combat::divert(st, sid, &damages);
     let total: i32 = damages.iter().map(|(_, d)| *d).sum();
     let p = st.players.get_mut(&sid).unwrap();
     super::recovery::in_combat(&mut p.timers, now);
