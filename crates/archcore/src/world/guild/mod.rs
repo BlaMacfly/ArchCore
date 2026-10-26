@@ -18,10 +18,12 @@
 //!   op 10 message système : code (champ 1), textes (2, 3), nombre (4).
 //!   op 11 à 25 combats de guildes (battle.rs) ; op 28 liste des guildes (list.rs) ; op 32 et 33 emblème (mark.rs) ;
 //!         op 34 à 45 alliances et hostilités (relation.rs) ; op 48 second et passation de chef (society.rs).
+//!   Entrepôt de guilde : AgpmGuildWarehouse (0x54), AgpmEventGuild ops 2 et 3 (warehouse.rs).
 //! ```
 //! À l'entrée en jeu, le membre reçoit sa guilde (op 0), chaque membre (op 3) et son lien (op 8) ; les autres
 //! membres le voient passer en ligne (op 8). Le lien d'un joueur à sa guilde part aussi à ceux qui le voient.
-//! En base : `guild`, `guild_member`, `guild_hostile` (base des personnages) ; tailles et prix : `guild_max_member`.
+//! En base : `guild`, `guild_member`, `guild_hostile`, `guild_warehouse` (base des personnages) ; tailles et prix :
+//! `guild_max_member`.
 
 use super::npc_events::{npc_distance, resolve, MAX_NPC_DISTANCE};
 use super::npcs::event_function;
@@ -38,6 +40,7 @@ pub mod list;
 pub mod mark;
 pub mod relation;
 pub mod society;
+pub mod warehouse;
 
 pub mod op {
     pub const CREATE: i64 = 0;
@@ -107,6 +110,9 @@ pub mod code {
 pub mod event_op {
     pub const REQUEST: i64 = 0;
     pub const GRANT: i64 = 1;
+    /// Entrepôt de guilde (gardien de banque, fonction 35).
+    pub const REQUEST_WAREHOUSE: i64 = 2;
+    pub const GRANT_WAREHOUSE: i64 = 3;
 }
 
 /// Niveau exigé pour créer une guilde.
@@ -177,6 +183,8 @@ pub struct Guild {
     pub offer: Option<battle::Offer>,
     /// Alliance et hostilités.
     pub relations: relation::Relations,
+    /// Entrepôt, chargé à la première ouverture.
+    pub warehouse: warehouse::Warehouse,
 }
 
 impl Guild {
@@ -222,6 +230,8 @@ pub struct Guilds {
     battle_clock: Option<Instant>,
     /// Demandes d'alliance, d'hostilité et de trêve en attente.
     pub relation_offers: Vec<relation::Offer>,
+    /// Gardien (CID) auprès duquel chaque joueur a demandé l'entrepôt de guilde.
+    pub warehouse_keepers: HashMap<u32, u32>,
 }
 
 impl Guilds {
@@ -798,6 +808,12 @@ async fn destroy(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> a
         send_to(st, sid, system_packet(code::INVALID_PASSWORD, None, None));
         return Ok(());
     }
+    // Entrepôt non vide : Guild_Destory_Keep_Fail.
+    warehouse::ensure_loaded(ctx, st, gid).await?;
+    if !st.guilds.by_id[&gid].warehouse.is_empty() {
+        send_to(st, sid, system_packet(warehouse::DESTROY_KEEP_FAIL, None, None));
+        return Ok(());
+    }
     relation::on_destroy(ctx, st, gid).await?;
     ctx.db.characters.exec("DELETE FROM guild WHERE id = ?", (gid,)).await?;
     let g = &st.guilds.by_id[&gid];
@@ -887,20 +903,27 @@ pub async fn step(ctx: &WorldCtx, st: &mut WorldState, at: Instant) -> anyhow::R
     Ok(())
 }
 
-/// AgpmEventGuild op 0 : le joueur s'adresse à un gestionnaire de guilde.
-pub fn on_event(ctx: &WorldCtx, st: &WorldState, sid: u32, p: &Packet) {
-    if p.int(0) != Some(event_op::REQUEST) {
-        return;
-    }
+/// AgpmEventGuild op 0 : le joueur s'adresse à un gestionnaire de guilde ; op 2 : à un gardien de banque pour
+/// l'entrepôt de guilde (fonction 35, FUN_1406a6560).
+pub fn on_event(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) {
+    let (function, grant) = match p.int(0) {
+        Some(event_op::REQUEST) => (event_function::GUILD, event_op::GRANT),
+        Some(event_op::REQUEST_WAREHOUSE) => (event_function::GUILD_WAREHOUSE, event_op::GRANT_WAREHOUSE),
+        _ => return,
+    };
     let Some(player) = st.players.get(&sid) else { return };
     let base = p.bytes(1).and_then(|b| decode_mini(&mini::EVENT_BASE, b).ok()).unwrap_or_else(|| Fields::new(&mini::EVENT_BASE));
     let Some((npc, _)) = resolve(&ctx.npcs, &base) else { return };
-    if !npc.events.iter().any(|e| e.function == event_function::GUILD) || npc_distance(npc, player.ch.pos_x, player.ch.pos_z) > MAX_NPC_DISTANCE {
-        warn!("[guilde] #{sid} {} : gestionnaire {} refusé", player.ch.name, npc.name);
+    if !npc.events.iter().any(|e| e.function == function) || npc_distance(npc, player.ch.pos_x, player.ch.pos_z) > MAX_NPC_DISTANCE {
+        warn!("[guilde] #{sid} {} : {} refusé (fonction {function})", player.ch.name, npc.name);
         return;
     }
     let s = &schema::EVENT_GUILD;
-    player.send(s, Fields::new(s).with(0, event_op::GRANT).with(1, build_mini(&mini::EVENT_BASE, &base)).with(2, player.ch.id));
+    player.send(s, Fields::new(s).with(0, grant).with(1, build_mini(&mini::EVENT_BASE, &base)).with(2, player.ch.id));
+    if function == event_function::GUILD_WAREHOUSE {
+        let npc_cid = npc.cid;
+        st.guilds.warehouse_keepers.insert(sid, npc_cid);
+    }
 }
 
 #[cfg(test)]

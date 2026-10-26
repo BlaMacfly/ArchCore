@@ -35,6 +35,8 @@ pub mod stored_status {
     pub const INVENTORY: i64 = 0;
     pub const EQUIP: i64 = 1;
     pub const BANK: i64 = 2;
+    /// Entrepôt de guilde (`guild_id` renseigné).
+    pub const GUILD_WAREHOUSE: i64 = 3;
 }
 
 /// Inventaire : 4 sacs de 4 × 4 cases utilisés (la grille du client en a 5 × 5 × 5).

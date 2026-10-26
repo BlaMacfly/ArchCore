@@ -45,6 +45,7 @@ pub mod ptype {
     pub const EVENT_NPC_TRADE: u8 = 0x32;
     pub const EVENT_GUILD: u8 = 0x39;
     pub const EVENT_BANK: u8 = 0x36;
+    pub const GUILD_WAREHOUSE: u8 = 0x54;
     pub const ITEM_CONVERT: u8 = 0x16;
     pub const REFINERY: u8 = 0x4b;
     pub const EVENT_REFINERY: u8 = 0x3f;
@@ -361,6 +362,15 @@ pub static EVENT_ITEM_CONVERT: Schema = Schema { name: "AGPMEVENTITEMCONVERT", i
 /// AgpmEventBank (0x36) — drapeaux 1 : op (0 demande, 1 accord), événement (EVENT_BASE), CID du joueur.
 pub static EVENT_BANK: Schema = Schema { name: "AGPMEVENTBANK", id: ptype::EVENT_BANK, flag_len: 1, fields: &[f(I8), f(Packet), f(I32)] };
 
+/// AgpmGuildWarehouse (0x54) — drapeaux 2 : opération, CID, argent, pages en plus, IID, page, ligne, colonne,
+/// résultat (FUN_140309ad0).
+pub static GUILD_WAREHOUSE: Schema = Schema {
+    name: "AGPMGUILDWAREHOUSE",
+    id: ptype::GUILD_WAREHOUSE,
+    flag_len: 2,
+    fields: &[f(I8), f(I32), f(I64), f(I32), f(I32), f(I32), f(I32), f(I32), f(I32)],
+};
+
 /// AgpmPrivateTrade (0x07) — drapeaux 2 : échange entre joueurs.
 /// AgpmParty — drapeaux 2.
 pub static PARTY: Schema = Schema {
@@ -577,7 +587,7 @@ pub static RECONNECT: Schema = Schema {
 /// Tous les schémas principaux, pour l'aiguillage par type.
 pub static MAIN: &[&Schema] = &[
     &CONFIG, &CHARACTER, &CHAR_MANAGER, &LOGIN, &TIMER, &WORLD, &CHATTING, &ADMIN, &ITEM, &EVENT_NPC_TRADE,
-    &EVENT_NPC_DIALOG, &EVENT_MANAGER, &SKILL, &EVENT_SKILL_MASTER, &EVENT_TELEPORT, &EVENT_BANK, &ITEM_CONVERT, &EVENT_ITEM_CONVERT, &REFINERY, &EVENT_REFINERY, &GUILD, &EVENT_GUILD, &PRIVATE_TRADE, &PARTY, &PARTY_MANAGEMENT, &QUEST, &EVENT_QUEST, &UI_STATUS, &SYSTEM_MESSAGE, &RETURN_TO_LOGIN, &OPT_CHAR_MOVE, &OPT_CHAR_ACTION, &OPT_VIEW,
+    &EVENT_NPC_DIALOG, &EVENT_MANAGER, &SKILL, &EVENT_SKILL_MASTER, &EVENT_TELEPORT, &EVENT_BANK, &ITEM_CONVERT, &EVENT_ITEM_CONVERT, &REFINERY, &EVENT_REFINERY, &GUILD, &EVENT_GUILD, &GUILD_WAREHOUSE, &PRIVATE_TRADE, &PARTY, &PARTY_MANAGEMENT, &QUEST, &EVENT_QUEST, &UI_STATUS, &SYSTEM_MESSAGE, &RETURN_TO_LOGIN, &OPT_CHAR_MOVE, &OPT_CHAR_ACTION, &OPT_VIEW,
     &STARTUP_ENCRYPTION, &ARCHCORE_EXT, &RECONNECT,
 ];
 

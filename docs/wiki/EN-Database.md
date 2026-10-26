@@ -20,12 +20,13 @@ ArchCore uses three main MariaDB databases, plus a log database, created and upd
 | Table | Content |
 |---|---|
 | `characters` | Account, slot, unique name, template (TID), level, experience, HP/MP/SP, position, money, bank, hair, face, charisma, soft delete |
-| `character_items` | Items: status 0 inventory, 1 equipped, 2 bank (attached to the character who deposited it) |
+| `character_items` | Items: status 0 inventory, 1 equipped, 2 bank (attached to the character who deposited it), 3 guild warehouse (`guild_id`; the character who deposited it stays recorded) |
 | `character_quests` | Quests in progress (monster A and B counters) and completed |
 | `account_bank` | Account bank: money, pages beyond the first (created on first entry, with the money the characters had in the bank) |
 | `character_skills` | Learned skills and their level ("Normal Attack" is not stored: every character knows it) |
 | `guild` | Guilds: unique name, disbanding password, notice, size, creation date, guild mark (`mark_tid`, `mark_color`), battle record (`win`, `draw`, `lose`, `points`), alliance (`joint_leader`: the founder, `joint_at`) (`sql/migrations/characters/`) |
 | `guild_hostile` | Hostilities between guilds, one row per direction (`guild_id`, `other_id`, `since`) |
+| `guild_warehouse` | Guild warehouse: money, pages beyond the first |
 | `guild_member` | Guild member (a character is in one at most): rank (1 member, 2 join request, 3 leave request, 10 master, 11 sub-master), join date, leave request date |
 | `character_ui_status` | Interface status: the bar's life and mana potions, their automatic use thresholds (%), helmet display |
 

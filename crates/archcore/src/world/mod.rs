@@ -276,6 +276,7 @@ impl Service for WorldService {
                 | ptype::EVENT_TELEPORT
                 | ptype::GUILD
                 | ptype::EVENT_GUILD
+                | ptype::GUILD_WAREHOUSE
                 | ptype::PRIVATE_TRADE
                 | ptype::PARTY
                 | ptype::PARTY_MANAGEMENT
@@ -383,7 +384,8 @@ impl Connection for WorldConn {
             ptype::EVENT_REFINERY => refinery::on_event(&st, self.sid, &p),
             ptype::EVENT_TELEPORT => portal::on_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::GUILD => guild::on_packet(ctx, &mut st, self.sid, &p).await?,
-            ptype::EVENT_GUILD => guild::on_event(ctx, &st, self.sid, &p),
+            ptype::EVENT_GUILD => guild::on_event(ctx, &mut st, self.sid, &p),
+            ptype::GUILD_WAREHOUSE => guild::warehouse::on_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::PRIVATE_TRADE => trade::on_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::PARTY => party::on_party(&mut st, self.sid, &p),
             ptype::PARTY_MANAGEMENT => party::on_management(&mut st, self.sid, &p),
@@ -423,6 +425,7 @@ pub(super) async fn remove_player(ctx: &WorldCtx, st: &mut WorldState, sid: u32)
         // Les membres de sa guilde le voient hors ligne.
         guild::on_leave_world(st, cid);
     }
+    guild::warehouse::on_leave_world(st, sid);
     if let Err(e) = presence::leave(ctx, st, sid).await {
         warn!("[world] départ de #{sid} : {e:#}");
     }

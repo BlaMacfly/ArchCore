@@ -266,7 +266,9 @@ async fn lead_succession(a: &mut InWorld, b: &mut InWorld, ca: &str, cb: &str) -
 /// * `guerre-refus` : GmTest refuse pendant `secondes` les défis reçus ;
 /// * `relation-prep` : comme `guerre-prep`, 20 membres dans chaque guilde (38 comptes d'appoint) ;
 /// * `relation-repond` : GmTest accepte pendant `secondes` alliances, hostilités et trêves demandées ;
-/// * `relation-demande` : GmTest déclare SimWarB hostile après `secondes`, puis accepte la trêve.
+/// * `relation-demande` : GmTest déclare SimWarB hostile après `secondes`, puis accepte la trêve ;
+/// * `entrepot-prep` (après `guerre-prep`) : SimA va chez Holly, dépose une pile et 1000 pièces dans l'entrepôt de
+///   SimWarB et garde une autre pile dans son sac.
 pub async fn guild_stage(mode: &str, secs: u64) -> anyhow::Result<()> {
     use crate::world::guild::society::{get_text, put_text, raw_packet, sub};
     let cfg = crate::config::load()?;
@@ -435,6 +437,27 @@ pub async fn guild_stage(mode: &str, secs: u64) -> anyhow::Result<()> {
             tokio::time::sleep(Duration::from_millis(500)).await;
             println!("\nmise en scène : {LEAD_NAME} (GmTest) et {WAR_GUILD} (SimA), 20 membres chacune");
         }
+        "entrepot-prep" => {
+            let (it, gw) = (&schema::ITEM, &schema::GUILD_WAREHOUSE);
+            let mut a = enter_world(&cfg, "gmtest", "gmtest", "GmTest", "A-").await?;
+            let mut b = enter_world(&cfg, "sima", "sima", "SimA", "B-").await?;
+            let keeper = go_to_keeper(&mut b).await?;
+            a.world.send(&schema::CHATTING, chat_line(a.cid, "/create \"SimA\" 190 3")).await?;
+            let made = b.world.expect_where(|q| q.is(it, None) && q.int(3) == Some(190) && q.int(1) == Some(2), 3000, "potions").await?;
+            let iid = made.int(2).unwrap_or(0);
+            a.world.send(&schema::CHATTING, chat_line(a.cid, "/money 5000 \"SimA\"")).await?;
+            b.world.expect_where(|q| q.is(&schema::CHARACTER, Some(1)) && q.int(8).is_some(), 3000, "argent").await?;
+            warehouse_open(&mut b, keeper).await?;
+            b.world.expect_where(gware(1), 3000, "entrepôt ouvert").await?;
+            b.world.send(gw, Fields::new(gw).with(0, 5).with(1, b.cid).with(4, iid).with(5, 0).with(6, 0).with(7, 0)).await?;
+            b.world.expect_where(|q| q.is(it, Some(2)) && q.int(2) == Some(iid), 3000, "pile déposée").await?;
+            b.world.send(gw, Fields::new(gw).with(0, 3).with(1, b.cid).with(2, 1000)).await?;
+            b.world.expect_where(gware(0), 3000, "argent déposé").await?;
+            a.world.send(&schema::CHATTING, chat_line(a.cid, "/create \"SimA\" 191 2")).await?;
+            tokio::time::sleep(Duration::from_millis(800)).await;
+            println!("
+mise en scène : SimA chez Holly, une pile et 1000 pièces dans l'entrepôt de {WAR_GUILD}");
+        }
         "relation-repond" | "relation-demande" => {
             let mut a = enter_world(&cfg, "gmtest", "gmtest", "GmTest", "A-").await?;
             if mode == "relation-demande" {
@@ -455,7 +478,7 @@ pub async fn guild_stage(mode: &str, secs: u64) -> anyhow::Result<()> {
                 println!("  ✓ demande {:?} de {from} acceptée (op {answer})", q.int(0));
             }
         }
-        other => anyhow::bail!("mode inconnu {other:?} : setup | present | chef | dissoudre | guerre-prep | guerre-defi | guerre-refus | relation-prep | relation-repond | relation-demande"),
+        other => anyhow::bail!("mode inconnu {other:?} : setup | present | chef | dissoudre | guerre-prep | guerre-defi | guerre-refus | relation-prep | relation-repond | relation-demande | entrepot-prep"),
     }
     Ok(())
 }
@@ -908,5 +931,153 @@ pub async fn guild_relation(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb
     drop(helpers);
     println!("  ✓ op 40 et 45 à l'entrée ; op 43 à la dissolution");
     println!("\nalliances et hostilités : OK");
+    Ok(())
+}
+
+/// Près de Holly (gardienne de banque d'Anchorville, fonctions 20 et 35).
+const KEEPER_SPOT: archcore_net::Vec3 = archcore_net::Vec3 { x: -480_400.0, y: 4_920.0, z: -69_100.0 };
+
+/// Va chez Holly et rend son CID.
+async fn go_to_keeper(w: &mut InWorld) -> anyhow::Result<i64> {
+    let mv = &schema::OPT_CHAR_MOVE;
+    w.world.send(mv, Fields::new(mv).with(0, w.cid).with(1, KEEPER_SPOT).with(2, KEEPER_SPOT).with(5, 0x04).with(6, 0)).await?;
+    let mut keeper = w.npcs.iter().find(|n| n.1.ends_with(" Holly")).map(|n| n.0);
+    while let Ok(p) = w.world.expect_where(|q| q.is(&schema::OPT_VIEW, Some(1)), 1500, "PNJ").await {
+        if let Ok(view) = decode_mini(&mini::OPT_VIEW_CHAR, p.fields().bytes(1).unwrap_or_default()) {
+            if view.text(2).is_some_and(|n| n.ends_with(" Holly")) {
+                keeper = view.int(0);
+            }
+        }
+    }
+    keeper.ok_or_else(|| anyhow::anyhow!("Holly introuvable"))
+}
+
+/// AgpmEventGuild op 2 chez le gardien (fonction 35) ← op 3, puis AgpmGuildWarehouse op 1.
+async fn warehouse_open(w: &mut InWorld, keeper: i64) -> anyhow::Result<()> {
+    let (eg, eb, gw) = (&schema::EVENT_GUILD, &mini::EVENT_BASE, &schema::GUILD_WAREHOUSE);
+    let base = build_mini(eb, &Fields::new(eb).with(0, 3).with(1, keeper).with(3, 35));
+    w.world.send(eg, Fields::new(eg).with(0, 2).with(1, base).with(2, w.cid)).await?;
+    w.world.expect_where(|q| q.is(eg, Some(3)), 3000, "accord du gardien (op 3)").await?;
+    w.world.send(gw, Fields::new(gw).with(0, 1).with(1, w.cid)).await
+}
+
+fn gware(op: i64) -> impl Fn(&Recv) -> bool {
+    move |q: &Recv| q.is(&schema::GUILD_WAREHOUSE, Some(op))
+}
+
+/// Entrepôt de guilde : A (compte MJ) crée SimWare, B la rejoint. Chez Holly (fonction 35) : accord (AgpmEventGuild
+/// op 3), refus sous 10 membres (code 0x5f) ; 8 comptes d'appoint ; ouverture (op 0 argent, op 1 résultat 2) ;
+/// A dépose une pile (op 5 → AGPMITEM statut 53, case au champ 7) et 1000 pièces (op 3 → op 0) ; B ouvre et voit
+/// la pile, ne peut ni retirer d'argent ni reprendre la pile (le chef seul), dépose 200 pièces ; dissolution refusée
+/// (code 0x60) ; à la reconnexion de A, pile et argent relus ; A reprend la pile (op 6 → statut 2 ; B la voit
+/// partir) et l'argent (op 4) ; agrandissement : résultat 4 (faute d'or) ; dissolution.
+pub async fn guild_warehouse(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> anyhow::Result<()> {
+    const GW: &str = "SimWare";
+    const POTION: i64 = 190;
+    const STATUS: i64 = 53;
+    let cfg = crate::config::load()?;
+    let (gd, gw, it, c, ch) = (&schema::GUILD, &schema::GUILD_WAREHOUSE, &schema::ITEM, &schema::CHARACTER, &schema::CHATTING);
+    step(&format!("{ca}, {cb} et 8 comptes d'appoint entrent en jeu"));
+    let mut a = enter_world(&cfg, ua, pa, ca, "A-").await?;
+    let mut b = enter_world(&cfg, ub, pb, cb, "B-").await?;
+    Box::pin(leave_old_guild(&mut a)).await?;
+    Box::pin(leave_old_guild(&mut b)).await?;
+    let mut helpers = Vec::new();
+    for (i, user) in helper_accounts(&cfg, 8).await?.iter().enumerate() {
+        let mut h = enter_world(&cfg, user, user, &format!("SimG{:02}", i + 1), &format!("G{:02}-", i + 1)).await?;
+        Box::pin(leave_old_guild(&mut h)).await?;
+        helpers.push(h);
+    }
+
+    step(&format!("{ca} crée {GW}, {cb} la rejoint ; tous deux chez Holly"));
+    a.world.send(ch, chat_line(a.cid, "/level 20")).await?;
+    set_money(&mut a, 20_000).await?;
+    a.world.expect_where(|q| q.is(c, Some(1)) && q.int(8) == Some(20_000), 3000, "argent").await?;
+    a.world.send(gd, Fields::new(gd).with(0, 0).with(1, a.cid).with(2, GW).with(9, LEAD_PASSWORD)).await?;
+    a.world.expect_where(gsys(11), 3000, "création").await?;
+    Box::pin(lead_join(&mut a, GW, &mut b, cb)).await?;
+    let keeper = go_to_keeper(&mut a).await?;
+    go_to_keeper(&mut b).await?;
+    println!("  ✓ {GW} : 2 membres ; gardienne {keeper:#x}");
+
+    step("ouverture refusée sous 10 membres");
+    warehouse_open(&mut a, keeper).await?;
+    a.world.expect_where(gsys(0x5f), 3000, "effectif insuffisant (0x5f)").await?;
+    for (i, h) in helpers.iter_mut().enumerate() {
+        Box::pin(lead_join(&mut a, GW, h, &format!("SimG{:02}", i + 1))).await?;
+    }
+    println!("  ✓ code 0x5f ; {GW} : 10 membres");
+
+    step(&format!("{ca} ouvre l'entrepôt, dépose une pile et 1000 pièces"));
+    warehouse_open(&mut a, keeper).await?;
+    let info = a.world.expect_where(gware(0), 3000, "argent de l'entrepôt (op 0)").await?;
+    anyhow::ensure!(info.int(2) == Some(0), "argent {:?}", info.int(2));
+    let opened = a.world.expect_where(gware(1), 3000, "ouverture (op 1)").await?;
+    anyhow::ensure!(opened.int(8) == Some(2), "résultat {:?}", opened.int(8));
+    a.world.send(ch, chat_line(a.cid, &format!("/create \"{ca}\" {POTION} 3"))).await?;
+    let made = a.world.expect_where(|q| q.is(it, None) && q.int(3) == Some(POTION) && q.int(1) == Some(2), 3000, "potions créées").await?;
+    let iid = made.int(2).unwrap_or(0);
+    a.world.send(gw, Fields::new(gw).with(0, 5).with(1, a.cid).with(4, iid).with(5, 0).with(6, 6).with(7, 3)).await?;
+    let put = a.world.expect_where(|q| q.is(it, Some(2)) && q.int(2) == Some(iid), 3000, "pile dans l'entrepôt").await?;
+    let cell = decode_mini(&mini::ITEM_GRID, put.fields().bytes(7).unwrap_or_default())?;
+    anyhow::ensure!(put.int(1) == Some(STATUS) && (cell.int(0), cell.int(1), cell.int(2)) == (Some(0), Some(6), Some(3)), "statut {:?}, case {:?}", put.int(1), (cell.int(0), cell.int(1), cell.int(2)));
+    a.world.send(gw, Fields::new(gw).with(0, 3).with(1, a.cid).with(2, 1000)).await?;
+    let m = a.world.expect_where(|q| q.is(c, Some(1)) && q.int(8).is_some(), 3000, "argent porté").await?;
+    // 20 000 pièces, moins 10 000 pour la création et 1000 déposées.
+    anyhow::ensure!(m.int(8) == Some(9_000), "argent {:?}", m.int(8));
+    let info = a.world.expect_where(gware(0), 3000, "argent de l'entrepôt").await?;
+    anyhow::ensure!(info.int(2) == Some(1000), "entrepôt {:?}", info.int(2));
+    println!("  ✓ op 0 et op 1 (2) ; pile {iid} au statut 53 en (0, 6, 3) ; 1000 pièces (op 3 → op 0)");
+
+    step(&format!("{cb} ouvre l'entrepôt : droits d'un membre"));
+    warehouse_open(&mut b, keeper).await?;
+    let seen = b.world.expect_where(|q| q.is(it, Some(0)) && q.int(2) == Some(iid), 3000, "pile vue de B").await?;
+    anyhow::ensure!(seen.int(1) == Some(STATUS), "statut {:?}", seen.int(1));
+    let info = b.world.expect_where(gware(0), 3000, "argent vu de B").await?;
+    anyhow::ensure!(info.int(2) == Some(1000), "entrepôt {:?}", info.int(2));
+    b.world.expect_where(gware(1), 3000, "ouverture de B").await?;
+    b.world.send(gw, Fields::new(gw).with(0, 4).with(1, b.cid).with(2, 500)).await?;
+    anyhow::ensure!(b.world.expect_where(gware(0), 1200, "retrait").await.is_err(), "{cb} a retiré de l'argent");
+    b.world.send(gw, Fields::new(gw).with(0, 6).with(1, b.cid).with(3, 2).with(4, iid).with(5, -1).with(6, -1).with(7, -1)).await?;
+    let back = b.world.expect_where(|q| q.is(it, Some(2)) && q.int(2) == Some(iid), 3000, "pile remise").await?;
+    anyhow::ensure!(back.int(1) == Some(STATUS), "statut {:?}", back.int(1));
+    a.world.send(ch, chat_line(a.cid, &format!("/money 300 \"{cb}\""))).await?;
+    b.world.expect_where(|q| q.is(c, Some(1)) && q.int(8).is_some(), 3000, "argent de B").await?;
+    b.world.send(gw, Fields::new(gw).with(0, 3).with(1, b.cid).with(2, 200)).await?;
+    a.world.expect_where(|q| gware(0)(q) && q.int(2) == Some(1200), 3000, "dépôt de B vu de A").await?;
+    b.world.expect_where(|q| gware(0)(q) && q.int(2) == Some(1200), 3000, "dépôt de B").await?;
+    println!("  ✓ {cb} voit la pile ; retrait d'argent et de la pile refusés ; dépôt de 200 pièces (vu des deux)");
+
+    step("dissolution refusée, entrepôt non vide");
+    a.world.send(gd, Fields::new(gd).with(0, 6).with(1, a.cid).with(2, GW).with(9, LEAD_PASSWORD)).await?;
+    a.world.expect_where(gsys(0x60), 3000, "dissolution refusée (0x60)").await?;
+    println!("  ✓ code 0x60");
+
+    step(&format!("{ca} se reconnecte, reprend la pile et l'argent"));
+    drop(a);
+    let mut a = enter_world(&cfg, ua, pa, ca, "A-").await?;
+    go_to_keeper(&mut a).await?;
+    warehouse_open(&mut a, keeper).await?;
+    a.world.expect_where(|q| q.is(it, Some(0)) && q.int(2) == Some(iid) && q.int(1) == Some(STATUS), 3000, "pile relue").await?;
+    a.world.expect_where(|q| gware(0)(q) && q.int(2) == Some(1200), 3000, "argent relu").await?;
+    a.world.expect_where(gware(1), 3000, "ouverture").await?;
+    a.world.send(gw, Fields::new(gw).with(0, 6).with(1, a.cid).with(3, 2).with(4, iid).with(5, -1).with(6, -1).with(7, -1)).await?;
+    let out = a.world.expect_where(|q| q.is(it, Some(2)) && q.int(2) == Some(iid), 3000, "pile reprise").await?;
+    anyhow::ensure!(out.int(1) == Some(2), "statut {:?}", out.int(1));
+    b.world.expect_where(|q| q.is(it, Some(1)) && q.int(2) == Some(iid), 3000, "pile partie, vue de B").await?;
+    a.world.send(gw, Fields::new(gw).with(0, 4).with(1, a.cid).with(2, 1200)).await?;
+    a.world.expect_where(|q| gware(0)(q) && q.int(2) == Some(0), 3000, "argent repris").await?;
+    a.world.send(gw, Fields::new(gw).with(0, 7).with(1, a.cid)).await?;
+    let ex = a.world.expect_where(gware(7), 3000, "agrandissement").await?;
+    anyhow::ensure!(ex.int(8) == Some(4), "résultat {:?}", ex.int(8));
+    println!("  ✓ pile et argent relus ; pile reprise (statut 2, partie chez B) ; argent repris ; agrandissement : 4");
+
+    step("dissolution");
+    a.world.send(it, Fields::new(it).with(0, 21).with(2, iid)).await?;
+    a.world.expect_where(|q| q.is(it, Some(1)) && q.int(2) == Some(iid), 3000, "pile détruite").await?;
+    a.world.send(gd, Fields::new(gd).with(0, 6).with(1, a.cid).with(2, GW).with(9, LEAD_PASSWORD)).await?;
+    a.world.expect_where(gop(6), 3000, "dissolution").await?;
+    drop(helpers);
+    println!("\nentrepôt de guilde : OK");
     Ok(())
 }

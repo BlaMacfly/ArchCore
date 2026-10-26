@@ -691,7 +691,7 @@ deuxième ; -1, les suivantes, ne s'achètent pas contre de l'or). Le serveur r�
 (argent au champ 8, pages en plus au champ 23) et le message système 30 (page ajoutée), ou 29 si la banque
 a déjà ses 4 pages.
 
-## Guildes (types 0x15 et 0x39, AgpmGuild et AgpmEventGuild)
+## Guildes (types 0x15, 0x39 et 0x54, AgpmGuild, AgpmEventGuild et AgpmGuildWarehouse)
 
 AGPMGUILD (0x15, drapeaux 4) a 25 champs : op, CID (ou code d'un message système), nom de la guilde (32),
 chef ou joueur (48), 8 × INT32, rang, date de création (INT64), taille, union, mot de passe (12), annonce,
@@ -809,7 +809,26 @@ chaque alliée, l'op 40 de chaque hostile et leurs détails (44, 45). La dissolu
 son alliance et met fin à ses hostilités. Ce que l'hostilité permet en combat n'est pas établi par le client :
 ArchCore n'en tire rien pour l'instant. Discussion d'alliance (« [Union] ») : pas encore faite.
 
-Pas encore fait : entrepôt.
+**Entrepôt de guilde** (Archonia : AgpmGuildWarehouse FUN_140309ad0, réception FUN_140309e50 ; AgcmUIGuildWarehouse
+FUN_1405fca70 et suivantes ; AgcmEventGuild FUN_1406a6740). Les gardiens de banque portent aussi la fonction 35,
+sans données (bouton `sysstr` 611 du dialogue) : AGPMEVENTGUILD op 2 (événement, CID) ← op 3 (accord), puis le
+client envoie l'op 1 du paquet **0x54** (drapeaux 2 : 0 op, 1 CID, 2 argent en INT64, 3 pages en plus, 4 IID, 5 page,
+6 ligne, 7 colonne, 8 résultat).
+
+| Op | Sens | Contenu |
+|---|---|---|
+| 1 | → | Ouverture ; ← les objets (AGPMITEM op 0, statut 53, case au champ 7), l'op 0 (argent, pages en plus) et l'op 1 (résultat 2 : la fenêtre s'ouvre) |
+| 2 | → | Fermeture (le joueur s'est éloigné de plus de 149 du point d'ouverture) |
+| 3, 4 | → | Argent déposé, retiré (champ 2) ; ← argent du personnage (AGPMCHARACTER op 1) et op 0 à ceux qui ont la fenêtre ouverte |
+| 5 | → | Objet du sac déposé (4 IID, 5 à 7 case) ; ← AGPMITEM op 2 au statut 53, op 0 aux autres |
+| 6 | → | Objet repris (3 statut visé : 2, 4 IID, 5 à 7 case, -1 : au choix du serveur) ; ← AGPMITEM op 2 au statut 2, op 1 aux autres |
+| 7 | ↔ | Agrandissement : Archonia demande 999 999 999 999 pièces, ← résultat 4 (`GWARE_NOT_ENOUGH_MONEY`) |
+
+Grille : 4 pages de 7 lignes × 4 colonnes, la première ouverte. Droits (masques d'Archonia, FUN_14030b830) : le chef
+a tout (0x1f), les autres membres déposent objets et argent (5). Il faut 10 membres (code AgpmGuild 0x5f,
+`Guild_Store_Member_Fail`) ; une guilde dont l'entrepôt contient des objets ou de l'argent ne peut pas être
+dissoute (0x60, `Guild_Destory_Keep_Fail`). L'entrepôt est chargé à sa première ouverture ; ses objets sont des
+lignes de `character_items` au statut enregistré 3 avec `guild_id`.
 
 ## Groupes (types 0x08 et 0x09, AgpmParty)
 

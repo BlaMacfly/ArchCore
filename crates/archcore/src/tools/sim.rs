@@ -28,7 +28,8 @@
 //!   archcore sim guildbattle [A… B…]                        combats de guildes : défi, refus, acceptation, annulation, début, coups, score, abandon, mort du chef, bilan
 //!   archcore sim guildmark [A… B…]                          emblèmes : achat (refus, fond, or), annonce, même emblème (code 59, op 33), relecture
 //!   archcore sim guildrelation [A… B…]                      alliances et hostilités : demande, refus, accord, départ, trêve, relecture, dissolution
-//!   archcore sim guildstage setup|present|chef|dissoudre|guerre-prep|guerre-defi|guerre-refus|relation-prep|relation-repond|relation-demande [s]  mise en scène des guildes pour les captures d'ArchRust (sim/guilds.rs)
+//!   archcore sim guildwarehouse [A… B…]                     entrepôt de guilde : gardien (fonction 35), effectif, dépôt, droits, dissolution refusée, retrait
+//!   archcore sim guildstage setup|present|chef|dissoudre|guerre-prep|guerre-defi|guerre-refus|relation-prep|relation-repond|relation-demande|entrepot-prep [s]  mise en scène des guildes pour les captures d'ArchRust (sim/guilds.rs)
 //!   archcore sim refusal [A… B…]                              options de GmTest (op 0x11) : SimA ne peut ni l'inviter en groupe (op 14) ni lui proposer d'échange (op 25)
 //!   archcore sim gm [compte] [mdp] [perso]                    commandes MJ d'ArchCore : /speed (×5, refus au-delà de 10, retour) et /additem ; compte MJ
 //!   archcore sim status [compte] [mdp] [perso]                état spécial : Shield Bash étourdit un Ver vert (champ 17), puis l'état retombe ; compte MJ, personnage GmEffets
@@ -88,6 +89,7 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         Some("guildstage") => Box::pin(guilds::guild_stage(&a(1, "setup"), a(2, "40").parse().unwrap_or(40))).await,
         Some("guildmark") => Box::pin(guilds::guild_mark(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("guildrelation") => Box::pin(guilds::guild_relation(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
+        Some("guildwarehouse") => Box::pin(guilds::guild_warehouse(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("guildbattle") => Box::pin(guilds::guild_battle(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("guildlead") => Box::pin(guilds::guild_lead(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("refusal") => Box::pin(refusal(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
@@ -115,7 +117,7 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         Some("ignore") => Box::pin(competences::ignore(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("rune") => Box::pin(competences::rune(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("trigger") => Box::pin(competences::trigger(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
-        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol|bag|skill|effects|status|bank|portal|pvp|reconnect|lastrefine|guild|guildlead|guildbattle|guildrelation|guildmark|guildstage|gm|trade|party|quest|mobskill|counter|partyskill|mastery [arguments]"),
+        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol|bag|skill|effects|status|bank|portal|pvp|reconnect|lastrefine|guild|guildlead|guildbattle|guildrelation|guildwarehouse|guildmark|guildstage|gm|trade|party|quest|mobskill|counter|partyskill|mastery [arguments]"),
     }
 }
 

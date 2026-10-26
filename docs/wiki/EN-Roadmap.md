@@ -35,7 +35,7 @@
   special states (stun, sleep, slow…), critical hits, block, damage turned into HP or MP, counter attack (damage sent back to the monster); party skills;
   masteries (required skills of the high and heroic trees); monster skills (AI from the original server tables:
   casting, damage, effects, on-hit procs).
-  Parties (invitation, members, leader, kick, experience sharing, chat). Guilds (creation at guild managers, invitation, joining, leaving, kicking, disbanding, notice, chat, sub-master and handover, enlarging, guild list, guild marks, guild battles, alliances and hostilities). Account bank (items, money, extra pages) and trading between players. Teleport portals (paid trips between linked points, player-versus-player zones
+  Parties (invitation, members, leader, kick, experience sharing, chat). Guilds (creation at guild managers, invitation, joining, leaving, kicking, disbanding, notice, chat, sub-master and handover, enlarging, guild list, guild marks, guild battles, alliances and hostilities, guild warehouse). Account bank (items, money, extra pages) and trading between players. Teleport portals (paid trips between linked points, player-versus-player zones
   and "Return", refusal in combat). Automatic reconnection (type 0x63). `/last_refine` GM command. Quests: taking, progress (monsters, quest
   items), completion and rewards, abandoning. See
   [[Network protocol|EN-Network-protocol]].
@@ -80,7 +80,7 @@
    confirmed in game; Archonia's ice, lightning, venom and stat stones refused as the client does; unique items'
    linked options (`Link_id`) and refining (alchemy sphere, quote, grid and
    recipes) done.
-6. Guilds: guild warehouse; alliance chat; effects of hostility in combat (to be established).
+6. Guilds: alliance chat; effects of hostility in combat (to be established).
 7. Automatic reconnection: to be confirmed with the Archonia client.
 8. Remaining GM commands on the [[Administration|EN-Administration]] page: they wait for their systems (arena,
    events, rifts, region settings…), listed at the end of its section 4.

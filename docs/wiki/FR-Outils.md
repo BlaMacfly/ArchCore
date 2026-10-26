@@ -12,7 +12,7 @@ dossier désigné par `ARCHCORE_CONF_DIR` (voir [[Configuration|FR-Configuration
 | `archcore decrypt [source] [destination]` | Déchiffre `Game/ini` (RC4, MD5(« 1111 »)) vers `data/client-ini` |
 | `archcore import [dossier] [--server dossier]` | Importe `data/client-ini` dans `archcore_world` (CP949 → UTF-8) et la hauteur du sol depuis `world/b*x.ma2` du dossier Game (`map_height`, quelques minutes) ; avec les tables du serveur d'origine (`--server`, ou `data/server-ini` s'il existe), importe aussi les apparitions de monstres et la carte serveur ; applique enfin la couche de contenu `content/*.sql` et note chaque source dans `import_run` |
 | `archcore content` | Réapplique la couche de contenu `content/*.sql` à la base monde, sans réimporter (voir [[Base de données\|FR-Base-de-donnees]]) |
-| `archcore sim client\|move\|shop\|addon\|lang\|combat\|equip\|potion\|scroll\|patrol\|bag\|skill\|effects\|bank\|portal\|guild\|guildlead\|guildmark\|guildbattle\|guildrelation\|guildstage\|gm\|trade\|quest\|mobskill\|counter\|partyskill\|mastery …` | Clients simulés (voir plus bas) |
+| `archcore sim client\|move\|shop\|addon\|lang\|combat\|equip\|potion\|scroll\|patrol\|bag\|skill\|effects\|bank\|portal\|guild\|guildlead\|guildmark\|guildbattle\|guildrelation\|guildwarehouse\|guildstage\|gm\|trade\|quest\|mobskill\|counter\|partyskill\|mastery …` | Clients simulés (voir plus bas) |
 | `archcore i18n strings [Game]` | Liste les textes encore en anglais dans `data/i18n/pending-en.json` |
 | `archcore i18n coverage [Game]` | Mesure la part déjà traduite de `ini_fr` |
 | `archcore i18n apply [--ascii] [--dry]` | Applique la mémoire de traduction au client (voir [[Traduction|FR-Traduction]]) |
@@ -167,7 +167,8 @@ ARCHCORE_CONF_DIR=config/test archcore sim guildlead [compteA mdpA persoA compte
 ARCHCORE_CONF_DIR=config/test archcore sim guildmark [compteA mdpA persoA compteB mdpB persoB]
 ARCHCORE_CONF_DIR=config/test archcore sim guildbattle [compteA mdpA persoA compteB mdpB persoB]
 ARCHCORE_CONF_DIR=config/test archcore sim guildrelation [compteA mdpA persoA compteB mdpB persoB]
-ARCHCORE_CONF_DIR=config/test archcore sim guildstage setup|present|chef|dissoudre|guerre-prep|guerre-defi|guerre-refus|relation-prep|relation-repond|relation-demande [secondes]
+ARCHCORE_CONF_DIR=config/test archcore sim guildwarehouse [compteA mdpA persoA compteB mdpB persoB]
+ARCHCORE_CONF_DIR=config/test archcore sim guildstage setup|present|chef|dissoudre|guerre-prep|guerre-defi|guerre-refus|relation-prep|relation-repond|relation-demande|entrepot-prep [secondes]
 ```
 
 Ces scénarios (`tools/sim/guilds.rs`) créent au besoin des comptes d'appoint `simg01`… (mot de passe identique
@@ -191,14 +192,19 @@ demande refusée (op 34 → 35, 0x44) puis acceptée (op 36 des deux côtés, r�
 alliées (0x3e), hostilité envers une alliée (0x4b), départ (op 37 : 0x47, et 0x49 pour l'autre, l'alliance
 étant dissoute), hostilité refusée (op 38 → 39, 0x52) puis acceptée (op 40, détails op 45), déjà hostiles (0x4c),
 trêve refusée (op 41 → 39, 0x57) puis acceptée (op 43, 0x59), hostilité relue à la reconnexion et retirée par
-la dissolution. `sim guildstage` prépare les captures d'ArchRust : `setup` crée SimLead (GmTest chef, SimA
+la dissolution. `sim guildwarehouse` (GmTest chef, SimA, 8 comptes d'appoint) vérifie l'entrepôt de guilde chez
+Holly : accord du gardien (fonction 35, op 3), refus sous 10 membres (0x5f), ouverture (op 0, op 1 résultat 2),
+dépôt d'une pile (op 5 → statut 53, case au champ 7) et de 1000 pièces (op 3), droits d'un membre (pas de
+retrait), dépôt d'argent d'un membre vu des deux, dissolution refusée (0x60), relecture à la reconnexion, reprise
+de la pile (op 6, partie chez l'autre) et de l'argent (op 4), agrandissement refusé (résultat 4). `sim guildstage` prépare les captures d'ArchRust : `setup` crée SimLead (GmTest chef, SimA
 niveau 20, 18 comptes d'appoint) et laisse la guilde en place ; `present` garde SimA en jeu, qui accepte
 nominations et passations ; `chef` fait entrer GmTest, qui propose à SimA d'être second puis de diriger la
 guilde ; `dissoudre` dissout SimLead (et SimWarB) ; `guerre-prep` crée SimLead (GmTest) et SimWarB (SimA), 10 membres
 chacune ; `guerre-defi` fait défier SimWarB par GmTest après `secondes`, attendre le début puis abandonner ;
 `guerre-refus` fait refuser par GmTest les défis reçus pendant `secondes` ; `relation-prep` comme `guerre-prep`
 avec 20 membres par guilde ; `relation-repond` fait accepter par GmTest alliances, hostilités et trêves
-pendant `secondes` ; `relation-demande` fait déclarer SimWarB hostile par GmTest après `secondes`.
+pendant `secondes` ; `relation-demande` fait déclarer SimWarB hostile par GmTest après `secondes` ; `entrepot-prep` (après `guerre-prep`)
+emmène SimA chez Holly, qui dépose une pile et 1000 pièces dans l'entrepôt de SimWarB et garde une autre pile.
 
 ## Test des zones de combat, de la reconnexion et de /last_refine
 

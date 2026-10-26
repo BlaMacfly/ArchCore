@@ -12,7 +12,7 @@ named by `ARCHCORE_CONF_DIR` (see [[Configuration|EN-Configuration]]).
 | `archcore decrypt [source] [destination]` | Decrypts `Game/ini` (RC4, MD5("1111")) into `data/client-ini` |
 | `archcore import [folder] [--server folder]` | Imports `data/client-ini` into `archcore_world` (CP949 → UTF-8) and the ground height from the Game folder's `world/b*x.ma2` (`map_height`, a few minutes); with the original server tables (`--server`, or `data/server-ini` if it exists), also imports monster spawns and the server map; finally applies the `content/*.sql` content layer and records each source in `import_run` |
 | `archcore content` | Applies the `content/*.sql` content layer to the world database again, without reimporting (see [[Database\|EN-Database]]) |
-| `archcore sim client\|move\|shop\|addon\|lang\|combat\|equip\|potion\|scroll\|patrol\|bag\|skill\|effects\|bank\|portal\|guild\|guildlead\|guildmark\|guildbattle\|guildrelation\|guildstage\|gm\|trade\|quest\|mobskill\|counter\|partyskill\|mastery …` | Simulated clients (see below) |
+| `archcore sim client\|move\|shop\|addon\|lang\|combat\|equip\|potion\|scroll\|patrol\|bag\|skill\|effects\|bank\|portal\|guild\|guildlead\|guildmark\|guildbattle\|guildrelation\|guildwarehouse\|guildstage\|gm\|trade\|quest\|mobskill\|counter\|partyskill\|mastery …` | Simulated clients (see below) |
 | `archcore i18n strings [Game]` | Lists the texts still in English in `data/i18n/pending-en.json` |
 | `archcore i18n coverage [Game]` | Measures how much of `ini_fr` is translated |
 | `archcore i18n apply [--ascii] [--dry]` | Applies the translation memory to the client (see [[Translation|EN-Translation]]) |
@@ -164,7 +164,8 @@ ARCHCORE_CONF_DIR=config/test archcore sim guildlead [userA passA charA userB pa
 ARCHCORE_CONF_DIR=config/test archcore sim guildmark [userA passA charA userB passB charB]
 ARCHCORE_CONF_DIR=config/test archcore sim guildbattle [userA passA charA userB passB charB]
 ARCHCORE_CONF_DIR=config/test archcore sim guildrelation [userA passA charA userB passB charB]
-ARCHCORE_CONF_DIR=config/test archcore sim guildstage setup|present|chef|dissoudre|guerre-prep|guerre-defi|guerre-refus|relation-prep|relation-repond|relation-demande [seconds]
+ARCHCORE_CONF_DIR=config/test archcore sim guildwarehouse [userA passA charA userB passB charB]
+ARCHCORE_CONF_DIR=config/test archcore sim guildstage setup|present|chef|dissoudre|guerre-prep|guerre-defi|guerre-refus|relation-prep|relation-repond|relation-demande|entrepot-prep [seconds]
 ```
 
 These scenarios (`tools/sim/guilds.rs`) create helper accounts `simg01`… (password equal to the name) in the
@@ -187,14 +188,19 @@ refused (op 34 → 35, 0x44) then accepted (op 36 on both sides, roles 2 and 1, 
 (0x3e), hostility towards an ally (0x4b), leaving (op 37: 0x47, and 0x49 for the other one as the alliance is
 dissolved), hostility refused (op 38 → 39, 0x52) then accepted (op 40, details op 45), already hostile (0x4c),
 truce refused (op 41 → 39, 0x57) then accepted (op 43, 0x59), hostility read again on reconnecting and removed by
-disbanding. `sim guildstage`
+disbanding. `sim guildwarehouse` (GmTest master, SimA, 8 helper accounts) checks the guild warehouse at Holly:
+keeper grant (function 35, op 3), refusal under 10 members (0x5f), opening (op 0, op 1 result 2), depositing a stack
+(op 5 → status 53, cell in field 7) and 1000 coins (op 3), a member's rights (no withdrawal), a member's money
+deposit seen by both, disbanding refused (0x60), read again on reconnecting, taking the stack back (op 6, gone for
+the other one) and the money (op 4), expansion refused (result 4). `sim guildstage`
 prepares ArchRust screenshots: `setup` creates SimLead (GmTest master, SimA level 20, 18 helper accounts) and
 leaves the guild in place; `present` keeps SimA in the game, accepting appointments and handovers; `chef`
 brings GmTest in, who offers SimA the sub-master rank then the guild; `dissoudre` disbands SimLead (and SimWarB); `guerre-prep` creates SimLead (GmTest) and SimWarB (SimA), 10
 members each; `guerre-defi` has GmTest challenge SimWarB after `seconds`, wait for the start then surrender;
 `guerre-refus` has GmTest refuse the challenges received for `seconds`; `relation-prep` like `guerre-prep` with
 20 members per guild; `relation-repond` has GmTest accept alliances, hostilities and truces for `seconds`;
-`relation-demande` has GmTest declare SimWarB hostile after `seconds`.
+`relation-demande` has GmTest declare SimWarB hostile after `seconds`; `entrepot-prep` (after `guerre-prep`) takes
+SimA to Holly, who deposits a stack and 1000 coins in SimWarB's warehouse and keeps another stack.
 
 ## Player-versus-player zones, reconnection and /last_refine tests
 

@@ -659,7 +659,7 @@ paid from the money carried, at the `bankslotprice.txt` price (1,000,000 coins f
 next ones, cannot be bought with gold). The server answers AGPMCHARACTER op 1 (money in field 8, extra pages
 in field 23) and system message 30 (page added), or 29 when the bank already has its 4 pages.
 
-## Guilds (types 0x15 and 0x39, AgpmGuild and AgpmEventGuild)
+## Guilds (types 0x15, 0x39 and 0x54, AgpmGuild, AgpmEventGuild and AgpmGuildWarehouse)
 
 AGPMGUILD (0x15, 4 flag bytes) has 25 fields: op, CID (or a system message code), guild name (32), master or
 player (48), 8 × INT32, rank, creation date (INT64), size, union, password (12), notice, status, wins, draws,
@@ -774,7 +774,25 @@ details (44, 45). Disbanding a guild removes it from its alliance and ends its h
 in combat is not established by the client: ArchCore does nothing with it for now. Alliance chat ("[Union]"):
 not done yet.
 
-Not done yet: guild warehouse.
+**Guild warehouse** (Archonia: AgpmGuildWarehouse FUN_140309ad0, receiving FUN_140309e50; AgcmUIGuildWarehouse
+FUN_1405fca70 and following; AgcmEventGuild FUN_1406a6740). Bank keepers also carry function 35, with no data
+(dialog button `sysstr` 611): AGPMEVENTGUILD op 2 (event, CID) ← op 3 (grant), then the client sends op 1 of packet
+**0x54** (flags 2: 0 op, 1 CID, 2 money as INT64, 3 extra pages, 4 IID, 5 page, 6 row, 7 column, 8 result).
+
+| Op | Dir. | Content |
+|---|---|---|
+| 1 | → | Opening; ← the items (AGPMITEM op 0, status 53, cell in field 7), op 0 (money, extra pages) and op 1 (result 2: the window opens) |
+| 2 | → | Closing (the player moved more than 149 away from where it was opened) |
+| 3, 4 | → | Money deposited, withdrawn (field 2); ← the character's money (AGPMCHARACTER op 1) and op 0 to those who have the window open |
+| 5 | → | Bag item deposited (4 IID, 5 to 7 cell); ← AGPMITEM op 2 with status 53, op 0 to the others |
+| 6 | → | Item taken back (3 target status: 2, 4 IID, 5 to 7 cell, -1: chosen by the server); ← AGPMITEM op 2 with status 2, op 1 to the others |
+| 7 | ↔ | Expansion: Archonia asks 999,999,999,999 coins, ← result 4 (`GWARE_NOT_ENOUGH_MONEY`) |
+
+Grid: 4 pages of 7 rows × 4 columns, the first one open. Rights (Archonia's masks, FUN_14030b830): the master has
+them all (0x1f), the other members deposit items and money (5). 10 members are required (AgpmGuild code 0x5f,
+`Guild_Store_Member_Fail`); a guild whose warehouse holds items or money cannot be disbanded (0x60,
+`Guild_Destory_Keep_Fail`). The warehouse is loaded when first opened; its items are `character_items` rows with
+stored status 3 and `guild_id`.
 
 ## Parties (types 0x08 and 0x09, AgpmParty)
 
