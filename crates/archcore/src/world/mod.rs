@@ -46,6 +46,7 @@ pub mod regions;
 pub mod sector;
 pub mod skills;
 pub mod trade;
+pub mod ui_status;
 pub mod travel;
 
 use crate::character::{character_packet, factors_mini, make_factors, move_mini, CharView, CharacterRow, Factors, MoveMini, Templates};
@@ -168,6 +169,8 @@ pub struct Player {
     pub trade: Option<trade::Trade>,
     /// Journal des quêtes.
     pub quests: quests::PlayerQuests,
+    /// Potions de la barre, seuils de leur prise automatique, casque (AgpmUIStatus).
+    pub ui_status: ui_status::UiStatus,
     /// Langue appliquée aux textes envoyés à ce joueur (code de la table `language`, voir `locale.rs`).
     pub language: String,
     /// Demande faite à un portail de téléportation, en attendant d'être à portée.
@@ -267,6 +270,7 @@ impl Service for WorldService {
                 | ptype::PARTY_MANAGEMENT
                 | ptype::QUEST
                 | ptype::EVENT_QUEST
+                | ptype::UI_STATUS
                 | ptype::ARCHCORE_EXT
         )
     }
@@ -368,6 +372,7 @@ impl Connection for WorldConn {
             ptype::PARTY_MANAGEMENT => party::on_management(&mut st, self.sid, &p),
             ptype::QUEST => quests::on_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::EVENT_QUEST => quests::on_event(ctx, &mut st, self.sid, &p),
+            ptype::UI_STATUS => ui_status::on_packet(ctx, &mut st, self.sid, &p).await?,
             _ => {}
         }
         timer.finish();
@@ -445,6 +450,7 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
     let inventory = Inventory::load(&ctx.db, ch.id).await?;
     let bank = bank::Bank::load(&ctx.db, account.id).await?;
     let quests = quests::PlayerQuests::load(&ctx.db, ch.id).await?;
+    let ui_status = ui_status::UiStatus::load(&ctx.db, ch.id).await?;
     // Banque du compte : son argent et ses pages remplacent ceux de la ligne du personnage.
     ch.bank_money = bank.money;
     ch.bank_size = bank.extra_slots as i32;
@@ -523,6 +529,7 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
             language,
             portal: None,
             gm_speed: 1,
+            ui_status,
         },
     );
     st.by_cid.insert(cid, s.id());
@@ -570,6 +577,8 @@ fn enter_world(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle) {
     presence::enter(ctx, st, sid);
     // Guilde : la guilde, ses membres et le lien du joueur ; les membres le voient en ligne.
     guild::on_enter(st, sid);
+    // Potions de la barre et seuils de leur prise automatique.
+    ui_status::on_enter(st, sid);
     let p = &st.players[&sid];
     let c = &schema::CHARACTER;
     p.send(c, Fields::new(c).with(0, 1).with(1, p.ch.id).with(4, 2).with(5, move_mini(MoveMini { pos, dest: None, flags: 0 })));

@@ -536,10 +536,32 @@ pub static ARCHCORE_EXT: Schema = Schema {
     ],
 };
 
+/// AgpmUIStatus (0x14) — drapeaux 2 (Archonia : `INT8 INT32 PACKET[50] INT8 PACKET MEMORY_BLOCK INT32 INT32 INT8
+/// INT8 INT8 MEMORY_BLOCK`).
+pub static UI_STATUS: Schema = Schema {
+    name: "AGPMUISTATUS",
+    id: ptype::UI_STATUS,
+    flag_len: 2,
+    fields: &[
+        f(I8),          // 0 opération (0 envoi complet, 1 changement, 2 barre encodée, 3 casque)
+        f(I32),         // 1 CID
+        fs(Packet, 50), // 2 barre de raccourcis
+        f(I8),          // 3 case changée
+        f(Packet),      // 4 contenu de la case
+        f(MemBlock),    // 5 barre encodée (texte)
+        f(I32),         // 6 TID de la potion de vie
+        f(I32),         // 7 TID de la potion de mana
+        f(I8),          // 8 affichage du casque
+        f(I8),          // 9 seuil de prise automatique des PV (%)
+        f(I8),          // 10 seuil de prise automatique des PM (%)
+        f(MemBlock),    // 11 temps de recharge encodés (texte)
+    ],
+};
+
 /// Tous les schémas principaux, pour l'aiguillage par type.
 pub static MAIN: &[&Schema] = &[
     &CONFIG, &CHARACTER, &CHAR_MANAGER, &LOGIN, &TIMER, &WORLD, &CHATTING, &ADMIN, &ITEM, &EVENT_NPC_TRADE,
-    &EVENT_NPC_DIALOG, &EVENT_MANAGER, &SKILL, &EVENT_SKILL_MASTER, &EVENT_TELEPORT, &EVENT_BANK, &ITEM_CONVERT, &EVENT_ITEM_CONVERT, &REFINERY, &EVENT_REFINERY, &GUILD, &EVENT_GUILD, &PRIVATE_TRADE, &PARTY, &PARTY_MANAGEMENT, &QUEST, &EVENT_QUEST, &SYSTEM_MESSAGE, &RETURN_TO_LOGIN, &OPT_CHAR_MOVE, &OPT_CHAR_ACTION, &OPT_VIEW,
+    &EVENT_NPC_DIALOG, &EVENT_MANAGER, &SKILL, &EVENT_SKILL_MASTER, &EVENT_TELEPORT, &EVENT_BANK, &ITEM_CONVERT, &EVENT_ITEM_CONVERT, &REFINERY, &EVENT_REFINERY, &GUILD, &EVENT_GUILD, &PRIVATE_TRADE, &PARTY, &PARTY_MANAGEMENT, &QUEST, &EVENT_QUEST, &UI_STATUS, &SYSTEM_MESSAGE, &RETURN_TO_LOGIN, &OPT_CHAR_MOVE, &OPT_CHAR_ACTION, &OPT_VIEW,
     &STARTUP_ENCRYPTION, &ARCHCORE_EXT,
 ];
 

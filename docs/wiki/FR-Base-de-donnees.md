@@ -27,6 +27,7 @@ Toutes sont en `utf8mb4`.
 | `character_skills` | Compétences apprises et leur niveau (« Normal Attack » n'y figure pas : tout personnage la connaît) |
 | `guild` | Guildes : nom unique, mot de passe de dissolution, annonce, taille, date de création (`sql/migrations/characters/`) |
 | `guild_member` | Membre d'une guilde (un personnage au plus dans une) : rang, date d'adhésion, date de la demande de départ |
+| `character_ui_status` | Statut d'interface : potions de vie et de mana de la barre, seuils de leur prise automatique (%), affichage du casque |
 
 ## `archcore_world` — données du jeu (`sql/003_world.sql`)
 

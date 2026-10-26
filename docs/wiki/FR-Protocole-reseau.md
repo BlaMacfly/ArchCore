@@ -428,6 +428,18 @@ Hors combat (aucun coup donné ni reçu depuis 10 s), un joueur vivant regagne t
 PV et PM maximum, plus son taux de récupération, plus 5 ; ses nouveaux facteurs sont envoyés de la même
 façon.
 
+### Prise automatique (type 0x14, AgpmUIStatus)
+
+Deux curseurs `PointScrollBar` posés sur les jauges de PV et de PM de `UI_CharInfo` (`CONTROL_9745`,
+`CONTROL_24256`, « Use Life Potion Automatically ») règlent un seuil en pourcentage (position × 100) : le
+client boit la potion de la case de vie ou de mana de la barre quand la jauge passe dessous. Le serveur ne
+fait que garder les réglages (table `character_ui_status`) : potions et seuils lui sont envoyés par
+AGPMUISTATUS **op 1** (champs 6 et 7 : TID des potions de vie et de mana ; 9 et 10 : seuils), le casque par
+l'op 3 (champ 8) ; seuls les champs présents changent. À l'entrée en jeu, il renvoie le tout par l'**op 0**.
+Format d'Archonia, drapeaux sur 2 octets : `INT8 INT32 PACKET[50] INT8 PACKET MEMORY_BLOCK INT32 INT32 INT8
+INT8 INT8 MEMORY_BLOCK` (opération, CID, barre de raccourcis, case changée, son contenu, barre encodée,
+potions, casque, seuils, temps de recharge encodés).
+
 ## Parchemins de téléportation (type 0x04)
 
 Un parchemin (« Passport ») est un objet utilisable de `Type` 4 ; son `SubType` donne sa sorte : 0 retour au

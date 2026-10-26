@@ -414,6 +414,17 @@ again (AGPMCHARACTER op 1, field 7) to the player and to those who see them.
 Out of combat (no hit dealt or received for 10 s), a living player regains every 10 s 1.5% of their max HP
 and MP, plus their recovery rate, plus 5; the new factors are sent the same way.
 
+### Automatic use (type 0x14, AgpmUIStatus)
+
+Two `PointScrollBar` sliders laid over the HP and MP gauges of `UI_CharInfo` (`CONTROL_9745`,
+`CONTROL_24256`, "Use Life Potion Automatically") set a threshold in percent (position × 100): the client
+drinks the potion of the bar's life or mana slot when the gauge falls below it. The server only keeps the
+settings (table `character_ui_status`): potions and thresholds come in AGPMUISTATUS **op 1** (fields 6 and
+7: life and mana potion TIDs; 9 and 10: thresholds), the helmet in op 3 (field 8); only the fields present
+change. On world entry it sends everything back in **op 0**. Archonia's layout, 2-byte flags:
+`INT8 INT32 PACKET[50] INT8 PACKET MEMORY_BLOCK INT32 INT32 INT8 INT8 INT8 MEMORY_BLOCK` (operation, CID,
+shortcut bar, changed slot, its content, encoded bar, potions, helmet, thresholds, encoded cooldowns).
+
 ## Teleport scrolls (type 0x04)
 
 A scroll ("Passport") is a usable item of `Type` 4; its `SubType` gives its kind: 0 back to town, 1 round

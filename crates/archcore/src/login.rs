@@ -425,6 +425,7 @@ impl LoginConn {
         }
         db.atomic(vec![
             ("DELETE FROM guild_member WHERE character_id = ?", (ch.id,).into()),
+            ("DELETE FROM character_ui_status WHERE character_id = ?", (ch.id,).into()),
             // « nom#id » libère le nom ; le nom est raccourci pour tenir dans VARCHAR(48).
             ("UPDATE characters SET deleted_at = NOW(), name = CONCAT(LEFT(name, 47 - CHAR_LENGTH(id)), '#', id) WHERE id = ?", (ch.id,).into()),
         ])

@@ -26,6 +26,7 @@ ArchCore uses three main MariaDB databases, plus a log database, created and upd
 | `character_skills` | Learned skills and their level ("Normal Attack" is not stored: every character knows it) |
 | `guild` | Guilds: unique name, disbanding password, notice, size, creation date (`sql/migrations/characters/`) |
 | `guild_member` | Guild member (a character is in one at most): rank, join date, leave request date |
+| `character_ui_status` | Interface status: the bar's life and mana potions, their automatic use thresholds (%), helmet display |
 
 ## `archcore_world` — game data (`sql/003_world.sql`)
 
