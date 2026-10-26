@@ -632,19 +632,50 @@ online), guild mark (TID, colour), winner. Ranks: 1 member, 2 join request, 3 le
 | 8 | ← | Link of a character (CID) to its guild, with its member: on entering the world, to the other members (online, offline) and to players who see it |
 | 9 | ↔ | Notice (field 10), by the master or sub-master |
 | 10 | ← | System message: code (field 1), texts (2, 3), number (4, first of 8) |
+| 7 | ↔ | Enlarging by the master of a guild of at least 20 members: next size (field 7, next ten) at the `guildmaxmember.txt` price; the new size goes to the whole guild |
+| 28 | ↔ | Guild list: requested page (field 21, GUILD_LIST mini, page in field 1) or searched guild (field 2); answer: searched name (2) and GUILD_LIST (total, page, count as INT16, 19 GUILD_LIST_ITEM entries) |
+| 32, 33 | ↔ | Guild mark (fields 22 TID and 23 colour) chosen by the master of a guild of 10 members; 33 buys it even though another guild has the same mark; broadcast to the guild, and the links (op 8, fields 22-23) to players who see its members |
+| 48 | ↔ | Sub-master and handover; only the op is a field, the rest is raw (see below) |
 
 Creating a guild takes level 20 and the price of the first `guildmaxmember.txt` row (50 places for
 10,000 coins). Codes used: 0 name taken, 1 level, 2 money (number: price), 4 characters, 5 already a
 member, 6 guild full, 7 cannot join, 8 cannot leave (master), 9 master only, 10 wrong password, 11 created,
-12 disbanded, 13 joined, 14 refused, 15 left, 16 kicked, 17 player already in a guild, 48 join request,
-50 leave request.
+12 disbanded, 13 joined, 14 refused, 15 left, 16 kicked, 17 player already in a guild, 44 not enough gold to
+enlarge, 45 not enough skulls, 47 searched guild not found, 48 join request, 50 leave request, 56 to 59 guild
+mark (skulls, gold or cash, missing background, same mark as another guild: only 59 has a message in
+Archonia, which then offers op 33).
+
+**Guild list** (Archonia's FUN_140203630). Guilds are taken in creation order, 19 per page; an empty page gets
+no answer. Entry: name, master, sub-master, level, ranking, members, size, (unknown), mark (TID, colour),
+battle points; Archonia writes 0 for the level and the unknown field, and the ranking comes from an
+unidentified guild value: ArchCore sends 0. A search returns the page holding the guild.
+
+**Guild mark** (guildmark.txt, `FUN_1402050f0`). TID = background | pattern << 8 | symbol << 16 (item numbers),
+colour = a colour index per layer at the same shifts. The price is the sum of the chosen items, in gold and in
+cash; a background is required.
+
+**Sub-master and handover (op 48).** Archonia's packet: header, flags 1, op 48 at +0x17, sub-op at +0x18, then a
+structure; size = structure + 1, 0x6B footer.
+
+| Sub-op | Way | Size | Content |
+|---|---|---|---|
+| 2 | → | 0x80 | +0x19 sender, +0x4a member, +0x7c rank (11 appoint sub-master, 1 remove that rank) |
+| 3 | ← | 0xa0 | +0x19 guild, +0x4a master, +0x6b member, +0x9c rank: the member confirms |
+| 4 | → | 0x84 | +0x19 guild, +0x4a self, +0x7c rank, +0x80 answer (1 accepts) |
+| 5 | → | 0x7b | +0x19 sender, +0x4a sub-master: handover |
+| 6 | ← | 0x9c | +0x19 guild, +0x4a master, +0x6b sub-master: the sub-master confirms |
+| 7 | → | 0x80 | +0x19 guild, +0x4a self, +0x7c answer |
+| 8 | ← | 0x70 | +0x19 guild, +0x3a member, +0x6c new rank (1, 10 master, 11 sub-master), to the whole guild |
+
+As with Archonia's buttons: only the master appoints; the member is level 20, online, and the guild has no
+sub-master (or it is the sub-master, to remove that rank); handover only goes to the online sub-master, outside
+guild battles. On handover the former master gets rank 1, then the sub-master rank 10.
 
 On entering the world, the member gets its guild (op 0), each member (op 3) and its link (op 8). Guild
 managers (12 NPCs) carry function 23, with no data; AGPMEVENTGUILD (0x39): op 0 (event) ← op 1 (grant, the
 client opens guild creation). Chat: type 3 goes to the guild members, type 4 to the party members.
 
-Not done yet: guild battles, alliances and hostilities, guild marks, sub-master and handover, enlarging, guild
-list, guild warehouse.
+Not done yet: guild battles, alliances and hostilities, guild warehouse.
 
 ## Parties (types 0x08 and 0x09, AgpmParty)
 

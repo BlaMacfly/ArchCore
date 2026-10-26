@@ -24,6 +24,9 @@
 //!   archcore sim reconnect [A… B…]                            reconnexion automatique (0x63) : coupure, mauvaise clé, reprise, départ après 60 s (reconnect.rs)
 //!   archcore sim lastrefine [compte] [mdp] [perso]            commande MJ /last_refine : refus, relance de la dernière recette ; compte MJ (last_refine.rs)
 //!   archcore sim guild [A… B…]                                guilde GmTest + SimA : création, invitation, discussion, annonce, départ, exclusion, dissolution
+//!   archcore sim guildlead [A… B…]                            guilde GmTest + SimA + 18 comptes d'appoint : liste et recherche, agrandissement, second, passation
+//!   archcore sim guildmark [A… B…]                          emblèmes : achat (refus, fond, or), annonce, même emblème (code 59, op 33), relecture
+//!   archcore sim guildstage setup|present|chef|dissoudre [s]  mise en scène des guildes pour les captures d'ArchRust (sim/guilds.rs)
 //!   archcore sim refusal [A… B…]                              options de GmTest (op 0x11) : SimA ne peut ni l'inviter en groupe (op 14) ni lui proposer d'échange (op 25)
 //!   archcore sim gm [compte] [mdp] [perso]                    commandes MJ d'ArchCore : /speed (×5, refus au-delà de 10, retour) et /additem ; compte MJ
 //!   archcore sim status [compte] [mdp] [perso]                état spécial : Shield Bash étourdit un Ver vert (champ 17), puis l'état retombe ; compte MJ, personnage GmEffets
@@ -45,6 +48,7 @@ use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
+mod guilds;
 mod lang;
 mod last_refine;
 mod pvp;
@@ -77,6 +81,9 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         Some("lastrefine") => Box::pin(last_refine::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("gm") => Box::pin(gm_commands(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("guild") => Box::pin(guild(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
+        Some("guildstage") => Box::pin(guilds::guild_stage(&a(1, "setup"), a(2, "40").parse().unwrap_or(40))).await,
+        Some("guildmark") => Box::pin(guilds::guild_mark(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
+        Some("guildlead") => Box::pin(guilds::guild_lead(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("refusal") => Box::pin(refusal(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("party") => Box::pin(party(&a(1, "sima"), &a(2, "sima"), &a(3, "SimA"), &a(4, "simb"), &a(5, "simb"), &a(6, "SimB"))).await,
         Some("trade") => Box::pin(private_trade(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
@@ -96,7 +103,7 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         Some("mastery") => Box::pin(mastery(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("convert") => Box::pin(convert(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("refinery") => Box::pin(refinery(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
-        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol|bag|skill|effects|status|bank|portal|pvp|reconnect|lastrefine|guild|gm|trade|party|quest|mobskill|counter|partyskill|mastery [arguments]"),
+        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol|bag|skill|effects|status|bank|portal|pvp|reconnect|lastrefine|guild|guildstage|guildmark|guildlead|gm|trade|party|quest|mobskill|counter|partyskill|mastery [arguments]"),
     }
 }
 
@@ -144,6 +151,11 @@ impl TestClient {
     pub async fn send(&mut self, schema: &Schema, fields: Fields) -> anyhow::Result<()> {
         let plain = build_packet(schema, &fields);
         println!("[{}] → {} op={} ({} o)", self.label, schema.name, o(fields.int(0)), plain.len());
+        self.send_plain(plain).await
+    }
+
+    /// Envoie un paquet déjà construit (en clair), par exemple un paquet dont la suite est brute.
+    pub async fn send_plain(&mut self, plain: Vec<u8>) -> anyhow::Result<()> {
         if !self.encrypted {
             self.stream.write_all(&plain).await?;
             return Ok(());

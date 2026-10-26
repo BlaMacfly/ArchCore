@@ -12,7 +12,7 @@ named by `ARCHCORE_CONF_DIR` (see [[Configuration|EN-Configuration]]).
 | `archcore decrypt [source] [destination]` | Decrypts `Game/ini` (RC4, MD5("1111")) into `data/client-ini` |
 | `archcore import [folder] [--server folder]` | Imports `data/client-ini` into `archcore_world` (CP949 → UTF-8) and the ground height from the Game folder's `world/b*x.ma2` (`map_height`, a few minutes); with the original server tables (`--server`, or `data/server-ini` if it exists), also imports monster spawns and the server map; finally applies the `content/*.sql` content layer and records each source in `import_run` |
 | `archcore content` | Applies the `content/*.sql` content layer to the world database again, without reimporting (see [[Database\|EN-Database]]) |
-| `archcore sim client\|move\|shop\|addon\|lang\|combat\|equip\|potion\|scroll\|patrol\|bag\|skill\|effects\|bank\|portal\|guild\|gm\|trade\|quest\|mobskill\|counter\|partyskill\|mastery …` | Simulated clients (see below) |
+| `archcore sim client\|move\|shop\|addon\|lang\|combat\|equip\|potion\|scroll\|patrol\|bag\|skill\|effects\|bank\|portal\|guild\|guildlead\|guildmark\|guildstage\|gm\|trade\|quest\|mobskill\|counter\|partyskill\|mastery …` | Simulated clients (see below) |
 | `archcore i18n strings [Game]` | Lists the texts still in English in `data/i18n/pending-en.json` |
 | `archcore i18n coverage [Game]` | Measures how much of `ini_fr` is translated |
 | `archcore i18n apply [--ascii] [--dry]` | Applies the translation memory to the client (see [[Translation|EN-Translation]]) |
@@ -156,6 +156,27 @@ disbanding (wrong password refused). `sim refusal` (GmTest, SimA) ticks GmTest's
 (op 0x11): SimA gets op 14 for its invitation and op 25 for its trade request, GmTest gets nothing. `sim gm` (GM account `gmtest`) checks `/speed` (run speed ×5 in the
 factors received, refused above 10, back to ×1) and `/additem` (potions added, unknown TID refused), then
 destroys the stack.
+
+## Guild tests
+
+```bash
+ARCHCORE_CONF_DIR=config/test archcore sim guildlead [userA passA charA userB passB charB]
+ARCHCORE_CONF_DIR=config/test archcore sim guildmark [userA passA charA userB passB charB]
+ARCHCORE_CONF_DIR=config/test archcore sim guildstage setup|present|chef|dissoudre [seconds]
+```
+
+These scenarios (`tools/sim/guilds.rs`) create helper accounts `simg01`… (password equal to the name) in the
+test database when needed, to reach the head counts Archonia requires. `sim guildlead` (GmTest master, SimA,
+18 helper accounts: 20 members) checks the guild list (page, search, guild not found: code 47), enlarging (not
+enough gold: code 44, then 60 places for 1,000,000 coins), SimA's appointment refused at level 1 then accepted
+(op 48, sub-op 2 → 3 → 4 → 8), removing that rank, the handover (5 → 6 → 7 → 8: GmTest rank 1, SimA master),
+the ranks read again on reconnecting and the disbanding by the new master. `sim guildmark` (GmTest, SimA,
+9 helper accounts) checks the guild mark: nothing under 10 members, missing background (code 58), not enough
+gold (code 57), purchase (60,000 coins) broadcast to the guild and in the links, a second guild asking for the
+same mark (code 59) then buying it anyway (op 33), the mark read again on reconnecting. `sim guildstage`
+prepares ArchRust screenshots: `setup` creates SimLead (GmTest master, SimA level 20, 18 helper accounts) and
+leaves the guild in place; `present` keeps SimA in the game, accepting appointments and handovers; `chef`
+brings GmTest in, who offers SimA the sub-master rank then the guild; `dissoudre` disbands SimLead.
 
 ## Player-versus-player zones, reconnection and /last_refine tests
 

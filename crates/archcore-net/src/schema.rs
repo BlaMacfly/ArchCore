@@ -725,6 +725,47 @@ pub mod mini {
     pub static GUILD_MEMBER: Schema =
         Schema { name: "AGPMGUILD_MEMBER", id: 155, flag_len: 1, fields: &[fs(Char, 49), f(I32), f(I64), f(U64), f(I32), f(I8)] };
 
+    /// Liste des guildes (AGPMGUILD champ 21) — drapeaux 4 : nombre total de guildes, page, nombre de
+    /// guildes de la page (INT16), puis 19 entrées GUILD_LIST_ITEM.
+    pub static GUILD_LIST: Schema = Schema {
+        name: "AGPMGUILD_LIST",
+        id: 156,
+        flag_len: 4,
+        fields: &[
+            f(I32),
+            f(I32),
+            f(I16),
+            f(Packet),
+            f(Packet),
+            f(Packet),
+            f(Packet),
+            f(Packet),
+            f(Packet),
+            f(Packet),
+            f(Packet),
+            f(Packet),
+            f(Packet),
+            f(Packet),
+            f(Packet),
+            f(Packet),
+            f(Packet),
+            f(Packet),
+            f(Packet),
+            f(Packet),
+            f(Packet),
+            f(Packet),
+        ],
+    };
+
+    /// Entrée de la liste des guildes — drapeaux 2 : nom, chef, second, niveau, (inconnu), membres, taille,
+    /// (inconnu), emblème (TID, couleur), points de combat.
+    pub static GUILD_LIST_ITEM: Schema = Schema {
+        name: "AGPMGUILD_LIST_ITEM",
+        id: 157,
+        flag_len: 2,
+        fields: &[fs(Char, 33), fs(Char, 49), fs(Char, 49), f(I32), f(U32), f(I32), f(I32), f(I32), f(I32), f(I32), f(I32)],
+    };
+
     /// Données d'un maître des compétences (race, classe enseignées) — drapeaux 1.
     pub static SKILL_MASTER_DATA: Schema = Schema { name: "AGPMEVENTSKILLMASTER_DATA", id: 153, flag_len: 1, fields: &[f(I8), f(I8)] };
 

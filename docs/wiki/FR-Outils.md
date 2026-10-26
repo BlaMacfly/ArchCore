@@ -12,7 +12,7 @@ dossier désigné par `ARCHCORE_CONF_DIR` (voir [[Configuration|FR-Configuration
 | `archcore decrypt [source] [destination]` | Déchiffre `Game/ini` (RC4, MD5(« 1111 »)) vers `data/client-ini` |
 | `archcore import [dossier] [--server dossier]` | Importe `data/client-ini` dans `archcore_world` (CP949 → UTF-8) et la hauteur du sol depuis `world/b*x.ma2` du dossier Game (`map_height`, quelques minutes) ; avec les tables du serveur d'origine (`--server`, ou `data/server-ini` s'il existe), importe aussi les apparitions de monstres et la carte serveur ; applique enfin la couche de contenu `content/*.sql` et note chaque source dans `import_run` |
 | `archcore content` | Réapplique la couche de contenu `content/*.sql` à la base monde, sans réimporter (voir [[Base de données\|FR-Base-de-donnees]]) |
-| `archcore sim client\|move\|shop\|addon\|lang\|combat\|equip\|potion\|scroll\|patrol\|bag\|skill\|effects\|bank\|portal\|guild\|gm\|trade\|quest\|mobskill\|counter\|partyskill\|mastery …` | Clients simulés (voir plus bas) |
+| `archcore sim client\|move\|shop\|addon\|lang\|combat\|equip\|potion\|scroll\|patrol\|bag\|skill\|effects\|bank\|portal\|guild\|guildlead\|guildmark\|guildstage\|gm\|trade\|quest\|mobskill\|counter\|partyskill\|mastery …` | Clients simulés (voir plus bas) |
 | `archcore i18n strings [Game]` | Liste les textes encore en anglais dans `data/i18n/pending-en.json` |
 | `archcore i18n coverage [Game]` | Mesure la part déjà traduite de `ini_fr` |
 | `archcore i18n apply [--ascii] [--dry]` | Applique la mémoire de traduction au client (voir [[Traduction|FR-Traduction]]) |
@@ -159,6 +159,28 @@ d'échange et de groupe (op 0x11) : SimA reçoit l'op 14 à son invitation et l'
 ne reçoit rien. `sim gm` (compte MJ `gmtest`) vérifie `/speed` (course ×5
 dans les facteurs reçus, refus au-delà de 10, retour à ×1) et `/additem` (potions ajoutées, TID inconnu
 refusé), puis détruit la pile.
+
+## Test des guildes
+
+```bash
+ARCHCORE_CONF_DIR=config/test archcore sim guildlead [compteA mdpA persoA compteB mdpB persoB]
+ARCHCORE_CONF_DIR=config/test archcore sim guildmark [compteA mdpA persoA compteB mdpB persoB]
+ARCHCORE_CONF_DIR=config/test archcore sim guildstage setup|present|chef|dissoudre [secondes]
+```
+
+Ces scénarios (`tools/sim/guilds.rs`) créent au besoin des comptes d'appoint `simg01`… (mot de passe identique
+au nom) dans la base de test, pour atteindre les effectifs qu'exige Archonia. `sim guildlead` (GmTest chef,
+SimA, 18 comptes d'appoint : 20 membres) vérifie la liste des guildes (page, recherche, guilde introuvable :
+code 47), l'agrandissement (or insuffisant : code 44, puis 60 places pour 1 000 000 pièces), la nomination de
+SimA refusée au niveau 1 puis acceptée (op 48, sous-op 2 → 3 → 4 → 8), le retrait de ce rang, la passation
+(5 → 6 → 7 → 8 : GmTest rang 1, SimA chef), les rangs relus à la reconnexion et la dissolution par le nouveau
+chef. `sim guildmark` (GmTest, SimA, 9 comptes d'appoint) vérifie l'emblème : rien sous 10 membres, fond
+manquant (code 58), or insuffisant (code 57), achat (60 000 pièces) annoncé à la guilde et dans les liens,
+une seconde guilde qui demande le même emblème (code 59) puis l'achète malgré tout (op 33), l'emblème relu à
+la reconnexion. `sim guildstage` prépare les captures d'ArchRust : `setup` crée SimLead (GmTest chef, SimA
+niveau 20, 18 comptes d'appoint) et laisse la guilde en place ; `present` garde SimA en jeu, qui accepte
+nominations et passations ; `chef` fait entrer GmTest, qui propose à SimA d'être second puis de diriger la
+e ; `dissoudre` dissout SimLead.
 
 ## Test des zones de combat, de la reconnexion et de /last_refine
 

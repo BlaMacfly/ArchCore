@@ -12,8 +12,12 @@
 //!   op 29 départ accepté par le chef ou le second (membre 16) ; sans réponse, il se fait au bout d'un jour.
 //!   op 5  exclusion par le chef ou le second (membre 16).
 //!   op 6  dissolution par le chef, avec le mot de passe donné à la création.
+//!   op 7  agrandissement par le chef (20 membres au moins) : taille suivante (champ 7), payée selon
+//!         guildmaxmember.txt ; ← op 7 à toute la guilde, code 44 si l'or manque.
 //!   op 9  annonce (champ 10), par le chef ou le second.
 //!   op 10 message système : code (champ 1), textes (2, 3), nombre (4).
+//!   op 28 liste des guildes (list.rs) ; op 32 et 33 emblème (mark.rs) ; op 48 second et passation de chef
+//!         (society.rs).
 //! ```
 //! À l'entrée en jeu, le membre reçoit sa guilde (op 0), chaque membre (op 3) et son lien (op 8) ; les autres
 //! membres le voient passer en ligne (op 8). Le lien d'un joueur à sa guilde part aussi à ceux qui le voient.
@@ -29,6 +33,10 @@ use archcore_net::{build_mini, build_packet, decode_mini, Fields, Packet, Value}
 use std::collections::{BTreeMap, HashMap};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+pub mod list;
+pub mod mark;
+pub mod society;
+
 pub mod op {
     pub const CREATE: i64 = 0;
     pub const JOIN_REQUEST: i64 = 1;
@@ -37,9 +45,11 @@ pub mod op {
     pub const LEAVE: i64 = 4;
     pub const FORCED_LEAVE: i64 = 5;
     pub const DESTROY: i64 = 6;
+    pub const UPDATE_MAX_MEMBER_COUNT: i64 = 7;
     pub const CHAR_DATA: i64 = 8;
     pub const UPDATE_NOTICE: i64 = 9;
     pub const SYSTEM_MESSAGE: i64 = 10;
+    pub const GUILD_LIST: i64 = 28;
     pub const LEAVE_ALLOW: i64 = 29;
 }
 
@@ -73,6 +83,18 @@ pub mod code {
     pub const JOIN_REJECT: i64 = 14;
     pub const LEAVE: i64 = 15;
     pub const FORCED_LEAVE: i64 = 16;
+    /// Or insuffisant pour agrandir la guilde : « Guild_Not_Enought_Gheld ».
+    pub const NOT_ENOUGH_GHELD: i64 = 44;
+    /// Crânes insuffisants : « Guild_Not_Enought_Skull ».
+    pub const NOT_ENOUGH_SKULL: i64 = 45;
+    /// Guilde cherchée introuvable : « Guild_No_Exist_Search_Guild ».
+    pub const NO_EXIST_SEARCH_GUILD: i64 = 47;
+    /// Emblème : crânes, or ou argent liquide insuffisants, fond manquant, autre guilde au même emblème
+    /// (seul 59 a un message dans Archonia : la boîte `Guild_GuildMark_Duplicate`).
+    pub const BUY_GUILDMARK_NOT_ENOUGHT_SKULL: i64 = 56;
+    pub const BUY_GUILDMARK_NOT_ENOUGHT_GHELD: i64 = 57;
+    pub const BUY_GUILDMARK_NO_EXIST_BOTTOM: i64 = 58;
+    pub const BUY_GUILDMARK_DUPLICATE: i64 = 59;
     pub const JOIN_REQUEST_SELF: i64 = 48;
     pub const LEAVE_REQUEST: i64 = 50;
 }
@@ -91,6 +113,8 @@ pub const LEAVE_DELAY_SECS: i64 = 24 * 60 * 60;
 pub const MAX_NAME: usize = 32;
 pub const MAX_PASSWORD: usize = 12;
 pub const MAX_NOTICE: usize = 89;
+/// Membres exigés pour agrandir la guilde (FUN_1408cce90, « Guild_MemberUp_Not_Enought_Member »).
+pub const INCREASE_MIN_MEMBERS: usize = 20;
 /// Invitations en attente gardées par guilde.
 const MAX_INVITED: usize = 8;
 /// Fréquence de la vérification des demandes de départ.
@@ -115,6 +139,15 @@ impl Member {
     }
 }
 
+/// Bilan des combats de guildes.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Record {
+    pub win: i64,
+    pub draw: i64,
+    pub lose: i64,
+    pub points: i64,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Guild {
     pub id: u32,
@@ -126,6 +159,15 @@ pub struct Guild {
     pub members: BTreeMap<u32, Member>,
     /// Personnages invités, en attente de réponse.
     pub invited: Vec<u32>,
+    /// Emblème : TID (fond | motif << 8 | symbole << 16) et couleur.
+    pub mark_tid: i64,
+    pub mark_color: i64,
+    pub record: Record,
+    /// Statut (champ 11) : 0 aucun, 1 combat déclaré, 2 préparation, 3 combat.
+    pub status: i64,
+    /// Membre à qui le chef propose d'être second, puis de diriger la guilde (en attente de réponse).
+    pub appoint: Option<u32>,
+    pub succession: Option<u32>,
 }
 
 impl Guild {
@@ -135,10 +177,25 @@ impl Guild {
     pub fn is_full(&self) -> bool {
         self.members.len() as i64 >= self.max_members
     }
+    pub fn in_battle(&self) -> bool {
+        self.status != 0
+    }
+    pub fn active_members(&self) -> usize {
+        self.members.values().filter(|m| m.active()).count()
+    }
     pub fn member_named(&self, name: &str) -> Option<&Member> {
         let key = name.to_lowercase();
         self.members.values().find(|m| m.name.to_lowercase() == key)
     }
+}
+
+/// Une taille de guildmaxmember.txt : nombre de places, or et crânes exigés pour l'atteindre.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Size {
+    pub max: i64,
+    pub gold: i64,
+    pub skull_tid: i64,
+    pub skull_count: i64,
 }
 
 /// Guildes en mémoire, chargées au démarrage.
@@ -148,18 +205,23 @@ pub struct Guilds {
     /// Personnage → guilde.
     pub of_cid: HashMap<u32, u32>,
     /// Tailles successives et leur prix (guildmaxmember.txt) ; la première est celle d'une guilde neuve.
-    pub sizes: Vec<(i64, i64)>,
+    pub sizes: Vec<Size>,
+    /// Éléments d'emblème (guildmark.txt).
+    pub marks: mark::Templates,
     last_sweep: Option<Instant>,
 }
 
 impl Guilds {
     pub async fn load(db: &Databases) -> anyhow::Result<Self> {
         let mut r = Guilds::default();
-        match db.world.rows("SELECT max_members, gold FROM guild_max_member ORDER BY max_members", ()).await {
-            Ok(rows) => r.sizes = rows.iter().map(|x| (col(x, "max_members"), col(x, "gold"))).collect(),
+        match db.world.rows("SELECT max_members, gold, skull_tid, skull_count FROM guild_max_member ORDER BY max_members", ()).await {
+            Ok(rows) => {
+                r.sizes = rows.iter().map(|x| Size { max: col(x, "max_members"), gold: col(x, "gold"), skull_tid: col(x, "skull_tid"), skull_count: col(x, "skull_count") }).collect()
+            }
             Err(e) => warn!("tailles des guildes non chargées ({e:#}) : lancer `archcore db-init` puis `archcore import`"),
         }
-        let Ok(rows) = db.characters.rows("SELECT id, name, password, notice, max_members, UNIX_TIMESTAMP(created_at) AS created FROM guild", ()).await else {
+        r.marks = mark::Templates::load(db).await;
+        let Ok(rows) = db.characters.rows("SELECT id, name, password, notice, max_members, mark_tid, mark_color, UNIX_TIMESTAMP(created_at) AS created FROM guild", ()).await else {
             warn!("guildes non chargées : lancer `archcore db-init`");
             return Ok(r);
         };
@@ -171,6 +233,8 @@ impl Guilds {
                 notice: col(row, "notice"),
                 created_at: col::<Option<i64>>(row, "created").unwrap_or(0),
                 max_members: col(row, "max_members"),
+                mark_tid: col(row, "mark_tid"),
+                mark_color: col(row, "mark_color"),
                 ..Default::default()
             };
             r.by_id.insert(g.id, g);
@@ -214,7 +278,13 @@ impl Guilds {
 
     /// Taille et prix d'une guilde neuve.
     pub fn first_size(&self) -> (i64, i64) {
-        self.sizes.first().copied().unwrap_or((50, 10_000))
+        self.sizes.first().map(|s| (s.max, s.gold)).unwrap_or((50, 10_000))
+    }
+
+    /// Taille suivante (FUN_1408ccfa0 : dizaine supérieure), si guildmaxmember.txt la prévoit.
+    pub fn next_size(&self, max: i64) -> Option<Size> {
+        let next = if max < 1 { 10 } else { (max / 10 + 1) * 10 };
+        self.sizes.iter().find(|s| s.max == next).copied()
     }
 }
 
@@ -267,13 +337,13 @@ fn build(f: Fields) -> Vec<u8> {
 pub fn add_packet(g: &Guild) -> Vec<u8> {
     let master = g.master().map(|m| m.name.clone()).unwrap_or_default();
     let mut f = guild(op::CREATE).with(2, g.name.as_str()).with(3, master.as_str()).with(5, 1).with(6, g.created_at).with(7, g.max_members);
-    f = f.with(10, archcore_net::text::encode(&g.notice)).with(22, 0).with(23, 0);
+    f = f.with(10, archcore_net::text::encode(&g.notice)).with(22, g.mark_tid).with(23, g.mark_color);
     build(f)
 }
 
 /// Op 8 : lien d'un personnage (CID) à sa guilde.
 pub fn char_data_packet(g: &Guild, m: &Member) -> Vec<u8> {
-    build(guild(op::CHAR_DATA).with(1, m.cid).with(2, g.name.as_str()).with(16, member_mini(m)).with(22, 0).with(23, 0))
+    build(guild(op::CHAR_DATA).with(1, m.cid).with(2, g.name.as_str()).with(16, member_mini(m)).with(22, g.mark_tid).with(23, g.mark_color))
 }
 
 /// Op 3 : un membre (ajouté ou mis à jour).
@@ -405,6 +475,14 @@ pub async fn on_packet(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet
         Some(op::FORCED_LEAVE) => kick(ctx, st, sid, p).await,
         Some(op::DESTROY) => destroy(ctx, st, sid, p).await,
         Some(op::UPDATE_NOTICE) => notice(ctx, st, sid, p).await,
+        Some(op::UPDATE_MAX_MEMBER_COUNT) => increase(ctx, st, sid, p).await,
+        Some(op::GUILD_LIST) => {
+            list::on_packet(st, sid, p);
+            Ok(())
+        }
+        Some(society::OP) => society::on_packet(ctx, st, sid, p).await,
+        Some(mark::BUY) => mark::on_packet(ctx, st, sid, p, false).await,
+        Some(mark::BUY_FORCE) => mark::on_packet(ctx, st, sid, p, true).await,
         op => {
             crate::debug!("[guilde] #{sid} AGPMGUILD op {op:?} (pas encore géré)");
             Ok(())
@@ -709,6 +787,42 @@ async fn notice(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> an
     g.notice = text;
     let g = &st.guilds.by_id[&gid];
     send_to_guild(st, g, None, &notice_packet(g));
+    Ok(())
+}
+
+/// Op 7 : le chef agrandit la guilde à la taille suivante, au prix de guildmaxmember.txt.
+async fn increase(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> anyhow::Result<()> {
+    let Some((cid, gid, my_rank)) = mine(st, sid) else { return Ok(()) };
+    let g = &st.guilds.by_id[&gid];
+    if my_rank != rank::MASTER || g.active_members() < INCREASE_MIN_MEMBERS {
+        return Ok(());
+    }
+    let Some(size) = st.guilds.next_size(g.max_members) else { return Ok(()) };
+    if p.int(7).is_some_and(|wanted| wanted != size.max) {
+        return Ok(());
+    }
+    let money = st.players[&sid].ch.money as i64;
+    if money < size.gold {
+        send_to(st, sid, system_packet(code::NOT_ENOUGH_GHELD, None, None));
+        return Ok(());
+    }
+    // Aucune ligne de guildmaxmember.txt ne demande de crânes ; ArchCore ne sait pas encore les prendre.
+    if size.skull_tid != 0 && size.skull_count > 0 {
+        send_to(st, sid, system_packet(code::NOT_ENOUGH_SKULL, None, None));
+        return Ok(());
+    }
+    let left = money - size.gold;
+    ctx.db
+        .characters
+        .atomic(vec![(super::SAVE_MONEY, (left, cid).into()), ("UPDATE guild SET max_members = ? WHERE id = ?", (size.max, gid).into())])
+        .await?;
+    let player = st.players.get_mut(&sid).unwrap();
+    super::show_money(player, left as u64);
+    let g = st.guilds.by_id.get_mut(&gid).unwrap();
+    g.max_members = size.max;
+    let g = &st.guilds.by_id[&gid];
+    send_to_guild(st, g, None, &build(guild(op::UPDATE_MAX_MEMBER_COUNT).with(1, cid).with(2, g.name.as_str()).with(7, size.max)));
+    info!("[guilde] {} agrandit {} à {} places ({} pièce(s))", st.players[&sid].ch.name, g.name, size.max, size.gold);
     Ok(())
 }
 

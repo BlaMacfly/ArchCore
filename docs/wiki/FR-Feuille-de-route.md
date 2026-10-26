@@ -35,8 +35,7 @@
   traversée ; piles d'objets séparées, réunies, détruites. Compétences : apprentissage et amélioration
   chez les instructeurs, points de compétence, lancement ; dégâts, zones, renforcements et
   affaiblissements, dégâts sur la durée, soins, passives ; états spéciaux (étourdissement, sommeil,
-  ralentissement…), coups critiques, blocage, dégâts changés en PV ou PM, contre-attaque (dégâts renvoyés au monstre) ; compétences de groupe ; maîtrises (compétences exigées des arbres supérieur et héroïque) ; compétences des monstres (IA des tables du serveur d'origine : lancement, dégâts, effets, coups chargés). Groupes (invitation, membres, chef, exclusion, partage de l'expérience, discussion). Guildes (création chez
-  les gestionnaires, invitation, adhésion, départ, exclusion, dissolution, annonce, discussion). Banque du compte (objets, argent, pages en plus) et
+  ralentissement…), coups critiques, blocage, dégâts changés en PV ou PM, contre-attaque (dégâts renvoyés au monstre) ; compétences de groupe ; maîtrises (compétences exigées des arbres supérieur et héroïque) ; compétences des monstres (IA des tables du serveur d'origine : lancement, dégâts, effets, coups chargés). Groupes (invitation, membres, chef, exclusion, partage de l'expérience, discussion). Guildes (création chez les gestionnaires, invitation, adhésion, départ, exclusion, dissolution, annonce, discussion, second et passation de chef, agrandissement, liste des guildes, emblèmes). Banque du compte (objets, argent, pages en plus) et
   échange entre joueurs. Portails de téléportation (trajets payants entre points reliés, zones de combat
   entre joueurs et « Retour », refus en combat). Reconnexion automatique (type 0x63). Commande MJ
   `/last_refine`. Quêtes : prise, progression (monstres, objets de quête), fin et récompenses, abandon. Voir
@@ -82,8 +81,7 @@
    effet sur le porteur) ; runes. Restent les runes qui donnent une compétence, les pierres de glace, de foudre, de
    venin et de caractéristiques d'Archonia et les options à déclenchement ; options liées des objets
    uniques (`Link_id`) et raffinage (sphère d'alchimie, devis, grille et recettes) faits.
-6. Guildes : combats de guildes, alliances et hostilités, emblèmes, second et passation, agrandissement, liste
-   des guildes, entrepôt.
+6. Guildes : combats de guildes, alliances et hostilités, entrepôt.
 7. Reconnexion automatique : à confirmer avec le client Archonia.
 8. Commandes MJ restantes de la page [[Administration|FR-Administration]] : elles attendent leurs systèmes
    (arène, événements, failles, réglages de région…), listés à la fin de sa section 4.

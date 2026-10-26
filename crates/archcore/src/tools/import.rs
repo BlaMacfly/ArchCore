@@ -636,6 +636,59 @@ pub fn parse_guild_max_members(text: &str) -> Vec<(i64, i64, i64, i64)> {
         .collect()
 }
 
+/// Un élément d'emblème de guildmark.txt (lu comme AgpmGuild::ReadGuildMarkTemplate, FUN_1402050f0).
+#[derive(Debug, Clone, PartialEq)]
+pub struct GuildMarkRow {
+    /// Numéro décalé de 8 bits par couche : fond, motif << 8, symbole << 16, couleur << 24.
+    pub tid: u32,
+    /// 1 fond (Bottom), 2 motif (Pattern), 3 symbole (Symbol), 4 couleur (Color).
+    pub layer: u8,
+    pub number: i64,
+    pub name: String,
+    pub gold: i64,
+    pub skull_tid: i64,
+    pub skull_count: i64,
+    /// Prix en argent liquide (colonne « Price (CC) »).
+    pub cash: i64,
+    /// Couleur ARGB (couche 4, cinquième colonne en hexadécimal).
+    pub argb: i64,
+}
+
+/// guildmark.txt : type, numéro, nom, or, crâne (TID, ou couleur ARGB pour « Color »), nombre de crânes,
+/// argent liquide.
+pub fn parse_guild_marks(text: &str) -> Vec<GuildMarkRow> {
+    let (_, rows) = parse_tsv(text);
+    rows.iter()
+        .filter_map(|r| {
+            let cell = |i: usize| r.get(i).map(|s| s.trim()).unwrap_or("");
+            let layer = match cell(0) {
+                "Bottom" => 1u8,
+                "Pattern" => 2,
+                "Symbol" => 3,
+                "Color" => 4,
+                _ => return None,
+            };
+            let number = js_number(cell(1), 0.0) as i64;
+            let num = |i: usize| js_number(cell(i), 0.0) as i64;
+            if !(1..=255).contains(&number) || cell(2).is_empty() {
+                return None;
+            }
+            let (skull_tid, argb) = if layer == 4 { (0, i64::from_str_radix(cell(4), 16).unwrap_or(0)) } else { (num(4), 0) };
+            Some(GuildMarkRow {
+                tid: (number as u32) << (8 * (layer as u32 - 1)),
+                layer,
+                number,
+                name: cell(2).to_string(),
+                gold: num(3),
+                skull_tid,
+                skull_count: num(5),
+                cash: num(6),
+                argb,
+            })
+        })
+        .collect()
+}
+
 /// aidatatable.txt (tables du serveur) : (TID de l'IA, nom, colonnes non vides). Les colonnes répétées
 /// (SkillCondition, SkillCount après chaque SkillN) prennent le numéro de la compétence qui les précède.
 pub fn parse_monster_ai(text: &str) -> Vec<(u32, String, serde_json::Value)> {
@@ -1072,6 +1125,16 @@ async fn import_all(db: &Databases, src: &Source) -> anyhow::Result<()> {
         println!("✓ guild_max_member : {n}");
     }
 
+    // ---------------------------------------------------------------- guildmark.txt (emblèmes de guilde)
+    if src.exists("guildmark.txt") {
+        let out: Vec<Vec<Value>> = parse_guild_marks(&src.read("guildmark.txt")?)
+            .into_iter()
+            .map(|m| vec![v(m.tid), v(m.layer), v(m.number), v(m.name), v(m.gold), v(m.skull_tid), v(m.skull_count), v(m.cash), v(m.argb)])
+            .collect();
+        let n = replace(db, "guild_mark", "INSERT INTO guild_mark (tid,layer,number,name,gold,skull_tid,skull_count,cash,argb) VALUES (?,?,?,?,?,?,?,?,?)", out).await?;
+        println!("✓ guild_mark : {n}");
+    }
+
     // ---------------------------------------------------------------- bankslotprice.txt (pages de banque)
     if src.exists("bankslotprice.txt") {
         let out: Vec<Vec<Value>> = parse_bank_slot_prices(&src.read("bankslotprice.txt")?).into_iter().map(|(s, p)| vec![v(s), v(p)]).collect();
@@ -1199,6 +1262,9 @@ mod tests {
         assert_eq!(fees, vec![("A".to_string(), "B".to_string(), 700)]);
         assert_eq!(parse_bank_slot_prices("Slot\tPrice\t\r\n1\t1000000\t# commentaire\r\n2\t-1\t\r\n"), vec![(1, 1_000_000), (2, -1)]);
         assert_eq!(parse_guild_max_members("\tOr\tCrâne\tID\tNombre\r\n50\t10000\t\t\t\r\n60\t1000000\tX\t7\t2\r\n"), vec![(50, 10_000, 0, 0), (60, 1_000_000, 7, 2)]);
+        let marks = parse_guild_marks("Type\tNumber\tName\tPrice\tSkull\tN\tCC\r\nBottom\t3\tFond 3\t10000\t0\t0\t\r\nSymbol\t65\tSymbole\t40000\t0\t0\t99999\r\nColor\t2\tColor 2\t0\tFF6C261A\t0\t\r\n");
+        assert_eq!((marks[0].tid, marks[0].gold, marks[1].tid, marks[1].cash), (3, 10_000, 65 << 16, 99_999));
+        assert_eq!((marks[2].layer, marks[2].tid, marks[2].argb), (4, 2 << 24, 0xFF6C_261A));
     }
 
     #[test]

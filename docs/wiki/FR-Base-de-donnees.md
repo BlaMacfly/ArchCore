@@ -25,8 +25,8 @@ Toutes sont en `utf8mb4`.
 | `character_quests` | Quêtes en cours (compteurs des monstres A et B) et terminées |
 | `account_bank` | Banque du compte : argent, pages en plus de la première (créée à la première entrée, avec l'argent que les personnages avaient en banque) |
 | `character_skills` | Compétences apprises et leur niveau (« Normal Attack » n'y figure pas : tout personnage la connaît) |
-| `guild` | Guildes : nom unique, mot de passe de dissolution, annonce, taille, date de création (`sql/migrations/characters/`) |
-| `guild_member` | Membre d'une guilde (un personnage au plus dans une) : rang, date d'adhésion, date de la demande de départ |
+| `guild` | Guildes : nom unique, mot de passe de dissolution, annonce, taille, date de création, emblème (`mark_tid`, `mark_color`) (`sql/migrations/characters/`) |
+| `guild_member` | Membre d'une guilde (un personnage au plus dans une) : rang (1 membre, 2 demande d'adhésion, 3 demande de départ, 10 chef, 11 second), date d'adhésion, date de la demande de départ |
 | `character_ui_status` | Statut d'interface : potions de vie et de mana de la barre, seuils de leur prise automatique (%), affichage du casque |
 
 ## `archcore_world` — données du jeu (`sql/003_world.sql`)
@@ -62,7 +62,8 @@ Remplie par `archcore import` à partir des tables du client.
 | `teleport_object` | `obj*.ini` (événement 8) | 291 portails : objet, point porté, position |
 | `teleport_fee` | `TeleportFee.txt` | 227 prix de trajet (départ, arrivée) |
 | `bank_slot_price` | `bankslotprice.txt` | Prix des pages de banque en plus (-1 : pas en vente contre de l'or) |
-| `guild_max_member` | `guildmaxmember.txt` | Tailles de guilde et leur prix ; la première ligne est la guilde neuve (50 places, 10 000 pièces) |
+| `guild_max_member` | `guildmaxmember.txt` | Tailles de guilde et leur prix ; la première ligne est la guilde neuve (50 places, 10 000 pièces), les suivantes les agrandissements |
+| `guild_mark` | `guildmark.txt` | Éléments d'emblème : couche (1 fond, 2 motif, 3 symbole, 4 couleur), numéro, TID (numéro << 8 × (couche − 1)), nom, prix en or, crânes, argent liquide, couleur ARGB |
 
 **Identifiants stables.** Dans `monster_spawn`, `monster_drop` et `resurrection_point`, la colonne `id` n'est qu'un
 numéro d'ordre d'import. La colonne `stable_key` (unique, sensible à la casse) désigne la même ligne d'un import

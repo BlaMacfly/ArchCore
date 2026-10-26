@@ -212,6 +212,8 @@ pub struct Packet {
     pub header: Header,
     pub flags: u32,
     pub fields: Fields,
+    /// Octets du paquet en clair, en-tête et pied compris (pour les paquets dont une partie est brute).
+    pub raw: Vec<u8>,
 }
 
 impl std::ops::Deref for Packet {
@@ -498,7 +500,8 @@ pub fn decode_packet(schema: &Schema, buf: &[u8]) -> Result<Packet, Error> {
     let end = (header.size as usize).min(buf.len()).saturating_sub(1); // exclut le pied 0x6B
     let (flags, start) = read_flags(buf, HEADER_SIZE, schema.flag_len)?;
     let fields = decode_fields(schema, buf, start, flags, end)?;
-    Ok(Packet { header, flags, fields })
+    let raw = buf[..(header.size as usize).min(buf.len())].to_vec();
+    Ok(Packet { header, flags, fields, raw })
 }
 
 /// Décode un mini-paquet (octets sans leur u32 de longueur).

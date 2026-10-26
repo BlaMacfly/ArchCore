@@ -657,20 +657,52 @@ d'adhésion, 3 demande de départ, 10 chef, 11 second.
 | 8 | ← | Lien d'un personnage (CID) à sa guilde, avec son membre : à l'entrée en jeu, aux autres membres (en ligne, hors ligne) et aux joueurs qui le voient |
 | 9 | ↔ | Annonce (champ 10), par le chef ou le second |
 | 10 | ← | Message système : code (champ 1), textes (2, 3), nombre (4, premier des 8) |
+| 7 | ↔ | Agrandissement par le chef d'une guilde de 20 membres au moins : taille suivante (champ 7, dizaine supérieure) au prix de `guildmaxmember.txt` ; la nouvelle taille va à toute la guilde |
+| 28 | ↔ | Liste des guildes : page demandée (champ 21, mini GUILD_LIST, page au champ 1) ou guilde cherchée (champ 2) ; réponse : nom cherché (2) et GUILD_LIST (total, page, nombre en INT16, 19 entrées GUILD_LIST_ITEM) |
+| 32, 33 | ↔ | Emblème (champs 22 TID et 23 couleur) choisi par le chef d'une guilde de 10 membres ; 33 l'achète malgré une autre guilde au même emblème ; diffusé à la guilde, et les liens (op 8, champs 22-23) aux joueurs qui voient ses membres |
+| 48 | ↔ | Second et passation de chef ; seule l'op est un champ, la suite est brute (voir plus bas) |
 
 Créer une guilde demande le niveau 20 et le prix de la première ligne de `guildmaxmember.txt` (50 places
 pour 10 000 pièces). Codes utilisés : 0 nom pris, 1 niveau, 2 argent (nombre : prix), 4 caractères, 5 déjà
 membre, 6 guilde pleine, 7 adhésion impossible, 8 départ impossible (le chef), 9 réservé au chef,
 10 mauvais mot de passe, 11 création, 12 dissolution, 13 adhésion, 14 refus, 15 départ, 16 exclusion,
-17 joueur déjà dans une guilde, 48 demande d'adhésion, 50 demande de départ.
+17 joueur déjà dans une guilde, 44 or insuffisant pour agrandir, 45 crânes insuffisants, 47 guilde cherchée
+introuvable, 48 demande d'adhésion, 50 demande de départ, 56 à 59 emblème (crânes, or ou argent liquide, fond
+manquant, même emblème qu'une autre guilde : seul 59 a un message dans Archonia, qui propose alors l'op 33).
+
+**Liste des guildes** (FUN_140203630 d'Archonia). Les guildes sont prises dans l'ordre de leur création,
+19 par page ; une page vide n'a pas de réponse. Entrée : nom, chef, second, niveau, classement, membres,
+taille, (inconnu), emblème (TID, couleur), points de combat ; Archonia écrit 0 au niveau et au champ inconnu,
+et le classement vient d'une donnée de la guilde non identifiée : ArchCore envoie 0. Une recherche rend la page
+qui contient la guilde.
+
+**Emblème** (guildmark.txt, `FUN_1402050f0`). TID = fond | motif << 8 | symbole << 16 (numéros des éléments),
+couleur = indice de couleur de chaque couche aux mêmes décalages. Le prix est la somme des éléments choisis, en
+or et en argent liquide ; le fond est obligatoire.
+
+**Second et passation (op 48).** Paquet d'Archonia : en-tête, drapeaux 1, op 48 à +0x17, sous-op à +0x18,
+puis une structure ; taille = structure + 1, pied 0x6B.
+
+| Sous-op | Sens | Taille | Contenu |
+|---|---|---|---|
+| 2 | → | 0x80 | +0x19 émetteur, +0x4a membre, +0x7c rang (11 nommer second, 1 retirer ce rang) |
+| 3 | ← | 0xa0 | +0x19 guilde, +0x4a chef, +0x6b membre, +0x9c rang : le membre confirme |
+| 4 | → | 0x84 | +0x19 guilde, +0x4a soi, +0x7c rang, +0x80 réponse (1 accepte) |
+| 5 | → | 0x7b | +0x19 émetteur, +0x4a second : passation |
+| 6 | ← | 0x9c | +0x19 guilde, +0x4a chef, +0x6b second : le second confirme |
+| 7 | → | 0x80 | +0x19 guilde, +0x4a soi, +0x7c réponse |
+| 8 | ← | 0x70 | +0x19 guilde, +0x3a membre, +0x6c nouveau rang (1, 10 chef, 11 second), à toute la guilde |
+
+Comme les boutons d'Archonia : seul le chef nomme ; le membre a le niveau 20, est en ligne et la guilde n'a pas
+de second (ou c'est le second, pour lui retirer ce rang) ; la passation ne va qu'au second, en ligne, hors
+combat de guilde. À la passation, l'ancien chef reçoit le rang 1 puis le second le rang 10.
 
 À l'entrée en jeu, le membre reçoit sa guilde (op 0), chaque membre (op 3) et son lien (op 8).
 Les gestionnaires de guilde (12 PNJ) portent la fonction 23, sans données ; AGPMEVENTGUILD (0x39) :
 op 0 (événement) ← op 1 (accord, le client ouvre la création). Discussion : le type 3 va aux membres de la
 guilde, le type 4 aux membres du groupe.
 
-Pas encore faits : combats de guildes, alliances et hostilités, emblèmes, second et passation, agrandissement,
-liste des guildes, entrepôt.
+Pas encore faits : combats de guildes, alliances et hostilités, entrepôt.
 
 ## Groupes (types 0x08 et 0x09, AgpmParty)
 
