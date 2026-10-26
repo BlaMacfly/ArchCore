@@ -135,6 +135,7 @@ ARCHCORE_CONF_DIR=config/test archcore sim trade [userA passA charA userB passB 
 ARCHCORE_CONF_DIR=config/test archcore sim party [userA passA charA userB passB charB]
 ARCHCORE_CONF_DIR=config/test archcore sim guild [userA passA charA userB passB charB]
 ARCHCORE_CONF_DIR=config/test archcore sim gm [user] [pass] [character]
+ARCHCORE_CONF_DIR=config/test archcore sim refusal [userA passA charA userB passB charB]
 ```
 
 `sim bank` (GM account `gmtest`) checks that depositing without a keeper is refused, opens the bank at
@@ -148,9 +149,11 @@ receives the stack, money is adjusted on both sides), then a second request refu
 SimB) checks that inviting an unknown name is refused, the invitation and acceptance (party and member list
 on both sides), party chat, the leader setting experience sharing (refused to the other), the leader handover,
 then the kick, which disbands the party. `sim guild` (GmTest master, SimA) refuses a name with a space,
-creates SimGuild (10,000 coins), invites SimA who accepts, checks guild chat and the notice, a leave request
+creates SimGuild (10,000 coins), meets SimA's refusal as SimA blocks guild invitations (system message 42),
+invites SimA who accepts, checks guild chat and the notice, a leave request
 accepted by the master, coming back then being kicked, the guild found again on reconnecting, and finally
-disbanding (wrong password refused). `sim gm` (GM account `gmtest`) checks `/speed` (run speed ×5 in the
+disbanding (wrong password refused). `sim refusal` (GmTest, SimA) ticks GmTest's trade and party refusals
+(op 0x11): SimA gets op 14 for its invitation and op 25 for its trade request, GmTest gets nothing. `sim gm` (GM account `gmtest`) checks `/speed` (run speed ×5 in the
 factors received, refused above 10, back to ×1) and `/additem` (potions added, unknown TID refused), then
 destroys the stack.
 

@@ -127,6 +127,12 @@ fn request(st: &mut WorldState, sid: u32, target_cid: u32) {
     let Some(target) = st.by_cid.get(&target_cid).copied() else { return cancel(st, sid) };
     let (me, other) = (&st.players[&sid], st.players.get(&target));
     let Some(other) = other else { return cancel(st, sid) };
+    // Échanges refusés dans les options : « Option_Trade_Off_User » chez l'auteur (op 25, CID visé).
+    if super::option_flags::refuses(st, target, super::option_flags::REFUSE_TRADE) {
+        info!("[échange] {} refuse les échanges ({} demandait)", other.ch.name, me.ch.name);
+        let cid = me.ch.id;
+        return send(st, sid, packet(op::REFUSE, Some(target_cid), Some(cid)));
+    }
     let near = combat::dist2d(me.ch.pos(), other.ch.pos()) <= MAX_TRADE_DISTANCE;
     if target == sid || me.trade.is_some() || other.trade.is_some() || me.dead || other.dead || !other.in_game || !near {
         info!("[échange] demande de {} à {} refusée (déjà occupé, mort ou trop loin)", me.ch.name, other.ch.name);

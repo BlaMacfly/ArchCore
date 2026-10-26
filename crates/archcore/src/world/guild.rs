@@ -60,6 +60,8 @@ pub mod code {
     pub const USE_SPECIAL_CHAR: i64 = 4;
     pub const ALREADY_MEMBER: i64 = 5;
     pub const ALREADY_MEMBER2: i64 = 17;
+    /// L'invité refuse les invitations de guilde (options) : « Option_Guild_Off_User ».
+    pub const JOIN_REFUSE: i64 = 42;
     pub const MAX_MEMBER: i64 = 6;
     pub const JOIN_FAIL: i64 = 7;
     pub const LEAVE_FAIL: i64 = 8;
@@ -497,6 +499,11 @@ fn invite(st: &mut WorldState, sid: u32, p: &Packet) {
         return;
     };
     let tcid = st.players[&tsid].ch.id;
+    if super::option_flags::refuses(st, tsid, super::option_flags::REFUSE_GUILD_IN) {
+        info!("[guilde] {target_name} refuse les invitations de guilde");
+        send_to(st, sid, system_packet(code::JOIN_REFUSE, Some(&target_name), None));
+        return;
+    }
     if st.guilds.of(tcid).is_some() {
         send_to(st, sid, system_packet(code::ALREADY_MEMBER2, Some(&target_name), None));
         return;

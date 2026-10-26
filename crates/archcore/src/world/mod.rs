@@ -35,6 +35,7 @@ pub mod monsters;
 pub mod npc_events;
 pub mod npc_trade;
 pub mod npcs;
+pub mod option_flags;
 pub mod options;
 pub mod party;
 pub mod portal;
@@ -346,6 +347,7 @@ impl Connection for WorldConn {
             }
             ptype::CHARACTER if p.int(0) == Some(combat::REQUEST_RESURRECTION_TOWN) => combat::resurrect(ctx, &mut st, self.sid).await?,
             ptype::CHARACTER if p.int(0) == Some(bank::MOVE_BANK_MONEY) => bank::move_money(ctx, &mut st, self.sid, p.int(9).unwrap_or(0)).await?,
+            ptype::CHARACTER if p.int(0) == Some(option_flags::UPDATE_OPTION_FLAG) => option_flags::on_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::CHARACTER => debug!("[world] #{} AGPMCHARACTER op {:?} (ignoré)", s.id(), p.int(0)),
             ptype::CHATTING => chat::on_chatting(&world, &mut st, self.sid, &p).await?,
             ptype::OPT_CHAR_MOVE => presence::on_move(ctx, &mut st, self.sid, &p),

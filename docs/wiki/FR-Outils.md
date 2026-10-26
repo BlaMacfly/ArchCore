@@ -137,6 +137,7 @@ ARCHCORE_CONF_DIR=config/test archcore sim trade [compteA mdpA persoA compteB md
 ARCHCORE_CONF_DIR=config/test archcore sim party [compteA mdpA persoA compteB mdpB persoB]
 ARCHCORE_CONF_DIR=config/test archcore sim guild [compteA mdpA persoA compteB mdpB persoB]
 ARCHCORE_CONF_DIR=config/test archcore sim gm [compte] [mdp] [personnage]
+ARCHCORE_CONF_DIR=config/test archcore sim refusal [compteA mdpA persoA compteB mdpB persoB]
 ```
 
 `sim bank` (compte MJ `gmtest`) vérifie le refus d'un dépôt sans gardien, ouvre la banque chez Holly (au
@@ -150,9 +151,12 @@ de potions et 500 pièces, SimA 100 pièces ; l'objet proposé ne peut pas être
 (SimA et SimB) vérifie le refus d'une invitation à un nom inconnu, l'invitation et l'acceptation (groupe et
 liste des membres chez les deux), la discussion de groupe, le réglage de l'expérience par le chef (refusé à
 l'autre), le passage de chef puis l'exclusion, qui dissout le groupe. `sim guild` (GmTest chef, SimA) refuse
-un nom à espace, crée SimGuild (10 000 pièces), invite SimA qui accepte, vérifie la discussion de guilde et
+un nom à espace, crée SimGuild (10 000 pièces), essuie le refus de SimA qui bloque les invitations de guilde (message système
+42), invite SimA qui accepte, vérifie la discussion de guilde et
 l'annonce, la demande de départ acceptée par le chef, le retour puis l'exclusion, la guilde retrouvée à la
-reconnexion, enfin la dissolution (mauvais mot de passe refusé). `sim gm` (compte MJ `gmtest`) vérifie `/speed` (course ×5
+reconnexion, enfin la dissolution (mauvais mot de passe refusé). `sim refusal` (GmTest, SimA) coche chez GmTest les refus
+d'échange et de groupe (op 0x11) : SimA reçoit l'op 14 à son invitation et l'op 25 à sa demande d'échange, GmTest
+ne reçoit rien. `sim gm` (compte MJ `gmtest`) vérifie `/speed` (course ×5
 dans les facteurs reçus, refus au-delà de 10, retour à ×1) et `/additem` (potions ajoutées, TID inconnu
 refusé), puis détruit la pile.
 

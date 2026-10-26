@@ -21,6 +21,7 @@
 //!   archcore sim quest [compte] [mdp] [perso]                 quêtes : prendre, refus, terminer (objets rapportés, récompense), abandonner ; compte MJ
 //!   archcore sim portal [compte] [mdp] [perso]                portail d'Anchorville : demande de loin, trajet payant, trajet non relié refusé, retour ; compte MJ
 //!   archcore sim guild [A… B…]                                guilde GmTest + SimA : création, invitation, discussion, annonce, départ, exclusion, dissolution
+//!   archcore sim refusal [A… B…]                              options de GmTest (op 0x11) : SimA ne peut ni l'inviter en groupe (op 14) ni lui proposer d'échange (op 25)
 //!   archcore sim gm [compte] [mdp] [perso]                    commandes MJ d'ArchCore : /speed (×5, refus au-delà de 10, retour) et /additem ; compte MJ
 //!   archcore sim status [compte] [mdp] [perso]                état spécial : Shield Bash étourdit un Ver vert (champ 17), puis l'état retombe ; compte MJ, personnage GmEffets
 //!   archcore sim effects [compte] [mdp] [perso]               passive (défense), renforcement (vitesse d'attaque), zone, affaiblissement d'un Ver vert ; compte MJ, personnage GmEffets
@@ -67,6 +68,7 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         Some("portal") => Box::pin(portal(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("gm") => Box::pin(gm_commands(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("guild") => Box::pin(guild(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
+        Some("refusal") => Box::pin(refusal(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("party") => Box::pin(party(&a(1, "sima"), &a(2, "sima"), &a(3, "SimA"), &a(4, "simb"), &a(5, "simb"), &a(6, "SimB"))).await,
         Some("trade") => Box::pin(private_trade(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("quest") => Box::pin(quest(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
@@ -1498,6 +1500,17 @@ async fn guild(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> an
     a.world.expect_where(sys(11), 3000, "création confirmée (code 11)").await?;
     println!("  ✓ {NAME} créée : 50 places, 10 000 pièces payées");
 
+    step(&format!("{cb} refuse les invitations de guilde (options) : refus, puis levée"));
+    let c = &schema::CHARACTER;
+    b.world.send(c, Fields::new(c).with(0, 0x11).with(1, bcid).with(22, 0x10)).await?;
+    b.world.expect_where(|q| q.is(c, Some(0x11)), 3000, "drapeaux renvoyés").await?;
+    a.world.send(gd, Fields::new(gd).with(0, 1).with(1, acid).with(2, NAME).with(16, member(cb))).await?;
+    a.world.expect_where(sys(42), 3000, "refus des options (code 42)").await?;
+    anyhow::ensure!(b.world.expect_where(op(1), 800, "invitation").await.is_err(), "{cb} a reçu l'invitation");
+    b.world.send(c, Fields::new(c).with(0, 0x11).with(1, bcid).with(22, 0)).await?;
+    b.world.expect_where(|q| q.is(c, Some(0x11)), 3000, "drapeaux renvoyés").await?;
+    println!("  ✓ code 42 (« Option_Guild_Off_User ») chez {ca} ; refus levé");
+
     step(&format!("{ca} invite {cb}, qui accepte"));
     a.world.send(gd, Fields::new(gd).with(0, 1).with(1, acid).with(2, NAME).with(16, member(cb))).await?;
     let inv = b.world.expect_where(op(1), 3000, "invitation").await?;
@@ -1568,6 +1581,54 @@ async fn guild(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> an
 /// Échange entre deux joueurs : A (compte MJ) propose une pile et de l'argent, B de l'argent.
 /// Groupe de deux joueurs : invitation d'un nom inconnu (refusée), invitation par CID, acceptation (liste des
 /// membres), réglage de l'expérience par le chef, passage de chef, exclusion (groupe dissous).
+/// Refus des options : A coche « refuser les échanges, les invitations de groupe et de guilde » (AgpmCharacter
+/// op 0x11, champ 22) ; B l'invite en groupe (op 14 « Option_Party_Off_User » en retour) et lui propose un
+/// échange (op 25 « Option_Trade_Off_User »). A ne reçoit ni l'un ni l'autre ; ses drapeaux sont remis à 0.
+async fn refusal(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> anyhow::Result<()> {
+    const SPOT: Vec3 = Vec3 { x: -476_000.0, y: 4_422.0, z: -61_000.0 };
+    const STOP: i64 = 0x04;
+    const REFUSE_ALL: i64 = 0x01 | 0x02 | 0x10;
+    let cfg = crate::config::load()?;
+    let (mv, c, pm, tr) = (&schema::OPT_CHAR_MOVE, &schema::CHARACTER, &schema::PARTY_MANAGEMENT, &schema::PRIVATE_TRADE);
+
+    step(&format!("{ca} et {cb} entrent en jeu"));
+    let mut a = enter_world(&cfg, ua, pa, ca, "A-").await?;
+    let mut b = enter_world(&cfg, ub, pb, cb, "B-").await?;
+    for w in [&mut a, &mut b] {
+        let cid = w.cid;
+        w.world.send(mv, Fields::new(mv).with(0, cid).with(1, SPOT).with(2, SPOT).with(5, STOP).with(6, 0)).await?;
+    }
+    let (acid, bcid) = (a.cid as i64, b.cid as i64);
+
+    step(&format!("{ca} refuse les échanges et les invitations de groupe et de guilde"));
+    a.world.send(c, Fields::new(c).with(0, 0x11).with(1, acid).with(22, REFUSE_ALL)).await?;
+    let echo = a.world.expect_where(|q| q.is(c, Some(0x11)), 3000, "drapeaux renvoyés").await?;
+    anyhow::ensure!(echo.int(22) == Some(REFUSE_ALL), "drapeaux {:?}", echo.int(22));
+    println!("  ✓ op 0x11 renvoyée (drapeaux 0x{REFUSE_ALL:x})");
+
+    step(&format!("{cb} invite {ca} en groupe"));
+    b.world.send(pm, Fields::new(pm).with(0, 0).with(1, bcid).with(2, acid)).await?;
+    let r = b.world.expect_where(|q| q.is(pm, Some(14)), 3000, "refus d'invitation (op 14)").await?;
+    anyhow::ensure!(r.int(2) == Some(acid), "invité {:?}", r.int(2));
+    anyhow::ensure!(a.world.expect_where(|q| q.is(pm, Some(0)), 800, "invitation").await.is_err(), "{ca} a reçu l'invitation");
+    println!("  ✓ op 14 chez {cb} ; {ca} ne reçoit rien");
+
+    step(&format!("{cb} propose un échange à {ca}"));
+    b.world.send(tr, Fields::new(tr).with(0, 1).with(1, bcid).with(2, acid)).await?;
+    let r = b.world.expect_where(|q| q.is(tr, Some(25)), 3000, "refus d'échange (op 25)").await?;
+    anyhow::ensure!(r.int(1) == Some(acid), "personnage annoncé {:?}", r.int(1));
+    anyhow::ensure!(a.world.expect_where(|q| q.is(tr, Some(3)), 800, "demande d'échange").await.is_err(), "{ca} a reçu la demande");
+    println!("  ✓ op 25 chez {cb} ; {ca} ne reçoit rien");
+
+    step(&format!("{ca} lève ses refus"));
+    a.world.send(c, Fields::new(c).with(0, 0x11).with(1, acid).with(22, 0)).await?;
+    let echo = a.world.expect_where(|q| q.is(c, Some(0x11)), 3000, "drapeaux renvoyés").await?;
+    anyhow::ensure!(echo.int(22) == Some(0), "drapeaux {:?}", echo.int(22));
+    println!("  ✓ drapeaux remis à 0");
+    println!("\nrefus des options : OK");
+    Ok(())
+}
+
 async fn party(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> anyhow::Result<()> {
     const SPOT: Vec3 = Vec3 { x: -476_000.0, y: 4_422.0, z: -61_000.0 };
     const STOP: i64 = 0x04;

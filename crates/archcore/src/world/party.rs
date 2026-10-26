@@ -52,6 +52,8 @@ pub mod mgmt {
     pub const FAILED_NOT_LEADER: i64 = 8;
     pub const FAILED_NO_LOGIN: i64 = 10;
     pub const DELEGATION_LEADER: i64 = 11;
+    /// L'invité refuse les invitations de groupe (options) : « Option_Party_Off_User ».
+    pub const FAILED_REFUSE: i64 = 14;
 }
 
 /// Répartition de l'expérience : selon les dégâts (défaut) ou selon le niveau.
@@ -200,6 +202,11 @@ pub fn on_management(st: &mut WorldState, sid: u32, p: &Packet) {
                 return;
             }
             let target_name = name_of(st, target);
+            if st.by_cid.get(&target).is_some_and(|t| super::option_flags::refuses(st, *t, super::option_flags::REFUSE_PARTY_IN)) {
+                info!("[groupe] {target_name} refuse les invitations de {my_name}");
+                send(st, me, management_packet(mgmt::FAILED_REFUSE, Some(me), Some(target), Some(&target_name)));
+                return;
+            }
             if st.parties.of.contains_key(&target) {
                 send(st, me, management_packet(mgmt::FAILED_OTHER_PARTY, Some(me), Some(target), Some(&target_name)));
                 return;

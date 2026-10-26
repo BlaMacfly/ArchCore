@@ -720,6 +720,20 @@ the journal) once the monsters are killed and the items gathered: the required i
 given (items, money, experience). In the database, `character_quests` keeps quests in progress (counters)
 and completed.
 
+## Option refusals (type 0x02, op 0x11)
+
+The options' "Function" tab sets refusals that the client sends in AGPMCHARACTER **op 0x11** (field 1: CID,
+field 22: `INT32` flags), on world entry and on each checkbox: 0x01 trades, 0x02 party invitations, 0x10 guild
+invitations (0x04 guild battle, 0x08 battle, 0x40 alliance or hostility, 0x80 buddy wait for their system). The
+server keeps the value (`characters.option_flag`), sends it back in the same op and stops at the source what
+targets a player who refuses; the author gets Archonia's message:
+
+| Request | Reply to the author | Sentence (`uimessage.txt`) |
+|---|---|---|
+| Party invitation | AGPMPARTYMANAGEMENT op 14 (field 2: invitee, field 3: their name) | `Option_Party_Off_User` |
+| Guild invitation | AGPMGUILD op 10, system message 42 | `Option_Guild_Off_User` |
+| Trade request | AGPMPRIVATETRADE op 25 (field 1: targeted CID) | `Option_Trade_Off_User` |
+
 ## GM level (type 0x12, AgpmAdmin)
 
 2-byte field flags: op, CID, then 13 mini-packets. Op 0 with, in field 2, a "GM data" mini-packet of

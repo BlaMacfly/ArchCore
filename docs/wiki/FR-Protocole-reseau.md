@@ -749,6 +749,20 @@ se termine (auprès d'un PNJ qui la reçoit, ou depuis le journal) quand les mon
 réunis : les objets demandés sont repris, les récompenses données (objets, argent, expérience). En base,
 `character_quests` garde les quêtes en cours (compteurs) et terminées.
 
+## Refus des options (type 0x02, op 0x11)
+
+L'onglet « Fonction » des options règle des refus que le client envoie par AGPMCHARACTER **op 0x11** (champ 1 :
+CID, champ 22 : drapeaux `INT32`), à l'entrée en jeu et à chaque case : 0x01 échanges, 0x02 invitations de
+groupe, 0x10 invitations de guilde (0x04 combat de guilde, 0x08 combat, 0x40 alliance ou hostilité, 0x80 ami
+attendent leur système). Le serveur garde la valeur (`characters.option_flag`), la renvoie par la même op et
+arrête à la source ce qui vise un joueur qui refuse ; l'auteur reçoit le message d'Archonia :
+
+| Demande | Réponse à l'auteur | Phrase (`uimessage.txt`) |
+|---|---|---|
+| Invitation de groupe | AGPMPARTYMANAGEMENT op 14 (champ 2 : invité, champ 3 : son nom) | `Option_Party_Off_User` |
+| Invitation de guilde | AGPMGUILD op 10, message système 42 | `Option_Guild_Off_User` |
+| Demande d'échange | AGPMPRIVATETRADE op 25 (champ 1 : CID visé) | `Option_Trade_Off_User` |
+
 ## Niveau MJ (type 0x12, AgpmAdmin)
 
 Drapeaux de champs sur 2 octets : op, CID, puis 13 mini-paquets. L'op 0 avec, au champ 2, un
