@@ -25,7 +25,8 @@ Toutes sont en `utf8mb4`.
 | `character_quests` | Quêtes en cours (compteurs des monstres A et B) et terminées |
 | `account_bank` | Banque du compte : argent, pages en plus de la première (créée à la première entrée, avec l'argent que les personnages avaient en banque) |
 | `character_skills` | Compétences apprises et leur niveau (« Normal Attack » n'y figure pas : tout personnage la connaît) |
-| `guild` | Guildes : nom unique, mot de passe de dissolution, annonce, taille, date de création, emblème (`mark_tid`, `mark_color`), bilan des combats (`win`, `draw`, `lose`, `points`) (`sql/migrations/characters/`) |
+| `guild` | Guildes : nom unique, mot de passe de dissolution, annonce, taille, date de création, emblème (`mark_tid`, `mark_color`), bilan des combats (`win`, `draw`, `lose`, `points`), alliance (`joint_leader` : la fondatrice, `joint_at`) (`sql/migrations/characters/`) |
+| `guild_hostile` | Hostilités entre guildes, une ligne par sens (`guild_id`, `other_id`, `since`) |
 | `guild_member` | Membre d'une guilde (un personnage au plus dans une) : rang (1 membre, 2 demande d'adhésion, 3 demande de départ, 10 chef, 11 second), date d'adhésion, date de la demande de départ |
 | `character_ui_status` | Statut d'interface : potions de vie et de mana de la barre, seuils de leur prise automatique (%), affichage du casque |
 

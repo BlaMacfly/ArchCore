@@ -263,7 +263,10 @@ async fn lead_succession(a: &mut InWorld, b: &mut InWorld, ca: &str, cb: &str) -
 ///   tous au niveau 10, puis tous se déconnectent ;
 /// * `guerre-defi` : GmTest défie SimWarB (aux points, 10 minutes) après `secondes`, attend le début, puis
 ///   abandonne `secondes` plus tard ;
-/// * `guerre-refus` : GmTest refuse pendant `secondes` les défis reçus.
+/// * `guerre-refus` : GmTest refuse pendant `secondes` les défis reçus ;
+/// * `relation-prep` : comme `guerre-prep`, 20 membres dans chaque guilde (38 comptes d'appoint) ;
+/// * `relation-repond` : GmTest accepte pendant `secondes` alliances, hostilités et trêves demandées ;
+/// * `relation-demande` : GmTest déclare SimWarB hostile après `secondes`, puis accepte la trêve.
 pub async fn guild_stage(mode: &str, secs: u64) -> anyhow::Result<()> {
     use crate::world::guild::society::{get_text, put_text, raw_packet, sub};
     let cfg = crate::config::load()?;
@@ -400,7 +403,59 @@ pub async fn guild_stage(mode: &str, secs: u64) -> anyhow::Result<()> {
                 println!("  ✓ défi de {from} refusé");
             }
         }
-        other => anyhow::bail!("mode inconnu {other:?} : setup | present | chef | dissoudre | guerre-prep | guerre-defi | guerre-refus"),
+        "relation-prep" => {
+            let ch = &schema::CHATTING;
+            let mut a = enter_world(&cfg, "gmtest", "gmtest", "GmTest", "A-").await?;
+            let mut b = enter_world(&cfg, "sima", "sima", "SimA", "B-").await?;
+            Box::pin(leave_old_guild(&mut a)).await?;
+            Box::pin(leave_old_guild(&mut b)).await?;
+            let mut helpers = Vec::new();
+            for (i, user) in helper_accounts(&cfg, 38).await?.iter().enumerate() {
+                let mut h = enter_world(&cfg, user, user, &format!("SimG{:02}", i + 1), &format!("G{:02}-", i + 1)).await?;
+                Box::pin(leave_old_guild(&mut h)).await?;
+                helpers.push(h);
+            }
+            a.world.send(ch, chat_line(a.cid, "/level 20")).await?;
+            set_money(&mut a, 20_000).await?;
+            a.world.send(ch, chat_line(a.cid, "/level 20 \"SimA\"")).await?;
+            a.world.send(ch, chat_line(a.cid, "/money 20000 \"SimA\"")).await?;
+            b.world.expect_where(|q| q.is(&schema::CHARACTER, Some(1)) && q.int(8) == Some(20_000), 3000, "argent de SimA").await?;
+            for (w, g) in [(&mut a, LEAD_NAME), (&mut b, WAR_GUILD)] {
+                w.world.send(gd, Fields::new(gd).with(0, 0).with(1, w.cid).with(2, g).with(9, LEAD_PASSWORD)).await?;
+                w.world.expect_where(gsys(11), 3000, "création").await?;
+            }
+            for (i, h) in helpers.iter_mut().enumerate() {
+                let name = format!("SimG{:02}", i + 1);
+                if i < 19 {
+                    Box::pin(lead_join(&mut a, LEAD_NAME, h, &name)).await?;
+                } else {
+                    Box::pin(lead_join(&mut b, WAR_GUILD, h, &name)).await?;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            println!("\nmise en scène : {LEAD_NAME} (GmTest) et {WAR_GUILD} (SimA), 20 membres chacune");
+        }
+        "relation-repond" | "relation-demande" => {
+            let mut a = enter_world(&cfg, "gmtest", "gmtest", "GmTest", "A-").await?;
+            if mode == "relation-demande" {
+                tokio::time::sleep(Duration::from_secs(secs)).await;
+                a.world.send(gd, relation_fields(&a, 38, LEAD_NAME, "GmTest", WAR_GUILD)).await?;
+                println!("  · {WAR_GUILD} déclarée hostile");
+            }
+            let until = tokio::time::Instant::now() + Duration::from_secs(if mode == "relation-demande" { 90 } else { secs });
+            while tokio::time::Instant::now() < until {
+                let Ok(q) = a.world.expect_where(|q| gop(34)(q) || gop(38)(q) || gop(41)(q), 500, "demande").await else { continue };
+                let from = other_guild(&q);
+                let answer = match q.int(0) {
+                    Some(34) => 36,
+                    Some(38) => 40,
+                    _ => 43,
+                };
+                a.world.send(gd, relation_fields(&a, answer, LEAD_NAME, &from, &from)).await?;
+                println!("  ✓ demande {:?} de {from} acceptée (op {answer})", q.int(0));
+            }
+        }
+        other => anyhow::bail!("mode inconnu {other:?} : setup | present | chef | dissoudre | guerre-prep | guerre-defi | guerre-refus | relation-prep | relation-repond | relation-demande"),
     }
     Ok(())
 }
@@ -705,4 +760,153 @@ async fn kill_player(a: &mut InWorld, b: &mut InWorld) -> anyhow::Result<()> {
         anyhow::ensure!(tokio::time::Instant::now() < deadline, "B toujours en vie au bout d'une minute");
         a.world.send(act, Fields::new(act).with(0, a.cid).with(1, b.cid).with(6, 1)).await?;
     }
+}
+
+/// Paquet d'alliance ou d'hostilité : op `o`, guilde (2), nom (3), autre guilde (17, GUILD_BATTLE champ 0).
+fn relation_fields(w: &InWorld, o: i64, guild: &str, name: &str, other: &str) -> Fields {
+    let (gd, m) = (&schema::GUILD, &mini::GUILD_BATTLE);
+    Fields::new(gd).with(0, o).with(1, w.cid).with(2, guild).with(3, name).with(17, build_mini(m, &Fields::new(m).with(0, other)))
+}
+
+/// Autre guilde (champ 17) d'un paquet reçu.
+fn other_guild(q: &Recv) -> String {
+    q.fields().bytes(17).and_then(|b| decode_mini(&mini::GUILD_BATTLE, b).ok()).and_then(|m| m.text(0)).unwrap_or_default()
+}
+
+/// Op `n` dont l'autre guilde est `other`.
+fn relation_op(n: i64, other: &'static str) -> impl Fn(&Recv) -> bool {
+    move |q: &Recv| gop(n)(q) && other_guild(q) == other
+}
+
+/// Alliances et hostilités : A (compte MJ) crée SimRelA avec 19 comptes d'appoint (20 membres), B crée SimRelB
+/// avec 18 autres. Alliance avec une guilde inconnue (0x3c), avec une guilde de 19 membres (0x42) ; 20e membre ;
+/// demande (op 34, attente 0x43) refusée (op 35, 0x44), puis acceptée (op 36 des deux côtés, rôles 2 et 1,
+/// 0x46, détails op 44) ; déjà alliées (0x3e) ; hostilité envers une alliée (0x4b) ; B quitte l'alliance
+/// (op 37, 0x47 ; dissoute pour A : 0x49) ; hostilité (op 38, 0x51) refusée (op 39, 0x52), puis acceptée
+/// (op 40 des deux côtés, 0x54, détails op 45) ; déjà hostiles (0x4c) ; trêve (op 41, 0x56) refusée (op 39,
+/// 0x57), puis acceptée (op 43 des deux côtés, 0x59) ; hostilité relue à la reconnexion de A ; la dissolution
+/// de SimRelA y met fin pour B (op 43).
+pub async fn guild_relation(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> anyhow::Result<()> {
+    const GA: &str = "SimRelA";
+    const GB: &str = "SimRelB";
+    let cfg = crate::config::load()?;
+    let (gd, ch) = (&schema::GUILD, &schema::CHATTING);
+    step(&format!("{ca}, {cb} et 38 comptes d'appoint entrent en jeu"));
+    let mut a = enter_world(&cfg, ua, pa, ca, "A-").await?;
+    let mut b = enter_world(&cfg, ub, pb, cb, "B-").await?;
+    Box::pin(leave_old_guild(&mut a)).await?;
+    Box::pin(leave_old_guild(&mut b)).await?;
+    let mut helpers = Vec::new();
+    for (i, user) in helper_accounts(&cfg, 38).await?.iter().enumerate() {
+        let mut h = enter_world(&cfg, user, user, &format!("SimG{:02}", i + 1), &format!("G{:02}-", i + 1)).await?;
+        Box::pin(leave_old_guild(&mut h)).await?;
+        helpers.push(h);
+    }
+
+    step(&format!("{ca} crée {GA} (20 membres), {cb} crée {GB} (19 membres)"));
+    a.world.send(ch, chat_line(a.cid, "/level 20")).await?;
+    set_money(&mut a, 20_000).await?;
+    a.world.send(ch, chat_line(a.cid, &format!("/level 20 \"{cb}\""))).await?;
+    a.world.send(ch, chat_line(a.cid, &format!("/money 20000 \"{cb}\""))).await?;
+    b.world.expect_where(|q| q.is(&schema::CHARACTER, Some(1)) && q.int(8) == Some(20_000), 3000, "argent de B").await?;
+    a.world.send(gd, Fields::new(gd).with(0, 0).with(1, a.cid).with(2, GA).with(9, LEAD_PASSWORD)).await?;
+    a.world.expect_where(gsys(11), 3000, "création de SimRelA").await?;
+    b.world.send(gd, Fields::new(gd).with(0, 0).with(1, b.cid).with(2, GB).with(9, LEAD_PASSWORD)).await?;
+    b.world.expect_where(gsys(11), 3000, "création de SimRelB").await?;
+    for (i, h) in helpers.iter_mut().enumerate().take(37) {
+        let name = format!("SimG{:02}", i + 1);
+        if i < 19 {
+            Box::pin(lead_join(&mut a, GA, h, &name)).await?;
+        } else {
+            Box::pin(lead_join(&mut b, GB, h, &name)).await?;
+        }
+    }
+    println!("  ✓ {GA} : 20 membres, {GB} : 19 membres");
+
+    step("alliance impossible : guilde inconnue, effectif de l'autre guilde");
+    a.world.send(gd, relation_fields(&a, 34, GA, ca, "Inexistante")).await?;
+    a.world.expect_where(gsys(0x3c), 3000, "guilde inconnue (0x3c)").await?;
+    a.world.send(gd, relation_fields(&a, 34, GA, ca, GB)).await?;
+    a.world.expect_where(gsys(0x42), 3000, "effectif de SimRelB (0x42)").await?;
+    Box::pin(lead_join(&mut b, GB, &mut helpers[37], "SimG38")).await?;
+    println!("  ✓ codes 0x3c et 0x42 ; {GB} : 20 membres");
+
+    step("alliance refusée, puis acceptée");
+    a.world.send(gd, relation_fields(&a, 34, GA, ca, GB)).await?;
+    a.world.expect_where(gsys(0x43), 3000, "attente (0x43)").await?;
+    let ask = b.world.expect_where(relation_op(34, GA), 3000, "demande d'alliance").await?;
+    anyhow::ensure!(ask.fields().text(2).as_deref() == Some(GB) && ask.fields().text(3).as_deref() == Some(ca), "demande {:?} {:?}", ask.fields().text(2), ask.fields().text(3));
+    b.world.send(gd, relation_fields(&b, 35, GB, cb, GA)).await?;
+    a.world.expect_where(gsys(0x44), 3000, "refus (0x44)").await?;
+    a.world.send(gd, relation_fields(&a, 34, GA, ca, GB)).await?;
+    b.world.expect_where(relation_op(34, GA), 3000, "demande d'alliance").await?;
+    b.world.send(gd, relation_fields(&b, 36, GB, cb, GA)).await?;
+    let ja = a.world.expect_where(relation_op(36, GB), 3000, "alliée vue de A").await?;
+    a.world.expect_where(gsys(0x46), 3000, "alliance (0x46)").await?;
+    let jb = b.world.expect_where(relation_op(36, GA), 3000, "alliée vue de B").await?;
+    anyhow::ensure!((ja.int(11), jb.int(11)) == (Some(1), Some(2)), "rôles {:?} {:?}", ja.int(11), jb.int(11));
+    b.world.expect_where(gop(44), 3000, "détails des alliées").await?;
+    a.world.send(gd, relation_fields(&a, 34, GA, ca, GB)).await?;
+    a.world.expect_where(gsys(0x3e), 3000, "déjà alliées (0x3e)").await?;
+    a.world.send(gd, relation_fields(&a, 38, GA, ca, GB)).await?;
+    a.world.expect_where(gsys(0x4b), 3000, "hostilité envers une alliée (0x4b)").await?;
+    println!("  ✓ op 34 → 35 (0x44), 34 → 36 (rôles 2 et 1, op 44), 0x3e, 0x4b");
+
+    step(&format!("{GB} quitte l'alliance"));
+    b.world.send(gd, relation_fields(&b, 37, GB, "", GB)).await?;
+    b.world.expect_where(relation_op(37, GB), 3000, "départ vu de B").await?;
+    b.world.expect_where(gsys(0x47), 3000, "départ (0x47)").await?;
+    a.world.expect_where(relation_op(37, GB), 3000, "départ vu de A").await?;
+    a.world.expect_where(gsys(0x49), 3000, "alliance dissoute (0x49)").await?;
+    println!("  ✓ op 37, 0x47 pour B, 0x49 pour A");
+
+    step("hostilité refusée, puis acceptée");
+    a.world.send(gd, relation_fields(&a, 38, GA, ca, GB)).await?;
+    a.world.expect_where(gsys(0x51), 3000, "attente (0x51)").await?;
+    b.world.expect_where(relation_op(38, GA), 3000, "déclaration d'hostilité").await?;
+    b.world.send(gd, relation_fields(&b, 39, GB, cb, GA)).await?;
+    a.world.expect_where(gsys(0x52), 3000, "refus (0x52)").await?;
+    a.world.send(gd, relation_fields(&a, 38, GA, ca, GB)).await?;
+    b.world.expect_where(relation_op(38, GA), 3000, "déclaration d'hostilité").await?;
+    b.world.send(gd, relation_fields(&b, 40, GB, cb, GA)).await?;
+    a.world.expect_where(relation_op(40, GB), 3000, "hostile vue de A").await?;
+    a.world.expect_where(gsys(0x54), 3000, "hostilité (0x54)").await?;
+    b.world.expect_where(relation_op(40, GA), 3000, "hostile vue de B").await?;
+    b.world.expect_where(gop(45), 3000, "détails des hostiles").await?;
+    a.world.send(gd, relation_fields(&a, 38, GA, ca, GB)).await?;
+    a.world.expect_where(gsys(0x4c), 3000, "déjà hostiles (0x4c)").await?;
+    println!("  ✓ op 38 → 39 (0x52), 38 → 40 (op 45), 0x4c");
+
+    step("trêve refusée, puis acceptée");
+    a.world.send(gd, relation_fields(&a, 41, GA, ca, GB)).await?;
+    a.world.expect_where(gsys(0x56), 3000, "attente (0x56)").await?;
+    b.world.expect_where(relation_op(41, GA), 3000, "demande de trêve").await?;
+    b.world.send(gd, relation_fields(&b, 39, GB, cb, GA)).await?;
+    a.world.expect_where(gsys(0x57), 3000, "refus (0x57)").await?;
+    a.world.send(gd, relation_fields(&a, 41, GA, ca, GB)).await?;
+    b.world.expect_where(relation_op(41, GA), 3000, "demande de trêve").await?;
+    b.world.send(gd, relation_fields(&b, 43, GB, GA, GA)).await?;
+    a.world.expect_where(relation_op(43, GB), 3000, "trêve vue de A").await?;
+    a.world.expect_where(gsys(0x59), 3000, "trêve (0x59)").await?;
+    b.world.expect_where(relation_op(43, GA), 3000, "trêve vue de B").await?;
+    println!("  ✓ op 41 → 39 (0x57), 41 → 43 (0x59)");
+
+    step(&format!("hostilité relue à la reconnexion de {ca} ; dissolution"));
+    a.world.send(gd, relation_fields(&a, 38, GA, ca, GB)).await?;
+    b.world.expect_where(relation_op(38, GA), 3000, "déclaration d'hostilité").await?;
+    b.world.send(gd, relation_fields(&b, 40, GB, cb, GA)).await?;
+    a.world.expect_where(gsys(0x54), 3000, "hostilité (0x54)").await?;
+    drop(a);
+    let mut a = enter_world(&cfg, ua, pa, ca, "A-").await?;
+    a.world.expect_where(relation_op(40, GB), 3000, "hostile à l'entrée").await?;
+    a.world.expect_where(gop(45), 3000, "détails à l'entrée").await?;
+    a.world.send(gd, Fields::new(gd).with(0, 6).with(1, a.cid).with(2, GA).with(9, LEAD_PASSWORD)).await?;
+    a.world.expect_where(gop(6), 3000, "dissolution de SimRelA").await?;
+    b.world.expect_where(relation_op(43, GA), 3000, "fin de l'hostilité pour B").await?;
+    b.world.send(gd, Fields::new(gd).with(0, 6).with(1, b.cid).with(2, GB).with(9, LEAD_PASSWORD)).await?;
+    b.world.expect_where(gop(6), 3000, "dissolution de SimRelB").await?;
+    drop(helpers);
+    println!("  ✓ op 40 et 45 à l'entrée ; op 43 à la dissolution");
+    println!("\nalliances et hostilités : OK");
+    Ok(())
 }

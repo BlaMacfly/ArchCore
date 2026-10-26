@@ -688,6 +688,8 @@ online), guild mark (TID, colour), winner. Ranks: 1 member, 2 join request, 3 le
 | 13 | ← | Battle in progress (field 17, GUILD_BATTLE mini packet), on entering the world |
 | 15 to 20, 24 | ↔ | Guild battle: challenge, acceptance, refusal, cancel request, answer, surrender (see below) |
 | 21, 22, 23, 25 | ← | Battle start, clock (every second), score, result |
+| 34 to 43 | ↔ | Alliances and hostilities: requests, answers, leaving, truce (see below) |
+| 44, 45 | ← | Details of the allies, of the hostile guilds (field 21, GUILD_LIST: at most 3 entries per packet) |
 
 Creating a guild takes level 20 and the price of the first `guildmaxmember.txt` row (50 places for
 10,000 coins). Codes used: 0 name taken, 1 level, 2 money (number: price), 4 characters, 5 already a
@@ -744,7 +746,35 @@ results 4 and 5), death of the enemy master (type 2) or no enemy fighter left st
 fighters: the members online at the start, within the chosen limit). Op 25 (1 win, 2 draw, 3 loss) and record
 (op 12), saved in `guild`. A guild in a battle cannot be disbanded (code 41).
 
-Not done yet: alliances and hostilities, guild warehouse.
+**Alliances and hostilities** (Archonia: FUN_140202390 to FUN_140203130, FUN_140605a40 to FUN_140606630,
+callbacks FUN_1408cc440, FUN_1408cbbf0, FUN_1408cc1c0, FUN_1408cbb00, FUN_1408cb2f0, FUN_1408cba20,
+FUN_1408cb890, FUN_1408cbd20, FUN_1408cb400). Fields: guild (2), name (3), date (6), role (11), other guild (17:
+GUILD_BATTLE mini packet reduced to its field 0); 37 and 43 also carry the CID (1). Only masters act.
+
+| Op | Dir. | Content |
+|---|---|---|
+| 34 | → | Alliance request: 2 own guild, 3 own name, 17 the target guild; ← to the target master: 2 its guild, 3 requesting master, 17 the requesting guild |
+| 35, 36 | → | Refusal (code 0x44 to the requester), acceptance; ← 36 to every guild of the alliance: 17 the ally, 6 joining date, 11 role (2 founder, 1 other) |
+| 37 | ↔ | Leaving the alliance (17 = own guild); ← 37: 17 the leaving guild, 3 the new founder when the founder leaves |
+| 38, 39, 40 | ↔ | Hostility declaration, refusal (0x52), acceptance; ← 40 to both guilds: 17 the hostile guild, 6 date |
+| 41 | ↔ | Truce request, forwarded to the target master like op 38; Archonia refuses it with op 39 (0x57) |
+| 43 | ↔ | Truce accepted; ← 43 to both guilds: 17 the other one |
+
+An alliance has a founder and at most 3 other guilds (the client keeps no more, FUN_1401ff510); 20 members are
+required on both sides (0x41, 20 written by Archonia; 0x42), 10 for a hostility (0x4f; 0x50); at most 5
+hostilities (0x4d). A guild already in another alliance, or hostile, cannot be invited (0x3c); only the founder
+invites (0x3d); 0x3e already allied, 0x40 target master offline, 0x43 waiting, 0x46 alliance made (0x4a and the
+newcomer's name to the other allies), 0x47 left, 0x48 and the leaving guild's name to the others, 0x49 alliance
+dissolved (a single guild left); 0x4b hostility impossible (ally, target guild at 5 hostilities), 0x4c already
+hostile, 0x4e target master offline, 0x51 waiting, 0x54 hostility declared, 0x55 truce impossible, 0x56
+waiting, 0x59 truce made. A request without an answer lapses after a minute. A master who refuses guild
+relations (option 0x40: the client then does not show the question) is not asked: 0x3c or 0x4b to the
+requester. On entering the world, the member gets op 36 for each ally, op 40 for each hostile guild and their
+details (44, 45). Disbanding a guild removes it from its alliance and ends its hostilities. What hostility allows
+in combat is not established by the client: ArchCore does nothing with it for now. Alliance chat ("[Union]"):
+not done yet.
+
+Not done yet: guild warehouse.
 
 ## Parties (types 0x08 and 0x09, AgpmParty)
 

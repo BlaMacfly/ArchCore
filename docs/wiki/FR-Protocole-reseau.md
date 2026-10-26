@@ -720,6 +720,8 @@ d'adhésion, 3 demande de départ, 10 chef, 11 second.
 | 13 | ← | Combat en cours (champ 17, mini GUILD_BATTLE), à l'entrée en jeu |
 | 15 à 20, 24 | ↔ | Combat de guildes : défi, acceptation, refus, demande d'annulation, réponse, abandon (voir plus bas) |
 | 21, 22, 23, 25 | ← | Début du combat, horloge (chaque seconde), score, résultat |
+| 34 à 43 | ↔ | Alliances et hostilités : demandes, réponses, départ, trêve (voir plus bas) |
+| 44, 45 | ← | Détails des alliées, des hostiles (champ 21, GUILD_LIST : 3 entrées au plus par paquet) |
 
 Créer une guilde demande le niveau 20 et le prix de la première ligne de `guildmaxmember.txt` (50 places
 pour 10 000 pièces). Codes utilisés : 0 nom pris, 1 niveau, 2 argent (nombre : prix), 4 caractères, 5 déjà
@@ -779,7 +781,35 @@ combattant adverse debout (types 3 et 4, combattants : les membres en ligne au d
 Op 25 (1 victoire, 2 nul, 3 défaite) et bilan (op 12), enregistré dans `guild`. Une guilde en combat ne peut
 pas être dissoute (code 41).
 
-Pas encore faits : alliances et hostilités, entrepôt.
+**Alliances et hostilités** (Archonia : FUN_140202390 à FUN_140203130, FUN_140605a40 à FUN_140606630, rappels
+FUN_1408cc440, FUN_1408cbbf0, FUN_1408cc1c0, FUN_1408cbb00, FUN_1408cb2f0, FUN_1408cba20, FUN_1408cb890,
+FUN_1408cbd20, FUN_1408cb400). Champs : guilde (2), nom (3), date (6), rôle (11), autre guilde (17 : mini
+GUILD_BATTLE réduit à son champ 0) ; 37 et 43 portent aussi le CID (1). Seuls les chefs agissent.
+
+| Op | Sens | Contenu |
+|---|---|---|
+| 34 | → | Demande d'alliance : 2 sa guilde, 3 son nom, 17 la guilde visée ; ← au chef visé : 2 sa guilde, 3 chef demandeur, 17 la demandeuse |
+| 35, 36 | → | Refus (code 0x44 au demandeur), accord ; ← 36 à chaque guilde de l'alliance : 17 l'alliée, 6 date d'entrée, 11 rôle (2 fondatrice, 1 autre) |
+| 37 | ↔ | Départ de l'alliance (17 = sa propre guilde) ; ← 37 : 17 la partante, 3 la nouvelle fondatrice si la fondatrice part |
+| 38, 39, 40 | ↔ | Déclaration d'hostilité, refus (0x52), accord ; ← 40 aux deux guildes : 17 l'hostile, 6 date |
+| 41 | ↔ | Demande de trêve, transmise au chef visé comme l'op 38 ; Archonia la refuse par l'op 39 (0x57) |
+| 43 | ↔ | Trêve acceptée ; ← 43 aux deux guildes : 17 l'autre |
+
+Une alliance a une fondatrice et 3 autres guildes au plus (le client n'en garde pas plus, FUN_1401ff510) ;
+20 membres exigés de part et d'autre (0x41, 20 écrit par Archonia ; 0x42), 10 pour une hostilité (0x4f ; 0x50) ;
+5 hostilités au plus (0x4d). Une guilde déjà dans une autre alliance, ou hostile, ne peut pas être invitée
+(0x3c) ; seule la fondatrice invite (0x3d) ; 0x3e déjà alliées, 0x40 chef visé hors ligne, 0x43 en attente,
+0x46 alliance faite (0x4a et le nom de la nouvelle aux autres alliées), 0x47 départ, 0x48 et le nom de la
+partante aux autres, 0x49 alliance dissoute (une seule guilde restante) ; 0x4b hostilité impossible (alliée,
+guilde visée à 5 hostilités), 0x4c déjà hostiles, 0x4e chef visé hors ligne, 0x51 en attente, 0x54 hostilité
+déclarée, 0x55 trêve impossible, 0x56 en attente, 0x59 trêve faite. Une demande sans réponse tombe au bout
+d'une minute. Le chef qui refuse les relations de guilde (option 0x40 : le client n'affiche alors pas la
+question) n'est pas sollicité : 0x3c ou 0x4b au demandeur. À l'entrée en jeu, le membre reçoit l'op 36 de
+chaque alliée, l'op 40 de chaque hostile et leurs détails (44, 45). La dissolution d'une guilde la retire de
+son alliance et met fin à ses hostilités. Ce que l'hostilité permet en combat n'est pas établi par le client :
+ArchCore n'en tire rien pour l'instant. Discussion d'alliance (« [Union] ») : pas encore faite.
+
+Pas encore fait : entrepôt.
 
 ## Groupes (types 0x08 et 0x09, AgpmParty)
 

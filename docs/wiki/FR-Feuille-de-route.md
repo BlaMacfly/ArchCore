@@ -35,7 +35,7 @@
   traversée ; piles d'objets séparées, réunies, détruites. Compétences : apprentissage et amélioration
   chez les instructeurs, points de compétence, lancement ; dégâts, zones, renforcements et
   affaiblissements, dégâts sur la durée, soins, passives ; états spéciaux (étourdissement, sommeil,
-  ralentissement…), coups critiques, blocage, dégâts changés en PV ou PM, contre-attaque (dégâts renvoyés au monstre) ; compétences de groupe ; maîtrises (compétences exigées des arbres supérieur et héroïque) ; compétences des monstres (IA des tables du serveur d'origine : lancement, dégâts, effets, coups chargés). Groupes (invitation, membres, chef, exclusion, partage de l'expérience, discussion). Guildes (création chez les gestionnaires, invitation, adhésion, départ, exclusion, dissolution, annonce, discussion, second et passation de chef, agrandissement, liste des guildes, emblèmes, combats de guildes). Banque du compte (objets, argent, pages en plus) et
+  ralentissement…), coups critiques, blocage, dégâts changés en PV ou PM, contre-attaque (dégâts renvoyés au monstre) ; compétences de groupe ; maîtrises (compétences exigées des arbres supérieur et héroïque) ; compétences des monstres (IA des tables du serveur d'origine : lancement, dégâts, effets, coups chargés). Groupes (invitation, membres, chef, exclusion, partage de l'expérience, discussion). Guildes (création chez les gestionnaires, invitation, adhésion, départ, exclusion, dissolution, annonce, discussion, second et passation de chef, agrandissement, liste des guildes, emblèmes, combats de guildes, alliances et hostilités). Banque du compte (objets, argent, pages en plus) et
   échange entre joueurs. Portails de téléportation (trajets payants entre points reliés, zones de combat
   entre joueurs et « Retour », refus en combat). Reconnexion automatique (type 0x63). Commande MJ
   `/last_refine`. Quêtes : prise, progression (monstres, objets de quête), fin et récompenses, abandon. Voir
@@ -84,7 +84,7 @@
    déclenchement (critique, étourdissement, blessure, PV rendus, régénération, esquive, défense ignorée) validées au
    simulateur le 26 octobre 2026, à confirmer en jeu ; pierres de glace, de foudre, de venin et de caractéristiques
    d'Archonia refusées comme par le client ; options liées des objets uniques (`Link_id`) et raffinage (sphère d'alchimie, devis, grille et recettes) faits.
-6. Guildes : alliances et hostilités, entrepôt.
+6. Guildes : entrepôt ; discussion d'alliance ; effets de l'hostilité en combat (à établir).
 7. Reconnexion automatique : à confirmer avec le client Archonia.
 8. Commandes MJ restantes de la page [[Administration|FR-Administration]] : elles attendent leurs systèmes
    (arène, événements, failles, réglages de région…), listés à la fin de sa section 4.

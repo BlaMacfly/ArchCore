@@ -17,7 +17,8 @@ use archcore_net::{build_mini, build_packet, decode_mini, Fields, Packet};
 /// Guildes par page (`Guild_List_Index`, 19 lignes).
 pub const PAGE: usize = 19;
 
-fn item(g: &Guild) -> Vec<u8> {
+/// Entrée GUILD_LIST_ITEM d'une guilde (aussi pour les détails des alliées et des hostiles).
+pub(super) fn item(g: &Guild) -> Vec<u8> {
     let s = &mini::GUILD_LIST_ITEM;
     let name_of = |r: i64| g.members.values().find(|m| m.rank == r).map(|m| m.name.clone()).unwrap_or_default();
     let members = g.members.values().filter(|m| m.active()).count() as i64;

@@ -16,12 +16,12 @@
 //!         guildmaxmember.txt ; ← op 7 à toute la guilde, code 44 si l'or manque.
 //!   op 9  annonce (champ 10), par le chef ou le second.
 //!   op 10 message système : code (champ 1), textes (2, 3), nombre (4).
-//!   op 11 à 25 combats de guildes (battle.rs) ; op 28 liste des guildes (list.rs) ; op 32 et 33 emblème (mark.rs) ; op 48 second et passation de chef
-//!         (society.rs).
+//!   op 11 à 25 combats de guildes (battle.rs) ; op 28 liste des guildes (list.rs) ; op 32 et 33 emblème (mark.rs) ;
+//!         op 34 à 45 alliances et hostilités (relation.rs) ; op 48 second et passation de chef (society.rs).
 //! ```
 //! À l'entrée en jeu, le membre reçoit sa guilde (op 0), chaque membre (op 3) et son lien (op 8) ; les autres
 //! membres le voient passer en ligne (op 8). Le lien d'un joueur à sa guilde part aussi à ceux qui le voient.
-//! En base : `guild`, `guild_member` (base des personnages) ; tailles et prix : `guild_max_member`.
+//! En base : `guild`, `guild_member`, `guild_hostile` (base des personnages) ; tailles et prix : `guild_max_member`.
 
 use super::npc_events::{npc_distance, resolve, MAX_NPC_DISTANCE};
 use super::npcs::event_function;
@@ -36,6 +36,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 pub mod battle;
 pub mod list;
 pub mod mark;
+pub mod relation;
 pub mod society;
 
 pub mod op {
@@ -174,6 +175,8 @@ pub struct Guild {
     /// Combat de guildes en cours (ou en préparation), demande de combat faite ou reçue.
     pub battle: Option<battle::Battle>,
     pub offer: Option<battle::Offer>,
+    /// Alliance et hostilités.
+    pub relations: relation::Relations,
 }
 
 impl Guild {
@@ -217,6 +220,8 @@ pub struct Guilds {
     last_sweep: Option<Instant>,
     /// Dernière horloge des combats de guildes.
     battle_clock: Option<Instant>,
+    /// Demandes d'alliance, d'hostilité et de trêve en attente.
+    pub relation_offers: Vec<relation::Offer>,
 }
 
 impl Guilds {
@@ -229,7 +234,7 @@ impl Guilds {
             Err(e) => warn!("tailles des guildes non chargées ({e:#}) : lancer `archcore db-init` puis `archcore import`"),
         }
         r.marks = mark::Templates::load(db).await;
-        let Ok(rows) = db.characters.rows("SELECT id, name, password, notice, max_members, mark_tid, mark_color, win, draw, lose, points, UNIX_TIMESTAMP(created_at) AS created FROM guild", ()).await else {
+        let Ok(rows) = db.characters.rows("SELECT id, name, password, notice, max_members, mark_tid, mark_color, win, draw, lose, points, UNIX_TIMESTAMP(created_at) AS created, joint_leader, UNIX_TIMESTAMP(joint_at) AS joint_at FROM guild", ()).await else {
             warn!("guildes non chargées : lancer `archcore db-init`");
             return Ok(r);
         };
@@ -244,6 +249,11 @@ impl Guilds {
                 mark_tid: col(row, "mark_tid"),
                 mark_color: col(row, "mark_color"),
                 record: Record { win: col(row, "win"), draw: col(row, "draw"), lose: col(row, "lose"), points: col(row, "points") },
+                relations: relation::Relations {
+                    joint_leader: col::<Option<u32>>(row, "joint_leader").unwrap_or(0),
+                    joint_at: col::<Option<i64>>(row, "joint_at").unwrap_or(0),
+                    hostile: Vec::new(),
+                },
                 ..Default::default()
             };
             r.by_id.insert(g.id, g);
@@ -271,6 +281,12 @@ impl Guilds {
             };
             r.of_cid.insert(m.cid, gid);
             g.members.insert(m.cid, m);
+        }
+        for row in &db.characters.rows("SELECT guild_id, other_id, UNIX_TIMESTAMP(since) AS since FROM guild_hostile", ()).await? {
+            let (gid, other): (u32, u32) = (col(row, "guild_id"), col(row, "other_id"));
+            if let (true, Some(g)) = (r.by_id.contains_key(&other), r.by_id.get_mut(&gid)) {
+                g.relations.hostile.push((other, col::<Option<i64>>(row, "since").unwrap_or(0)));
+            }
         }
         info!("guildes : {} guilde(s), {} membre(s)", r.by_id.len(), r.of_cid.len());
         Ok(r)
@@ -439,6 +455,7 @@ pub fn on_enter(st: &mut WorldState, sid: u32) {
     p.send_raw(char_data_packet(g, me));
     send_to_guild(st, g, Some(cid), &char_data_packet(g, me));
     battle::on_enter(st, sid, g);
+    relation::on_enter(st, sid, gid);
 }
 
 /// Sortie du jeu : les membres le voient hors ligne.
@@ -498,6 +515,7 @@ pub async fn on_packet(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet
         Some(society::OP) => society::on_packet(ctx, st, sid, p).await,
         Some(mark::BUY) => mark::on_packet(ctx, st, sid, p, false).await,
         Some(battle::op::REQUEST..=battle::op::CANCEL_REJECT | battle::op::WITHDRAW) => battle::on_packet(ctx, st, sid, p).await,
+        Some(relation::op::JOINT_REQUEST..=relation::op::HOSTILE_LEAVE) => relation::on_packet(ctx, st, sid, p).await,
         Some(mark::BUY_FORCE) => mark::on_packet(ctx, st, sid, p, true).await,
         op => {
             crate::debug!("[guilde] #{sid} AGPMGUILD op {op:?} (pas encore géré)");
@@ -780,7 +798,9 @@ async fn destroy(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> a
         send_to(st, sid, system_packet(code::INVALID_PASSWORD, None, None));
         return Ok(());
     }
+    relation::on_destroy(ctx, st, gid).await?;
     ctx.db.characters.exec("DELETE FROM guild WHERE id = ?", (gid,)).await?;
+    let g = &st.guilds.by_id[&gid];
     let pkt = build(guild(op::DESTROY).with(2, g.name.as_str()));
     send_to_guild(st, g, None, &pkt);
     send_to_guild(st, g, None, &system_packet(code::DESTROY, Some(&g.name), None));
@@ -853,6 +873,7 @@ pub async fn step(ctx: &WorldCtx, st: &mut WorldState, at: Instant) -> anyhow::R
         return Ok(());
     }
     st.guilds.last_sweep = Some(at);
+    relation::sweep(st);
     let limit = now() - LEAVE_DELAY_SECS;
     let due: Vec<(u32, u32)> = st
         .guilds
