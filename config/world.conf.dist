@@ -145,6 +145,13 @@ World.MonsterDensity = 1
 
 World.SlowPacketMs = 100
 
+#    Guild.BattleReadySeconds
+#        Délai, en secondes, entre l'acceptation d'un combat de guildes et son début
+#        (le client affiche ce délai en minutes). Les données d'Archonia ne le donnent pas.
+#        Défaut : 180
+
+Guild.BattleReadySeconds = 180
+
 #    World.TimeZone
 #        Fuseau de l'horloge envoyée au client, qui en tire l'heure du ciel.
 #            local : heure de la machine du serveur

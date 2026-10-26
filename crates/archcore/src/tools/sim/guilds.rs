@@ -65,6 +65,8 @@ pub async fn guild_lead(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &s
 const LEAD_NAME: &str = "SimLead";
 const LEAD_PASSWORD: &str = "simpass";
 const LEAD_HELPERS: usize = 18;
+/// Guilde de SimA pour les captures des combats.
+const WAR_GUILD: &str = "SimWarB";
 
 fn gop(n: i64) -> impl Fn(&Recv) -> bool {
     move |q: &Recv| q.is(&schema::GUILD, Some(n))
@@ -256,7 +258,12 @@ async fn lead_succession(a: &mut InWorld, b: &mut InWorld, ca: &str, cb: &str) -
 ///   se déconnectent (la guilde reste) ;
 /// * `present` : SimA reste en jeu et accepte nominations et passations ;
 /// * `chef` : GmTest entre en jeu, propose à SimA d'être second, puis de diriger la guilde ;
-/// * `dissoudre` : le chef de SimLead (GmTest ou SimA) la dissout.
+/// * `dissoudre` : le chef de SimLead (GmTest ou SimA) la dissout, comme SimA SimWarB ;
+/// * `guerre-prep` : GmTest crée SimLead avec 9 comptes d'appoint, SimA (niveau 20) SimWarB avec 9 autres,
+///   tous au niveau 10, puis tous se déconnectent ;
+/// * `guerre-defi` : GmTest défie SimWarB (aux points, 10 minutes) après `secondes`, attend le début, puis
+///   abandonne `secondes` plus tard ;
+/// * `guerre-refus` : GmTest refuse pendant `secondes` les défis reçus.
 pub async fn guild_stage(mode: &str, secs: u64) -> anyhow::Result<()> {
     use crate::world::guild::society::{get_text, put_text, raw_packet, sub};
     let cfg = crate::config::load()?;
@@ -333,7 +340,67 @@ pub async fn guild_stage(mode: &str, secs: u64) -> anyhow::Result<()> {
                 }
             }
         }
-        other => anyhow::bail!("mode inconnu {other:?} : setup | present | chef | dissoudre"),
+        "guerre-prep" => {
+            let ch = &schema::CHATTING;
+            let mut a = enter_world(&cfg, "gmtest", "gmtest", "GmTest", "A-").await?;
+            let mut b = enter_world(&cfg, "sima", "sima", "SimA", "B-").await?;
+            Box::pin(leave_old_guild(&mut a)).await?;
+            Box::pin(leave_old_guild(&mut b)).await?;
+            let mut helpers = Vec::new();
+            for (i, user) in helper_accounts(&cfg, LEAD_HELPERS).await?.iter().enumerate() {
+                let mut h = enter_world(&cfg, user, user, &format!("SimG{:02}", i + 1), &format!("G{:02}-", i + 1)).await?;
+                Box::pin(leave_old_guild(&mut h)).await?;
+                helpers.push(h);
+            }
+            a.world.send(ch, chat_line(a.cid, "/level 20")).await?;
+            set_money(&mut a, 20_000).await?;
+            a.world.send(ch, chat_line(a.cid, "/level 20 \"SimA\"")).await?;
+            a.world.send(ch, chat_line(a.cid, "/money 20000 \"SimA\"")).await?;
+            b.world.expect_where(|q| q.is(&schema::CHARACTER, Some(1)) && q.int(8) == Some(20_000), 3000, "argent de SimA").await?;
+            for (w, g) in [(&mut a, LEAD_NAME), (&mut b, WAR_GUILD)] {
+                w.world.send(gd, Fields::new(gd).with(0, 0).with(1, w.cid).with(2, g).with(9, LEAD_PASSWORD)).await?;
+                w.world.expect_where(gsys(11), 3000, "création").await?;
+            }
+            for (i, h) in helpers.iter_mut().enumerate() {
+                let name = format!("SimG{:02}", i + 1);
+                a.world.send(ch, chat_line(a.cid, &format!("/level 10 \"{name}\""))).await?;
+                if i < 9 {
+                    Box::pin(lead_join(&mut a, LEAD_NAME, h, &name)).await?;
+                } else {
+                    Box::pin(lead_join(&mut b, WAR_GUILD, h, &name)).await?;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            println!("\nmise en scène : {LEAD_NAME} (GmTest) et {WAR_GUILD} (SimA), 10 membres chacune");
+        }
+        "guerre-defi" => {
+            let mut a = enter_world(&cfg, "gmtest", "gmtest", "GmTest", "A-").await?;
+            tokio::time::sleep(Duration::from_secs(secs)).await;
+            let m = &mini::GUILD_BATTLE;
+            let request = Fields::new(gd).with(0, 15).with(1, a.cid).with(2, LEAD_NAME).with(3, "").with(17, build_mini(m, &Fields::new(m).with(0, WAR_GUILD).with(5, 0).with(6, 600)));
+            a.world.send(gd, request).await?;
+            println!("  · {WAR_GUILD} défiée");
+            a.world.expect_where(gop(16), (secs + 60) * 1000, "acceptation").await?;
+            println!("  ✓ défi accepté");
+            a.world.expect_where(gop(21), 120_000, "début").await?;
+            println!("  ✓ combat commencé");
+            tokio::time::sleep(Duration::from_secs(secs)).await;
+            a.world.send(gd, Fields::new(gd).with(0, 24).with(1, a.cid).with(2, LEAD_NAME).with(3, "GmTest")).await?;
+            a.world.expect_where(gop(25), 3000, "résultat").await?;
+            println!("  ✓ abandon de GmTest");
+            tokio::time::sleep(Duration::from_secs(3)).await;
+        }
+        "guerre-refus" => {
+            let mut a = enter_world(&cfg, "gmtest", "gmtest", "GmTest", "A-").await?;
+            let until = tokio::time::Instant::now() + Duration::from_secs(secs);
+            while tokio::time::Instant::now() < until {
+                let Ok(q) = a.world.expect_where(gop(15), 500, "défi").await else { continue };
+                let from = decode_mini(&mini::GUILD_BATTLE, q.fields().bytes(17).unwrap_or_default())?.text(0).unwrap_or_default();
+                a.world.send(gd, Fields::new(gd).with(0, 17).with(1, a.cid).with(2, LEAD_NAME).with(3, "GmTest")).await?;
+                println!("  ✓ défi de {from} refusé");
+            }
+        }
+        other => anyhow::bail!("mode inconnu {other:?} : setup | present | chef | dissoudre | guerre-prep | guerre-defi | guerre-refus"),
     }
     Ok(())
 }
@@ -447,4 +514,195 @@ async fn lead_join(master: &mut InWorld, guild: &str, w: &mut InWorld, name: &st
     w.world.send(gd, Fields::new(gd).with(0, 3).with(1, w.cid).with(2, guild)).await?;
     master.world.expect_where(|q| gsys(13)(q) && q.fields().text(2).as_deref() == Some(name), 3000, "adhésion").await?;
     Ok(())
+}
+
+/// Lieu des combats du simulateur (Anchorville).
+const WAR_SPOT: archcore_net::Vec3 = archcore_net::Vec3 { x: -476_000.0, y: 4_422.0, z: -61_000.0 };
+
+/// Combats de guildes (le serveur a `Guild.BattleReadySeconds` court, 10 s par exemple) : A (compte MJ) crée
+/// SimWarA avec 9 comptes d'appoint, B crée SimWarB avec 9 autres. Guilde inconnue (code 27), niveaux
+/// insuffisants (code 22, 100 en deuxième nombre) ; défi (op 15, code 28, statut 1) refusé (op 17, code 30) ; défi au point accepté
+/// (op 16 : délai), annulation trop tardive (code 31) ; avant le début, A ne peut pas frapper B ; début
+/// (op 21), horloge (op 22), A tue B (op 23 : score 1), B abandonne (op 24 → op 25 : 4 et 5, bilan op 12) ;
+/// défi « mort du chef » annulé en plein combat (op 18 → 19) ; nouveau défi « mort du chef » : A tue le chef B
+/// (op 25 : victoire 1, défaite 3) ; bilan relu à la reconnexion ; B refuse les combats (option 0x04 : code 43).
+pub async fn guild_battle(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> anyhow::Result<()> {
+    const GA: &str = "SimWarA";
+    const GB: &str = "SimWarB";
+    let cfg = crate::config::load()?;
+    let (gd, c, ch) = (&schema::GUILD, &schema::CHARACTER, &schema::CHATTING);
+    step(&format!("{ca}, {cb} et 18 comptes d'appoint entrent en jeu"));
+    let mut a = enter_world(&cfg, ua, pa, ca, "A-").await?;
+    let mut b = enter_world(&cfg, ub, pb, cb, "B-").await?;
+    Box::pin(leave_old_guild(&mut a)).await?;
+    Box::pin(leave_old_guild(&mut b)).await?;
+    let mut helpers = Vec::new();
+    for (i, user) in helper_accounts(&cfg, 18).await?.iter().enumerate() {
+        let mut h = enter_world(&cfg, user, user, &format!("SimG{:02}", i + 1), &format!("G{:02}-", i + 1)).await?;
+        Box::pin(leave_old_guild(&mut h)).await?;
+        helpers.push(h);
+    }
+
+    step(&format!("{ca} crée {GA}, {cb} crée {GB} ; 9 comptes d'appoint dans chacune"));
+    a.world.send(ch, chat_line(a.cid, "/level 20")).await?;
+    set_money(&mut a, 20_000).await?;
+    a.world.send(ch, chat_line(a.cid, &format!("/level 20 \"{cb}\""))).await?;
+    a.world.send(ch, chat_line(a.cid, &format!("/money 20000 \"{cb}\""))).await?;
+    b.world.expect_where(|q| q.is(c, Some(1)) && q.int(8) == Some(20_000), 3000, "argent de B").await?;
+    a.world.send(gd, Fields::new(gd).with(0, 0).with(1, a.cid).with(2, GA).with(9, LEAD_PASSWORD)).await?;
+    a.world.expect_where(gsys(11), 3000, "création de SimWarA").await?;
+    b.world.send(gd, Fields::new(gd).with(0, 0).with(1, b.cid).with(2, GB).with(9, LEAD_PASSWORD)).await?;
+    b.world.expect_where(gsys(11), 3000, "création de SimWarB").await?;
+    for (i, h) in helpers.iter_mut().enumerate() {
+        let name = format!("SimG{:02}", i + 1);
+        a.world.send(ch, chat_line(a.cid, &format!("/level 1 \"{name}\""))).await?;
+        if i < 9 {
+            Box::pin(lead_join(&mut a, GA, h, &name)).await?;
+        } else {
+            Box::pin(lead_join(&mut b, GB, h, &name)).await?;
+        }
+    }
+    println!("  ✓ 10 membres de chaque côté");
+
+    step("défis refusés : guilde inconnue, niveaux insuffisants");
+    let request = |w: &InWorld, enemy: &str, kind: i64, secs: i64| {
+        let m = &mini::GUILD_BATTLE;
+        Fields::new(gd).with(0, 15).with(1, w.cid).with(2, GA).with(3, "").with(17, build_mini(m, &Fields::new(m).with(0, enemy).with(5, kind).with(6, secs)))
+    };
+    a.world.send(gd, request(&a, "Inexistante", 0, 600)).await?;
+    a.world.expect_where(gsys(27), 3000, "guilde inconnue (code 27)").await?;
+    a.world.send(gd, request(&a, GB, 0, 600)).await?;
+    let lv = a.world.expect_where(gsys(22), 3000, "niveaux insuffisants (code 22)").await?;
+    let second = match lv.fields().get(4) {
+        Some(archcore_net::Value::List(v)) => v.get(1).cloned(),
+        _ => None,
+    };
+    anyhow::ensure!(second == Some(archcore_net::Value::Int(100)), "code 22 : deuxième nombre {second:?}");
+    for i in 1..=18 {
+        a.world.send(ch, chat_line(a.cid, &format!("/level 10 \"SimG{i:02}\""))).await?;
+    }
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    println!("  ✓ codes 27 et 22 ; comptes d'appoint au niveau 10");
+
+    step(&format!("{ca} défie {GB}, {cb} refuse"));
+    a.world.send(gd, request(&a, GB, 2, 300)).await?;
+    a.world.expect_where(gsys(28), 3000, "défi lancé (code 28)").await?;
+    let ask = b.world.expect_where(gop(15), 3000, "défi reçu").await?;
+    let m = decode_mini(&mini::GUILD_BATTLE, ask.fields().bytes(17).unwrap_or_default())?;
+    anyhow::ensure!(m.text(0).as_deref() == Some(GA) && m.int(5) == Some(2) && m.int(6) == Some(300), "défi {:?} {:?} {:?}", m.text(0), m.int(5), m.int(6));
+    b.world.send(gd, Fields::new(gd).with(0, 17).with(1, b.cid).with(2, GB).with(3, cb)).await?;
+    a.world.expect_where(gsys(30), 3000, "refus (code 30)").await?;
+    println!("  ✓ op 15 reçue par {cb} (SimWarA, type 2, 5 min), refus : code 30");
+
+    step(&format!("défi aux points accepté ; annulation trop tardive ; pas de coups avant le début"));
+    for w in [&mut a, &mut b] {
+        let mv = &schema::OPT_CHAR_MOVE;
+        w.world.send(mv, Fields::new(mv).with(0, w.cid).with(1, WAR_SPOT).with(2, WAR_SPOT).with(5, 0x04).with(6, 0)).await?;
+    }
+    a.world.send(gd, request(&a, GB, 0, 600)).await?;
+    b.world.expect_where(gop(15), 3000, "défi reçu").await?;
+    b.world.send(gd, Fields::new(gd).with(0, 16).with(1, b.cid).with(2, GB).with(3, cb)).await?;
+    let acc = a.world.expect_where(gop(16), 3000, "acceptation").await?;
+    let m = decode_mini(&mini::GUILD_BATTLE, acc.fields().bytes(17).unwrap_or_default())?;
+    anyhow::ensure!(m.text(0).as_deref() == Some(GB) && m.text(1).as_deref() == Some(cb), "acceptation {:?} {:?}", m.text(0), m.text(1));
+    let ready = m.int(3).unwrap_or(0);
+    b.world.expect_where(gop(16), 3000, "acceptation vue de B").await?;
+    a.world.send(gd, Fields::new(gd).with(0, 18).with(1, a.cid).with(2, GA).with(3, ca)).await?;
+    a.world.expect_where(gsys(31), 3000, "annulation trop tardive (code 31)").await?;
+    let act = &schema::OPT_CHAR_ACTION;
+    a.world.send(act, Fields::new(act).with(0, a.cid).with(1, b.cid).with(6, 1)).await?;
+    anyhow::ensure!(b.world.expect_where(|q| q.is(act, None) && q.int(1) == Some(b.cid as i64), 1500, "coup").await.is_err(), "{cb} frappé avant le début");
+    println!("  ✓ op 16 (délai {ready} s) des deux côtés, code 31, aucun coup avant le début");
+
+    step("début, coups, abandon de B");
+    a.world.expect_where(gop(21), (ready as u64 + 10) * 1000, "début").await?;
+    b.world.expect_where(gop(21), 3000, "début vu de B").await?;
+    a.world.expect_where(gop(22), 3000, "horloge").await?;
+    a.world.send(ch, chat_line(a.cid, &format!("/level 1 \"{cb}\""))).await?;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    Box::pin(kill_player(&mut a, &mut b)).await?;
+    let sc = a.world.expect_where(|q| gop(23)(q), 5000, "score").await?;
+    let m = decode_mini(&mini::GUILD_BATTLE, sc.fields().bytes(17).unwrap_or_default())?;
+    anyhow::ensure!(m.int(9) == Some(1) && m.int(11) == Some(1), "score {:?} gain {:?}", m.int(9), m.int(11));
+    b.world.send(gd, Fields::new(gd).with(0, 24).with(1, b.cid).with(2, GB).with(3, cb)).await?;
+    let res = a.world.expect_where(gop(25), 3000, "résultat").await?;
+    let m = decode_mini(&mini::GUILD_BATTLE, res.fields().bytes(17).unwrap_or_default())?;
+    anyhow::ensure!(m.int(13) == Some(4), "résultat {:?}", m.int(13));
+    let rb = b.world.expect_where(gop(25), 3000, "résultat vu de B").await?;
+    anyhow::ensure!(decode_mini(&mini::GUILD_BATTLE, rb.fields().bytes(17).unwrap_or_default())?.int(13) == Some(5), "résultat de B");
+    let rec = a.world.expect_where(gop(12), 3000, "bilan").await?;
+    anyhow::ensure!((rec.int(12), rec.int(15)) == (Some(1), Some(1)), "bilan {:?} {:?}", rec.int(12), rec.int(15));
+    a.world.send(ch, chat_line(a.cid, &format!("/level 20 \"{cb}\""))).await?;
+    println!("  ✓ op 21, op 22, {cb} tué (score 1), abandon : résultats 4 et 5, bilan 1 victoire, 1 point");
+
+    step("« mort du chef » annulé en plein combat");
+    b.world.send(c, Fields::new(c).with(0, 9).with(1, b.cid)).await?;
+    b.world.expect_where(|q| q.is(c, Some(1)) && q.int(1) == Some(b.cid as i64) && q.int(11) == Some(0), 5000, "résurrection").await?;
+    a.world.send(gd, request(&a, GB, 2, 300)).await?;
+    b.world.expect_where(gop(15), 3000, "défi reçu").await?;
+    b.world.send(gd, Fields::new(gd).with(0, 16).with(1, b.cid).with(2, GB).with(3, cb)).await?;
+    a.world.expect_where(gop(21), (ready as u64 + 10) * 1000, "début").await?;
+    a.world.send(gd, Fields::new(gd).with(0, 18).with(1, a.cid).with(2, GA).with(3, ca)).await?;
+    b.world.expect_where(gop(18), 3000, "demande d'annulation").await?;
+    b.world.send(gd, Fields::new(gd).with(0, 19).with(1, b.cid).with(2, GB).with(3, cb)).await?;
+    a.world.expect_where(gop(19), 3000, "annulation").await?;
+    b.world.expect_where(gop(19), 3000, "annulation vue de B").await?;
+    println!("  ✓ op 18 → 19 des deux côtés");
+
+    step("« mort du chef » : A tue le chef de SimWarB");
+    a.world.send(gd, request(&a, GB, 2, 300)).await?;
+    b.world.expect_where(gop(15), 3000, "défi reçu").await?;
+    b.world.send(gd, Fields::new(gd).with(0, 16).with(1, b.cid).with(2, GB).with(3, cb)).await?;
+    a.world.expect_where(gop(21), (ready as u64 + 10) * 1000, "début").await?;
+    {
+        let mv = &schema::OPT_CHAR_MOVE;
+        b.world.send(mv, Fields::new(mv).with(0, b.cid).with(1, WAR_SPOT).with(2, WAR_SPOT).with(5, 0x04).with(6, 0)).await?;
+    }
+    a.world.send(ch, chat_line(a.cid, &format!("/level 1 \"{cb}\""))).await?;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    Box::pin(kill_player(&mut a, &mut b)).await?;
+    let res = a.world.expect_where(gop(25), 5000, "résultat").await?;
+    let m = decode_mini(&mini::GUILD_BATTLE, res.fields().bytes(17).unwrap_or_default())?;
+    anyhow::ensure!(m.int(13) == Some(1), "résultat {:?}", m.int(13));
+    let rb = b.world.expect_where(gop(25), 3000, "résultat vu de B").await?;
+    anyhow::ensure!(decode_mini(&mini::GUILD_BATTLE, rb.fields().bytes(17).unwrap_or_default())?.int(13) == Some(3), "résultat de B");
+    println!("  ✓ chef tué : victoire (1) et défaite (3)");
+
+    step(&format!("{ca} se reconnecte : bilan relu ; {cb} refuse les combats"));
+    drop(a);
+    let mut a = enter_world(&cfg, ua, pa, ca, "A-").await?;
+    let rec = a.world.expect_where(gop(12), 3000, "bilan à l'entrée").await?;
+    anyhow::ensure!((rec.int(12), rec.int(13), rec.int(14), rec.int(15)) == (Some(2), Some(0), Some(0), Some(2)), "bilan {:?}", (rec.int(12), rec.int(13), rec.int(14), rec.int(15)));
+    b.world.send(c, Fields::new(c).with(0, 9).with(1, b.cid)).await?;
+    b.world.send(c, Fields::new(c).with(0, 0x11).with(1, b.cid).with(22, 0x04)).await?;
+    b.world.expect_where(|q| q.is(c, Some(0x11)), 3000, "drapeaux").await?;
+    a.world.send(gd, request(&a, GB, 0, 600)).await?;
+    a.world.expect_where(gsys(43), 3000, "combats refusés (code 43)").await?;
+    b.world.send(c, Fields::new(c).with(0, 0x11).with(1, b.cid).with(22, 0)).await?;
+    println!("  ✓ 2 victoires, 2 points ; code 43");
+
+    step("dissolution des deux guildes");
+    a.world.send(gd, Fields::new(gd).with(0, 6).with(1, a.cid).with(2, GA).with(9, LEAD_PASSWORD)).await?;
+    a.world.expect_where(gop(6), 3000, "dissolution de SimWarA").await?;
+    b.world.send(gd, Fields::new(gd).with(0, 6).with(1, b.cid).with(2, GB).with(9, LEAD_PASSWORD)).await?;
+    b.world.expect_where(gop(6), 3000, "dissolution de SimWarB").await?;
+    drop(helpers);
+    println!("\ncombats de guildes : OK");
+    Ok(())
+}
+
+/// A frappe B jusqu'à sa mort (B sait qu'il est mort par l'op 1, statut 2).
+async fn kill_player(a: &mut InWorld, b: &mut InWorld) -> anyhow::Result<()> {
+    let (act, c) = (&schema::OPT_CHAR_ACTION, &schema::CHARACTER);
+    let target = b.cid as i64;
+    a.world.send(act, Fields::new(act).with(0, a.cid).with(1, b.cid).with(6, 1)).await?;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+    loop {
+        if b.world.expect_where(|q| q.is(c, Some(1)) && q.int(1) == Some(target) && q.int(11) == Some(2), 1500, "mort").await.is_ok() {
+            println!("  · {} tué", b.cid);
+            return Ok(());
+        }
+        anyhow::ensure!(tokio::time::Instant::now() < deadline, "B toujours en vie au bout d'une minute");
+        a.world.send(act, Fields::new(act).with(0, a.cid).with(1, b.cid).with(6, 1)).await?;
+    }
 }

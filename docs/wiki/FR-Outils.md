@@ -12,7 +12,7 @@ dossier désigné par `ARCHCORE_CONF_DIR` (voir [[Configuration|FR-Configuration
 | `archcore decrypt [source] [destination]` | Déchiffre `Game/ini` (RC4, MD5(« 1111 »)) vers `data/client-ini` |
 | `archcore import [dossier] [--server dossier]` | Importe `data/client-ini` dans `archcore_world` (CP949 → UTF-8) et la hauteur du sol depuis `world/b*x.ma2` du dossier Game (`map_height`, quelques minutes) ; avec les tables du serveur d'origine (`--server`, ou `data/server-ini` s'il existe), importe aussi les apparitions de monstres et la carte serveur ; applique enfin la couche de contenu `content/*.sql` et note chaque source dans `import_run` |
 | `archcore content` | Réapplique la couche de contenu `content/*.sql` à la base monde, sans réimporter (voir [[Base de données\|FR-Base-de-donnees]]) |
-| `archcore sim client\|move\|shop\|addon\|lang\|combat\|equip\|potion\|scroll\|patrol\|bag\|skill\|effects\|bank\|portal\|guild\|guildlead\|guildmark\|guildstage\|gm\|trade\|quest\|mobskill\|counter\|partyskill\|mastery …` | Clients simulés (voir plus bas) |
+| `archcore sim client\|move\|shop\|addon\|lang\|combat\|equip\|potion\|scroll\|patrol\|bag\|skill\|effects\|bank\|portal\|guild\|guildlead\|guildmark\|guildbattle\|guildstage\|gm\|trade\|quest\|mobskill\|counter\|partyskill\|mastery …` | Clients simulés (voir plus bas) |
 | `archcore i18n strings [Game]` | Liste les textes encore en anglais dans `data/i18n/pending-en.json` |
 | `archcore i18n coverage [Game]` | Mesure la part déjà traduite de `ini_fr` |
 | `archcore i18n apply [--ascii] [--dry]` | Applique la mémoire de traduction au client (voir [[Traduction|FR-Traduction]]) |
@@ -165,7 +165,8 @@ refusé), puis détruit la pile.
 ```bash
 ARCHCORE_CONF_DIR=config/test archcore sim guildlead [compteA mdpA persoA compteB mdpB persoB]
 ARCHCORE_CONF_DIR=config/test archcore sim guildmark [compteA mdpA persoA compteB mdpB persoB]
-ARCHCORE_CONF_DIR=config/test archcore sim guildstage setup|present|chef|dissoudre [secondes]
+ARCHCORE_CONF_DIR=config/test archcore sim guildbattle [compteA mdpA persoA compteB mdpB persoB]
+ARCHCORE_CONF_DIR=config/test archcore sim guildstage setup|present|chef|dissoudre|guerre-prep|guerre-defi|guerre-refus [secondes]
 ```
 
 Ces scénarios (`tools/sim/guilds.rs`) créent au besoin des comptes d'appoint `simg01`… (mot de passe identique
@@ -177,10 +178,18 @@ SimA refusée au niveau 1 puis acceptée (op 48, sous-op 2 → 3 → 4 → 8), l
 chef. `sim guildmark` (GmTest, SimA, 9 comptes d'appoint) vérifie l'emblème : rien sous 10 membres, fond
 manquant (code 58), or insuffisant (code 57), achat (60 000 pièces) annoncé à la guilde et dans les liens,
 une seconde guilde qui demande le même emblème (code 59) puis l'achète malgré tout (op 33), l'emblème relu à
-la reconnexion. `sim guildstage` prépare les captures d'ArchRust : `setup` crée SimLead (GmTest chef, SimA
+la reconnexion. `sim guildbattle` (GmTest et SimA, chacun chef d'une guilde de 10 membres ; le serveur d'essai
+doit avoir un `Guild.BattleReadySeconds` court, 10 par exemple) vérifie les combats de guildes : guilde inconnue
+(code 27), niveaux insuffisants (code 22, 100 en deuxième nombre), défi refusé (op 15, code 28, puis op 17,
+code 30), défi accepté (op 16), annulation trop tardive (code 31), aucun coup avant le début, début (op 21),
+horloge (op 22), un adversaire tué (op 23 : 1 point), abandon (op 24 → op 25 : résultats 4 et 5, bilan op 12),
+annulation en plein combat (op 18 → 19), victoire par la mort du chef adverse (résultats 1 et 3), bilan relu à
+la reconnexion et refus des combats par option (code 43). `sim guildstage` prépare les captures d'ArchRust : `setup` crée SimLead (GmTest chef, SimA
 niveau 20, 18 comptes d'appoint) et laisse la guilde en place ; `present` garde SimA en jeu, qui accepte
 nominations et passations ; `chef` fait entrer GmTest, qui propose à SimA d'être second puis de diriger la
-e ; `dissoudre` dissout SimLead.
+guilde ; `dissoudre` dissout SimLead (et SimWarB) ; `guerre-prep` crée SimLead (GmTest) et SimWarB (SimA), 10 membres
+chacune ; `guerre-defi` fait défier SimWarB par GmTest après `secondes`, attendre le début puis abandonner ;
+`guerre-refus` fait refuser par GmTest les défis reçus pendant `secondes`.
 
 ## Test des zones de combat, de la reconnexion et de /last_refine
 

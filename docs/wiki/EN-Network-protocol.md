@@ -684,6 +684,10 @@ online), guild mark (TID, colour), winner. Ranks: 1 member, 2 join request, 3 le
 | 28 | ↔ | Guild list: requested page (field 21, GUILD_LIST mini, page in field 1) or searched guild (field 2); answer: searched name (2) and GUILD_LIST (total, page, count as INT16, 19 GUILD_LIST_ITEM entries) |
 | 32, 33 | ↔ | Guild mark (fields 22 TID and 23 colour) chosen by the master of a guild of 10 members; 33 buys it even though another guild has the same mark; broadcast to the guild, and the links (op 8, fields 22-23) to players who see its members |
 | 48 | ↔ | Sub-master and handover; only the op is a field, the rest is raw (see below) |
+| 11, 12 | ← | Guild status (field 11: 0 none, 1 battle declared, 2 getting ready, 3 battle); record (12 wins, 13 draws, 14 losses, 15 points), on entering the world and after each battle |
+| 13 | ← | Battle in progress (field 17, GUILD_BATTLE mini packet), on entering the world |
+| 15 to 20, 24 | ↔ | Guild battle: challenge, acceptance, refusal, cancel request, answer, surrender (see below) |
+| 21, 22, 23, 25 | ← | Battle start, clock (every second), score, result |
 
 Creating a guild takes level 20 and the price of the first `guildmaxmember.txt` row (50 places for
 10,000 coins). Codes used: 0 name taken, 1 level, 2 money (number: price), 4 characters, 5 already a
@@ -723,7 +727,24 @@ On entering the world, the member gets its guild (op 0), each member (op 3) and 
 managers (12 NPCs) carry function 23, with no data; AGPMEVENTGUILD (0x39): op 0 (event) ← op 1 (grant, the
 client opens guild creation). Chat: type 3 goes to the guild members, type 4 to the party members.
 
-Not done yet: guild battles, alliances and hostilities, guild warehouse.
+**Guild battles** (Archonia: FUN_14084de70, FUN_14084ebd0, FUN_14084f610, FUN_14084f400). GUILD_BATTLE mini
+packet (field 17, flags 2): enemy guild, enemy master, acceptance, delay, start (seconds), type, duration (s),
+fighters, clock, score, enemy score, gain, enemy gain, result, round. Only masters act. Challenge (op 15:
+enemy guild; type 0 points, 1 knockout, 2 master's death, 3 group survival, 4 individual survival; duration
+from 5 to 120 minutes; fighters for types 3 and 4): both guilds have 10 members and 100 levels in total
+(codes 20 to 23; the required number is the first of the eight numbers, the second one for 22 and 23), are not
+in a battle (24, 25), the enemy master is online (26) and does not refuse guild battles (option 0x04: code 43).
+The enemy master gets op 15, the challenger code 28 and status 1; without an answer within 60 seconds, the
+request lapses. Refusal (op 17): code 30. Acceptance (op 16): status 2 and GUILD_BATTLE to both guilds; the
+battle starts `Guild.BattleReadySeconds` later (op 21, status 3), then the clock (op 22) goes out every
+second. Cancelling (op 18, then 19 or 20; code 33 when refused): impossible less than a minute before the start
+(code 31). During the battle, members of both guilds can hit each other; each enemy killed is worth a point
+(op 23). End: when the time is up (scores compared), "GG" surrender (op 24, refused before the start: code 35;
+results 4 and 5), death of the enemy master (type 2) or no enemy fighter left standing (types 3 and 4,
+fighters: the members online at the start, within the chosen limit). Op 25 (1 win, 2 draw, 3 loss) and record
+(op 12), saved in `guild`. A guild in a battle cannot be disbanded (code 41).
+
+Not done yet: alliances and hostilities, guild warehouse.
 
 ## Parties (types 0x08 and 0x09, AgpmParty)
 

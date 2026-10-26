@@ -287,11 +287,13 @@ pub fn dist2d(a: Vec3, b: Vec3) -> f64 {
 pub fn on_action(st: &mut WorldState, sid: u32, p: &Packet) {
     let target = p.int(1).unwrap_or(0) as u32;
     let alive = st.monsters.get(target).is_some_and(|m| m.is_alive() && st.monsters.stats_of(m.tid).is_attackable());
+    // Combat de guildes : un membre de la guilde adverse se frappe comme un monstre (guild/battle.rs).
+    let foe = !alive && st.players.get(&sid).is_some_and(|p| super::guild::battle::enemies(st, p.ch.id, target));
     let Some(player) = st.players.get_mut(&sid) else { return };
     if !player.in_game || player.dead {
         return;
     }
-    if !alive {
+    if !alive && !foe {
         debug!("[combat] {} vise {target:#x}, qui n'est pas un monstre vivant et attaquable", player.ch.name);
         return;
     }
@@ -360,6 +362,9 @@ async fn attack_step(ctx: &WorldCtx, st: &mut WorldState, sid: u32, now: Instant
         return Ok(());
     }
     let Some(m) = st.monsters.get(attack.target).filter(|m| m.is_alive()).cloned() else {
+        if st.by_cid.contains_key(&attack.target) {
+            return super::guild::battle::attack_step(ctx, st, sid, attack.target, now).await;
+        }
         st.players.get_mut(&sid).unwrap().attack = None;
         return Ok(());
     };

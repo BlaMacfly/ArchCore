@@ -716,6 +716,10 @@ d'adhésion, 3 demande de départ, 10 chef, 11 second.
 | 28 | ↔ | Liste des guildes : page demandée (champ 21, mini GUILD_LIST, page au champ 1) ou guilde cherchée (champ 2) ; réponse : nom cherché (2) et GUILD_LIST (total, page, nombre en INT16, 19 entrées GUILD_LIST_ITEM) |
 | 32, 33 | ↔ | Emblème (champs 22 TID et 23 couleur) choisi par le chef d'une guilde de 10 membres ; 33 l'achète malgré une autre guilde au même emblème ; diffusé à la guilde, et les liens (op 8, champs 22-23) aux joueurs qui voient ses membres |
 | 48 | ↔ | Second et passation de chef ; seule l'op est un champ, la suite est brute (voir plus bas) |
+| 11, 12 | ← | Statut de la guilde (champ 11 : 0 aucun, 1 combat déclaré, 2 préparation, 3 combat) ; bilan (12 victoires, 13 nuls, 14 défaites, 15 points), à l'entrée en jeu et après chaque combat |
+| 13 | ← | Combat en cours (champ 17, mini GUILD_BATTLE), à l'entrée en jeu |
+| 15 à 20, 24 | ↔ | Combat de guildes : défi, acceptation, refus, demande d'annulation, réponse, abandon (voir plus bas) |
+| 21, 22, 23, 25 | ← | Début du combat, horloge (chaque seconde), score, résultat |
 
 Créer une guilde demande le niveau 20 et le prix de la première ligne de `guildmaxmember.txt` (50 places
 pour 10 000 pièces). Codes utilisés : 0 nom pris, 1 niveau, 2 argent (nombre : prix), 4 caractères, 5 déjà
@@ -757,7 +761,25 @@ Les gestionnaires de guilde (12 PNJ) portent la fonction 23, sans données ; AGP
 op 0 (événement) ← op 1 (accord, le client ouvre la création). Discussion : le type 3 va aux membres de la
 guilde, le type 4 aux membres du groupe.
 
-Pas encore faits : combats de guildes, alliances et hostilités, entrepôt.
+**Combats de guildes** (Archonia : FUN_14084de70, FUN_14084ebd0, FUN_14084f610, FUN_14084f400). Mini
+GUILD_BATTLE (champ 17, drapeaux 2) : guilde adverse, chef adverse, acceptation, délai, début (secondes),
+type, durée (s), combattants, horloge, score, score adverse, gain, gain adverse, résultat, manche. Seuls les
+chefs agissent. Défi (op 15 : guilde adverse ; type 0 points, 1 élimination, 2 mort du chef, 3 survie de
+groupe, 4 survie individuelle ; durée de 5 à 120 minutes ; combattants des types 3 et 4) : les deux guildes
+ont 10 membres et 100 niveaux cumulés (codes 20 à 23 ; le nombre exigé est le premier des huit nombres, le
+deuxième pour 22 et 23), sont hors combat (24, 25), le chef adverse est en ligne (26) et ne refuse pas les
+combats de guilde (option 0x04 : code 43). Le chef adverse reçoit l'op 15, le demandeur le code 28 et le
+statut 1 ; sans réponse en 60 secondes, la demande tombe. Refus (op 17) : code 30. Acceptation (op 16) :
+statut 2 et GUILD_BATTLE aux deux guildes ; le combat commence `Guild.BattleReadySeconds` plus tard (op 21,
+statut 3), puis l'horloge (op 22) part chaque seconde. Annulation (op 18, puis 19 ou 20 ; code 33 au refus) :
+impossible à moins d'une minute du début (code 31). Pendant le combat, les membres des deux guildes peuvent se
+frapper ; un adversaire tué rapporte un point (op 23). Fin : à la durée (scores comparés), abandon « GG »
+(op 24, refusé avant le début : code 35 ; résultats 4 et 5), mort du chef adverse (type 2) ou plus aucun
+combattant adverse debout (types 3 et 4, combattants : les membres en ligne au début, dans la limite choisie).
+Op 25 (1 victoire, 2 nul, 3 défaite) et bilan (op 12), enregistré dans `guild`. Une guilde en combat ne peut
+pas être dissoute (code 41).
+
+Pas encore faits : alliances et hostilités, entrepôt.
 
 ## Groupes (types 0x08 et 0x09, AgpmParty)
 

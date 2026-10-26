@@ -46,6 +46,7 @@ unknown key (typo) is reported.
 | `World.ViewRadius` | `8000` | Range of normal chat and `SAY` AddOn messages. NPCs, monsters, players and ground items are seen by sector (see [[Network protocol|EN-Network-protocol]]) |
 | `World.MonsterDensity` | `1` | Multiplies the number of monsters at each spawn point (rounded, at least 1). The server tables are sparse in places: 2 or 3 come closer to the original game's density |
 | `World.SlowPacketMs` | `100` | A packet handled for longer (ms) under the world lock is logged as a "slow packet" (`paquet lent`), with the lock wait time; `0`: never |
+| `Guild.BattleReadySeconds` | `180` | Delay (s) between accepting a guild battle and its start; the client announces it in minutes. Archonia's data do not give it |
 | `World.TimeZone` | `local` | Time zone of the clock sent to the client (AGPMTIMER packet): `local` = the machine's time (day/night cycle, music and ambience follow the server's local time), `utc` = raw Unix epoch. See [[Network protocol|EN-Network-protocol]] |
 | `World.ExitOnRestart` | `0` | `1`: stops the server at the end of the `/announce_restart` countdown |
 | `StartPosition.<race>.Village` / `.X` / `.Y` / `.Z` | see the template | Spawn position per race: 1 Human, 2 Orc, 3 Moon Elf, 4 Scion |

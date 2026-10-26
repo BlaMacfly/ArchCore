@@ -16,7 +16,7 @@
 //!         guildmaxmember.txt ; ← op 7 à toute la guilde, code 44 si l'or manque.
 //!   op 9  annonce (champ 10), par le chef ou le second.
 //!   op 10 message système : code (champ 1), textes (2, 3), nombre (4).
-//!   op 28 liste des guildes (list.rs) ; op 32 et 33 emblème (mark.rs) ; op 48 second et passation de chef
+//!   op 11 à 25 combats de guildes (battle.rs) ; op 28 liste des guildes (list.rs) ; op 32 et 33 emblème (mark.rs) ; op 48 second et passation de chef
 //!         (society.rs).
 //! ```
 //! À l'entrée en jeu, le membre reçoit sa guilde (op 0), chaque membre (op 3) et son lien (op 8) ; les autres
@@ -33,6 +33,7 @@ use archcore_net::{build_mini, build_packet, decode_mini, Fields, Packet, Value}
 use std::collections::{BTreeMap, HashMap};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+pub mod battle;
 pub mod list;
 pub mod mark;
 pub mod society;
@@ -72,6 +73,8 @@ pub mod code {
     pub const ALREADY_MEMBER2: i64 = 17;
     /// L'invité refuse les invitations de guilde (options) : « Option_Guild_Off_User ».
     pub const JOIN_REFUSE: i64 = 42;
+    /// Impossible pendant un combat de guildes : « Guild_Msg_Battle_Not_Usable ».
+    pub const BATTLE_NOT_USABLE: i64 = 41;
     pub const MAX_MEMBER: i64 = 6;
     pub const JOIN_FAIL: i64 = 7;
     pub const LEAVE_FAIL: i64 = 8;
@@ -168,6 +171,9 @@ pub struct Guild {
     /// Membre à qui le chef propose d'être second, puis de diriger la guilde (en attente de réponse).
     pub appoint: Option<u32>,
     pub succession: Option<u32>,
+    /// Combat de guildes en cours (ou en préparation), demande de combat faite ou reçue.
+    pub battle: Option<battle::Battle>,
+    pub offer: Option<battle::Offer>,
 }
 
 impl Guild {
@@ -209,6 +215,8 @@ pub struct Guilds {
     /// Éléments d'emblème (guildmark.txt).
     pub marks: mark::Templates,
     last_sweep: Option<Instant>,
+    /// Dernière horloge des combats de guildes.
+    battle_clock: Option<Instant>,
 }
 
 impl Guilds {
@@ -221,7 +229,7 @@ impl Guilds {
             Err(e) => warn!("tailles des guildes non chargées ({e:#}) : lancer `archcore db-init` puis `archcore import`"),
         }
         r.marks = mark::Templates::load(db).await;
-        let Ok(rows) = db.characters.rows("SELECT id, name, password, notice, max_members, mark_tid, mark_color, UNIX_TIMESTAMP(created_at) AS created FROM guild", ()).await else {
+        let Ok(rows) = db.characters.rows("SELECT id, name, password, notice, max_members, mark_tid, mark_color, win, draw, lose, points, UNIX_TIMESTAMP(created_at) AS created FROM guild", ()).await else {
             warn!("guildes non chargées : lancer `archcore db-init`");
             return Ok(r);
         };
@@ -235,6 +243,7 @@ impl Guilds {
                 max_members: col(row, "max_members"),
                 mark_tid: col(row, "mark_tid"),
                 mark_color: col(row, "mark_color"),
+                record: Record { win: col(row, "win"), draw: col(row, "draw"), lose: col(row, "lose"), points: col(row, "points") },
                 ..Default::default()
             };
             r.by_id.insert(g.id, g);
@@ -362,9 +371,14 @@ fn notice_packet(g: &Guild) -> Vec<u8> {
 
 /// Op 10 : message système (code, texte, nombre).
 pub fn system_packet(code: i64, text: Option<&str>, number: Option<i64>) -> Vec<u8> {
+    system_numbers(code, text, number.as_slice())
+}
+
+/// Op 10 avec plusieurs nombres (champ 4, huit entiers : le code 22 lit le deuxième).
+pub fn system_numbers(code: i64, text: Option<&str>, numbers: &[i64]) -> Vec<u8> {
     let mut f = guild(op::SYSTEM_MESSAGE).with(1, code).with_opt(2, text);
-    if let Some(n) = number {
-        let mut list = vec![Value::Int(n)];
+    if !numbers.is_empty() {
+        let mut list: Vec<Value> = numbers.iter().map(|&n| Value::Int(n)).collect();
         list.resize(8, Value::Int(0));
         f = f.with(4, list);
     }
@@ -424,6 +438,7 @@ pub fn on_enter(st: &mut WorldState, sid: u32) {
     let me = &g.members[&cid];
     p.send_raw(char_data_packet(g, me));
     send_to_guild(st, g, Some(cid), &char_data_packet(g, me));
+    battle::on_enter(st, sid, g);
 }
 
 /// Sortie du jeu : les membres le voient hors ligne.
@@ -482,6 +497,7 @@ pub async fn on_packet(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet
         }
         Some(society::OP) => society::on_packet(ctx, st, sid, p).await,
         Some(mark::BUY) => mark::on_packet(ctx, st, sid, p, false).await,
+        Some(battle::op::REQUEST..=battle::op::CANCEL_REJECT | battle::op::WITHDRAW) => battle::on_packet(ctx, st, sid, p).await,
         Some(mark::BUY_FORCE) => mark::on_packet(ctx, st, sid, p, true).await,
         op => {
             crate::debug!("[guilde] #{sid} AGPMGUILD op {op:?} (pas encore géré)");
@@ -756,6 +772,10 @@ async fn destroy(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> a
     }
     let given = p.text(9).unwrap_or_default();
     let g = &st.guilds.by_id[&gid];
+    if g.in_battle() || g.offer.is_some() {
+        send_to(st, sid, system_packet(code::BATTLE_NOT_USABLE, None, None));
+        return Ok(());
+    }
     if !g.password.is_empty() && given.trim() != g.password {
         send_to(st, sid, system_packet(code::INVALID_PASSWORD, None, None));
         return Ok(());
@@ -828,6 +848,7 @@ async fn increase(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> 
 
 /// Demandes de départ restées sans réponse un jour : le départ se fait.
 pub async fn step(ctx: &WorldCtx, st: &mut WorldState, at: Instant) -> anyhow::Result<()> {
+    battle::step(ctx, st, at).await?;
     if st.guilds.last_sweep.is_some_and(|t| at.duration_since(t) < SWEEP_EVERY) {
         return Ok(());
     }

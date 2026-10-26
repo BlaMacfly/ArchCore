@@ -757,6 +757,16 @@ pub mod mini {
         ],
     };
 
+    /// Combat de guildes (AGPMGUILD champ 17) — drapeaux 2 : guilde adverse, chef adverse, acceptation, délai,
+    /// début (secondes), type, durée (s), nombre de combattants, horloge, score, score adverse, gain, gain
+    /// adverse, résultat, manche.
+    pub static GUILD_BATTLE: Schema = Schema {
+        name: "AGPMGUILD_BATTLE",
+        id: 158,
+        flag_len: 2,
+        fields: &[fs(Char, 33), fs(Char, 49), f(U64), f(U64), f(U64), f(U32), f(U32), f(U32), f(U64), f(I32), f(I32), f(I32), f(I32), f(I8), f(U32)],
+    };
+
     /// Entrée de la liste des guildes — drapeaux 2 : nom, chef, second, niveau, (inconnu), membres, taille,
     /// (inconnu), emblème (TID, couleur), points de combat.
     pub static GUILD_LIST_ITEM: Schema = Schema {

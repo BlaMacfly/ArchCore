@@ -12,7 +12,7 @@ named by `ARCHCORE_CONF_DIR` (see [[Configuration|EN-Configuration]]).
 | `archcore decrypt [source] [destination]` | Decrypts `Game/ini` (RC4, MD5("1111")) into `data/client-ini` |
 | `archcore import [folder] [--server folder]` | Imports `data/client-ini` into `archcore_world` (CP949 → UTF-8) and the ground height from the Game folder's `world/b*x.ma2` (`map_height`, a few minutes); with the original server tables (`--server`, or `data/server-ini` if it exists), also imports monster spawns and the server map; finally applies the `content/*.sql` content layer and records each source in `import_run` |
 | `archcore content` | Applies the `content/*.sql` content layer to the world database again, without reimporting (see [[Database\|EN-Database]]) |
-| `archcore sim client\|move\|shop\|addon\|lang\|combat\|equip\|potion\|scroll\|patrol\|bag\|skill\|effects\|bank\|portal\|guild\|guildlead\|guildmark\|guildstage\|gm\|trade\|quest\|mobskill\|counter\|partyskill\|mastery …` | Simulated clients (see below) |
+| `archcore sim client\|move\|shop\|addon\|lang\|combat\|equip\|potion\|scroll\|patrol\|bag\|skill\|effects\|bank\|portal\|guild\|guildlead\|guildmark\|guildbattle\|guildstage\|gm\|trade\|quest\|mobskill\|counter\|partyskill\|mastery …` | Simulated clients (see below) |
 | `archcore i18n strings [Game]` | Lists the texts still in English in `data/i18n/pending-en.json` |
 | `archcore i18n coverage [Game]` | Measures how much of `ini_fr` is translated |
 | `archcore i18n apply [--ascii] [--dry]` | Applies the translation memory to the client (see [[Translation|EN-Translation]]) |
@@ -162,7 +162,8 @@ destroys the stack.
 ```bash
 ARCHCORE_CONF_DIR=config/test archcore sim guildlead [userA passA charA userB passB charB]
 ARCHCORE_CONF_DIR=config/test archcore sim guildmark [userA passA charA userB passB charB]
-ARCHCORE_CONF_DIR=config/test archcore sim guildstage setup|present|chef|dissoudre [seconds]
+ARCHCORE_CONF_DIR=config/test archcore sim guildbattle [userA passA charA userB passB charB]
+ARCHCORE_CONF_DIR=config/test archcore sim guildstage setup|present|chef|dissoudre|guerre-prep|guerre-defi|guerre-refus [seconds]
 ```
 
 These scenarios (`tools/sim/guilds.rs`) create helper accounts `simg01`… (password equal to the name) in the
@@ -173,10 +174,18 @@ enough gold: code 44, then 60 places for 1,000,000 coins), SimA's appointment re
 the ranks read again on reconnecting and the disbanding by the new master. `sim guildmark` (GmTest, SimA,
 9 helper accounts) checks the guild mark: nothing under 10 members, missing background (code 58), not enough
 gold (code 57), purchase (60,000 coins) broadcast to the guild and in the links, a second guild asking for the
-same mark (code 59) then buying it anyway (op 33), the mark read again on reconnecting. `sim guildstage`
+same mark (code 59) then buying it anyway (op 33), the mark read again on reconnecting. `sim guildbattle` (GmTest and SimA, each master of a 10-member
+guild; the test server needs a short `Guild.BattleReadySeconds`, 10 for instance) checks guild battles:
+unknown guild (code 27), levels too low (code 22, 100 as the second number), challenge refused (op 15, code 28,
+then op 17, code 30), challenge accepted (op 16), cancelling too late (code 31), no hit before the start, start
+(op 21), clock (op 22), an enemy killed (op 23: 1 point), surrender (op 24 → op 25: results 4 and 5, record
+op 12), cancelling during the battle (op 18 → 19), victory by the enemy master's death (results 1 and 3), record
+read again on reconnecting and battles refused by option (code 43). `sim guildstage`
 prepares ArchRust screenshots: `setup` creates SimLead (GmTest master, SimA level 20, 18 helper accounts) and
 leaves the guild in place; `present` keeps SimA in the game, accepting appointments and handovers; `chef`
-brings GmTest in, who offers SimA the sub-master rank then the guild; `dissoudre` disbands SimLead.
+brings GmTest in, who offers SimA the sub-master rank then the guild; `dissoudre` disbands SimLead (and SimWarB); `guerre-prep` creates SimLead (GmTest) and SimWarB (SimA), 10
+members each; `guerre-defi` has GmTest challenge SimWarB after `seconds`, wait for the start then surrender;
+`guerre-refus` has GmTest refuse the challenges received for `seconds`.
 
 ## Player-versus-player zones, reconnection and /last_refine tests
 
