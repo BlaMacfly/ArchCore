@@ -205,35 +205,40 @@ pub async fn on_packet(ctx: &super::WorldCtx, st: &mut super::WorldState, sid: u
             let take = picked.iter().map(|(iid, _, n)| (*iid, *n)).collect();
             refine(ctx, st, sid, recipe.id, take).await
         }
-        Some(op::REFINE_RECIPE) => {
-            let Some(recipe) = ctx.recipes.by_id.get(&(p.int(2).unwrap_or(0) as u32)) else {
-                player.send_raw(packet(op::RESULT, cid, Some(result::NO_RECIPE), None, None));
-                return Ok(());
-            };
-            // Ingrédients pris dans les piles de l'inventaire, autant qu'il en faut.
-            let mut take = Vec::new();
-            for (tid, need) in &recipe.resources {
-                let mut left = *need;
-                for it in player.inventory.items.values().filter(|i| i.tid == *tid) {
-                    if left == 0 {
-                        break;
-                    }
-                    let n = it.count.min(left);
-                    take.push((it.iid, n));
-                    left -= n;
-                }
-                if left > 0 {
-                    player.send_raw(packet(op::RESULT, cid, Some(result::MISSING_ITEMS), None, None));
-                    return Ok(());
-                }
-            }
-            refine(ctx, st, sid, recipe.id, take).await
-        }
+        Some(op::REFINE_RECIPE) => refine_recipe(ctx, st, sid, p.int(2).unwrap_or(0) as u32).await,
         other => {
             crate::debug!("[raffinage] #{sid} AGPMREFINERY op {other:?} (ignoré)");
             Ok(())
         }
     }
+}
+
+/// Raffinage d'une recette (op 6, et /last_refine) : ingrédients pris dans les piles de l'inventaire, autant
+/// qu'il en faut.
+pub async fn refine_recipe(ctx: &super::WorldCtx, st: &mut super::WorldState, sid: u32, id: u32) -> anyhow::Result<()> {
+    let Some(player) = st.players.get(&sid) else { return Ok(()) };
+    let cid = player.ch.id;
+    let Some(recipe) = ctx.recipes.by_id.get(&id) else {
+        player.send_raw(packet(op::RESULT, cid, Some(result::NO_RECIPE), None, None));
+        return Ok(());
+    };
+    let mut take = Vec::new();
+    for (tid, need) in &recipe.resources {
+        let mut left = *need;
+        for it in player.inventory.items.values().filter(|i| i.tid == *tid) {
+            if left == 0 {
+                break;
+            }
+            let n = it.count.min(left);
+            take.push((it.iid, n));
+            left -= n;
+        }
+        if left > 0 {
+            player.send_raw(packet(op::RESULT, cid, Some(result::MISSING_ITEMS), None, None));
+            return Ok(());
+        }
+    }
+    refine(ctx, st, sid, recipe.id, take).await
 }
 
 /// Raffine selon la recette `id` avec les ingrédients `take` (IID, quantité) : or et place vérifiés,
@@ -312,8 +317,10 @@ async fn refine(ctx: &super::WorldCtx, st: &mut super::WorldState, sid: u32, id:
     if recipe.price > 0 {
         super::set_money(ctx, st, sid, money - recipe.price).await?;
     }
-    if let Some(p) = st.players.get(&sid) {
+    if let Some(p) = st.players.get_mut(&sid) {
         p.send_raw(packet(op::RESULT, cid, Some(result::SUCCESS), Some(outcome.tid), None));
+        // Recette que /last_refine relance.
+        p.last_recipe = Some(id);
     }
     crate::info!("[raffinage] {name} : recette {id} → {} × {}{}", outcome.count, outcome.tid, if outcome.fail { " (issue d'échec)" } else { "" });
     Ok(())

@@ -160,6 +160,24 @@ ne reçoit rien. `sim gm` (compte MJ `gmtest`) vérifie `/speed` (course ×5
 dans les facteurs reçus, refus au-delà de 10, retour à ×1) et `/additem` (potions ajoutées, TID inconnu
 refusé), puis détruit la pile.
 
+## Test des zones de combat, de la reconnexion et de /last_refine
+
+```bash
+ARCHCORE_CONF_DIR=config/test archcore sim pvp [compte] [mdp] [personnage]
+ARCHCORE_CONF_DIR=config/test archcore sim reconnect [compteA mdpA persoA compteB mdpB persoB]
+ARCHCORE_CONF_DIR=config/test archcore sim lastrefine [compte] [mdp] [personnage]
+```
+
+`sim pvp` (compte MJ `gmtest`) frappe un Ver vert au nord d'Anchorville puis se place au portail de la cité de
+Tullan : sa demande est ignorée en combat, accordée dix secondes après le dernier coup ; il part pour l'arène
+de guilde (zone de combat entre joueurs), d'où « Retour » (op 7) le ramène au portail de Tullan ; l'op 7 est
+refusée depuis un portail ordinaire. `sim reconnect` (GmTest, SimA) : clé reçue à l'entrée, coupure de
+GmTest sans départ du monde (SimA le voit toujours), reprise refusée avec une mauvaise clé, acceptée avec la
+bonne (nouvelle clé, vue renvoyée, commande sur la nouvelle connexion), puis seconde coupure : GmTest quitte
+le monde au bout de 60 s et la reprise est refusée (environ 70 s). `sim lastrefine` (GmTest) vérifie le refus
+de `/last_refine` avant tout raffinage, raffine la recette 4013, la relance par `/last_refine`, puis obtient
+le résultat 1 (ingrédients manquants).
+
 ## Test des quêtes
 
 ```bash

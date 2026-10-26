@@ -558,11 +558,27 @@ pub static UI_STATUS: Schema = Schema {
     ],
 };
 
+/// AgpmReconnect — drapeaux 4 (constructeur FUN_14027c3f0 d'Archonia).
+pub static RECONNECT: Schema = Schema {
+    name: "AGPMRECONNECT",
+    id: ptype::RECONNECT,
+    flag_len: 4,
+    fields: &[
+        f(I8),          // 0 opération (1 demande du client, 2 réponse du serveur)
+        f(I32),         // 1 CID
+        fs(Char, 48),   // 2 nom du personnage
+        fs(Char, 1024), // 3 compte
+        fs(Char, 1024), // 4 mot de passe
+        f(I32),         // 5 clé de reconnexion
+        f(I8),          // 6 accord (1 : reconnexion acceptée)
+    ],
+};
+
 /// Tous les schémas principaux, pour l'aiguillage par type.
 pub static MAIN: &[&Schema] = &[
     &CONFIG, &CHARACTER, &CHAR_MANAGER, &LOGIN, &TIMER, &WORLD, &CHATTING, &ADMIN, &ITEM, &EVENT_NPC_TRADE,
     &EVENT_NPC_DIALOG, &EVENT_MANAGER, &SKILL, &EVENT_SKILL_MASTER, &EVENT_TELEPORT, &EVENT_BANK, &ITEM_CONVERT, &EVENT_ITEM_CONVERT, &REFINERY, &EVENT_REFINERY, &GUILD, &EVENT_GUILD, &PRIVATE_TRADE, &PARTY, &PARTY_MANAGEMENT, &QUEST, &EVENT_QUEST, &UI_STATUS, &SYSTEM_MESSAGE, &RETURN_TO_LOGIN, &OPT_CHAR_MOVE, &OPT_CHAR_ACTION, &OPT_VIEW,
-    &STARTUP_ENCRYPTION, &ARCHCORE_EXT,
+    &STARTUP_ENCRYPTION, &ARCHCORE_EXT, &RECONNECT,
 ];
 
 pub fn main_by_id(id: u8) -> Option<&'static Schema> {

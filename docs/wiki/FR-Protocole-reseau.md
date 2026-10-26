@@ -597,6 +597,20 @@ On arrive sur un cercle de rayon `RadiusMin`..`RadiusMax` autour de l'objet qui 
 au premier des huit points espacés de 45° (à partir d'un angle tiré au hasard) qui n'est pas sur un sol
 infranchissable.
 
+**Zones de combat entre joueurs.** Les 19 points `RegionType=1` (tous `SpecialType=1`) : arène de guilde,
+Battle Square, salles et entrées des donjons. Dans Archonia (AgcmUIEventTeleport) :
+
+- choisir une telle arrivée ouvre la boîte `TELEPORT_ConfirmPvPZone` (OK / Annuler) ; OK envoie l'op 0 ;
+- depuis un tel point, la liste ne propose que « Retour » (`Teleport_ReturnOnly`), qui envoie l'**op 7**
+  (événement, CID). Le module AgpmEventTeleport note sur le personnage le point de départ de chaque trajet
+  réussi ; ArchCore y ramène le joueur (sans frais), ou au village de rattachement s'il n'en a pas (après une
+  reconnexion, par exemple). L'op 7 est ignorée depuis un point qui n'est pas `SpecialType=1`.
+
+**Refus.** Le client n'envoie pas l'op 4 en mode combat (10 s après le dernier coup donné ou reçu, ou une
+compétence offensive) : message `Teleport_CombatMode` dans la discussion ; ni métamorphosé (champ 18 du
+personnage) : `Teleport_TransformChar`. ArchCore ignore de même les ops 0, 4 et 7 d'un joueur mort ou en
+combat. Un départ annulé est signalé par l'**op 2** (fermeture de l'écran de chargement).
+
 ## Banque (types 0x36, 0x04 et 0x02)
 
 La banque est commune aux personnages d'un même compte. Les gardiens (« Safe Keeper », 18 PNJ) portent la
@@ -776,6 +790,28 @@ Type propre à ArchCore. Le client d'origine n'aiguille que les types 0x01 à 0x
 un client ArchRust l'utilise après la poignée de main pour négocier ses extensions (`HELLO` /
 `HELLO_ACK`) puis échanger des messages d'AddOn. Le serveur n'en envoie jamais à une connexion qui n'a
 pas envoyé `HELLO`. Spécification complète : [[Extensions ArchRust|FR-Extensions-ArchRust]].
+
+## Reconnexion automatique (type 0x63, AgpmReconnect)
+
+AGPMRECONNECT (drapeaux 4) : op, CID, nom (CHAR[48]), compte (CHAR[1024]), mot de passe (CHAR[1024]), clé,
+accord. Le client d'origine (AgcmReconnect) :
+
+- garde la clé de chaque **op 2** reçue (champ 5 non nul). ArchCore en envoie une à la fin de l'entrée en
+  jeu (accord 0), tirée au hasard ;
+- quand la connexion au monde se perd, personnage en jeu : ouvre `UI_ReconnectHold`
+  (`ReconnectingServerShow`), retente toutes les 5 s pendant 60 s la connexion à l'adresse du monde et
+  affiche « Attempting to reconnect to the game server... » ;
+- une fois connecté, envoie l'**op 1** (CID, nom, compte, mot de passe, clé) à la place de l'entrée normale
+  (type 0x03 op 2) ;
+- sur une **op 2** avec accord 1 (champ 6), reprend la partie sur la nouvelle connexion, garde la nouvelle
+  clé et ferme la fenêtre ; au bout de 60 s, abandonne (« Failed reconnecting to the server. »).
+
+ArchCore garde dans le monde, immobile, un joueur dont la connexion se coupe (60 s, le délai du client). Une
+reprise valable (clé, CID, nom et compte ; le mot de passe n'est pas contrôlé) rattache le personnage à la
+nouvelle connexion, envoie l'op 2 avec une nouvelle clé et l'accord 1, puis renvoie ce que le joueur voit
+(retrait puis nouvel envoi des PNJ, monstres, joueurs et objets au sol, position et facteurs). Une reprise
+refusée ferme la connexion. Passé le délai, le personnage quitte le monde comme à une déconnexion ; une
+nouvelle entrée par le serveur de connexion le remplace aussitôt.
 
 ## Types connus
 

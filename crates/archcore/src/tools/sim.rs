@@ -20,6 +20,9 @@
 //!   archcore sim trade [A… B…]                                échange GmTest ↔ SimA : objet et argent, verrou, échange ; refus ; A compte MJ
 //!   archcore sim quest [compte] [mdp] [perso]                 quêtes : prendre, refus, terminer (objets rapportés, récompense), abandonner ; compte MJ
 //!   archcore sim portal [compte] [mdp] [perso]                portail d'Anchorville : demande de loin, trajet payant, trajet non relié refusé, retour ; compte MJ
+//!   archcore sim pvp [compte] [mdp] [perso]                   zones de combat entre joueurs : demande ignorée en combat, arène de guilde, « Retour » (op 7) ; compte MJ (pvp.rs)
+//!   archcore sim reconnect [A… B…]                            reconnexion automatique (0x63) : coupure, mauvaise clé, reprise, départ après 60 s (reconnect.rs)
+//!   archcore sim lastrefine [compte] [mdp] [perso]            commande MJ /last_refine : refus, relance de la dernière recette ; compte MJ (last_refine.rs)
 //!   archcore sim guild [A… B…]                                guilde GmTest + SimA : création, invitation, discussion, annonce, départ, exclusion, dissolution
 //!   archcore sim refusal [A… B…]                              options de GmTest (op 0x11) : SimA ne peut ni l'inviter en groupe (op 14) ni lui proposer d'échange (op 25)
 //!   archcore sim gm [compte] [mdp] [perso]                    commandes MJ d'ArchCore : /speed (×5, refus au-delà de 10, retour) et /additem ; compte MJ
@@ -43,6 +46,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
 mod lang;
+mod last_refine;
+mod pvp;
+mod reconnect;
 
 /// Valeur facultative affichée sans « Some(…) ».
 fn o<T: std::fmt::Display>(v: Option<T>) -> String {
@@ -66,6 +72,9 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         Some("lang") => Box::pin(lang::run(&a(1, "sima"), &a(2, "sima"), &a(3, "SimA"))).await,
         Some("bank") => Box::pin(bank(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("portal") => Box::pin(portal(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
+        Some("pvp") => Box::pin(pvp::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
+        Some("reconnect") => Box::pin(reconnect::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
+        Some("lastrefine") => Box::pin(last_refine::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("gm") => Box::pin(gm_commands(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("guild") => Box::pin(guild(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("refusal") => Box::pin(refusal(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
@@ -87,7 +96,7 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         Some("mastery") => Box::pin(mastery(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("convert") => Box::pin(convert(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("refinery") => Box::pin(refinery(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
-        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol|bag|skill|effects|status|bank|portal|guild|gm|trade|party|quest|mobskill|counter|partyskill|mastery [arguments]"),
+        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol|bag|skill|effects|status|bank|portal|pvp|reconnect|lastrefine|guild|gm|trade|party|quest|mobskill|counter|partyskill|mastery [arguments]"),
     }
 }
 
@@ -633,8 +642,9 @@ async fn movement(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) ->
     let cm = &schema::CHAR_MANAGER;
     a.world.send(cm, Fields::new(cm).with(0, char_mgr_op::KEEPALIVE).with(2, 0)).await?;
     drop(a);
-    b.world.expect_where(is_char(3, acid as u32), 3000, &format!("{cb} retire {ca} déconnecté")).await?;
-    println!("  ✓ déconnexion : le personnage disparaît chez l'autre joueur");
+    // Le personnage attend 60 s une reconnexion (0x63) avant de quitter le monde : voir `sim reconnect`.
+    anyhow::ensure!(b.world.expect_where(is_char(3, acid as u32), 2000, "retrait").await.is_err(), "{ca} retiré dès la coupure");
+    println!("  ✓ coupure : le personnage reste dans le monde, en attente de reconnexion");
     println!("\ndéplacement à deux joueurs : OK");
     Ok(())
 }

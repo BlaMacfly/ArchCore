@@ -35,7 +35,8 @@
   special states (stun, sleep, slow…), critical hits, block, damage turned into HP or MP, counter attack (damage sent back to the monster); party skills;
   masteries (required skills of the high and heroic trees); monster skills (AI from the original server tables:
   casting, damage, effects, on-hit procs).
-  Parties (invitation, members, leader, kick, experience sharing, chat). Guilds (creation at guild managers, invitation, joining, leaving, kicking, disbanding, notice, chat). Account bank (items, money, extra pages) and trading between players. Teleport portals (paid trips between linked points). Quests: taking, progress (monsters, quest
+  Parties (invitation, members, leader, kick, experience sharing, chat). Guilds (creation at guild managers, invitation, joining, leaving, kicking, disbanding, notice, chat). Account bank (items, money, extra pages) and trading between players. Teleport portals (paid trips between linked points, player-versus-player zones
+  and "Return", refusal in combat). Automatic reconnection (type 0x63). `/last_refine` GM command. Quests: taking, progress (monsters, quest
   items), completion and rewards, abandoning. See
   [[Network protocol|EN-Network-protocol]].
 - ArchRust extensions: capability negotiation, AddOn messages (whisper, `SAY`), and the client language
@@ -46,7 +47,8 @@
 - Selling an item to an NPC.
 - ArchRust client (`client` branch): combat (attacking, hits, death, resurrection, loot), parties, other
   players, inventory and equipment, NPCs (dialog, shop, bank and buying pages, quests), skills (trainers,
-  casting, shortcut bar), teleport portals (original window and loading screen), guilds (registrar, creation,
+  casting, shortcut bar), teleport portals (original window and loading screen, confirmation of player-versus-player zones, "Return",
+  refusal in combat), automatic reconnection (`UI_ReconnectHold` window, 60 s), guilds (registrar, creation,
   disbanding and guild windows, members, guild name above heads) and guild and party chat, whispers (private bar, `/w`, `/r`, guild
   window button), graphics and sound resource packs (enabled,
   ordered and checked from the Options; see the [guide](https://github.com/BlaMacfly/ArchCore/blob/client/ArchRust/docs/RESOURCE-PACKS.en.md)), original Archonia windows instead of the temporary ones (confirmations, stack split,
@@ -64,8 +66,8 @@
 1. Full character creation and visibility between two players: checked on 25 October 2026 with two ArchRust
    clients on the test server (creation, arrival in Golundo, refusal of a taken name, players visible to each
    other). Still to confirm with the Archonia client.
-3. NPC functions: quests with interaction objects. Portals: player-versus-player zones (confirmation, return,
-   op 7), refusal in combat or while transformed.
+3. NPC functions: quests with interaction objects. Portals: disabled points (op 5 field 5) and siege war
+   trips; refusal while transformed to check once transformation exists.
 4. Skills: damage reflection (counter attack), monster skills, party skills and masteries validated with the
    simulator on 25 October 2026, to be confirmed in game. Still to do: damage sharing (Divine Protection, Martyr's
    Mark), dispels, ignored defense and earning heroic and charisma points.
@@ -76,8 +78,9 @@
    recipes) done.
 6. Guilds: guild battles, alliances and hostilities, guild marks, sub-master and handover, enlarging, guild
    list, warehouse.
-7. Automatic reconnection (type 0x63).
-8. Remaining GM commands on the [[Administration|EN-Administration]] page (arena, events, rifts…).
+7. Automatic reconnection: to be confirmed with the Archonia client.
+8. Remaining GM commands on the [[Administration|EN-Administration]] page: they wait for their systems (arena,
+   events, rifts, region settings…), listed at the end of its section 4.
 9. Finish the translation: about 54,000 texts left.
 
 ## Later

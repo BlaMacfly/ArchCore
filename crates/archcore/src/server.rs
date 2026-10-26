@@ -78,6 +78,7 @@ pub async fn run(mode: &str) -> anyhow::Result<()> {
         });
         crate::world::presence::spawn_autosave(w.clone());
         crate::world::combat::spawn_ticker(w.clone());
+        crate::world::reconnect::spawn_ticker(w.clone());
         let listen = crate::config::Listen { port: config.world.port, bind: config.world.bind.clone() };
         crate::net::serve("world", &listen, Arc::new(crate::world::WorldService(w.clone()))).await?;
     }

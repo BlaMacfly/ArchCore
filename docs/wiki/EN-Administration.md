@@ -4,7 +4,7 @@ This page describes the game master (GM) commands the client can send, and how t
 
 > **ArchCore status**: the server handles chat, sends the GM level to the client and runs the
 > commands marked ✅ in the list (see section 3). The others answer "Unknown command": they wait for
-> the matching game systems (arena, events, rifts…). Progress is tracked on the
+> the matching game systems, missing from ArchCore (see the end of section 4). Progress is tracked on the
 > [[Roadmap|EN-Roadmap]] page.
 
 > **GM panel.** With the ArchRust client, the [ArchCoreAdmin](https://github.com/BlaMacfly/ArchCoreAdmin) add-on
@@ -78,6 +78,7 @@ messages. ArchCore's replies are in French.
 | `/create "name" <TID> <count> <0\|1>` | 3 | Adds the item to `character_items`, in the first free inventory slot. An online player gets it at once; the character can also be offline |
 | `/questreset <TID>` | 3 | Clears quest TID (in progress or completed) from the GM's journal; visible on next login. ArchCore-specific command |
 | `/recast` | 3 | Resets the GM's skill recast delays on the server side (the client may still show its own). ArchCore-specific command |
+| `/last_refine` | 3 | Runs again the last recipe refined successfully since login (the panel's "Use last refine recipe"), like the client's op 6: ingredients taken from the inventory, gold paid, result in the refining window. Refused without a successful refine |
 | `/level <level> ["name"]` | 3 | Sets the online character's level (1 to 120): experience reset, HP and MP restored, skill points recomputed; without a name, on yourself. ArchCore-specific command |
 | `/money <amount> ["name"]` | 3 | Sets the online character's gold (0 to 1,000,000,000); without a name, on yourself. ArchCore-specific command |
 | `/announce_restart <minutes> <seconds>` | 3 | Announces to every player, reminds every minute, counts down the last seconds. `0 0` cancels |
@@ -193,7 +194,7 @@ Example: `/SetExp 2.0`, then `/GetExp` to check.
 | ✅ `/level <level> ["name"]` | Sets an online character's level (ArchCore addition, not in the panel) |
 | ✅ `/questreset <TID>` | Clears a quest from the GM's journal (ArchCore addition, not in the panel) |
 | ✅ `/recast` | Resets the GM's skill recast delays (ArchCore addition, not in the panel) |
-| `/last_refine` | Reuses the last refine recipe |
+| ✅ `/last_refine` | Runs the last successful refine recipe again |
 | `/refresh_prestige_db` | Reloads the prestige data |
 | `/refinetest` / `/refinetest stop` | Starts or stops the refine stress test |
 
@@ -223,6 +224,27 @@ The panel offers an item search by name or TID.
 | `/cast_cap <0-100>` | Cast speed cap |
 | `/cooldown_cap <0-100>` | Cooldown reduction cap |
 | `/test <minutes>` | Test command: grants points and sets the boss spawn delay |
+
+### Commands without a system in ArchCore
+
+Archonia's "Admin Commands" panel only builds these commands; the server decides what they do. They stay
+without effect ("Unknown command") as long as the system they drive does not exist:
+
+| Commands | Missing system |
+|---|---|
+| `/arena_*`, `/spectate_*`, `/leave_spectate`, `/set_chat_season_winners` | Arena, seasons and shrine rewards |
+| `/tournament …`, `/death_match …`, `/racewar …`, `/game_event …`, `/counter …` | Game events (tournament, death match, race war, counter) |
+| `/battlepass …`, `/battlepass_premium` | Battle pass |
+| `/reload_events`, `/reload_class_events`, `/reload_event_effect`, `/enable_events`, `/disable_events` | Bonus events |
+| `/kill_explosion …` | Explosion effect on death |
+| `/refresh_prestige_db` | Prestige |
+| `/refinetest` | Refine stress test (original server tool) |
+| `/go_rift`, `/close rift`, `/close_rift`, `/next_rift_objectives` | Rifts |
+| `/bg_off` | Battlegrounds |
+| `/spawn_instance` | Event spawn groups ("event spawn name"); ArchCore only has the original tables' spawn points |
+| `/region …` | Region settings (damage reduction, potion reduction, cast cap, per class) |
+| `/cast_cap`, `/cooldown_cap` | Cast speed and cooldown reduction bonuses, which these caps limit |
+| `/refresh_lua_scripts`, `/reload_ip_players`, `/log_activity`, `/test` | LUA scripts, IP address list, activity log and test command of the original server |
 
 ## 5. Good practice
 

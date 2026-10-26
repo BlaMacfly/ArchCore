@@ -37,7 +37,9 @@
   affaiblissements, dégâts sur la durée, soins, passives ; états spéciaux (étourdissement, sommeil,
   ralentissement…), coups critiques, blocage, dégâts changés en PV ou PM, contre-attaque (dégâts renvoyés au monstre) ; compétences de groupe ; maîtrises (compétences exigées des arbres supérieur et héroïque) ; compétences des monstres (IA des tables du serveur d'origine : lancement, dégâts, effets, coups chargés). Groupes (invitation, membres, chef, exclusion, partage de l'expérience, discussion). Guildes (création chez
   les gestionnaires, invitation, adhésion, départ, exclusion, dissolution, annonce, discussion). Banque du compte (objets, argent, pages en plus) et
-  échange entre joueurs. Portails de téléportation (trajets payants entre points reliés). Quêtes : prise, progression (monstres, objets de quête), fin et récompenses, abandon. Voir
+  échange entre joueurs. Portails de téléportation (trajets payants entre points reliés, zones de combat
+  entre joueurs et « Retour », refus en combat). Reconnexion automatique (type 0x63). Commande MJ
+  `/last_refine`. Quêtes : prise, progression (monstres, objets de quête), fin et récompenses, abandon. Voir
   [[Protocole réseau|FR-Protocole-reseau]].
 - Extensions ArchRust : négociation de capacités, messages d'AddOn (murmure, `SAY`), et langue du client
   (version 1.1) : le serveur sert les noms des PNJ et des monstres dans la langue choisie, avec repli, et
@@ -47,7 +49,8 @@
 - Revente d'un objet à un PNJ.
 - Client ArchRust (branche `client`) : combat (attaque, coups, mort, résurrection, butin), groupes, autres
   joueurs, inventaire et équipement, PNJ (dialogue, boutique, banque et achat de pages, quêtes), compétences
-  (instructeurs, lancement, barre de raccourcis), portails de téléportation (fenêtre et chargement d'origine),
+  (instructeurs, lancement, barre de raccourcis), portails de téléportation (fenêtre et chargement d'origine, confirmation des zones de combat entre joueurs,
+  « Retour », refus en combat), reconnexion automatique (fenêtre `UI_ReconnectHold`, 60 s),
   guildes (greffier, fenêtres de création, de dissolution et de guilde, membres, nom de guilde au-dessus des têtes) et discussion de
   guilde et de groupe, chuchotements (barre privée, `/w`, `/r`, bouton de la fenêtre de guilde), packs de ressources graphismes et sons (activés, ordonnés et vérifiés depuis les Options ; voir le
   [guide](https://github.com/BlaMacfly/ArchCore/blob/client/ArchRust/docs/PACKS-DE-RESSOURCES.md)), fenêtres d'origine d'Archonia à la place des fenêtres provisoires (confirmations,
@@ -69,8 +72,8 @@
 1. Création complète d'un personnage et visibilité entre deux joueurs : vérifiées le 25 octobre 2026 avec
    deux clients ArchRust sur le serveur de test (création, entrée à Golundo, refus d'un nom déjà pris,
    joueurs visibles l'un de l'autre). Reste à les confirmer avec le client Archonia.
-3. Fonctions des PNJ : quêtes à objets d'interaction. Portails : zones de combat entre joueurs (confirmation,
-   retour, op 7), refus en combat ou métamorphosé.
+3. Fonctions des PNJ : quêtes à objets d'interaction. Portails : points désactivés (champ 5 de l'op 5) et
+   trajets des guerres de siège ; refus des métamorphosés à vérifier quand la métamorphose existera.
 4. Compétences : renvoi de dégâts (contre-attaque), compétences des monstres, compétences de groupe et maîtrises
    validés au simulateur le 25 octobre 2026, à confirmer en jeu. Restent le partage des dégâts (Divine Protection,
    Martyr's Mark), les purges, la défense ignorée et le gain des points héroïques et de charisme.
@@ -81,8 +84,9 @@
    uniques (`Link_id`) et raffinage (sphère d'alchimie, devis, grille et recettes) faits.
 6. Guildes : combats de guildes, alliances et hostilités, emblèmes, second et passation, agrandissement, liste
    des guildes, entrepôt.
-7. Reconnexion automatique (type 0x63).
-8. Commandes MJ restantes de la page [[Administration|FR-Administration]] (arène, événements, failles…).
+7. Reconnexion automatique : à confirmer avec le client Archonia.
+8. Commandes MJ restantes de la page [[Administration|FR-Administration]] : elles attendent leurs systèmes
+   (arène, événements, failles, réglages de région…), listés à la fin de sa section 4.
 9. Fin de la traduction : environ 54 000 textes restants.
 
 ## Plus tard

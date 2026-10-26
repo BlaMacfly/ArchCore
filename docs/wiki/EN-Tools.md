@@ -157,6 +157,24 @@ disbanding (wrong password refused). `sim refusal` (GmTest, SimA) ticks GmTest's
 factors received, refused above 10, back to ×1) and `/additem` (potions added, unknown TID refused), then
 destroys the stack.
 
+## Player-versus-player zones, reconnection and /last_refine tests
+
+```bash
+ARCHCORE_CONF_DIR=config/test archcore sim pvp [user] [pass] [character]
+ARCHCORE_CONF_DIR=config/test archcore sim reconnect [userA passA charA userB passB charB]
+ARCHCORE_CONF_DIR=config/test archcore sim lastrefine [user] [pass] [character]
+```
+
+`sim pvp` (GM account `gmtest`) hits a Green Worm north of Anchorville then stands at the Tullan city portal:
+its request is ignored in combat, granted ten seconds after the last hit; it travels to the guild arena (a
+player-versus-player zone), from where "Return" (op 7) brings it back to the Tullan portal; op 7 is refused
+from an ordinary portal. `sim reconnect` (GmTest, SimA): key received on entry, GmTest's connection dropped
+without leaving the world (SimA still sees it), resumption refused with a wrong key, accepted with the right
+one (new key, view sent again, command on the new connection), then a second drop: GmTest leaves the world
+after 60 s and the resumption is refused (about 70 s). `sim lastrefine` (GmTest) checks that `/last_refine` is
+refused before any refine, refines recipe 4013, runs it again with `/last_refine`, then gets result 1
+(missing ingredients).
+
 ## Quests test
 
 ```bash

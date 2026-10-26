@@ -42,6 +42,7 @@ pub mod portal;
 pub mod presence;
 pub mod quests;
 pub mod refinery;
+pub mod reconnect;
 pub mod recovery;
 pub mod regions;
 pub mod sector;
@@ -176,6 +177,12 @@ pub struct Player {
     pub language: String,
     /// Demande faite à un portail de téléportation, en attendant d'être à portée.
     pub portal: Option<portal::Pending>,
+    /// Point de départ du dernier trajet par portail (« Retour » depuis une zone de combat entre joueurs).
+    pub trip_from: Option<String>,
+    /// Clé de reconnexion et attente d'une reconnexion (0x63).
+    pub link: reconnect::Link,
+    /// Dernière recette raffinée avec succès (relancée par /last_refine).
+    pub last_recipe: Option<u32>,
     /// Multiplicateur de la vitesse de déplacement réglé par /speed (1 : normal), oublié à la déconnexion.
     pub gm_speed: i32,
 }
@@ -272,6 +279,7 @@ impl Service for WorldService {
                 | ptype::QUEST
                 | ptype::EVENT_QUEST
                 | ptype::UI_STATUS
+                | ptype::RECONNECT
                 | ptype::ARCHCORE_EXT
         )
     }
@@ -330,6 +338,10 @@ impl Connection for WorldConn {
         if st.evicted.contains(&self.sid) {
             return Ok(());
         }
+        // Connexion remplacée par une reconnexion (0x63) : ses derniers paquets sont ignorés.
+        if st.players.get(&self.sid).is_some_and(|pl| pl.sess.id() != s.id()) {
+            return Ok(());
+        }
         let ctx = &world.ctx;
         match p.header.ptype {
             ptype::CHAR_MANAGER => {
@@ -375,22 +387,31 @@ impl Connection for WorldConn {
             ptype::QUEST => quests::on_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::EVENT_QUEST => quests::on_event(ctx, &mut st, self.sid, &p),
             ptype::UI_STATUS => ui_status::on_packet(ctx, &mut st, self.sid, &p).await?,
+            ptype::RECONNECT => {
+                if let Some(sid) = reconnect::on_packet(ctx, &mut st, s, &p).await? {
+                    self.sid = sid;
+                }
+            }
             _ => {}
         }
         timer.finish();
         Ok(())
     }
 
-    async fn on_close(&mut self, _s: &SessionHandle) {
+    async fn on_close(&mut self, s: &SessionHandle) {
         let world = self.world.clone();
         let mut st = world.state.lock().await;
         st.evicted.remove(&self.sid);
+        // Personnage repris par une autre connexion, ou gardé en attendant une reconnexion.
+        if st.players.get(&self.sid).is_some_and(|p| p.sess.id() != s.id()) || reconnect::detach(&mut st, self.sid, Instant::now()) {
+            return;
+        }
         remove_player(&world.ctx, &mut st, self.sid).await;
     }
 }
 
 /// Retire un joueur du monde : échange annulé, groupe quitté, position enregistrée.
-async fn remove_player(ctx: &WorldCtx, st: &mut WorldState, sid: u32) {
+pub(super) async fn remove_player(ctx: &WorldCtx, st: &mut WorldState, sid: u32) {
     // Un échange en cours est annulé : les objets n'ont pas quitté les inventaires.
     trade::cancel(st, sid);
     // Le groupe perd ce membre (et se dissout s'il ne reste qu'un joueur).
@@ -530,6 +551,9 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
             quests,
             language,
             portal: None,
+            trip_from: None,
+            link: reconnect::Link::default(),
+            last_recipe: None,
             gm_speed: 1,
             ui_status,
         },
@@ -587,6 +611,7 @@ fn enter_world(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle) {
     p.send(c, Fields::new(c).with(0, 1).with(1, p.ch.id).with(4, 2).with(7, factors_mini(&p.factors)));
     let region = ctx.map.region(pos.x as f64, pos.z as f64).map(|r| r.to_string()).unwrap_or_else(|| "inconnue".into());
     info!("[world] #{sid} {} est en jeu (région {region})", p.ch.name);
+    reconnect::on_enter(st, sid);
 }
 
 /// Vue d'un joueur placé en `pos` (secteurs voisins, voir `sector.rs`) : PNJ entrés (vue optimisée op 1,

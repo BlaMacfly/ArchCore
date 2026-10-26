@@ -7,6 +7,8 @@
 //!            dès qu'il est à portée.
 //!   client → op 0 (EVENT_BASE de l'objet de départ, nom du point d'arrivée)
 //!            ← op 1 (CID, position d'arrivée), déplacement, ← op 8 (chargement terminé).
+//!   client → op 7 (EVENT_BASE, CID) : « Retour » depuis un point de zone de combat entre joueurs
+//!            ← op 1, déplacement, ← op 8.
 //! ```
 //! Un trajet est permis si l'un des groupes visés par le point de départ (`TargetGroup`) compte le point
 //! d'arrivée (`Group`), et si la race du joueur est admise aux deux bouts (`UseType`, 0 : toutes). L'arrivée
@@ -14,6 +16,15 @@
 //! autour de lui, au premier des huit points espacés de 45° (à partir d'un angle tiré au hasard) qui n'est
 //! pas sur un sol infranchissable. Le prix du trajet (TeleportFee.txt, que le client affiche aussi) est pris
 //! sur l'argent porté.
+//!
+//! Zones de combat entre joueurs (`RegionType=1`, toujours avec `SpecialType=1` dans TeleportPoint.ini) :
+//! comme dans le module AgpmEventTeleport d'Archonia (FUN_1402e8780), le point de départ de chaque trajet
+//! réussi est noté sur le personnage ; depuis un point `SpecialType=1`, le client ne propose que « Retour »
+//! (op 7), qui ramène à ce point de départ (à défaut, au village de rattachement), sans frais. Le client
+//! demande lui-même confirmation avant d'entrer dans une telle zone (`TELEPORT_ConfirmPvPZone`).
+//!
+//! Demande (op 4), trajet (op 0) et retour (op 7) sont ignorés pour un joueur mort ou en combat (10 s
+//! après le dernier coup) : le client d'origine ne les envoie pas et affiche `Teleport_CombatMode`.
 
 use super::combat::dist2d;
 use super::npcs::BASE_TYPE_OBJECT;
@@ -34,8 +45,14 @@ pub mod op {
     pub const TELEPORT_START: i64 = 1;
     pub const REQUEST: i64 = 4;
     pub const GRANTED: i64 = 5;
+    pub const RETURN: i64 = 7;
     pub const LOADING: i64 = 8;
 }
+
+/// `RegionType` d'un point en zone de combat entre joueurs.
+pub const REGION_PVP: i64 = 1;
+/// `SpecialType` d'un point d'où l'on ne peut que revenir (op 7).
+pub const SPECIAL_RETURN_ONLY: i64 = 1;
 
 /// Races admises (bits de `UseType`), dans l'ordre des races du jeu (1 humain, 2 orc, 3 elfe de lune,
 /// 4 dragonien).
@@ -51,6 +68,9 @@ pub struct Point {
     pub radius_min: f64,
     pub radius_max: f64,
     pub use_type: i64,
+    /// `RegionType` (1 : zone de combat entre joueurs) et `SpecialType` (1 : retour seul).
+    pub region_type: i64,
+    pub special_type: i64,
     pub groups: Vec<String>,
     pub target_groups: Vec<String>,
     /// Position de l'objet qui porte le point ; sans objet, le point ne peut pas servir d'arrivée.
@@ -85,7 +105,7 @@ pub struct Portals {
 impl Portals {
     pub async fn load(db: &Databases) -> anyhow::Result<Self> {
         let mut r = Portals::default();
-        let Ok(rows) = db.world.rows("SELECT name, radius_min, radius_max, use_type, point_groups, target_groups FROM teleport_point", ()).await else {
+        let Ok(rows) = db.world.rows("SELECT name, radius_min, radius_max, use_type, region_type, special_type, point_groups, target_groups FROM teleport_point", ()).await else {
             warn!("portails non chargés : lancer `archcore db-init` puis `archcore import`");
             return Ok(r);
         };
@@ -95,6 +115,8 @@ impl Portals {
                 radius_min: col::<f32>(row, "radius_min") as f64,
                 radius_max: col::<f32>(row, "radius_max") as f64,
                 use_type: col(row, "use_type"),
+                region_type: col(row, "region_type"),
+                special_type: col(row, "special_type"),
                 groups: list(col(row, "point_groups")),
                 target_groups: list(col(row, "target_groups")),
                 at: None,
@@ -162,8 +184,54 @@ pub async fn on_packet(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet
     match p.int(0) {
         Some(op::REQUEST) => request(ctx, st, sid, p),
         Some(op::TELEPORT_POINT) => teleport(ctx, st, sid, p).await?,
+        Some(op::RETURN) => go_back(ctx, st, sid, p).await?,
         op => crate::debug!("[portail] #{sid} AGPMEVENTTELEPORT op {op:?} (ignoré)"),
     }
+    Ok(())
+}
+
+/// Le joueur ne peut pas se servir d'un portail : mort, ou en combat (comme le module d'Archonia, qui
+/// ignore alors la demande).
+fn unable(player: &super::Player, now: Instant) -> bool {
+    player.dead || now < player.timers.combat_until
+}
+
+/// Départ effectif vers `at` : op 1 (position), déplacement, op 8.
+async fn travel_to(ctx: &WorldCtx, st: &mut WorldState, sid: u32, at: Vec3) -> anyhow::Result<()> {
+    let cid = st.players[&sid].ch.id;
+    let start = packet(op::TELEPORT_START, None, cid).with(4, at);
+    st.players[&sid].send(&schema::EVENT_TELEPORT, start);
+    super::teleport(ctx, st, sid, at.x as f64, Some(at.y as f64), at.z as f64).await?;
+    st.players[&sid].send(&schema::EVENT_TELEPORT, packet(op::LOADING, None, cid));
+    Ok(())
+}
+
+/// Op 7 : « Retour » depuis un point d'où l'on ne peut que revenir (zones de combat entre joueurs).
+async fn go_back(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> anyhow::Result<()> {
+    let Some((_, portal, _)) = portal_of(ctx, p) else { return Ok(()) };
+    let Some(here) = ctx.portals.points.get(&portal.point) else { return Ok(()) };
+    let Some(player) = st.players.get(&sid) else { return Ok(()) };
+    if here.special_type != SPECIAL_RETURN_ONLY {
+        warn!("[portail] {} : retour demandé depuis « {} », qui n'est pas un point de retour", player.ch.name, portal.point);
+        return Ok(());
+    }
+    if unable(player, Instant::now()) || dist2d(player.ch.pos(), portal.pos) > MAX_USE_RANGE {
+        return Ok(());
+    }
+    // Arrivée : autour du point de départ du dernier trajet, sinon au village de rattachement.
+    let from = player.trip_from.clone();
+    let back = from.as_deref().and_then(|n| ctx.portals.points.get(n)).and_then(|pt| pt.at.and_then(|c| landing(ctx, pt, c, &mut rand::thread_rng())));
+    let at = match back {
+        Some(at) => at,
+        None => {
+            let (x, y, z) = super::travel::home_village(ctx, player);
+            Vec3::new(x as f32, y.unwrap_or(player.ch.pos_y) as f32, z as f32)
+        }
+    };
+    let name = player.ch.name.clone();
+    st.players.get_mut(&sid).unwrap().trip_from = None;
+    travel_to(ctx, st, sid, at).await?;
+    info!("[portail] {name} : retour depuis « {} » vers « {} »", portal.point, from.as_deref().unwrap_or("village"));
     Ok(())
 }
 
@@ -175,7 +243,7 @@ fn request(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) {
     };
     let Some(point) = ctx.portals.points.get(&portal.point) else { return };
     let Some(player) = st.players.get_mut(&sid) else { return };
-    if player.dead || !point.admits(player.factors.ftype[0] as i64) {
+    if unable(player, Instant::now()) || !point.admits(player.factors.ftype[0] as i64) {
         return;
     }
     player.attack = None;
@@ -239,8 +307,11 @@ async fn teleport(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> 
         warn!("[portail] {} : point « {target_name} » inconnu", player.ch.name);
         return Ok(());
     };
+    if unable(player, Instant::now()) {
+        return Ok(());
+    }
     // Le joueur doit être au portail de départ (l'accord a été donné à moins de 1600 unités).
-    if player.dead || dist2d(player.ch.pos(), portal.pos) > MAX_USE_RANGE * 2.0 {
+    if dist2d(player.ch.pos(), portal.pos) > MAX_USE_RANGE * 2.0 {
         warn!("[portail] {} trop loin de « {} »", player.ch.name, portal.point);
         return Ok(());
     }
@@ -262,15 +333,15 @@ async fn teleport(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> 
         warn!("[portail] pas de place libre autour de « {target_name} »");
         return Ok(());
     };
-    let (cid, name) = (player.ch.id, player.ch.name.clone());
+    let name = player.ch.name.clone();
     if fee > 0 {
         super::set_money(ctx, st, sid, money - fee).await?;
     }
-    let start = packet(op::TELEPORT_START, None, cid).with(4, at);
-    st.players[&sid].send(&schema::EVENT_TELEPORT, start);
-    super::teleport(ctx, st, sid, at.x as f64, Some(at.y as f64), at.z as f64).await?;
-    st.players[&sid].send(&schema::EVENT_TELEPORT, packet(op::LOADING, None, cid));
-    info!("[portail] {name} : « {} » → « {target_name} » pour {fee} pièce(s)", portal.point);
+    // Point de départ noté, pour un « Retour » depuis l'arrivée (module d'Archonia, op 0 réussie).
+    st.players.get_mut(&sid).unwrap().trip_from = Some(portal.point.clone());
+    travel_to(ctx, st, sid, at).await?;
+    let zone = if dst.region_type == REGION_PVP { " (zone de combat entre joueurs)" } else { "" };
+    info!("[portail] {name} : « {} » → « {target_name} »{zone} pour {fee} pièce(s)", portal.point);
     Ok(())
 }
 
@@ -280,7 +351,7 @@ mod tests {
 
     fn point(use_type: i64, groups: &[&str], targets: &[&str]) -> Point {
         let s = |l: &[&str]| l.iter().map(|g| g.to_string()).collect();
-        Point { radius_min: 400.0, radius_max: 600.0, use_type, groups: s(groups), target_groups: s(targets), at: None }
+        Point { radius_min: 400.0, radius_max: 600.0, use_type, region_type: 0, special_type: 0, groups: s(groups), target_groups: s(targets), at: None }
     }
 
     #[test]

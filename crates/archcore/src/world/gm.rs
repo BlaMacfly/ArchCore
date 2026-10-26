@@ -262,6 +262,7 @@ pub static COMMANDS: &[CommandDef] = &[
     CommandDef { name: "speed", level: 2, args: Some(&["int"]), usage: "/speed <1-10>" },
     CommandDef { name: "questreset", level: 3, args: Some(&["int"]), usage: "/questreset <TID>" },
     CommandDef { name: "recast", level: 3, args: Some(&[]), usage: "/recast" },
+    CommandDef { name: "last_refine", level: 3, args: Some(&[]), usage: "/last_refine" },
     CommandDef { name: "level", level: 3, args: Some(&["int", "name?"]), usage: "/level <niveau> \"nom\"" },
     CommandDef { name: "money", level: 3, args: Some(&["int", "name?"]), usage: "/money <montant> \"nom\"" },
     CommandDef { name: "announce_restart", level: 3, args: Some(&["int", "int?"]), usage: "/announce_restart <minutes> <secondes>" },
@@ -454,6 +455,14 @@ async fn run(world: &Arc<World>, st: &mut WorldState, sid: u32, cmd: &CommandDef
             }
             Ok(format!("Délais de relance remis à zéro ({n} compétence(s))."))
         }
+        "last_refine" => match st.players[&sid].last_recipe {
+            None => err("aucun raffinage réussi depuis la connexion"),
+            Some(id) => {
+                // Même chemin que l'op 6 du client : ingrédients pris dans l'inventaire, résultat (op 1) au client.
+                super::refinery::refine_recipe(ctx, st, sid, id).await?;
+                Ok(format!("Recette de raffinage {id} relancée."))
+            }
+        },
         "level" => {
             let level = a[0].int().unwrap_or(0);
             let target = match a[1].name() {

@@ -573,6 +573,20 @@ object), CID, point name (CP949, 33 bytes), position, disabled points.
 The player lands on a circle of radius `RadiusMin`..`RadiusMax` around the object carrying the arrival
 point, at the first of eight points 45° apart (from a random angle) that is not on blocked ground.
 
+**Player-versus-player zones.** The 19 `RegionType=1` points (all `SpecialType=1`): guild arena, Battle
+Square, dungeon rooms and entrances. In Archonia (AgcmUIEventTeleport):
+
+- picking such an arrival opens the `TELEPORT_ConfirmPvPZone` box (OK / Cancel); OK sends op 0;
+- from such a point, the list only offers "Return" (`Teleport_ReturnOnly`), which sends **op 7** (event,
+  CID). The AgpmEventTeleport module records on the character the departure point of each successful trip;
+  ArchCore brings the player back there (free of charge), or to the bound village if there is none (after a
+  reconnection, for instance). Op 7 is ignored from a point that is not `SpecialType=1`.
+
+**Refusals.** The client does not send op 4 in combat mode (10 s after the last hit given or taken, or an
+offensive skill): `Teleport_CombatMode` message in the chat; nor while transformed (character field 18):
+`Teleport_TransformChar`. ArchCore likewise ignores ops 0, 4 and 7 from a dead player or one in combat. A
+cancelled departure is reported by **op 2** (closes the loading screen).
+
 ## Bank (types 0x36, 0x04 and 0x02)
 
 The bank is shared by the characters of one account. Keepers ("Safe Keeper", 18 NPCs) carry function 20,
@@ -746,6 +760,28 @@ A type of ArchCore's own. The original client only dispatches types 0x01 to 0x77
 an ArchRust client uses it after the handshake to negotiate its extensions (`HELLO` / `HELLO_ACK`) and
 then exchange AddOn messages. The server never sends one to a connection that did not send `HELLO`.
 Full specification: [[ArchRust extensions|EN-ArchRust-extensions]].
+
+## Automatic reconnection (type 0x63, AgpmReconnect)
+
+AGPMRECONNECT (4 flag bytes): op, CID, name (CHAR[48]), account (CHAR[1024]), password (CHAR[1024]), key,
+agreement. The original client (AgcmReconnect):
+
+- keeps the key of every **op 2** received (non-zero field 5). ArchCore sends one, picked at random, at the
+  end of the world entry (agreement 0);
+- when the world connection is lost with the character in game: opens `UI_ReconnectHold`
+  (`ReconnectingServerShow`), retries the world address every 5 s for 60 s and shows "Attempting to
+  reconnect to the game server...";
+- once connected, sends **op 1** (CID, name, account, password, key) instead of the normal entry (type 0x03
+  op 2);
+- on an **op 2** with agreement 1 (field 6), resumes the game on the new connection, keeps the new key and
+  closes the window; after 60 s, gives up ("Failed reconnecting to the server.").
+
+ArchCore keeps a player whose connection drops in the world, standing still (60 s, the client's delay). A
+valid resumption (key, CID, name and account; the password is not checked) attaches the character to the new
+connection, sends op 2 with a new key and agreement 1, then sends again what the player sees (NPCs,
+monsters, players and ground items removed and sent again, position and factors). A refused resumption
+closes the connection. After the delay, the character leaves the world as on a disconnection; a new entry
+through the login server replaces it at once.
 
 ## Known types
 

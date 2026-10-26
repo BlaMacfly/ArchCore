@@ -4,8 +4,8 @@ Cette page décrit les commandes de maître du jeu (MJ) que le client sait envoy
 
 > **État d'ArchCore** : le serveur gère la discussion, envoie le niveau MJ au client et exécute les
 > commandes marquées ✅ dans la liste (voir la section 3). Les autres répondent « Commande inconnue » :
-> elles attendent les systèmes de jeu correspondants (arène, événements, failles…). Le suivi se fait
-> sur la page [[Feuille de route|FR-Feuille-de-route]].
+> elles attendent les systèmes de jeu correspondants, absents d'ArchCore (voir la fin de la section 4).
+> Le suivi se fait sur la page [[Feuille de route|FR-Feuille-de-route]].
 
 > **Panneau MJ.** Avec le client ArchRust, l'AddOn [ArchCoreAdmin](https://github.com/BlaMacfly/ArchCoreAdmin)
 > propose un bouton pour chacune de ces commandes et relit les réponses du serveur.
@@ -79,6 +79,7 @@ la discussion comme messages système.
 | `/additem <TID> [quantité]` | 3 | Raccourci de `/create` sur soi : ajoute l'objet (1 par défaut, jusqu'à 9999) dans l'inventaire du MJ, échangeable. Commande propre à ArchCore |
 | `/questreset <TID>` | 3 | Efface la quête TID (en cours ou terminée) du journal du MJ ; visible à la prochaine connexion. Commande propre à ArchCore |
 | `/recast` | 3 | Remet à zéro, côté serveur, les délais de relance des compétences du MJ (le client peut encore afficher le sien). Commande propre à ArchCore |
+| `/last_refine` | 3 | Relance la dernière recette raffinée avec succès depuis la connexion (« Use last refine recipe » du panneau), comme l'op 6 du client : ingrédients pris dans l'inventaire, or payé, résultat dans la fenêtre de raffinage. Refusée sans raffinage réussi |
 | `/level <niveau> ["nom"]` | 3 | Fixe le niveau du personnage connecté (1 à 120) : expérience remise à zéro, PV et PM rendus, points de compétence recalculés ; sans nom, sur soi. Commande propre à ArchCore |
 | `/money <montant> ["nom"]` | 3 | Fixe l'or du personnage connecté (de 0 à 1 000 000 000) ; sans nom, sur soi. Commande propre à ArchCore |
 | `/announce_restart <minutes> <secondes>` | 3 | Annonce à tous les joueurs, rappel chaque minute, compte à rebours sur les dernières secondes. `0 0` annule |
@@ -194,7 +195,7 @@ Exemple : `/SetExp 2.0` puis `/GetExp` pour vérifier.
 | ✅ `/level <niveau> ["nom"]` | Fixe le niveau d'un personnage connecté (ajout d'ArchCore, absent du panneau) |
 | ✅ `/questreset <TID>` | Efface une quête du journal du MJ (ajout d'ArchCore, absent du panneau) |
 | ✅ `/recast` | Remet à zéro les délais de relance des compétences du MJ (ajout d'ArchCore, absent du panneau) |
-| `/last_refine` | Réutilise la dernière recette de raffinage |
+| ✅ `/last_refine` | Relance la dernière recette de raffinage réussie |
 | `/refresh_prestige_db` | Recharge les données de prestige |
 | `/refinetest` / `/refinetest stop` | Lance ou arrête le test de charge du raffinage |
 
@@ -224,6 +225,27 @@ Le panneau propose une recherche d'objet par nom ou par TID.
 | `/cast_cap <0-100>` | Limite de vitesse d'incantation |
 | `/cooldown_cap <0-100>` | Limite de réduction des temps de recharge |
 | `/test <minutes>` | Commande de test : donne des points et règle le délai d'apparition des boss |
+
+### Commandes sans système dans ArchCore
+
+Le panneau « Admin Commands » d'Archonia ne fait que composer ces commandes ; leur effet est décidé par le
+serveur. Elles restent sans effet (« Commande inconnue ») tant que le système qu'elles pilotent n'existe pas :
+
+| Commandes | Système absent |
+|---|---|
+| `/arena_*`, `/spectate_*`, `/leave_spectate`, `/set_chat_season_winners` | Arène, saisons et récompenses de sanctuaire |
+| `/tournament …`, `/death_match …`, `/racewar …`, `/game_event …`, `/counter …` | Événements de jeu (tournoi, match à mort, guerre des races, compteur) |
+| `/battlepass …`, `/battlepass_premium` | Passe de combat |
+| `/reload_events`, `/reload_class_events`, `/reload_event_effect`, `/enable_events`, `/disable_events` | Événements bonus |
+| `/kill_explosion …` | Effet d'explosion à la mort |
+| `/refresh_prestige_db` | Prestige |
+| `/refinetest` | Test de charge du raffinage (outil du serveur d'origine) |
+| `/go_rift`, `/close rift`, `/close_rift`, `/next_rift_objectives` | Failles |
+| `/bg_off` | Champs de bataille |
+| `/spawn_instance` | Groupes d'apparition d'événement (« event spawn name ») ; ArchCore n'a que les points d'apparition des tables d'origine |
+| `/region …` | Réglages de région (réduction de dégâts, de potions, limite d'incantation, par classe) |
+| `/cast_cap`, `/cooldown_cap` | Bonus de vitesse d'incantation et de réduction des recharges, que ces limites plafonnent |
+| `/refresh_lua_scripts`, `/reload_ip_players`, `/log_activity`, `/test` | Scripts LUA, liste d'adresses IP, journal d'activité et commande de test du serveur d'origine |
 
 ## 5. Bonnes pratiques
 
