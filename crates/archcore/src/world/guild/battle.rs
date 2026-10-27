@@ -568,7 +568,7 @@ pub async fn attack_step(ctx: &WorldCtx, st: &mut WorldState, sid: u32, target: 
     let speed = p.factors.attack[2].max(1) as u64;
     let cid = p.ch.id;
     let me = st.players.get_mut(&sid).unwrap();
-    me.attack = Some(combat::Attack { target, ready_at: now_ + Duration::from_millis(60_000 / speed) });
+    me.attack = Some(combat::Attack { target, ready_at: now_ + Duration::from_millis(60_000 / speed), forced: false });
     me.dest = None;
     crate::world::recovery::in_combat(&mut me.timers, now_);
     if st.players[&tsid].invincible_until.is_some_and(|u| now_ < u) {

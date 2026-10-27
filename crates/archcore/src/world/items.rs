@@ -150,6 +150,8 @@ pub struct ItemData {
     pub usable_type: i64,
     /// Options fixes (« OptionTID ») : celles qu'une rune apporte à l'objet où elle est sertie.
     pub option_tids: Vec<u16>,
+    /// Genre (« Kind ») ; le bit 0x20 marque les objets qu'un meurtrier de palier 2 ne peut pas acheter.
+    pub kind: i64,
 }
 
 /// Options fixes d'un objet (colonne « OptionTID », séparées par « ; »).
@@ -282,7 +284,8 @@ impl ItemCatalog {
                 let stone = raw.as_ref().and_then(stone_of);
                 let usable_type = raw.as_ref().map(usable_type_of).unwrap_or(0);
                 let option_tids = raw.as_ref().map(option_tids_of).unwrap_or_default();
-                (tid, ItemData { tid, name: col(r, "name"), npc_price: col(r, "npc_price"), pc_price: col(r, "pc_price"), stack: col::<i64>(r, "stack").max(1), equip, potion, scroll, stone, usable_type, option_tids })
+                let kind = raw.as_ref().and_then(|v| v.get("Kind")?.as_str()?.trim().parse::<i64>().ok()).unwrap_or(0);
+                (tid, ItemData { tid, name: col(r, "name"), npc_price: col(r, "npc_price"), pc_price: col(r, "pc_price"), stack: col::<i64>(r, "stack").max(1), equip, potion, scroll, stone, usable_type, option_tids, kind })
             })
             .collect();
         let lists = db.world.rows("SELECT template_id, tid, count FROM npc_trade_list ORDER BY template_id, idx", ()).await?;

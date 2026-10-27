@@ -152,6 +152,21 @@ World.SlowPacketMs = 100
 
 Guild.BattleReadySeconds = 180
 
+#    PvP.MurdererPointsPerKill
+#        Points de meurtrier gagnés en tuant un joueur innocent de plus de 4 niveaux en
+#        dessous, après l'avoir attaqué en premier. Paliers : 40, 60 et 100 points. La
+#        valeur du serveur d'origine n'est pas connue.
+#        Défaut : 20
+
+PvP.MurdererPointsPerKill = 20
+
+#    PvP.RemissionPoints
+#        Points de meurtrier retirés par une rémission (10 lettres de pardon), comme le
+#        client l'annonce.
+#        Défaut : 2
+
+PvP.RemissionPoints = 2
+
 #    World.TimeZone
 #        Fuseau de l'horloge envoyée au client, qui en tire l'heure du ciel.
 #            local : heure de la machine du serveur

@@ -46,6 +46,11 @@
   [[Extensions ArchRust|FR-Extensions-ArchRust]] et [[Traduction|FR-Traduction]] ; côté ArchRust, sélecteur
   de langue dans les Options.
 - Revente d'un objet à un PNJ.
+- Combat entre joueurs : règles d'attaque d'Archonia (zones, niveau 20, Ctrl, amis, groupe, Battlegrounds),
+  ennemis déclarés, premier attaquant, victoires et défaites, points de meurtrier et leurs pénalités (groupe,
+  échange, prix des PNJ, expérience), charisme gagné, rémission auprès des pardonneurs ; côté ArchRust, attaque
+  avec Ctrl, messages, couleur des noms et annonces de zone. Validé au simulateur le 27 octobre 2026 (scénario
+  `pk`). Montants des points de meurtrier et du charisme réglables, ceux d'origine étant inconnus.
 - Client ArchRust (branche `client`) : combat (attaque, coups, mort, résurrection, butin), groupes, autres
   joueurs, inventaire et équipement, PNJ (dialogue, boutique, banque et achat de pages, quêtes), compétences
   (instructeurs, lancement, barre de raccourcis), portails de téléportation (fenêtre et chargement d'origine, confirmation des zones de combat entre joueurs,

@@ -1015,7 +1015,7 @@ async fn complete(ctx: &WorldCtx, st: &mut WorldState, sid: u32, cast: Cast, now
     if let (Some((target, _)), Some(p)) = (primary, st.players.get_mut(&sid)) {
         super::recovery::in_combat(&mut p.timers, now);
         if p.attack.is_none() && st.monsters.get(target).is_some_and(|m| m.is_alive()) {
-            p.attack = Some(combat::Attack { target, ready_at: now });
+            p.attack = Some(combat::Attack { target, ready_at: now, forced: false });
         }
     }
     debug!("[compétence] {} : {skill_name} terminée", st.players.get(&sid).map(|p| p.ch.name.as_str()).unwrap_or("?"));
@@ -1655,6 +1655,8 @@ pub async fn set_charisma(ctx: &WorldCtx, st: &mut WorldState, sid: u32, points:
 pub enum CharismaSource {
     Gm,
     Boss,
+    /// Joueur tué en combat entre joueurs (`pvp.rs`).
+    Pvp,
 }
 
 /// Bonus de charisme (pour cent) des effets d'un joueur qui portent sur un gain de cette source : Charisma Double et

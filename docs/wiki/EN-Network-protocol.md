@@ -931,6 +931,32 @@ monsters, players and ground items removed and sent again, position and factors)
 closes the connection. After the delay, the character leaves the world as on a disconnection; a new entry
 through the login server replaces it at once.
 
+## Player versus player (types 0x4A and 0x2A, AgpmPvP and AgpmRemission)
+
+**AGPMPVP** (flags 2, server to client only): 0 op, 1 CID (message code for op 18), 2 target CID, 3 wins (message
+integer), 4 losses, 5 mode (1 safe, 2 free, 3 combat), 6 status (bit 1 invincible), 7 op 0 byte, 8 guild
+(CHAR[33], message string 1), 9 name (CHAR[49], string 2). Op 0 wins and losses, op 2 / 4 enemy added / removed,
+op 6 list cleared, op 18 system message (`PvP_Msg_*` texts of uimessage.txt: 3 "in combat", 4 "combat over",
+5 defeat, 12 victory, 17 target invincible, 20 friend, 24 charisma gained, 25 level too low…). Codes 0 to 2
+(entering a safe, free or combat area) are produced by the client itself on region change.
+
+ArchCore rules, taken from the client (`FUN_1402d8e80`): an area's safety comes from bits 2-3 of RegionTemplate.ini's
+`Type`; never an attack in a safe area; elsewhere, a declared enemy or a forced attack (Ctrl, field 6 of action 0x41),
+level 20 on both sides, not one's party in a free area, not a friend (same guild, allied guild) in a combat area;
+hostile guilds and guild battles: enemies by default; Battlegrounds (regions 110-114, 123-125, 175, 176): different
+races only. A forced attack makes both players enemies for 5 minutes, extended on every hit; in a free area against
+an innocent, the attacker becomes a first attacker for 20 minutes (character field 12 = 1, field 25 = seconds left,
+purple name). Killing an innocent more than 4 levels below after attacking first gives murderer points (status
+factor 11, `PvP.MurdererPointsPerKill`) and opens a 2-hour delay (field 26); thresholds 40 (expelled from the party,
+no invitation or trade, NPC prices doubled), 60 (items of kind 0x20 refused by NPCs, code 9), 100 (no forced attack,
+monster experience halved). Killing a player of one's level or higher gives as much charisma as their level. The
+amounts (points, charisma) do not come from the original server, which did not leave them.
+
+**AGPMREMISSION** (flags 1): 0 op, 1 CID, 2 mini packet. Op 0 request to the pardoner (NPC function 31, EVENT_BASE
+mini), op 1 grant (`UI_Remission` window), op 2 remission: mini {type 4 = letters of pardon} from the client, {type,
+result} from the server (type 4 result 1 success, 3 no point, 7 not enough letters; type 1 result 0 the 2-hour delay
+has not passed). 10 letters (TID 3311 or 1836) remove `PvP.RemissionPoints` points (2, as the client announces).
+
 ## Known types
 
 | Type | Module | Type | Module |
@@ -946,6 +972,7 @@ through the login server replaces it at once.
 | 0x0F | Chat | 0x48 | Startup encryption |
 | 0x11 | Timer | 0x60 | Titles |
 | 0x13 | Quests | 0x63 | Reconnect |
+| 0x4A | Player versus player | 0x2A | Remission |
 | 0x32 | NPC shops | 0x37 | NPC dialog |
 | 0x3B | Skill master | 0x36 | Bank |
 | 0x31 | Teleport portals | 0x15 | Guilds |

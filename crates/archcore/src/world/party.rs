@@ -54,6 +54,11 @@ pub mod mgmt {
     pub const DELEGATION_LEADER: i64 = 11;
     /// L'invité refuse les invitations de groupe (options) : « Option_Party_Off_User ».
     pub const FAILED_REFUSE: i64 = 14;
+    /// Meurtrier (40 points ou plus) : l'invitant (« Party_Murderer_Error_Self »), l'invité
+    /// (« Party_Murderer_Error_Target »), exclusion d'un membre devenu meurtrier (« Party_Murderer_Error_Leave »).
+    pub const FAILED_MURDERER_SELF: i64 = 18;
+    pub const FAILED_MURDERER_TARGET: i64 = 19;
+    pub const LEAVE_BY_MURDERER: i64 = 20;
 }
 
 /// Répartition de l'expérience : selon les dégâts (défaut) ou selon le niveau.
@@ -205,6 +210,15 @@ pub fn on_management(st: &mut WorldState, sid: u32, p: &Packet) {
             if st.by_cid.get(&target).is_some_and(|t| super::option_flags::refuses(st, *t, super::option_flags::REFUSE_PARTY_IN)) {
                 info!("[groupe] {target_name} refuse les invitations de {my_name}");
                 send(st, me, management_packet(mgmt::FAILED_REFUSE, Some(me), Some(target), Some(&target_name)));
+                return;
+            }
+            let murderer = |cid: u32| st.by_cid.get(&cid).and_then(|s| st.players.get(s)).is_some_and(|p| super::pvp::murderer_level(p.ch.murderer) >= 1);
+            if murderer(me) {
+                send(st, me, management_packet(mgmt::FAILED_MURDERER_SELF, Some(me), Some(target), Some(&target_name)));
+                return;
+            }
+            if murderer(target) {
+                send(st, me, management_packet(mgmt::FAILED_MURDERER_TARGET, Some(me), Some(target), Some(&target_name)));
                 return;
             }
             if st.parties.of.contains_key(&target) {
@@ -365,6 +379,16 @@ pub fn remove_member(st: &mut WorldState, cid: u32) {
         1 => remove_member(st, party.members[0]),
         _ => {}
     }
+}
+
+/// Un membre devenu meurtrier est exclu de son groupe (« Party_Murderer_Error_Leave »).
+pub fn expel_murderer(st: &mut WorldState, sid: u32) {
+    let Some(cid) = st.players.get(&sid).map(|p| p.ch.id) else { return };
+    if !st.parties.of.contains_key(&cid) {
+        return;
+    }
+    send(st, cid, management_packet(mgmt::LEAVE_BY_MURDERER, Some(cid), None, None));
+    remove_member(st, cid);
 }
 
 /// Déconnexion : le joueur quitte son groupe et ses invitations tombent.

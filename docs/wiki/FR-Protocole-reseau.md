@@ -971,6 +971,35 @@ nouvelle connexion, envoie l'op 2 avec une nouvelle clé et l'accord 1, puis ren
 refusée ferme la connexion. Passé le délai, le personnage quitte le monde comme à une déconnexion ; une
 nouvelle entrée par le serveur de connexion le remplace aussitôt.
 
+## Combat entre joueurs (types 0x4A et 0x2A, AgpmPvP et AgpmRemission)
+
+**AGPMPVP** (drapeaux 2, du serveur au client seulement) : 0 op, 1 CID (code du message à l'op 18), 2 CID cible,
+3 victoires (entier du message), 4 défaites, 5 mode (1 sûr, 2 libre, 3 combat), 6 statut (bit 1 invincible),
+7 octet de l'op 0, 8 guilde (CHAR[33], chaîne 1 du message), 9 nom (CHAR[49], chaîne 2). Op 0 victoires et
+défaites, op 2 / 4 ennemi ajouté / retiré, op 6 liste vidée, op 18 message système (textes `PvP_Msg_*`
+d'uimessage.txt : 3 « en combat », 4 « fin du combat », 5 défaite, 12 victoire, 17 cible invincible, 20 ami,
+24 charisme gagné, 25 niveau insuffisant…). Les codes 0 à 2 (entrée en zone sûre, libre, de combat) sont produits
+par le client lui-même au changement de région.
+
+Règles d'ArchCore, reprises du client (`FUN_1402d8e80`) : la sûreté d'une zone vient des bits 2-3 du `Type` de
+RegionTemplate.ini ; jamais d'attaque en zone sûre ; ailleurs, ennemi déclaré ou attaque forcée (Ctrl, champ 6 de
+l'action 0x41), niveau 20 des deux côtés, pas son groupe en zone libre, pas un ami (même guilde, guilde alliée) en
+zone de combat ; guildes hostiles et combat de guildes : ennemies d'office ; Battlegrounds (régions 110-114,
+123-125, 175, 176) : races différentes seulement. Une attaque forcée rend les deux joueurs ennemis pour 5 minutes
+prolongées à chaque coup ; en zone libre contre un innocent, l'agresseur devient premier attaquant 20 minutes
+(champ 12 du personnage = 1, champ 25 = secondes restantes, nom violet). Tuer un innocent de plus de 4 niveaux en
+dessous après l'avoir attaqué en premier donne des points de meurtrier (facteur de statut 11,
+`PvP.MurdererPointsPerKill`) et ouvre 2 heures de délai (champ 26) ; paliers 40 (exclu du groupe, plus d'invitation
+ni d'échange, prix des PNJ doublés), 60 (objets de genre 0x20 refusés par les PNJ, code 9), 100 (plus d'attaque
+forcée, expérience des monstres réduite de moitié). Tuer un joueur de son niveau ou plus rapporte autant de charisme
+que son niveau. Les montants (points, charisme) ne viennent pas du serveur d'origine, qui ne les a pas laissés.
+
+**AGPMREMISSION** (drapeaux 1) : 0 op, 1 CID, 2 mini-paquet. Op 0 demande au pardonneur (fonction de PNJ 31, mini
+EVENT_BASE), op 1 accord (fenêtre `UI_Remission`), op 2 rémission : mini {type 4 = lettres de pardon} du client,
+{type, résultat} du serveur (type 4 résultat 1 réussite, 3 sans point, 7 lettres insuffisantes ; type 1 résultat 0
+délai de 2 heures pas écoulé). 10 lettres (TID 3311 ou 1836) retirent `PvP.RemissionPoints` points (2, comme le
+client l'annonce).
+
 ## Types connus
 
 | Type | Module | Type | Module |
@@ -986,6 +1015,7 @@ nouvelle entrée par le serveur de connexion le remplace aussitôt.
 | 0x0F | Discussion | 0x48 | Chiffrement de démarrage |
 | 0x11 | Horloge (AgpmTimer) | 0x60 | Titres |
 | 0x13 | Quêtes | 0x63 | Reconnexion |
+| 0x4A | Combat entre joueurs | 0x2A | Rémission |
 | 0x32 | Boutiques des PNJ | 0x37 | Dialogue des PNJ |
 | 0x3B | Maître des compétences | 0x36 | Banque |
 | 0x31 | Portails de téléportation | 0x15 | Guildes |

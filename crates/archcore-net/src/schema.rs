@@ -60,6 +60,8 @@ pub mod ptype {
     pub const STARTUP_ENCRYPTION: u8 = 0x48;
     pub const TITLE: u8 = 0x60;
     pub const RECONNECT: u8 = 0x63;
+    pub const REMISSION: u8 = 0x2a;
+    pub const PVP: u8 = 0x4a;
     /// Extensions ArchRust ↔ ArchCore. Hors de la plage 0x01-0x77 acceptée par le répartiteur du
     /// client d'origine, qui l'ignore donc sans erreur.
     pub const ARCHCORE_EXT: u8 = 0xac;
@@ -584,11 +586,25 @@ pub static RECONNECT: Schema = Schema {
     ],
 };
 
+/// AgpmPvP (0x4A) — drapeaux 2, du serveur au client seulement (réception FUN_1402d2c70) : opération, CID (code du
+/// message pour l'op 18), CID cible, victoires (paramètre 1), défaites (paramètre 2), mode (1 sûr, 2 libre,
+/// 3 combat), statut (bit 1 : invincible), octet de l'op 0, guilde (chaîne 1), nom (chaîne 2).
+pub static PVP: Schema = Schema {
+    name: "AGPMPVP",
+    id: ptype::PVP,
+    flag_len: 2,
+    fields: &[f(I8), f(I32), f(I32), f(I32), f(I32), f(I8), f(I8), f(I8), fs(Char, 33), fs(Char, 49)],
+};
+
+/// AgpmRemission (0x2A) — drapeaux 1 : opération (0 demande au PNJ, 1 accord, 2 rémission), CID, mini-paquet
+/// (événement du PNJ pour les op 0-1, `mini::REMISSION` pour l'op 2).
+pub static REMISSION: Schema = Schema { name: "AGPMREMISSION", id: ptype::REMISSION, flag_len: 1, fields: &[f(I8), f(I32), f(Packet)] };
+
 /// Tous les schémas principaux, pour l'aiguillage par type.
 pub static MAIN: &[&Schema] = &[
     &CONFIG, &CHARACTER, &CHAR_MANAGER, &LOGIN, &TIMER, &WORLD, &CHATTING, &ADMIN, &ITEM, &EVENT_NPC_TRADE,
     &EVENT_NPC_DIALOG, &EVENT_MANAGER, &SKILL, &EVENT_SKILL_MASTER, &EVENT_TELEPORT, &EVENT_BANK, &ITEM_CONVERT, &EVENT_ITEM_CONVERT, &REFINERY, &EVENT_REFINERY, &GUILD, &EVENT_GUILD, &GUILD_WAREHOUSE, &PRIVATE_TRADE, &PARTY, &PARTY_MANAGEMENT, &QUEST, &EVENT_QUEST, &UI_STATUS, &SYSTEM_MESSAGE, &RETURN_TO_LOGIN, &OPT_CHAR_MOVE, &OPT_CHAR_ACTION, &OPT_VIEW,
-    &STARTUP_ENCRYPTION, &ARCHCORE_EXT, &RECONNECT,
+    &STARTUP_ENCRYPTION, &ARCHCORE_EXT, &RECONNECT, &PVP, &REMISSION,
 ];
 
 pub fn main_by_id(id: u8) -> Option<&'static Schema> {
@@ -671,6 +687,9 @@ pub mod mini {
 
     /// Désignation d'un événement (ApmEventManager) — drapeaux 1 : type de la source, identifiant de la
     /// source, identifiant d'événement, fonction.
+    /// Rémission (AgpmRemission op 2) — drapeaux 1 : type (4 lettres de pardon), résultat.
+    pub static REMISSION: Schema = Schema { name: "AGPMREMISSION_MINI", id: 90, flag_len: 1, fields: &[f(I8), f(I32)] };
+
     pub static EVENT_BASE: Schema =
         Schema { name: "APMEVENTMANAGER_BASE", id: 60, flag_len: 1, fields: &[f(I8), f(I32), f(I32), f(I32)] };
 

@@ -40,11 +40,13 @@ pub mod options;
 pub mod party;
 pub mod portal;
 pub mod presence;
+pub mod pvp;
 pub mod quests;
 pub mod refinery;
 pub mod reconnect;
 pub mod recovery;
 pub mod regions;
+pub mod remission;
 pub mod sector;
 pub mod skills;
 pub mod trade;
@@ -188,6 +190,10 @@ pub struct Player {
     /// Effets de combat de l'équipement porté (options à déclenchement, runes à compétence), recalculés avec
     /// les facteurs.
     pub gear: options::Gear,
+    /// Combat entre joueurs : ennemis déclarés (pvp.rs).
+    pub pvp: pvp::PvpState,
+    /// Pardonneur auprès duquel la fenêtre de rémission est ouverte.
+    pub remission_keeper: Option<u32>,
 }
 
 impl Player {
@@ -367,7 +373,8 @@ impl Connection for WorldConn {
             ptype::CHARACTER => debug!("[world] #{} AGPMCHARACTER op {:?} (ignoré)", s.id(), p.int(0)),
             ptype::CHATTING => chat::on_chatting(&world, &mut st, self.sid, &p).await?,
             ptype::OPT_CHAR_MOVE => presence::on_move(ctx, &mut st, self.sid, &p),
-            ptype::OPT_CHAR_ACTION => combat::on_action(&mut st, self.sid, &p),
+            ptype::OPT_CHAR_ACTION => combat::on_action(ctx, &mut st, self.sid, &p),
+            ptype::REMISSION => remission::on_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::ITEM => loot::on_item_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::EVENT_NPC_DIALOG => npc_events::on_dialog(ctx, &st, self.sid, &p),
             ptype::EVENT_NPC_TRADE => npc_trade::on_packet(ctx, &mut st, self.sid, &p).await?,
@@ -564,6 +571,8 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
             gm_speed: 1,
             ui_status,
             gear,
+            pvp: pvp::PvpState::default(),
+            remission_keeper: None,
         },
     );
     st.by_cid.insert(cid, s.id());
@@ -613,6 +622,10 @@ fn enter_world(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle) {
     guild::on_enter(st, sid);
     // Potions de la barre et seuils de leur prise automatique.
     ui_status::on_enter(st, sid);
+    // Victoires et défaites entre joueurs, mode de la zone (AgpmPvP op 0).
+    if let Some(p) = st.players.get(&sid) {
+        p.send_raw(pvp::info_packet(p.ch.id, p.ch.pvp_win, p.ch.pvp_lose, pvp::zone_mode(ctx, st, sid)));
+    }
     let p = &st.players[&sid];
     let c = &schema::CHARACTER;
     p.send(c, Fields::new(c).with(0, 1).with(1, p.ch.id).with(4, 2).with(5, move_mini(MoveMini { pos, dest: None, flags: 0 })));

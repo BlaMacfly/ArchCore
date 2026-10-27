@@ -65,6 +65,11 @@ impl Regions {
         }
     }
 
+    /// Sûreté d'une région : 0 sûre (aussi pour une région inconnue), 1 libre, 2 combat.
+    pub fn safety(&self, region: u16) -> i64 {
+        self.safety.get(&region).copied().unwrap_or(SAFE)
+    }
+
     pub fn is_safe(&self, region: u16) -> bool {
         self.safety.get(&region) == Some(&SAFE)
     }

@@ -133,6 +133,11 @@ fn request(st: &mut WorldState, sid: u32, target_cid: u32) {
         let cid = me.ch.id;
         return send(st, sid, packet(op::REFUSE, Some(target_cid), Some(cid)));
     }
+    // Meurtrier (palier 1 et plus, d'après le client) : pas d'échange entre joueurs.
+    if super::pvp::murderer_level(me.ch.murderer) >= 1 || super::pvp::murderer_level(other.ch.murderer) >= 1 {
+        info!("[échange] demande de {} à {} refusée : meurtrier", me.ch.name, other.ch.name);
+        return cancel(st, sid);
+    }
     let near = combat::dist2d(me.ch.pos(), other.ch.pos()) <= MAX_TRADE_DISTANCE;
     if target == sid || me.trade.is_some() || other.trade.is_some() || me.dead || other.dead || !other.in_game || !near {
         info!("[échange] demande de {} à {} refusée (déjà occupé, mort ou trop loin)", me.ch.name, other.ch.name);

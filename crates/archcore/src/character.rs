@@ -229,6 +229,13 @@ pub struct CharacterRow {
     pub option_flag: u32,
     /// Points de charisme (0 à 1 000 000).
     pub charisma: u32,
+    /// Combat entre joueurs : victoires, défaites, points de meurtrier, fins du statut de premier attaquant et du
+    /// délai de meurtrier (secondes Unix, 0 : aucun). Voir `world/pvp.rs`.
+    pub pvp_win: u32,
+    pub pvp_lose: u32,
+    pub murderer: u32,
+    pub criminal_until: i64,
+    pub murderer_until: i64,
 }
 
 impl CharacterRow {
@@ -254,6 +261,11 @@ impl CharacterRow {
             bank_size: col(r, "bank_size"),
             option_flag: col(r, "option_flag"),
             charisma: col(r, "charisma"),
+            pvp_win: col(r, "pvp_win"),
+            pvp_lose: col(r, "pvp_lose"),
+            murderer: col(r, "murderer_points"),
+            criminal_until: col(r, "criminal_until"),
+            murderer_until: col(r, "murderer_until"),
         }
     }
 
@@ -306,7 +318,7 @@ pub fn make_factors(tpl: &Template, row: Option<&CharacterRow>) -> Factors {
     let mut f = Factors::default();
     f.status = [
         stat(g.con, tpl.con), stat(g.str_, tpl.str_), stat(g.intel, tpl.intel), stat(g.dex, tpl.dex), row.map(|r| r.charisma.min(MAX_CHARISMA) as i32).unwrap_or(0),
-        stat(0, tpl.luk), stat(g.wis, tpl.wis), level, tpl.movement, tpl.movement_fast, 0, 0, 0,
+        stat(0, tpl.luk), stat(g.wis, tpl.wis), level, tpl.movement, tpl.movement_fast, 0, row.map(|r| r.murderer as i32).unwrap_or(0), 0,
     ];
     f.ftype = [tpl.race, tpl.gender, tpl.class];
     f.point[0] = row.map(|r| r.hp).filter(|&v| v != 0).unwrap_or(max_hp);
@@ -404,6 +416,16 @@ pub struct CharView {
     pub face: i32,
     pub bank_size: i32,
     pub option_flag: u32,
+    /// Statut criminel (champ 12 : 1 premier attaquant) et secondes restantes de ce statut (champ 25, 1200 au plus)
+    /// et du délai de meurtrier (champ 26, 7200 au plus).
+    pub criminal: i64,
+    pub criminal_left: i64,
+    pub murderer_left: i64,
+}
+
+/// Secondes Unix actuelles.
+pub fn unix_now() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
 }
 
 impl From<&CharacterRow> for CharView {
@@ -422,6 +444,9 @@ impl From<&CharacterRow> for CharView {
             face: c.face,
             bank_size: c.bank_size,
             option_flag: c.option_flag,
+            criminal: (c.criminal_until > unix_now()) as i64,
+            criminal_left: (c.criminal_until - unix_now()).clamp(0, 1200),
+            murderer_left: (c.murderer_until - unix_now()).clamp(0, 7200),
         }
     }
 }
@@ -443,7 +468,7 @@ pub fn character_packet(ch: &CharView, factors: &Factors, op: i64) -> Vec<u8> {
         .with(9, ch.bank_money)
         .with(10, ch.cash)
         .with(11, 0)
-        .with(12, 0)
+        .with(12, ch.criminal)
         .with(13, 0)
         .with(14, ch.is_new)
         .with(15, 0)
@@ -456,8 +481,8 @@ pub fn character_packet(ch: &CharView, factors: &Factors, op: i64) -> Vec<u8> {
         .with(22, ch.option_flag)
         .with(23, ch.bank_size)
         .with(24, 0)
-        .with(25, 0)
-        .with(26, 0)
+        .with(25, ch.criminal_left)
+        .with(26, ch.murderer_left)
         .with(27, "")
         .with(29, 0);
     build_packet(s, &fields)

@@ -54,7 +54,7 @@ pub const CORPSE_TIME: Duration = Duration::from_secs(20);
 /// Réapparition au plus tôt, même si le point d'apparition indique moins.
 const MIN_RESPAWN_SEC: i64 = 5;
 /// Marge ajoutée à la portée, pour les positions arrondies du client.
-const REACH_TOLERANCE: f64 = 50.0;
+pub(super) const REACH_TOLERANCE: f64 = 50.0;
 /// Durée au bout de laquelle une approche est revue (la cible a pu bouger).
 const MAX_APPROACH: Duration = Duration::from_secs(4);
 /// Drapeau de déplacement « course ».
@@ -70,6 +70,8 @@ pub struct Attack {
     pub target: u32,
     /// Prochain coup possible (fin du coup précédent ou de l'approche).
     pub ready_at: Instant,
+    /// Attaque forcée (Ctrl, champ 6 de l'action) : nécessaire contre un joueur qui n'est pas déjà un ennemi.
+    pub forced: bool,
 }
 
 /// Ce qui compte pour toucher et blesser, côté attaquant.
@@ -283,12 +285,23 @@ pub fn dist2d(a: Vec3, b: Vec3) -> f64 {
     (dx * dx + dz * dz).sqrt()
 }
 
-/// AGPMOPTIMIZEDCHARACTION reçu : le joueur prend un monstre pour cible.
-pub fn on_action(st: &mut WorldState, sid: u32, p: &Packet) {
+/// AGPMOPTIMIZEDCHARACTION reçu : le joueur prend un monstre, ou un joueur qu'il peut attaquer, pour cible.
+pub fn on_action(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) {
     let target = p.int(1).unwrap_or(0) as u32;
+    let forced = p.int(6).unwrap_or(0) != 0;
     let alive = st.monsters.get(target).is_some_and(|m| m.is_alive() && st.monsters.stats_of(m.tid).is_attackable());
-    // Combat de guildes : un membre de la guilde adverse se frappe comme un monstre (guild/battle.rs).
-    let foe = !alive && st.players.get(&sid).is_some_and(|p| super::guild::battle::enemies(st, p.ch.id, target));
+    // Joueur : combat de guildes ou règles du combat entre joueurs (pvp.rs).
+    let foe = !alive
+        && match st.by_cid.get(&target).copied() {
+            Some(tsid) => match super::pvp::check(ctx, st, sid, tsid, forced) {
+                Ok(()) => true,
+                Err(r) => {
+                    super::pvp::refuse(st, sid, r);
+                    false
+                }
+            },
+            None => false,
+        };
     let Some(player) = st.players.get_mut(&sid) else { return };
     if !player.in_game || player.dead {
         return;
@@ -299,7 +312,7 @@ pub fn on_action(st: &mut WorldState, sid: u32, p: &Packet) {
     }
     if player.attack.map(|a| a.target) != Some(target) {
         debug!("[combat] {} attaque {target:#x}", player.ch.name);
-        player.attack = Some(Attack { target, ready_at: Instant::now() });
+        player.attack = Some(Attack { target, ready_at: Instant::now(), forced });
     }
 }
 
@@ -330,6 +343,7 @@ pub async fn step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) -> anyhow::
         }
     }
     ai::patrol_step(ctx, st, now);
+    super::pvp::step(ctx, st, now);
     life_step(ctx, st, now);
     super::loot::expire(st, now);
     super::recovery::regen_step(st, now);
@@ -363,7 +377,7 @@ async fn attack_step(ctx: &WorldCtx, st: &mut WorldState, sid: u32, now: Instant
     }
     let Some(m) = st.monsters.get(attack.target).filter(|m| m.is_alive()).cloned() else {
         if st.by_cid.contains_key(&attack.target) {
-            return super::guild::battle::attack_step(ctx, st, sid, attack.target, now).await;
+            return super::pvp::attack_step(ctx, st, sid, attack.target, attack.forced, now).await;
         }
         st.players.get_mut(&sid).unwrap().attack = None;
         return Ok(());
@@ -395,7 +409,7 @@ async fn attack_step(ctx: &WorldCtx, st: &mut WorldState, sid: u32, now: Instant
     let speed = p.factors.attack[2].max(1) as u64;
     let (cid, name) = (p.ch.id, p.ch.name.clone());
     let me = st.players.get_mut(&sid).unwrap();
-    me.attack = Some(Attack { target: m.cid, ready_at: now + Duration::from_millis(60_000 / speed) });
+    me.attack = Some(Attack { target: m.cid, ready_at: now + Duration::from_millis(60_000 / speed), forced: false });
     // Qui frappe s'arrête, comme le client au début de l'animation du coup.
     me.dest = None;
     super::recovery::in_combat(&mut me.timers, now);
@@ -477,7 +491,9 @@ pub(super) async fn kill(ctx: &WorldCtx, st: &mut WorldState, killer_sid: u32, c
     p.attack = None;
     info!("[combat] {} tue {name} ({cid:#x}) : +{gain} d'expérience", p.ch.name);
     for (sid, part) in super::party::share_exp(st, killer_sid, gain, pos, &damage) {
-        reward(ctx, st, sid, part).await?;
+        // Meurtrier de palier 3 : expérience des monstres réduite de moitié.
+        let rogue = st.players.get(&sid).is_some_and(|x| super::pvp::murderer_level(x.ch.murderer) >= 3);
+        reward(ctx, st, sid, if rogue { part / 2 } else { part }).await?;
     }
     super::loot::on_kill(ctx, st, killer_sid, cid, now);
     super::quests::on_kill(ctx, st, killer_sid, tid).await?;

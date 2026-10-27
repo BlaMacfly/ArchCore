@@ -32,6 +32,8 @@ pub mod trade_result {
     pub const BUY_FULL_INVENTORY: i64 = 4;
     pub const INVALID_ITEM: i64 = 5;
     pub const INVALID_COUNT: i64 = 6;
+    /// Meurtrier de palier 2 ou plus : « Alert_NPCTrade_MurdererRejectBuyItem ».
+    pub const NO_SELL_TO_MURDERER: i64 = 9;
 }
 
 /// Argent maximal dans l'inventaire.
@@ -149,7 +151,14 @@ async fn buy(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> anyho
         result(st, sid, trade_op::BUY, trade_result::INVALID_COUNT);
         return Ok(());
     }
-    let price = data.npc_price * count;
+    // Meurtrier : prix doublé dès le palier 1 (« ConfirmMsg_BuyNPCTradeItemMurderer ») ; au palier 2, les
+    // objets de genre 0x20 ne se vendent plus.
+    let rogue = super::pvp::murderer_level(st.players[&sid].ch.murderer);
+    if rogue >= 2 && data.kind & 0x20 != 0 {
+        result(st, sid, trade_op::BUY, trade_result::NO_SELL_TO_MURDERER);
+        return Ok(());
+    }
+    let price = data.npc_price * count * if rogue >= 1 { 2 } else { 1 };
     let money = st.players[&sid].ch.money as i64;
     if price > money {
         result(st, sid, trade_op::BUY, trade_result::BUY_NOT_ENOUGH_MONEY);
