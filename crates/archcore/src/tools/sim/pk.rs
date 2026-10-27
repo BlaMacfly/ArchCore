@@ -9,7 +9,7 @@
 
 use super::{enter_world, step, Recv};
 use archcore_net::schema::{self, chat_type, mini};
-use archcore_net::{decode_mini, Fields, Vec3};
+use archcore_net::{build_mini, decode_mini, Fields, Vec3};
 
 /// Nord d'Anchorville, région 0 (libre).
 const SPOT: Vec3 = Vec3 { x: -466_468.0, y: 4_700.0, z: -50_010.0 };
@@ -55,6 +55,15 @@ pub async fn run(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> 
     anyhow::ensure!(flag.int(12) == Some(1) && flag.int(25).is_some_and(|s| s > 1100), "champ 12 {:?}, 25 {:?}", flag.int(12), flag.int(25));
     println!("  ✓ {ca} premier attaquant (champ 12 = 1, {} s)", flag.int(25).unwrap_or(0));
 
+    step(&format!("{ca} lance Dual Slash sur {cb}"));
+    let dual = a.skills.iter().find(|s| s.1 == 1).map(|s| s.0 as i64).ok_or_else(|| anyhow::anyhow!("{ca} ne connaît pas Dual Slash"))?;
+    a.world.send(&schema::SKILL, super::cast_fields(dual, bcid as i64)).await?;
+    let hit = b.world.expect_where(|q| q.is(&schema::SKILL, Some(8)) && q.int(1) == Some(dual), 8000, "résultat de Dual Slash chez la victime").await?;
+    let action = decode_mini(&mini::SKILL_ACTION, hit.fields().bytes(6).unwrap_or_default())?;
+    let target = action.bytes(1).and_then(|b| decode_mini(&mini::SKILL_BASE, b).ok()).and_then(|b| b.int(1));
+    anyhow::ensure!(target == Some(bcid as i64), "cible du résultat {target:?}");
+    println!("  ✓ op 8 de Dual Slash reçue par {cb}");
+
     step(&format!("{ca} frappe jusqu'à la mort de {cb}"));
     let kill = a.world.expect_where(|q| q.is(pvp, Some(18)) && q.int(1) == Some(12), 90_000, "message 12 (victoire)").await?;
     anyhow::ensure!(kill.fields().text(8).as_deref() == Some(cb), "vaincu annoncé : {:?}", kill.fields().text(8));
@@ -65,6 +74,23 @@ pub async fn run(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> 
     let points = points.fields().bytes(7).and_then(murderer_points).unwrap_or(0);
     anyhow::ensure!(points >= 20, "points de meurtrier : {points}");
     println!("  ✓ {ca} : {points} point(s) de meurtrier");
+
+    step(&format!("{ca} demande la rémission au pardonneur Wishtell (Tullan)"));
+    const WISHTELL: i64 = 0x4000_0000 + 347;
+    let (rm, eb, rmini) = (&schema::REMISSION, &mini::EVENT_BASE, &mini::REMISSION);
+    a.world.send(ch, say(acid, "/move -349800,85000")).await?;
+    a.world.expect_where(|q| q.ptype == ch.id, 5000, "réponse du MJ").await?;
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    let base = build_mini(eb, &Fields::new(eb).with(0, 3).with(1, WISHTELL).with(3, 31));
+    a.world.send(rm, Fields::new(rm).with(0, 0).with(1, acid).with(2, base)).await?;
+    a.world.expect_where(|q| q.is(rm, Some(1)), 5000, "accord du pardonneur (op 1)").await?;
+    println!("  ✓ fenêtre accordée (op 1)");
+    let remit = build_mini(rmini, &Fields::new(rmini).with(0, 4));
+    a.world.send(rm, Fields::new(rm).with(0, 2).with(1, acid).with(2, remit)).await?;
+    let answer = a.world.expect_where(|q| q.is(rm, Some(2)), 5000, "réponse de rémission (op 2)").await?;
+    let m = decode_mini(rmini, answer.fields().bytes(2).unwrap_or_default())?;
+    anyhow::ensure!(m.int(0) == Some(1), "rémission pendant le délai : type {:?}, résultat {:?}", m.int(0), m.int(1));
+    println!("  ✓ refusée pendant le délai de 2 heures (type 1)");
 
     step("remise des niveaux");
     for cmd in [format!("/level {level_a}"), format!("/level {} \"{cb}\"", level_b.max(1))] {

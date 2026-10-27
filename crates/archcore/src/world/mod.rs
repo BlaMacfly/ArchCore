@@ -269,6 +269,7 @@ impl Service for WorldService {
                 | ptype::CHATTING
                 | ptype::OPT_CHAR_MOVE
                 | ptype::OPT_CHAR_ACTION
+                | ptype::REMISSION
                 | ptype::ITEM
                 | ptype::EVENT_NPC_DIALOG
                 | ptype::EVENT_NPC_TRADE

@@ -47,8 +47,11 @@
 - Selling an item to an NPC.
 - Player versus player: Archonia's attack rules (areas, level 20, Ctrl, friends, party, Battlegrounds), declared
   enemies, first attacker, wins and losses, murderer points and their penalties (party, trade, NPC prices,
-  experience), charisma gained, remission at the pardoners; on the ArchRust side, Ctrl attack, messages, name colours
-  and area announcements. Validated with the simulator on 27 October 2026 (`pk` scenario). Murderer point and
+  experience), charisma gained, remission at the pardoners, offensive skills on players (Ctrl, areas); on the ArchRust
+  side, Ctrl attack and skills, messages, name colours, area announcements and the `UI_Remission` window. Guards stay
+  passive like their Archonia AI (`UseNormalAttack` 0); wanted posters wait for server rules that no source gives.
+- Preemptive monsters: those whose AI has `PreemptiveType` 1 attack a player within their range (`PreemptiveRange`) on
+  their own, except targets their level conditions exclude. Validated with the simulator (`aggro` scenario). Validated with the simulator on 27 October 2026 (`pk` scenario). Murderer point and
   charisma amounts are configurable, the original ones being unknown.
 - ArchRust client (`client` branch): combat (attacking, hits, death, resurrection, loot), parties, other
   players, inventory and equipment, NPCs (dialog, shop, bank and buying pages, quests), skills (trainers,

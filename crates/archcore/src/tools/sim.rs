@@ -56,6 +56,7 @@ mod competences;
 mod guilds;
 mod lang;
 mod last_refine;
+mod aggro;
 mod pk;
 mod pvp;
 mod reconnect;
@@ -82,6 +83,7 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         Some("lang") => Box::pin(lang::run(&a(1, "sima"), &a(2, "sima"), &a(3, "SimA"))).await,
         Some("bank") => Box::pin(bank(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("portal") => Box::pin(portal(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
+        Some("aggro") => Box::pin(aggro::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("pk") => Box::pin(pk::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("pvp") => Box::pin(pvp::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("reconnect") => Box::pin(reconnect::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,

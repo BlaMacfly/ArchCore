@@ -237,6 +237,8 @@ pub struct MonsterRegistry {
     pub pending: BTreeSet<u32>,
     /// Monstres qui ont des agresseurs (IA active).
     pub engaged: BTreeSet<u32>,
+    /// Prochain examen des monstres préventifs (ai::preemptive_step).
+    pub preemptive_at: Option<Instant>,
     /// Effets des compétences portés par des monstres.
     pub effects: HashMap<u32, Vec<super::effects::Effect>>,
     /// États spéciaux annoncés aux clients (monstres qui en ont).

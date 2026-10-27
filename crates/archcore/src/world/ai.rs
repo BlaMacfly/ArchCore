@@ -81,6 +81,46 @@ pub fn add_aggro(st: &mut WorldState, cid: u32, attacker: u32, damage: u64, now:
     st.monsters.engaged.insert(cid);
 }
 
+/// Monstres « préventifs » (`PreemptiveType` 1 de leur IA) au repos que voit un joueur : chacun engage le joueur le
+/// plus proche dans sa portée (`PreemptiveRange`), vivant, attaquable et permis par ses conditions de niveau.
+/// Les autres monstres n'attaquent que s'ils sont frappés.
+pub fn preemptive_step(st: &mut WorldState, now: Instant) {
+    if st.monsters.preemptive_at.is_some_and(|t| now < t) {
+        return;
+    }
+    st.monsters.preemptive_at = Some(now + SCAN_INTERVAL);
+    let mut watched: Vec<u32> = st.players.values().filter(|p| p.in_game && !p.dead).flat_map(|p| p.seen_monsters.iter().copied()).collect();
+    watched.sort_unstable();
+    watched.dedup();
+    let mut engage = Vec::new();
+    for cid in watched {
+        let Some(m) = st.monsters.get(cid) else { continue };
+        if !m.is_alive() || st.monsters.engaged.contains(&cid) || !m.aggro.is_empty() {
+            continue;
+        }
+        let Some(pre) = st.monsters.ai_of(cid).and_then(|a| a.preemptive.as_ref()) else { continue };
+        let stats = st.monsters.stats_of(m.tid);
+        if stats.char_type & TYPE_MONSTER == 0 || pre.range <= 0.0 {
+            continue;
+        }
+        let near = st
+            .players
+            .values()
+            .filter(|p| p.in_game && !p.dead && p.invincible_until.is_none_or(|u| now >= u))
+            .filter(|p| p.skills.status_sent & status::UNTOUCHABLE == 0 && pre.allows(p.factors.status[7]))
+            .map(|p| (combat::dist2d(p.ch.pos(), m.pos), p.ch.id))
+            .filter(|(d, _)| *d <= pre.range)
+            .min_by(|a, b| a.0.total_cmp(&b.0));
+        if let Some((_, pcid)) = near {
+            engage.push((cid, pcid));
+        }
+    }
+    for (cid, pcid) in engage {
+        debug!("[ia] {cid:#x} attaque de lui-même le joueur {pcid:#x}");
+        add_aggro(st, cid, pcid, 1, now);
+    }
+}
+
 /// Agresseur à viser : le plus de dégâts parmi les joueurs vivants, en jeu et assez proches.
 pub fn choose_target(st: &WorldState, m: &Monster) -> Option<u32> {
     m.aggro

@@ -61,6 +61,24 @@ impl AiSkill {
 pub struct MonsterAi {
     pub normal_attack: bool,
     pub skills: Vec<AiSkill>,
+    /// Attaque préventive (« PreemptiveType » 1) : portée (« PreemptiveRange », en mètres de 100 unités) et
+    /// conditions sur la cible.
+    pub preemptive: Option<Preemptive>,
+}
+
+/// Agression d'un monstre « préventif » : il attaque de lui-même un joueur à portée qui remplit ses conditions.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Preemptive {
+    pub range: f64,
+    /// Niveaux de cible interdits : (niveau, au-dessus) — « 타겟;LV;90;이상;금지 » interdit les cibles de niveau 90
+    /// ou plus ; « 이하 » celles de ce niveau ou moins.
+    pub forbidden_levels: Vec<(i32, bool)>,
+}
+
+impl Preemptive {
+    pub fn allows(&self, level: i32) -> bool {
+        !self.forbidden_levels.iter().any(|(l, above)| if *above { level >= *l } else { level <= *l })
+    }
 }
 
 impl MonsterAi {
@@ -84,7 +102,21 @@ impl MonsterAi {
             let max_uses = count.strip_prefix("횟수;").and_then(|x| x.trim_end_matches(';').trim().parse().ok());
             skills.push(AiSkill { tid, level, hp_pct, hp_at_most, max_uses });
         }
-        MonsterAi { normal_attack: text("UseNormalAttack".into()) != "0", skills }
+        let preemptive = (text("PreemptiveType".into()) == "1").then(|| {
+            let forbidden_levels = (1..=3)
+                .filter_map(|n| {
+                    let cond = text(format!("PreemptiveCondition{n}"));
+                    let c: Vec<&str> = cond.split(';').map(str::trim).collect();
+                    match c.as_slice() {
+                        ["타겟", "LV", level, sense, "금지", ..] => Some((level.parse().ok()?, *sense == "이상")),
+                        _ => None,
+                    }
+                })
+                .collect();
+            let range = text("PreemptiveRange".into()).parse::<f64>().unwrap_or(0.0) * 100.0;
+            Preemptive { range, forbidden_levels }
+        });
+        MonsterAi { normal_attack: text("UseNormalAttack".into()) != "0", skills, preemptive }
     }
 }
 
@@ -326,6 +358,10 @@ mod tests {
         assert!(ai.skills[1].hp_ok(25, 100) && !ai.skills[1].hp_ok(31, 100));
         assert!(!MonsterAi::from_data(&serde_json::json!({ "UseNormalAttack": "0" })).normal_attack);
         assert!(MonsterAi::from_data(&serde_json::json!({})).normal_attack, "sans colonne : coups normaux");
+        let p = MonsterAi::from_data(&serde_json::json!({ "PreemptiveType": "1", "PreemptiveCondition1": "타겟;LV;90;이상;금지", "PreemptiveRange": "8" })).preemptive.unwrap();
+        assert_eq!(p.range, 800.0);
+        assert!(p.allows(89) && !p.allows(90));
+        assert!(MonsterAi::from_data(&serde_json::json!({ "PreemptiveRange": "8" })).preemptive.is_none());
         let above = AiSkill { hp_at_most: false, hp_pct: 50.0, ..ai.skills[0] };
         assert!(above.hp_ok(60, 100) && !above.hp_ok(40, 100));
     }

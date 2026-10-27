@@ -48,8 +48,12 @@
 - Revente d'un objet à un PNJ.
 - Combat entre joueurs : règles d'attaque d'Archonia (zones, niveau 20, Ctrl, amis, groupe, Battlegrounds),
   ennemis déclarés, premier attaquant, victoires et défaites, points de meurtrier et leurs pénalités (groupe,
-  échange, prix des PNJ, expérience), charisme gagné, rémission auprès des pardonneurs ; côté ArchRust, attaque
-  avec Ctrl, messages, couleur des noms et annonces de zone. Validé au simulateur le 27 octobre 2026 (scénario
+  échange, prix des PNJ, expérience), charisme gagné, rémission auprès des pardonneurs, compétences offensives sur
+  les joueurs (Ctrl, zones) ; côté ArchRust, attaque et compétences avec Ctrl, messages, couleur des noms, annonces
+  de zone et fenêtre `UI_Remission`. Les gardes restent passifs comme leur IA d'Archonia (`UseNormalAttack` 0) ;
+  les avis de recherche attendent des règles serveur qu'aucune source ne donne.
+- Monstres préventifs : ceux dont l'IA a `PreemptiveType` 1 attaquent d'eux-mêmes un joueur dans leur portée
+  (`PreemptiveRange`), sauf les cibles que leurs conditions de niveau excluent. Validé au simulateur (scénario `aggro`). Validé au simulateur le 27 octobre 2026 (scénario
   `pk`). Montants des points de meurtrier et du charisme réglables, ceux d'origine étant inconnus.
 - Client ArchRust (branche `client`) : combat (attaque, coups, mort, résurrection, butin), groupes, autres
   joueurs, inventaire et équipement, PNJ (dialogue, boutique, banque et achat de pages, quêtes), compétences

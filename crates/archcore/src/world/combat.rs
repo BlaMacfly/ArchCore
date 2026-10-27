@@ -343,6 +343,7 @@ pub async fn step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) -> anyhow::
         }
     }
     ai::patrol_step(ctx, st, now);
+    ai::preemptive_step(st, now);
     super::pvp::step(ctx, st, now);
     life_step(ctx, st, now);
     super::loot::expire(st, now);
@@ -670,6 +671,11 @@ pub(super) fn send_around(st: &WorldState, sid: u32, plain: &[u8]) {
     for (_, o) in st.players.iter().filter(|(other, o)| **other != sid && o.seen_players.contains(&cid)) {
         o.send_raw(plain.to_vec());
     }
+}
+
+/// Le joueur `other` reçoit ce que `send_around` envoie autour de `sid` (lui-même ou un joueur qui le voit).
+pub(super) fn send_around_contains(st: &WorldState, sid: u32, other: u32) -> bool {
+    other == sid || st.players.get(&other).zip(st.players.get(&sid)).is_some_and(|(o, me)| o.seen_players.contains(&me.ch.id))
 }
 
 /// Paquet AGPMCHARACTER op 1 : facteurs et statut d'action d'un joueur.

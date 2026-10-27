@@ -590,6 +590,8 @@ pub struct Cast {
     pub skill_id: u32,
     pub target: u32,
     pub stage: Stage,
+    /// Attaque forcée (Ctrl, champ 4 du mini SKILL_ACTION) : nécessaire contre un joueur qui n'est pas un ennemi.
+    pub forced: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -818,12 +820,13 @@ pub fn on_packet(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) {
 
 fn request_cast(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) {
     let skill_id = p.int(1).unwrap_or(0) as u32;
-    let target = p
-        .bytes(6)
-        .and_then(|b| decode_mini(&mini::SKILL_ACTION, b).ok())
+    let action = p.bytes(6).and_then(|b| decode_mini(&mini::SKILL_ACTION, b).ok());
+    let target = action
+        .as_ref()
         .and_then(|a| a.bytes(1).and_then(|b| decode_mini(&mini::SKILL_BASE, b).ok()))
         .and_then(|b| b.int(1))
         .unwrap_or(0) as u32;
+    let forced = action.as_ref().and_then(|a| a.int(4)).unwrap_or(0) != 0;
     let now = Instant::now();
     let Some(player) = st.players.get(&sid) else { return };
     if !player.in_game || player.dead {
@@ -851,7 +854,18 @@ fn request_cast(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) {
         return;
     }
     let alive = st.monsters.get(target).is_some_and(|m| m.is_alive() && st.monsters.stats_of(m.tid).is_attackable());
-    let target = if t.offensive() && alive {
+    // Autre joueur visé par une compétence offensive : règles du combat entre joueurs (pvp.rs).
+    let foe = match st.by_cid.get(&target).copied().filter(|t2| *t2 != sid && t.offensive() && !alive) {
+        Some(tsid) => match super::pvp::check(ctx, st, sid, tsid, forced) {
+            Ok(()) => true,
+            Err(r) => {
+                super::pvp::refuse(st, sid, r);
+                return;
+            }
+        },
+        None => false,
+    };
+    let target = if t.offensive() && (alive || foe) {
         target
     } else if t.needs_target() {
         debug!("[compétence] {name} : {} vise {target:#x}, qui n'est pas un monstre vivant", t.name);
@@ -862,7 +876,7 @@ fn request_cast(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) {
         player.ch.id
     };
     let player = st.players.get_mut(&sid).unwrap();
-    player.skills.cast = Some(Cast { skill_id, target, stage: Stage::Approach { check_at: now } });
+    player.skills.cast = Some(Cast { skill_id, target, stage: Stage::Approach { check_at: now }, forced });
     debug!("[compétence] {name} prépare {} niveau {} sur {target:#x}", t.name, owned.level);
 }
 
@@ -939,7 +953,7 @@ fn begin(ctx: &WorldCtx, st: &mut WorldState, sid: u32, cast: Cast, now: Instant
     if let Some(a) = p.attack.as_mut() {
         a.ready_at = a.ready_at.max(complete_at);
     }
-    if target.is_some() {
+    if target.is_some() || (t.offensive() && friend.is_some()) {
         super::recovery::in_combat(&mut p.timers, now);
     }
     let cid = p.ch.id;
@@ -1004,9 +1018,33 @@ async fn complete(ctx: &WorldCtx, st: &mut WorldState, sid: u32, cast: Cast, now
         targets.extend(near.into_iter().map(|(_, c)| c));
     }
     targets.truncate(limit);
+    // Joueurs : la cible désignée si les règles du combat entre joueurs le permettent encore, puis, pour une
+    // compétence de zone, les joueurs de la zone qu'on peut attaquer sans Ctrl (ennemis déclarés, guildes hostiles…).
+    let mut foes: Vec<u32> = Vec::new();
+    if let Some(tsid) = st.by_cid.get(&cast.target).copied().filter(|t2| *t2 != sid) {
+        if super::pvp::check(ctx, st, sid, tsid, cast.forced).is_ok() {
+            foes.push(tsid);
+        }
+    }
+    if t.area() != Area::Single {
+        let center = foes.first().and_then(|s| st.players.get(s)).map(|p| p.ch.pos()).unwrap_or(center);
+        let radius = lv.area_r.max(lv.area_f1).max(600.0);
+        let others: Vec<u32> = st
+            .players
+            .iter()
+            .filter(|(o, p)| **o != sid && !foes.contains(o) && p.in_game && !p.dead && combat::dist2d(p.ch.pos(), center) <= radius)
+            .filter(|(_, p)| in_area(t.area(), p.ch.pos(), center, me, toward, lv))
+            .map(|(o, _)| *o)
+            .collect();
+        foes.extend(others.into_iter().filter(|o| super::pvp::check(ctx, st, sid, *o, false).is_ok()));
+    }
+    foes.truncate(limit.saturating_sub(targets.len()).max(usize::from(!foes.is_empty())));
     let skill_name = t.name.clone();
     for target in targets {
         hit_monster(ctx, st, sid, &owned, t, lv, target, caster_tid, now).await?;
+    }
+    for foe in foes {
+        hit_player(ctx, st, sid, &owned, lv, foe, caster_tid, now).await?;
     }
     // Purge qui touche aussi son lanceur (Bow of Meditation : champ target 111).
     if lv.dispel != 0 && t.on_self() {
@@ -1073,6 +1111,48 @@ async fn hit_monster(ctx: &WorldCtx, st: &mut WorldState, sid: u32, owned: &Owne
             debug!("[compétence] {} → {} : état {status:#x} pour {} ms", t.name, m.name, lv.status_ms);
         }
         sync_monster_status(st, cid, now);
+    }
+    Ok(())
+}
+
+/// Effet d'une compétence offensive sur un joueur (combat entre joueurs) : dégâts immédiats, effet durable, inimitié
+/// et mort comme pour un coup normal (`pvp.rs`).
+#[allow(clippy::too_many_arguments)]
+async fn hit_player(ctx: &WorldCtx, st: &mut WorldState, sid: u32, owned: &Owned, lv: &SkillLevel, tsid: u32, caster_tid: u32, now: Instant) -> anyhow::Result<()> {
+    let (Some(p), Some(v)) = (st.players.get(&sid), st.players.get(&tsid)) else { return Ok(()) };
+    if v.dead || !v.in_game {
+        return Ok(());
+    }
+    let (caster, target) = (p.ch.id, v.ch.id);
+    let (attacker, spirit) = (Attacker::of_player(p), spirit_ranges(&p.factors));
+    let defender = attacker.pierce(&Defender::of_player(&v.factors));
+    let mods = effects::total(&v.skills.effects);
+    let shielded = v.invincible_until.is_some_and(|u| now < u);
+    let damages = if !shielded && ctx.skills.get(owned.tid).is_some_and(|t| t.instant_damage()) {
+        skill_damage(&mut rand::thread_rng(), &attacker, &spirit, &defender, lv)
+    } else {
+        Vec::new()
+    };
+    let total: i32 = damages.iter().map(|(_, d)| *d).sum();
+    let v = st.players.get_mut(&tsid).unwrap();
+    let hp = (v.factors.point[POINT_HP] - total).max(0);
+    v.factors.point[POINT_HP] = hp;
+    super::recovery::in_combat(&mut v.timers, now);
+    let max_mp = v.factors.point[1];
+    combat::send_around(st, tsid, &result_packet(caster, owned, target, result_factors(hp, max_mp, &damages)));
+    if !combat::send_around_contains(st, tsid, sid) {
+        if let Some(me) = st.players.get(&sid) {
+            me.send_raw(result_packet(caster, owned, target, result_factors(hp, max_mp, &damages)));
+        }
+    }
+    super::pvp::on_hit(ctx, st, sid, tsid, now);
+    if hp == 0 {
+        combat::player_death(st, tsid);
+        return super::pvp::on_kill(ctx, st, sid, tsid).await;
+    }
+    let status = roll_status(&mut rand::thread_rng(), lv, &mods);
+    if !shielded && lv.leaves_effect(status) {
+        add_player_effect(ctx, st, tsid, Effect { caster_sid: sid, ..new_effect(owned, lv, caster_tid, status, None, now) });
     }
     Ok(())
 }
