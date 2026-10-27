@@ -58,11 +58,18 @@ const PATROL_TRIES: usize = 8;
 /// Bit « monstre » du type de personnage.
 const TYPE_MONSTER: i64 = 0x4;
 
-/// Le monstre `cid` vient d'être frappé par le joueur `attacker` (CID) pour `damage` PV.
+/// Le monstre `cid` vient d'être frappé par le joueur `attacker` (CID) pour `damage` PV. S'il n'était pas
+/// encore engagé, il réagit au pas d'IA suivant : un pas de promenade ou le retour chez lui (qui le
+/// rendent indisponible jusqu'à l'arrivée) ne retardent pas sa riposte.
 pub fn add_aggro(st: &mut WorldState, cid: u32, attacker: u32, damage: u64, now: Instant) {
+    let fresh = !st.monsters.engaged.contains(&cid);
     let Some(m) = st.monsters.get_mut(cid) else { return };
     if !m.is_alive() {
         return;
+    }
+    if fresh {
+        m.ready_at = m.ready_at.min(now);
+        m.scan_at = now;
     }
     match m.aggro.iter_mut().find(|a| a.cid == attacker) {
         Some(a) => {

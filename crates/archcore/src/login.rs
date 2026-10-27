@@ -49,6 +49,14 @@ pub struct LoginService {
     worlds: RwLock<Vec<WorldEntry>>,
 }
 
+/// Case d'équipement de départ de CharacterDataTable.txt : `TID` ou `TID;quantité`.
+fn starting_item(text: &str) -> Option<(u32, i64)> {
+    let mut it = text.split(';').map(str::trim);
+    let tid = it.next()?.parse::<u32>().ok().filter(|&t| t > 0)?;
+    let count = it.next().and_then(|c| c.parse::<i64>().ok()).filter(|&c| c > 0).unwrap_or(1);
+    Some((tid, count))
+}
+
 pub fn sha256_hex(s: &[u8]) -> String {
     Sha256::digest(s).iter().map(|b| format!("{b:02x}")).collect()
 }
@@ -400,6 +408,7 @@ impl LoginConn {
                 ],
             )
             .await? as u32;
+        self.give_starting_items(new_id, tid).await?;
         self.load_characters().await?;
         let Some(ch) = self.characters.iter().find(|c| c.id == new_id).cloned() else {
             anyhow::bail!("personnage {name} introuvable après création");
@@ -408,6 +417,49 @@ impl LoginConn {
         s.send(&schema::LOGIN, login(|f| f.with(0, login_op::CREATE_CHAR).with(8, char_info(|i| i.with(1, name.as_str()).with(2, count).with(3, slot)))));
         s.send_raw(self.character_packet(&ch, 1, 1)?);
         s.send(&schema::LOGIN, login(|f| f.with(0, login_op::CREATE_CHAR_FINISH).with(6, ch.id)));
+        Ok(())
+    }
+
+    /// Équipement de départ d'Archonia (CharacterDataTable.txt) : l'arme de la colonne `Weapon` portée,
+    /// les objets de `Item1`…`Item4` (`TID` ou `TID;quantité`) dans le premier sac, en piles limitées
+    /// à la taille de pile de l'objet.
+    async fn give_starting_items(&self, character_id: u32, tid: u32) -> anyhow::Result<()> {
+        use crate::world::items::{stored_status, EquipData, INSERT_ITEM, INVENTORY};
+        let db = &self.svc.db;
+        let Some(row) = db.world.first("SELECT data FROM character_data_table WHERE tid = ?", (tid,)).await? else {
+            return Ok(());
+        };
+        let data: serde_json::Value = serde_json::from_str(&col::<String>(&row, "data")).unwrap_or_default();
+        let entry = |k: &str| data.get(k).and_then(|v| v.as_str()).and_then(starting_item);
+        let item = |t: u32| async move { db.world.first("SELECT stack, raw FROM item_data WHERE tid = ?", (t,)).await };
+        let mut given = Vec::new();
+        if let Some((weapon, _)) = entry("Weapon") {
+            let raw = item(weapon).await?.and_then(|r| serde_json::from_str::<serde_json::Value>(&col::<String>(&r, "raw")).ok());
+            match raw.as_ref().and_then(EquipData::from_raw) {
+                Some(e) => {
+                    db.characters.exec(INSERT_ITEM, (character_id, weapon, stored_status::EQUIP, e.part, 0, 0, 1)).await?;
+                    given.push(weapon);
+                }
+                None => warn!("[login] arme de départ {weapon} du modèle {tid} introuvable ou non portable"),
+            }
+        }
+        let mut slot = 0i64;
+        for k in ["Item1", "Item2", "Item3", "Item4"] {
+            let Some((t, mut count)) = entry(k) else { continue };
+            let Some(r) = item(t).await? else {
+                warn!("[login] objet de départ {t} du modèle {tid} introuvable");
+                continue;
+            };
+            let stack = col::<i64>(&r, "stack").max(1);
+            while count > 0 && slot < INVENTORY.1 * INVENTORY.2 {
+                let n = count.min(stack);
+                db.characters.exec(INSERT_ITEM, (character_id, t, stored_status::INVENTORY, 0, slot / INVENTORY.2, slot % INVENTORY.2, n)).await?;
+                count -= n;
+                slot += 1;
+            }
+            given.push(t);
+        }
+        info!("[login] équipement de départ du personnage {character_id} : {given:?}");
         Ok(())
     }
 
@@ -478,5 +530,13 @@ mod tests {
     #[test]
     fn empreinte_sha256() {
         assert_eq!(super::sha256_hex(b"test"), "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08");
+    }
+
+    #[test]
+    fn equipement_de_depart() {
+        assert_eq!(super::starting_item("11"), Some((11, 1)));
+        assert_eq!(super::starting_item("194;500"), Some((194, 500)));
+        assert_eq!(super::starting_item(""), None);
+        assert_eq!(super::starting_item("0"), None);
     }
 }
