@@ -220,6 +220,21 @@ after 60 s and the resumption is refused (about 70 s). `sim lastrefine` (GmTest)
 refused before any refine, refines recipe 4013, runs it again with `/last_refine`, then gets result 1
 (missing ingredients).
 
+## Production test
+
+```bash
+ARCHCORE_CONF_DIR=config/test archcore sim product [user] [pass] [character]
+```
+
+GM account (`gmtest`, GmTest): production skills and recipes wiped in the database, empty op 1 on entry, level 20,
+gold, gathering knife and cooking tools (`/additem`). At Kauman (Anchorville's Adventurer): Cooking refused (code 1),
+Collection Skill learnt (300 gold), then already learnt (code 2). North of the village, Green Worms killed then
+gathered (cast accepted, op 2 → op 3: an item of set 46, experience in "dirt" factor 6) until one succeeds; the first
+corpse is not gathered twice (code 7, cast refused with action 17). At Lucy (Cook): recipe refused without Cooking
+(code 5), Cooking learnt, Broiled Meat of Vitality bought then already known, alchemy potion refused; crafting
+without materials (code 6), then with materials and seasoning (used up) until one succeeds. Reconnection: op 1
+returns the recipe. Everything is wiped at the end.
+
 ## Quests test
 
 ```bash

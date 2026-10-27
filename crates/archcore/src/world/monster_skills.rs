@@ -198,7 +198,7 @@ pub fn begin(ctx: &WorldCtx, st: &mut WorldState, cid: u32, slot: usize, target:
     let Some(s) = st.monsters.ai_of(cid).and_then(|a| a.skills.get(slot).copied()) else { return };
     let Some((t, lv)) = ctx.skills.get(s.tid).and_then(|t| Some((t, t.level(s.level)?))) else { return };
     let id = skill_id(st, cid, slot);
-    let owned = Owned { id, tid: s.tid, level: s.level, ready_at: None };
+    let owned = Owned { id, tid: s.tid, level: s.level, ready_at: None, exp: 0 };
     let complete_at = now + Duration::from_millis(lv.cast_ms);
     if let Some(state) = st.monsters.skill_state.get_mut(&cid) {
         state.ready[slot] = Some(now + Duration::from_millis(lv.recast_ms.max(lv.cast_ms)));
@@ -263,7 +263,7 @@ fn complete(ctx: &WorldCtx, st: &mut WorldState, m: &Monster, cast: MonsterCast,
     let Some(s) = st.monsters.ai_of(m.cid).and_then(|a| a.skills.get(cast.slot).copied()) else { return };
     let Some((t, lv)) = ctx.skills.get(s.tid).and_then(|t| Some((t, t.level(s.level)?))) else { return };
     let id = st.monsters.skill_state.get(&m.cid).and_then(|x| x.ids.get(cast.slot).copied()).unwrap_or(0);
-    let owned = Owned { id, tid: s.tid, level: s.level, ready_at: None };
+    let owned = Owned { id, tid: s.tid, level: s.level, ready_at: None, exp: 0 };
     for sid in targets(st, m, t, lv, &cast) {
         hit_player(ctx, st, m, t, lv, &owned, sid, now);
     }
@@ -336,7 +336,7 @@ pub fn on_hit(ctx: &WorldCtx, st: &mut WorldState, cid: u32, sid: u32, now: Inst
             return;
         }
         let id = skill_id(st, cid, slot);
-        let owned = Owned { id, tid: s.tid, level: s.level, ready_at: None };
+        let owned = Owned { id, tid: s.tid, level: s.level, ready_at: None, exp: 0 };
         debug!("[ia] {} ({cid:#x}) : coup chargé {} sur {}", m.name, s.tid, st.players[&sid].ch.name);
         put_effect(ctx, st, sid, &m, &owned, lv, lv.status, now);
     }

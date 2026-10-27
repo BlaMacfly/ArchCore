@@ -88,6 +88,15 @@ fn checks(n: &Names) -> Vec<Check> {
             sample: "CONCAT('TID ', x.quest_tid, ' de ', COALESCE(p.name, CONCAT('personnage ', x.character_id)))",
         },
         Check {
+            label: "recettes absentes de product_compose",
+            severity: Severity::Warning,
+            rows: format!(
+                "`{c}`.character_recipes x LEFT JOIN `{w}`.product_compose r ON r.result_tid = x.recipe_tid \
+                 LEFT JOIN `{c}`.characters p ON p.id = x.character_id WHERE r.result_tid IS NULL"
+            ),
+            sample: "CONCAT('recette ', x.recipe_tid, ' de ', COALESCE(p.name, CONCAT('personnage ', x.character_id)))",
+        },
+        Check {
             label: "banques sans compte",
             severity: Severity::Warning,
             rows: format!("`{c}`.account_bank x LEFT JOIN `{a}`.account r ON r.id = x.account_id WHERE r.id IS NULL"),
@@ -185,7 +194,7 @@ mod tests {
     fn requetes_des_controles() {
         let n = Names { auth: "a_auth", characters: "a_chars", world: "a_world" };
         let all = checks(&n);
-        assert_eq!(all.len(), 10);
+        assert_eq!(all.len(), 11);
         // Chaque contrôle nomme ses bases : il passe par le pool des personnages.
         for k in &all {
             assert!(k.rows.contains("`a_chars`.") || k.rows.contains("`a_auth`.") || k.rows.contains("`a_world`.import_run"), "{}", k.label);

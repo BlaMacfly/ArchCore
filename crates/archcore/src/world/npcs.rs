@@ -22,6 +22,8 @@ pub mod event_function {
     /// Entrepôt de guilde (gardiens de banque) : AgpmEventGuild op 2.
     pub const GUILD_WAREHOUSE: i64 = 35;
     pub const NPC_DIALOG: i64 = 21;
+    /// Production (Adventurer, Cook, Alchemist) : AgpmEventProduct ; donnée = catégorie (ProductCategory).
+    pub const PRODUCT: i64 = 24;
     pub const SKILL_MASTER: i64 = 25;
     pub const QUEST: i64 = 27;
 }
@@ -82,6 +84,7 @@ fn event_int_param(function: i64) -> Option<&'static str> {
     match function {
         event_function::NPC_DIALOG | event_function::NPC_TRADE => Some("Template"),
         event_function::QUEST => Some("QuestGroupID"),
+        event_function::PRODUCT => Some("ProductCategory"),
         _ => None,
     }
 }

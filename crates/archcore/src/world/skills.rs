@@ -53,6 +53,7 @@ const BASE_CHARACTER: i64 = 3;
 /// points, expérience, points héroïques).
 pub const DIRT_SKILL_LEVEL: usize = 4;
 pub const DIRT_SKILL_POINT: usize = 5;
+pub const DIRT_SKILL_EXP: usize = 6;
 pub const DIRT_HEROIC_POINT: usize = 7;
 /// Marge ajoutée à la portée, pour les positions arrondies du client.
 const REACH_TOLERANCE: f64 = 50.0;
@@ -423,6 +424,15 @@ impl SkillTemplate {
     pub fn level(&self, n: u32) -> Option<&SkillLevel> {
         self.levels.get((n as usize).checked_sub(1)?)
     }
+    /// Compétence de production (unités du champ `attribute` à 8) : récolte, cuisine, alchimie.
+    pub fn is_product(&self) -> bool {
+        self.attribute % 10 == 8
+    }
+    /// Valeurs du niveau `n` pour un lancement. SKILL_CONST ne donne que le niveau 1 des compétences de production,
+    /// dont le niveau (1 à 15) vient de l'expérience : ce niveau 1 vaut pour tous.
+    pub fn consts(&self, n: u32) -> Option<&SkillLevel> {
+        self.level(n).or_else(|| self.is_product().then(|| self.levels.first()).flatten())
+    }
     pub fn nature(&self) -> Nature {
         nature(self.attribute)
     }
@@ -582,6 +592,8 @@ pub struct Owned {
     pub level: u32,
     /// Fin du délai de relance.
     pub ready_at: Option<Instant>,
+    /// Expérience cumulée d'une compétence de production (facteur « dirt » 6), 0 pour les autres.
+    pub exp: u32,
 }
 
 /// Lancement en cours.
@@ -652,19 +664,19 @@ pub fn mastery_unmet(catalog: &SkillCatalog, skills: &PlayerSkills, m: &Mastery)
 
 /// Compétences d'un personnage : « Normal Attack » puis celles de la base.
 pub async fn load(db: &Databases, catalog: &SkillCatalog, character_id: u32, next_id: &mut u32) -> anyhow::Result<PlayerSkills> {
-    let rows = db.characters.rows("SELECT skill_tid, level FROM character_skills WHERE character_id = ? ORDER BY skill_tid", (character_id,)).await?;
+    let rows = db.characters.rows("SELECT skill_tid, level, exp FROM character_skills WHERE character_id = ? ORDER BY skill_tid", (character_id,)).await?;
     let mut skills = PlayerSkills::default();
-    let mut add = |tid: u32, level: u32| {
+    let mut add = |tid: u32, level: u32, exp: u32| {
         *next_id += 1;
-        skills.list.push(Owned { id: *next_id, tid, level, ready_at: None });
+        skills.list.push(Owned { id: *next_id, tid, level, ready_at: None, exp });
     };
     if catalog.get(NORMAL_ATTACK).is_some() {
-        add(NORMAL_ATTACK, 1);
+        add(NORMAL_ATTACK, 1, 0);
     }
     for r in &rows {
         let tid: u32 = col(r, "skill_tid");
         if tid != NORMAL_ATTACK && catalog.get(tid).is_some() {
-            add(tid, col::<u32>(r, "level").max(1));
+            add(tid, col::<u32>(r, "level").max(1), col(r, "exp"));
         }
     }
     Ok(skills)
@@ -706,10 +718,11 @@ fn base(id: u32) -> Vec<u8> {
     build_mini(s, &Fields::new(s).with(0, BASE_CHARACTER).with(1, id))
 }
 
-/// Facteurs d'une compétence : sous-paquet « dirt » avec son niveau et ses points.
-fn skill_factors(level: u32) -> Vec<u8> {
+/// Facteurs d'une compétence : sous-paquet « dirt » avec son niveau, ses points et son expérience cumulée
+/// (compétences de production).
+fn skill_factors(level: u32, exp: u32) -> Vec<u8> {
     let d = &mini::FACTOR_DIRT;
-    let dirt = build_mini(d, &Fields::new(d).with(DIRT_SKILL_LEVEL, level as i64).with(DIRT_SKILL_POINT, level as i64).with(6, 0));
+    let dirt = build_mini(d, &Fields::new(d).with(DIRT_SKILL_LEVEL, level as i64).with(DIRT_SKILL_POINT, level as i64).with(DIRT_SKILL_EXP, exp as i64));
     let cf = &mini::CHAR_FACTORS;
     build_mini(cf, &Fields::new(cf).with(11, dirt))
 }
@@ -717,13 +730,22 @@ fn skill_factors(level: u32) -> Vec<u8> {
 /// AGPMSKILL op 0 : une compétence du personnage `owner`.
 pub fn add_packet(owner: u32, s: &Owned) -> Vec<u8> {
     let k = &schema::SKILL;
-    build_packet(k, &Fields::new(k).with(0, op::ADD).with(1, s.id).with(2, base(owner)).with(3, skill_factors(s.level)).with(4, s.tid).with(5, 0))
+    build_packet(k, &Fields::new(k).with(0, op::ADD).with(1, s.id).with(2, base(owner)).with(3, skill_factors(s.level, s.exp)).with(4, s.tid).with(5, 0))
 }
 
-/// AGPMSKILL op 2 : niveau d'une compétence changé.
+/// AGPMSKILL op 2 : niveau (ou expérience de production) d'une compétence changé.
 pub fn update_packet(owner: u32, s: &Owned) -> Vec<u8> {
     let k = &schema::SKILL;
-    build_packet(k, &Fields::new(k).with(0, op::UPDATE).with(1, s.id).with(2, base(owner)).with(3, skill_factors(s.level)))
+    build_packet(k, &Fields::new(k).with(0, op::UPDATE).with(1, s.id).with(2, base(owner)).with(3, skill_factors(s.level, s.exp)))
+}
+
+/// AGPMSKILL op 7 au seul lanceur : lancement refusé, `action` au type d'action du mini SKILL_ACTION (16 cible
+/// invalide, 17 plus rien à récolter : voir `product.rs`).
+pub fn refusal_packet(caster: u32, s: &Owned, target: u32, action: i64) -> Vec<u8> {
+    let a = &mini::SKILL_ACTION;
+    let act = build_mini(a, &Fields::new(a).with(0, action).with(1, base(target)).with(8, s.level as i64));
+    let k = &schema::SKILL;
+    build_packet(k, &Fields::new(k).with(0, op::CAST).with(1, s.id).with(2, base(caster)).with(4, s.tid).with(6, act))
 }
 
 /// AGPMSKILL op 7 : début du lancement, diffusé autour du lanceur.
@@ -853,6 +875,10 @@ fn request_cast(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) {
         debug!("[compétence] {name} : {} pas encore prête", t.name);
         return;
     }
+    // Compétence de production : la récolte vise un cadavre (product.rs).
+    if t.is_product() {
+        return super::product::request_cast(ctx, st, sid, owned, target, now);
+    }
     let alive = st.monsters.get(target).is_some_and(|m| m.is_alive() && st.monsters.stats_of(m.tid).is_attackable());
     // Autre joueur visé par une compétence offensive : règles du combat entre joueurs (pvp.rs).
     let foe = match st.by_cid.get(&target).copied().filter(|t2| *t2 != sid && t.offensive() && !alive) {
@@ -902,14 +928,24 @@ fn stop(st: &mut WorldState, sid: u32) {
 fn begin(ctx: &WorldCtx, st: &mut WorldState, sid: u32, cast: Cast, now: Instant) {
     let p = &st.players[&sid];
     let Some(owned) = p.skills.by_id(cast.skill_id).copied() else { return stop(st, sid) };
-    let Some((t, lv)) = ctx.skills.get(owned.tid).and_then(|t| Some((t, t.level(owned.level)?))) else { return stop(st, sid) };
+    let Some((t, lv)) = ctx.skills.get(owned.tid).and_then(|t| Some((t, t.consts(owned.level)?))) else { return stop(st, sid) };
     if p.dead {
         return stop(st, sid);
     }
+    // Récolte : la cible est un cadavre, à `GATHER_RANGE` (product.rs).
+    let product = t.is_product();
     let me = p.ch.pos();
     let friend = st.by_cid.get(&cast.target).filter(|s| **s != sid).and_then(|s| st.players.get(s)).filter(|f| f.in_game && !f.dead).map(|f| f.ch.pos());
-    let target: Option<Monster> = if cast.target == p.ch.id || friend.is_some() { None } else { st.monsters.get(cast.target).filter(|m| m.is_alive()).cloned() };
+    let target: Option<Monster> = if cast.target == p.ch.id || friend.is_some() {
+        None
+    } else {
+        st.monsters.get(cast.target).filter(|m| m.is_alive() || product && super::product::is_corpse(m)).cloned()
+    };
     if cast.target != p.ch.id && target.is_none() && friend.is_none() {
+        return stop(st, sid);
+    }
+    if product && !super::product::may_harvest(st, sid, cast.target, now) {
+        p.send_raw(refusal_packet(p.ch.id, &owned, cast.target, super::product::cast_refusal::NOTHING_LEFT));
         return stop(st, sid);
     }
     // Joueur ami visé (Assistance, Disentangle) : à portée, sinon refusé.
@@ -923,8 +959,9 @@ fn begin(ctx: &WorldCtx, st: &mut WorldState, sid: u32, cast: Cast, now: Instant
     if let Some(m) = &target {
         let hit_range = st.monsters.stats_of(m.tid).hit_range as f64;
         let range = if lv.range > 0.0 { lv.range } else { p.factors.attack[0].max(50) as f64 };
+        let reach = if product { super::product::GATHER_RANGE } else { range + hit_range };
         let distance = combat::dist2d(me, m.pos);
-        if distance > range + hit_range + REACH_TOLERANCE {
+        if distance > reach + REACH_TOLERANCE {
             let travel = combat::approach(st, sid, m, hit_range, now);
             if let Some(c) = st.players.get_mut(&sid).and_then(|p| p.skills.cast.as_mut()) {
                 c.stage = Stage::Approach { check_at: now + travel };
@@ -953,7 +990,7 @@ fn begin(ctx: &WorldCtx, st: &mut WorldState, sid: u32, cast: Cast, now: Instant
     if let Some(a) = p.attack.as_mut() {
         a.ready_at = a.ready_at.max(complete_at);
     }
-    if target.is_some() || (t.offensive() && friend.is_some()) {
+    if !product && (target.is_some() || (t.offensive() && friend.is_some())) {
         super::recovery::in_combat(&mut p.timers, now);
     }
     let cid = p.ch.id;
@@ -962,6 +999,9 @@ fn begin(ctx: &WorldCtx, st: &mut WorldState, sid: u32, cast: Cast, now: Instant
     p.send(c, Fields::new(c).with(0, 1).with(1, cid).with(7, factors_mini(&p.factors)));
     let pkt = cast_packet(cid, &owned, cast.target, target_pos, lv);
     combat::send_around(st, sid, &pkt);
+    if product {
+        super::product::on_cast_begin(st, sid, cast.target, now);
+    }
     debug!("[compétence] {} lance {name} (incantation {} ms, relance {} ms)", st.players[&sid].ch.name, lv.cast_ms, lv.recast_ms);
 }
 
@@ -970,7 +1010,8 @@ async fn complete(ctx: &WorldCtx, st: &mut WorldState, sid: u32, cast: Cast, now
     let p = &st.players[&sid];
     let Some(owned) = p.skills.by_id(cast.skill_id).copied() else { return Ok(()) };
     let Some((t, lv)) = ctx.skills.get(owned.tid).and_then(|t| Some((t, t.level(owned.level)?))) else { return Ok(()) };
-    if p.dead {
+    // Compétence de production : le lancement s'arrête là, la récolte arrive par AGPMPRODUCT op 2 (product.rs).
+    if p.dead || t.is_product() {
         return Ok(());
     }
     let (caster_tid, me) = (p.ch.template_id, p.dest.unwrap_or_else(|| p.ch.pos()));
@@ -1268,7 +1309,7 @@ async fn rune_skill(ctx: &WorldCtx, st: &mut WorldState, sid: u32, cid: u32, tid
     let target = st.monsters.get_mut(cid).unwrap();
     target.hp = (target.hp - total).max(0);
     let hp = target.hp;
-    let owned = Owned { id: 0, tid, level, ready_at: None };
+    let owned = Owned { id: 0, tid, level, ready_at: None, exp: 0 };
     let mut watchers = combat::viewers(st, cid);
     if !watchers.contains(&sid) {
         watchers.push(sid);
@@ -1649,7 +1690,7 @@ pub async fn learn(ctx: &WorldCtx, st: &mut WorldState, sid: u32, tid: u32) -> a
     ctx.db.characters.exec("INSERT INTO character_skills (character_id, skill_tid, level) VALUES (?, ?, 1) ON DUPLICATE KEY UPDATE level = 1", (character_id, tid)).await?;
     spend_charisma(ctx, st, sid, lv.require_charisma).await?;
     st.next_skill_id += 1;
-    let owned = Owned { id: st.next_skill_id, tid, level: 1, ready_at: None };
+    let owned = Owned { id: st.next_skill_id, tid, level: 1, ready_at: None, exp: 0 };
     let p = st.players.get_mut(&sid).unwrap();
     p.skills.list.push(owned);
     refresh_points(&ctx.skills, &p.skills, &mut p.factors);
@@ -1832,7 +1873,7 @@ mod tests {
         assert_eq!(points_for_level(99), 120);
         let mut catalog = SkillCatalog::default();
         catalog.insert(dual_slash());
-        let skills = PlayerSkills { list: vec![Owned { id: 1, tid: 1, level: 2, ready_at: None }], ..Default::default() };
+        let skills = PlayerSkills { list: vec![Owned { id: 1, tid: 1, level: 2, ready_at: None, exp: 0 }], ..Default::default() };
         assert_eq!(skills.spent(&catalog), 2);
         let mut f = Factors::default();
         f.status[7] = 10;
@@ -1896,13 +1937,13 @@ mod tests {
         let knight = class_column(1, 1);
         catalog.insert_mastery(525, Mastery { class: knight, heroic: false, requires: vec![(526, 4)], total: 0 });
         catalog.insert_mastery(1440, Mastery { class: knight, heroic: true, requires: vec![(1437, 3)], total: 19 });
-        let mut skills = PlayerSkills { list: vec![Owned { id: 1, tid: 526, level: 3, ready_at: None }], ..Default::default() };
+        let mut skills = PlayerSkills { list: vec![Owned { id: 1, tid: 526, level: 3, ready_at: None, exp: 0 }], ..Default::default() };
         let capacitate = catalog.mastery(525, knight).unwrap();
         assert_eq!(mastery_unmet(&catalog, &skills, capacitate).as_deref(), Some("il faut Marching Song au niveau 4"));
         skills.list[0].level = 4;
         assert_eq!(mastery_unmet(&catalog, &skills, capacitate), None);
         // Arbre héroïque : Shield of the Front niveau 3 (6 points héroïques) ne suffit pas, il en faut 19 en tout.
-        skills.list.push(Owned { id: 2, tid: 1437, level: 3, ready_at: None });
+        skills.list.push(Owned { id: 2, tid: 1437, level: 3, ready_at: None, exp: 0 });
         let judgement = catalog.mastery(1440, knight).unwrap();
         assert_eq!(skills.spent_heroic(&catalog), 6);
         assert!(mastery_unmet(&catalog, &skills, judgement).is_some_and(|w| w.contains("19 points héroïques")));
@@ -1921,7 +1962,7 @@ mod tests {
         lv.status_rate = 0.0;
         assert_eq!(roll_status(&mut rng, &lv, &Mods::default()), effects::status::STUN, "sans chance : toujours");
         let now = Instant::now();
-        let owned = Owned { id: 9, tid: 1444, level: 1, ready_at: None };
+        let owned = Owned { id: 9, tid: 1444, level: 1, ready_at: None, exp: 0 };
         lv.duration_ms = 1000;
         let e = new_effect(&owned, &lv, 96, effects::status::STUN, None, now);
         assert_eq!((e.duration_ms, e.ends_at, e.status_until), (3000, Some(now + Duration::from_millis(3000)), Some(now + Duration::from_millis(3000))));
@@ -1934,7 +1975,7 @@ mod tests {
         let mut catalog = SkillCatalog::default();
         let hold = serde_json::json!({ "require_class_knight": "1", "point.def_point_physical": "20" });
         catalog.insert(SkillTemplate { tid: 40, name: "Defense Hold".into(), attribute: 9, target: 111, levels: vec![SkillLevel::from_consts(&hold)], ..Default::default() });
-        let mut skills = PlayerSkills { list: vec![Owned { id: 3, tid: 40, level: 1, ready_at: None }], ..Default::default() };
+        let mut skills = PlayerSkills { list: vec![Owned { id: 3, tid: 40, level: 1, ready_at: None, exp: 0 }], ..Default::default() };
         assert!(sync_passives(&catalog, &mut skills, 96));
         assert!(!sync_passives(&catalog, &mut skills, 96), "inchangée");
         assert_eq!((skills.effects.len(), effects::total(&skills.effects).defense), (1, 20.0));
@@ -1972,7 +2013,7 @@ mod tests {
         let mut catalog = SkillCatalog::default();
         let lv = SkillLevel { require_point: 3, require_heroic: 3, ..Default::default() };
         catalog.insert(SkillTemplate { tid: 1439, name: "Iron Shield".into(), levels: vec![lv.clone(), lv], ..Default::default() });
-        let skills = PlayerSkills { list: vec![Owned { id: 1, tid: 1439, level: 2, ready_at: None }], ..Default::default() };
+        let skills = PlayerSkills { list: vec![Owned { id: 1, tid: 1439, level: 2, ready_at: None, exp: 0 }], ..Default::default() };
         let mut f = Factors::default();
         f.status[7] = 100;
         refresh_points(&catalog, &skills, &mut f);
@@ -1984,7 +2025,7 @@ mod tests {
         let mut catalog = SkillCatalog::default();
         catalog.insert(SkillTemplate { tid: 1619, name: "Charisma Double".into(), ..Default::default() });
         catalog.insert(SkillTemplate { tid: 4393, name: "Boss Additional Charisma".into(), ..Default::default() });
-        let buff = |tid: u32, pct: f64| new_effect(&Owned { id: 1, tid, level: 1, ready_at: None }, &SkillLevel { duration_ms: 1000, mods: Mods { charisma_bonus: pct, ..Default::default() }, ..Default::default() }, 96, 0, None, Instant::now());
+        let buff = |tid: u32, pct: f64| new_effect(&Owned { id: 1, tid, level: 1, ready_at: None, exp: 0 }, &SkillLevel { duration_ms: 1000, mods: Mods { charisma_bonus: pct, ..Default::default() }, ..Default::default() }, 96, 0, None, Instant::now());
         let on = [buff(1619, 100.0), buff(4393, 200.0)];
         assert_eq!((charisma_bonus(&catalog, &on, CharismaSource::Gm), charisma_bonus(&catalog, &on, CharismaSource::Boss)), (100.0, 300.0));
     }
@@ -2007,7 +2048,7 @@ mod tests {
         let cure = SkillLevel::with_spec(&serde_json::json!({ "duration": "60000", "interval": "1000", "skill_rate": "100" }), &Spec { dispel_magic: 10002, ..Default::default() });
         assert_eq!((cure.dispel, cure.purge_every_ms), (effects::dispel::DEBUFFS, Some(1000)));
         assert!(cure.lasting());
-        let e = new_effect(&Owned { id: 3, tid: 90, level: 1, ready_at: None }, &cure, 96, 0, None, Instant::now());
+        let e = new_effect(&Owned { id: 3, tid: 90, level: 1, ready_at: None, exp: 0 }, &cure, 96, 0, None, Instant::now());
         assert_eq!(e.purge.map(|p| (p.kinds, p.rate, p.interval)), Some((effects::dispel::DEBUFFS, 100.0, Duration::from_millis(1000))));
         let anti = SkillLevel::with_spec(&serde_json::json!({}), &Spec { dispel_magic: 16, offensive: true, ..Default::default() });
         assert_eq!((anti.dispel, anti.purge_every_ms, anti.lasting()), (effects::dispel::ALL, None, false));
@@ -2021,7 +2062,7 @@ mod tests {
     #[test]
     fn paquets_de_competence() {
         use archcore_net::decode_mini;
-        let s = Owned { id: 7, tid: 1, level: 3, ready_at: None };
+        let s = Owned { id: 7, tid: 1, level: 3, ready_at: None, exp: 0 };
         let add = archcore_net::decode_packet(&schema::SKILL, &add_packet(0x1234, &s)).unwrap();
         assert_eq!((add.int(0), add.int(1), add.int(4)), (Some(op::ADD), Some(7), Some(1)));
         let owner = decode_mini(&mini::SKILL_BASE, add.bytes(2).unwrap()).unwrap();

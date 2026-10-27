@@ -53,6 +53,13 @@
 - Preemptive monsters: those whose AI has `PreemptiveType` 1 attack a player within their range (`PreemptiveRange`) on
   their own, except targets their level conditions exclude. Validated with the simulator (`aggro` scenario). Validated with the simulator on 27 October 2026 (`pk` scenario). Murderer point and
   charisma amounts are configurable, the original ones being unknown.
+- Production (types 0x17 and 0x3A): production skills learnt from the Adventurer, Cook and Alchemist NPCs (function
+  24), recipes bought from them, gathering from monster corpses (Collection Skill, Gathering Knife, items from
+  `productresultitem.txt` by skill level), cooking and alchemy (materials, recipe item, tools), experience and levels
+  1 to 15 (AGPMSKILL "dirt" factors 4 and 6), known recipes sent on entering the game. Success, quantity and
+  experience rules are ArchCore's choices, documented in [[Network protocol|EN-Network-protocol]]. Validated with the
+  simulator on 27 October 2026 (`product` scenario); the ArchRust windows (`UI_PDSkill`, `UI_PDSkillBuy`,
+  `UI_Compose`) are on the way, to be confirmed in game.
 - ArchRust client (`client` branch): combat (attacking, hits, death, resurrection, loot), parties, other
   players, inventory and equipment, NPCs (dialog, shop, bank and buying pages, quests), skills (trainers,
   casting, shortcut bar), teleport portals (original window and loading screen, confirmation of player-versus-player zones, "Return",

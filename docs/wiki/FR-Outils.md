@@ -224,6 +224,21 @@ le monde au bout de 60 s et la reprise est refusée (environ 70 s). `sim lastref
 de `/last_refine` avant tout raffinage, raffine la recette 4013, la relance par `/last_refine`, puis obtient
 le résultat 1 (ingrédients manquants).
 
+## Test de la production
+
+```bash
+ARCHCORE_CONF_DIR=config/test archcore sim product [compte] [mdp] [personnage]
+```
+
+Compte MJ (`gmtest`, GmTest) : compétences et recettes de production effacées en base, op 1 vide à l'entrée,
+niveau 20, or, couteau de récolte et ustensiles de cuisine (`/additem`). Chez Kauman (Adventurer d'Anchorville) :
+Cooking refusée (code 1), Collection Skill apprise (300 or), puis déjà apprise (code 2). Au nord du village, des
+Vers verts tués puis récoltés (lancement accepté, op 2 → op 3 : objet de l'ensemble 46, expérience dans le facteur
+« dirt » 6) jusqu'à une réussite ; le premier cadavre n'est pas récolté deux fois (code 7, lancement refusé par
+l'action 17). Chez Lucy (Cook) : recette refusée sans Cooking (code 5), Cooking apprise, Broiled Meat of Vitality
+achetée puis déjà connue, potion d'alchimie refusée ; fabrication sans matériaux (code 6), puis avec matériaux et
+assaisonnement (consommés) jusqu'à une réussite. Reconnexion : op 1 rend la recette. Tout est effacé à la fin.
+
 ## Test des quêtes
 
 ```bash

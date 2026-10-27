@@ -24,7 +24,8 @@ Toutes sont en `utf8mb4`.
 | `character_items` | Objets : statut 0 inventaire, 1 équipé, 2 banque (rattaché au personnage qui l'a déposé), 3 entrepôt de guilde (`guild_id` ; le personnage qui l'a déposé reste noté) |
 | `character_quests` | Quêtes en cours (compteurs des monstres A et B) et terminées |
 | `account_bank` | Banque du compte : argent, pages en plus de la première (créée à la première entrée, avec l'argent que les personnages avaient en banque) |
-| `character_skills` | Compétences apprises et leur niveau (« Normal Attack » n'y figure pas : tout personnage la connaît) |
+| `character_skills` | Compétences apprises et leur niveau (« Normal Attack » n'y figure pas : tout personnage la connaît) ; `exp` : expérience cumulée d'une compétence de production |
+| `character_recipes` | Recettes de cuisine et d'alchimie achetées (`recipe_tid` = `product_compose.result_tid`) |
 | `guild` | Guildes : nom unique, mot de passe de dissolution, annonce, taille, date de création, emblème (`mark_tid`, `mark_color`), bilan des combats (`win`, `draw`, `lose`, `points`), alliance (`joint_leader` : la fondatrice, `joint_at`) (`sql/migrations/characters/`) |
 | `guild_hostile` | Hostilités entre guildes, une ligne par sens (`guild_id`, `other_id`, `since`) |
 | `guild_warehouse` | Entrepôt de guilde : argent, pages en plus de la première |
@@ -49,6 +50,7 @@ Remplie par `archcore import` à partir des tables du client.
 | `quest_group` | `questgroup.ini` | Groupes de PNJ : quêtes proposées et rendues |
 | `skill_level` | `SKILL_CONST.txt`, `Skill_Const2.txt` | Valeurs de chaque niveau de chaque compétence (colonnes non vides, en JSON ; groupes `point.`, `percent.`, `magnify.` ; celles de `Skill_Const2.txt`, suffixées de « 2 », sous `point2.`, `percent2.`…) |
 | `skill_mastery` | `SkillMastery_High.txt`, `SkillMastery_Heroic.txt` | Arbres de maîtrise : classe (TID du modèle), compétence, arbre (1 supérieur, 2 héroïque), compétences exigées `[[TID, points]…]`, total de points dépensés |
+| `product_category`, `product_compose`, `product_exp`, `product_gather`, `product_result_item` | `productcategory.txt`, `productcompose.txt`, `productexp.txt`, `productgather.txt`, `productresultitem.txt` | Production : compétence de chaque catégorie, 95 recettes (matériaux `[[TID, quantité]…]`, prix, niveau, chance), niveaux 1 à 15, 760 monstres récoltables, objets récoltés par ensemble et niveau (noms de compétence résolus par `SKILLTEMPLATE.ini`) |
 | `npc_spawn` | `npc.ini` | 567 PNJ : modèle, nom, position, orientation, fonctions brutes |
 | `client_table` | autres tables `.txt` | Lignes en JSON, pour les tables pas encore modélisées |
 | `monster_spawn` | tables du serveur d'origine (`spawndatatable.txt` + `spawninstancetable.txt`) | 12 802 points d'apparition, 36 960 créatures : modèle, niveau (celui du client), nombre, réapparition (plage `respawn_sec`–`respawn_max_sec` pour les boss de `UIBoss.xml`), position, rayon, nom public (`CharacterTemplatePublic.ini`) |
@@ -149,6 +151,7 @@ fait de même au démarrage :
 | objet sans définition (`character_items.template_id` → `item_data`), par exemple après un réimport | grave |
 | compétence inconnue (`character_skills.skill_tid` → `skill_template`) | grave |
 | quête absente de `quest_template` | avertissement |
+| recette absente de `product_compose` (`character_recipes.recipe_tid`) | avertissement |
 | banque sans compte, langue de compte inconnue | avertissement |
 | identifiant de personnage dans la plage des PNJ (≥ 0x40000000), d'objet dans celle des boutiques (≥ 0x20000000) | grave |
 

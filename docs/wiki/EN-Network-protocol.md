@@ -416,6 +416,49 @@ item made); `Combine Use Price` is its gold price.
   Reinforcement Level`, `Keep Item Socket Count`, `Keep Socketed Items` and `Keep Item Options` columns. The
   "failure" outcome (`MakeItem IsFail`) makes its item like the others: the client does not read the column.
 
+## Production (types 0x17 and 0x3A, AgpmProduct and AgpmEventProduct)
+
+Gathering from corpses (Collection Skill, TID 663, tool 654 Gathering Knife), cooking (Cooking 203, tool 655 Cooking
+Tools) and alchemy (Alchemy 285, tool 1016 Alchemy Cauldron). Data: `productcategory.txt` (skill of each category:
+0 Hunt, 1 Cook, 2 Alchemy), `productcompose.txt` (95 recipes, named by the TID of the item made), `productexp.txt`
+(levels 1 to 15: experience per action, success factor, cumulative total), `productgather.txt` (monsters that can
+be gathered, per class, chance, item set) and `productresultitem.txt` (items of a set per skill level, weights adding
+up to 100 per block; a server table shipped with the client), imported into the `product_*` tables. A skill's tool is
+SKILL_SPEC's `arg1` when `requirement` is 4; having it in the inventory is enough.
+
+- **AGPMEVENTPRODUCT** (1 flag byte): 0 op, 1 event (EVENT_BASE), 2 CID, 3 a, 4 b. NPC function 24, sent with the
+  NPC (data: category, 0 Adventurer, 1 Cook, 2 Alchemist).
+  - **op 0 → op 1**: opens `UI_PDSkillBuy` (NPC within 1,600 units).
+  - **op 2 → op 3**: learn skill `a`; AGPMSKILL op 0 (level 1, experience 0) then b = 0 success, 2 already learnt,
+    3 not enough gold, 4 level too low, 1 other refusal. Level and price: SKILL_CONST level 1 (7 / 10 / 15,
+    300 / 500 / 1,000 gold), no skill point and no tax.
+  - **op 4 → op 5**: buy recipe `a`; b = 0 bought (the client adds it to its list), 2 already known, 3 not enough
+    gold (`MakingPrice`), 4 skill below `ItemLv`, 5 the category's skill is missing, 1 other.
+- **AGPMPRODUCT** (2 flag bytes): 0 op, 1 CID, 2 skill id, 3 recipe / corpse / TID obtained, 4 recipe item IID /
+  count, 5 code, 6 experience gained, 7 INT32 list.
+  - **op 1** (server): known recipes, sent on entering the game.
+  - **Gathering**: the client casts Collection Skill on a corpse (AGPMSKILL op 7); ArchCore accepts a production
+    skill on a dead, targetable monster whose template can be gathered by the player's class, approaches to 250
+    units and returns action 1, or refuses with action 16 (invalid target) or 17 (already gathered, or held by
+    someone else). The client shows a 5.4 s bar, then sends **op 2** (field 3: corpse); the cast keeps the corpse
+    15 s longer.
+  - **Crafting**: Cooking and Alchemy are not cast; `UI_Compose` sends **op 0** (field 3: recipe, field 4: recipe
+    item or 0).
+  - **op 3** (server): result; field 3 TID obtained, 4 count, 5 code (0 success, 1 failure, 2 no tool, 3 invalid
+    target, 4 too far, 5 inventory full, 6 not enough materials, 7 nothing left to gather), 6 experience. The item
+    comes through AGPMITEM, the experience through AGPMSKILL op 2.
+- A production skill's **level** is AGPMSKILL "dirt" factor 4; its **cumulative experience** is factor 6, saved in
+  the database (`character_skills.exp`).
+
+ArchCore's rules, the original server not having left them: success when a roll in 0..100 is below
+min(100, chance + `productexp` factor at the current level), the chance being `Probability` (gathering) or
+`SucessProb` plus `Recipe_addProb` when the recipe item is supplied (crafting); gathering: one item rolled from the
+(set, level) block's weights, count 1, a single gathering per corpse for all players, a full inventory loses
+nothing; crafting: materials used up on success and on failure (a material listed twice counts twice), recipe item
+used up when supplied, 1 item made; an unknown recipe, one of another category, above the level or requiring a title
+(`UsingMonster`, empty everywhere): code 1 without using anything up, and a system message; experience rolled in the
+level's [min, max] on success only, next level when the level's cumulative total is reached (15 at most).
+
 ## Potions and regeneration (types 0x04 and 0x02)
 
 The client uses an item with AGPMITEM **op 3** (field 2 = IID). A potion is a usable item (`ItemType` 1 in
@@ -980,5 +1023,6 @@ has not passed). 10 letters (TID 3311 or 1836) remove `PvP.RemissionPoints` poin
 | 0x38 | Blacksmith (conversion) | 0x4B | Refining |
 | 0x3F | Alchemy sphere (refining) | | |
 | 0x07 | Trading between players | 0x3E | NPC quests |
+| 0x17 | Production | 0x3A | Production NPCs |
 
 Full schemas for the 86 modules are in `data/re/packet-schemas.json`.

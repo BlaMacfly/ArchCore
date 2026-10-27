@@ -55,6 +55,13 @@
 - Monstres préventifs : ceux dont l'IA a `PreemptiveType` 1 attaquent d'eux-mêmes un joueur dans leur portée
   (`PreemptiveRange`), sauf les cibles que leurs conditions de niveau excluent. Validé au simulateur (scénario `aggro`). Validé au simulateur le 27 octobre 2026 (scénario
   `pk`). Montants des points de meurtrier et du charisme réglables, ceux d'origine étant inconnus.
+- Production (types 0x17 et 0x3A) : compétences de production apprises chez les PNJ Adventurer, Cook et Alchemist
+  (fonction 24), recettes achetées chez eux, récolte sur les cadavres de monstres (Collection Skill, couteau de
+  récolte, objets de `productresultitem.txt` selon le niveau), cuisine et alchimie (matériaux, objet recette,
+  outils), expérience et niveaux 1 à 15 (facteurs « dirt » 4 et 6 d'AGPMSKILL), recettes connues envoyées à l'entrée
+  en jeu. Les règles de réussite, de quantité et d'expérience sont des choix d'ArchCore, décrits dans
+  [[Protocole réseau|FR-Protocole-reseau]]. Validé au simulateur le 27 octobre 2026 (scénario `product`) ; fenêtres
+  d'ArchRust (`UI_PDSkill`, `UI_PDSkillBuy`, `UI_Compose`) en cours, à confirmer en jeu.
 - Client ArchRust (branche `client`) : combat (attaque, coups, mort, résurrection, butin), groupes, autres
   joueurs, inventaire et équipement, PNJ (dialogue, boutique, banque et achat de pages, quêtes), compétences
   (instructeurs, lancement, barre de raccourcis), portails de téléportation (fenêtre et chargement d'origine, confirmation des zones de combat entre joueurs,

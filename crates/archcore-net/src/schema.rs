@@ -62,6 +62,8 @@ pub mod ptype {
     pub const RECONNECT: u8 = 0x63;
     pub const REMISSION: u8 = 0x2a;
     pub const PVP: u8 = 0x4a;
+    pub const PRODUCT: u8 = 0x17;
+    pub const EVENT_PRODUCT: u8 = 0x3a;
     /// Extensions ArchRust ↔ ArchCore. Hors de la plage 0x01-0x77 acceptée par le répartiteur du
     /// client d'origine, qui l'ignore donc sans erreur.
     pub const ARCHCORE_EXT: u8 = 0xac;
@@ -600,11 +602,36 @@ pub static PVP: Schema = Schema {
 /// (événement du PNJ pour les op 0-1, `mini::REMISSION` pour l'op 2).
 pub static REMISSION: Schema = Schema { name: "AGPMREMISSION", id: ptype::REMISSION, flag_len: 1, fields: &[f(I8), f(I32), f(Packet)] };
 
+/// AgpmProduct (0x17) — drapeaux 2 : production (récolte sur cadavre, cuisine, alchimie). Op 0 fabrication
+/// (client : 3 recette, 4 IID de l'objet recette), 1 recettes connues (serveur : 7 liste d'INT32), 2 récolte
+/// (client : 3 CID du cadavre), 3 résultat (serveur : 3 TID obtenu, 4 quantité, 5 code, 6 expérience gagnée).
+pub static PRODUCT: Schema = Schema {
+    name: "AGPMPRODUCT",
+    id: ptype::PRODUCT,
+    flag_len: 2,
+    fields: &[
+        f(I8),       // 0 opération
+        f(I32),      // 1 CID du personnage
+        f(I32),      // 2 identifiant de la compétence (pas son TID)
+        f(I32),      // 3 recette, cadavre ou TID obtenu
+        f(I32),      // 4 IID de l'objet recette ou quantité obtenue
+        f(I32),      // 5 code de résultat
+        f(I32),      // 6 expérience de production gagnée
+        f(MemBlock), // 7 recettes connues (INT32 bout à bout)
+    ],
+};
+
+/// AgpmEventProduct (0x3A) — drapeaux 1 : op (0 demande au PNJ, 1 accord, 2 / 3 apprendre une compétence et son
+/// résultat, 4 / 5 acheter une recette et son résultat), événement (EVENT_BASE, fonction 24), CID, a (TID de la
+/// compétence ou recette), b (code de résultat). Données de la fonction 24 : `mini::EVENT_DATA_INT32` (catégorie).
+pub static EVENT_PRODUCT: Schema =
+    Schema { name: "AGPMEVENTPRODUCT", id: ptype::EVENT_PRODUCT, flag_len: 1, fields: &[f(I8), f(Packet), f(I32), f(I32), f(I32)] };
+
 /// Tous les schémas principaux, pour l'aiguillage par type.
 pub static MAIN: &[&Schema] = &[
     &CONFIG, &CHARACTER, &CHAR_MANAGER, &LOGIN, &TIMER, &WORLD, &CHATTING, &ADMIN, &ITEM, &EVENT_NPC_TRADE,
     &EVENT_NPC_DIALOG, &EVENT_MANAGER, &SKILL, &EVENT_SKILL_MASTER, &EVENT_TELEPORT, &EVENT_BANK, &ITEM_CONVERT, &EVENT_ITEM_CONVERT, &REFINERY, &EVENT_REFINERY, &GUILD, &EVENT_GUILD, &GUILD_WAREHOUSE, &PRIVATE_TRADE, &PARTY, &PARTY_MANAGEMENT, &QUEST, &EVENT_QUEST, &UI_STATUS, &SYSTEM_MESSAGE, &RETURN_TO_LOGIN, &OPT_CHAR_MOVE, &OPT_CHAR_ACTION, &OPT_VIEW,
-    &STARTUP_ENCRYPTION, &ARCHCORE_EXT, &RECONNECT, &PVP, &REMISSION,
+    &STARTUP_ENCRYPTION, &ARCHCORE_EXT, &RECONNECT, &PVP, &REMISSION, &PRODUCT, &EVENT_PRODUCT,
 ];
 
 pub fn main_by_id(id: u8) -> Option<&'static Schema> {

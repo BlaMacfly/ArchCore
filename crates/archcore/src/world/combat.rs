@@ -586,6 +586,8 @@ fn life_step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) {
                         p.send_raw(gone.clone());
                     }
                 }
+                // Cadavre parti : sa récolte (product.rs) est oubliée.
+                st.harvests.remove(&cid);
             }
             Life::Gone { .. } => {
                 m.life = Life::Alive;

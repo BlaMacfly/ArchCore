@@ -431,6 +431,51 @@ Min/Max` et de sockets `Socket Inchant Min/Max` de l'objet produit) ; `Combine U
   colonnes `Keep Reinforcement Level`, `Keep Item Socket Count`, `Keep Socketed Items`, `Keep Item Options`.
   L'issue « échec » (`MakeItem IsFail`) produit son objet comme les autres : le client ne lit pas la colonne.
 
+## Production (types 0x17 et 0x3A, AgpmProduct et AgpmEventProduct)
+
+Récolte sur cadavre (Collection Skill, TID 663, outil 654 Gathering Knife), cuisine (Cooking 203, outil 655 Cooking
+Tools) et alchimie (Alchemy 285, outil 1016 Alchemy Cauldron). Données : `productcategory.txt` (compétence de chaque
+catégorie : 0 Hunt, 1 Cook, 2 Alchemy), `productcompose.txt` (95 recettes, désignées par le TID de l'objet produit),
+`productexp.txt` (niveaux 1 à 15 : expérience par action, facteur de réussite, cumul), `productgather.txt` (monstres
+récoltables par classe, chance, ensemble d'objets) et `productresultitem.txt` (objets d'un ensemble par niveau de
+compétence, poids de 100 par bloc ; table du serveur fournie avec le client), importées dans les tables `product_*`.
+L'outil d'une compétence est l'`arg1` de SKILL_SPEC quand `requirement` vaut 4 ; il suffit qu'il soit dans
+l'inventaire.
+
+- **AGPMEVENTPRODUCT** (drapeaux 1) : 0 op, 1 événement (EVENT_BASE), 2 CID, 3 a, 4 b. Fonction de PNJ 24, envoyée
+  avec le PNJ (donnée : catégorie, 0 Adventurer, 1 Cook, 2 Alchemist).
+  - **op 0 → op 1** : ouverture de `UI_PDSkillBuy` (PNJ à 1 600 unités au plus).
+  - **op 2 → op 3** : apprendre la compétence `a` ; AGPMSKILL op 0 (niveau 1, expérience 0) puis b = 0 réussite,
+    2 déjà apprise, 3 or insuffisant, 4 niveau trop bas, 1 autre refus. Niveau et prix : niveau 1 de SKILL_CONST
+    (7 / 10 / 15, 300 / 500 / 1 000 or), sans point de compétence ni taxe.
+  - **op 4 → op 5** : acheter la recette `a` ; b = 0 achetée (le client l'ajoute à sa liste), 2 déjà connue,
+    3 or insuffisant (`MakingPrice`), 4 compétence sous `ItemLv`, 5 compétence de la catégorie absente, 1 autre.
+- **AGPMPRODUCT** (drapeaux 2) : 0 op, 1 CID, 2 identifiant de la compétence, 3 recette / cadavre / TID obtenu,
+  4 IID de l'objet recette / quantité, 5 code, 6 expérience gagnée, 7 liste d'INT32.
+  - **op 1** (serveur) : recettes connues, envoyées à l'entrée en jeu.
+  - **Récolte** : le client lance Collection Skill sur un cadavre (AGPMSKILL op 7) ; ArchCore accepte une
+    compétence de production sur un monstre mort et ciblable dont le modèle a une récolte pour la classe du
+    joueur, l'approche à 250 unités et renvoie l'action 1, ou refuse par l'action 16 (cible invalide) ou 17 (déjà
+    récoltée, ou réservée par un autre). Le client montre une barre de 5,4 s, puis envoie l'**op 2** (champ 3 :
+    cadavre) ; le lancement garde le cadavre 15 s de plus.
+  - **Fabrication** : Cooking et Alchemy ne se lancent pas ; `UI_Compose` envoie l'**op 0** (champ 3 : recette,
+    champ 4 : objet recette ou 0).
+  - **op 3** (serveur) : résultat ; champ 3 TID obtenu, 4 quantité, 5 code (0 réussite, 1 échec, 2 outil absent,
+    3 cible invalide, 4 trop loin, 5 inventaire plein, 6 matériaux insuffisants, 7 plus rien à récolter),
+    6 expérience. L'objet arrive par AGPMITEM, l'expérience par AGPMSKILL op 2.
+- **Niveau** d'une compétence de production : facteur « dirt » 4 d'AGPMSKILL ; **expérience cumulée** : facteur 6,
+  enregistrée en base (`character_skills.exp`).
+
+Règles d'ArchCore, le serveur d'origine ne les ayant pas laissées : réussite si un tirage dans 0..100 est sous
+min(100, chance + facteur de `productexp` au niveau courant), la chance étant `Probability` (récolte) ou
+`SucessProb` plus `Recipe_addProb` si l'objet recette est fourni (fabrication) ; récolte : un objet tiré selon les
+poids du bloc (ensemble, niveau), quantité 1, une seule récolte par cadavre tous joueurs confondus, inventaire
+plein sans rien perdre ; fabrication : matériaux consommés en cas de réussite comme d'échec (un matériau listé
+deux fois compte deux fois), objet recette consommé s'il est fourni, 1 objet produit ; recette inconnue, d'une
+autre catégorie, au-dessus du niveau ou exigeant un titre (`UsingMonster`, vide partout) : code 1 sans rien
+consommer et un message système ; expérience tirée dans [min, max] du niveau sur une réussite seulement, niveau
+suivant quand le cumul du niveau est atteint (15 au plus).
+
 ## Potions et régénération (types 0x04 et 0x02)
 
 Le client utilise un objet par AGPMITEM **op 3** (champ 2 = IID). Une potion est un objet utilisable
@@ -1023,5 +1068,6 @@ client l'annonce).
 | 0x38 | Forgeron (conversion) | 0x4B | Raffinage |
 | 0x3F | Sphère d'alchimie (raffinage) | | |
 | 0x07 | Échange entre joueurs | 0x3E | Quêtes des PNJ |
+| 0x17 | Production | 0x3A | PNJ de production |
 
 Les schémas complets des 86 modules sont dans `data/re/packet-schemas.json`.

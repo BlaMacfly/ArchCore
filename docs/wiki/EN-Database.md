@@ -23,7 +23,8 @@ ArchCore uses three main MariaDB databases, plus a log database, created and upd
 | `character_items` | Items: status 0 inventory, 1 equipped, 2 bank (attached to the character who deposited it), 3 guild warehouse (`guild_id`; the character who deposited it stays recorded) |
 | `character_quests` | Quests in progress (monster A and B counters) and completed |
 | `account_bank` | Account bank: money, pages beyond the first (created on first entry, with the money the characters had in the bank) |
-| `character_skills` | Learned skills and their level ("Normal Attack" is not stored: every character knows it) |
+| `character_skills` | Learned skills and their level ("Normal Attack" is not stored: every character knows it); `exp`: cumulative experience of a production skill |
+| `character_recipes` | Cooking and alchemy recipes bought (`recipe_tid` = `product_compose.result_tid`) |
 | `guild` | Guilds: unique name, disbanding password, notice, size, creation date, guild mark (`mark_tid`, `mark_color`), battle record (`win`, `draw`, `lose`, `points`), alliance (`joint_leader`: the founder, `joint_at`) (`sql/migrations/characters/`) |
 | `guild_hostile` | Hostilities between guilds, one row per direction (`guild_id`, `other_id`, `since`) |
 | `guild_warehouse` | Guild warehouse: money, pages beyond the first |
@@ -48,6 +49,7 @@ Filled by `archcore import` from the client tables.
 | `quest_group` | `questgroup.ini` | NPC groups: quests offered and handed in |
 | `skill_level` | `SKILL_CONST.txt`, `Skill_Const2.txt` | Values of each level of each skill (non-empty columns, as JSON; `point.`, `percent.`, `magnify.` groups; those of `Skill_Const2.txt`, suffixed with "2", under `point2.`, `percent2.`…) |
 | `skill_mastery` | `SkillMastery_High.txt`, `SkillMastery_Heroic.txt` | Mastery trees: class (template TID), skill, tree (1 high, 2 heroic), required skills `[[TID, points]…]`, total of points spent |
+| `product_category`, `product_compose`, `product_exp`, `product_gather`, `product_result_item` | `productcategory.txt`, `productcompose.txt`, `productexp.txt`, `productgather.txt`, `productresultitem.txt` | Production: skill of each category, 95 recipes (materials `[[TID, count]…]`, price, level, chance), levels 1 to 15, 760 monsters that can be gathered, items gathered per set and level (skill names resolved through `SKILLTEMPLATE.ini`) |
 | `npc_spawn` | `npc.ini` | 567 NPCs: template, name, position, orientation, raw functions |
 | `client_table` | other `.txt` tables | Rows as JSON, for tables not modelled yet |
 | `monster_spawn` | original server tables (`spawndatatable.txt` + `spawninstancetable.txt`) | 12,802 spawn points, 36,960 creatures: template, level (the client's), count, respawn (`respawn_sec`–`respawn_max_sec` range for the `UIBoss.xml` bosses), position, radius, public name (`CharacterTemplatePublic.ini`) |
@@ -145,6 +147,7 @@ start-up:
 | item without a definition (`character_items.template_id` → `item_data`), for example after a reimport | serious |
 | unknown skill (`character_skills.skill_tid` → `skill_template`) | serious |
 | quest missing from `quest_template` | warning |
+| recipe missing from `product_compose` (`character_recipes.recipe_tid`) | warning |
 | bank without an account, unknown account language | warning |
 | character id in the NPC range (≥ 0x40000000), item id in the shop range (≥ 0x20000000) | serious |
 

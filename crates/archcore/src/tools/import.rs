@@ -762,6 +762,133 @@ pub fn parse_masteries(text: &str) -> Vec<(u32, u32, Vec<(u32, u32)>, i64)> {
     out
 }
 
+/// Catégorie de production (colonne de productcategory.txt et productcompose.txt, sans casse) : Hunt 0, Cook 1,
+/// Alchemy 2 ; une autre valeur n'en est pas une.
+pub fn product_category(name: &str) -> Option<i64> {
+    ["hunt", "cook", "alchemy"].iter().position(|c| c.eq_ignore_ascii_case(name.trim())).map(|i| i as i64)
+}
+
+/// productcategory.txt : les lignes de compétence (catégorie en colonne 0), pas les lignes de recette qui suivent.
+/// Rend (catégorie, nom de la compétence, prix, niveau, PNJ).
+pub fn parse_product_categories(text: &str) -> Vec<(i64, String, i64, i64, String)> {
+    let (_, rows) = parse_tsv(text);
+    rows.iter()
+        .filter_map(|r| {
+            let cell = |i: usize| r.get(i).map(|s| s.trim()).unwrap_or("");
+            let category = product_category(cell(0))?;
+            Some((category, cell(1).to_string(), js_number(cell(3), 0.0) as i64, js_number(cell(4), 0.0) as i64, cell(6).to_string()))
+        })
+        .collect()
+}
+
+/// Une recette de productcompose.txt.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ComposeRow {
+    pub result_tid: u32,
+    pub category: i64,
+    pub name: String,
+    pub title_tid: u32,
+    pub item_level: i64,
+    pub price: i64,
+    pub success_rate: i64,
+    pub recipe_tid: u32,
+    pub recipe_bonus: i64,
+    /// (TID, quantité) des colonnes ItemA à ItemD renseignées, dans l'ordre (un matériau peut revenir).
+    pub materials: Vec<(u32, i64)>,
+}
+
+/// productcompose.txt : colonnes lues par leur en-tête ; ligne sans catégorie ou sans objet produit ignorée,
+/// niveau exigé 1 par défaut.
+pub fn parse_product_composes(text: &str) -> Vec<ComposeRow> {
+    let (header, rows) = parse_tsv(text);
+    let col = |name: &str| header.iter().position(|h| h == name);
+    let first_material = col("ItemA_TID");
+    rows.iter()
+        .filter_map(|r| {
+            let cell = |c: Option<usize>| c.and_then(|i| r.get(i)).map(|s| s.trim()).unwrap_or("");
+            let n = |c: Option<usize>, d: f64| js_number(cell(c), d);
+            let category = product_category(cell(col("Category")))?;
+            let result_tid = n(col("Result_TID"), 0.0) as u32;
+            if result_tid == 0 {
+                return None;
+            }
+            let materials = (0..4)
+                .filter_map(|k| {
+                    let at = first_material? + k * 3;
+                    let (tid, count) = (n(Some(at), 0.0) as u32, n(Some(at + 2), 0.0) as i64);
+                    (tid > 0 && count > 0).then_some((tid, count))
+                })
+                .collect();
+            let level = n(col("ItemLv"), 1.0) as i64;
+            Some(ComposeRow {
+                result_tid,
+                category,
+                name: cell(col("Result_name")).chars().take(64).collect(),
+                title_tid: n(col("UsingMonster"), 0.0) as u32,
+                item_level: if level > 0 { level } else { 1 },
+                price: n(col("MakingPrice"), 0.0) as i64,
+                success_rate: n(col("SucessProb"), 0.0) as i64,
+                recipe_tid: n(col("Recipe_TID"), 0.0) as u32,
+                recipe_bonus: n(col("Recipe_addProb"), 0.0) as i64,
+                materials,
+            })
+        })
+        .collect()
+}
+
+/// productexp.txt : (nom de la compétence, niveau, expérience min et max par action, facteur de réussite,
+/// expérience du niveau, expérience cumulée) ; niveaux 1 à 15 seulement, comme le client.
+pub fn parse_product_exp(text: &str) -> Vec<(String, i64, i64, i64, i64, i64, i64)> {
+    let (_, rows) = parse_tsv(text);
+    rows.iter()
+        .filter_map(|r| {
+            let cell = |i: usize| r.get(i).map(|s| s.trim()).unwrap_or("");
+            let n = |i: usize| js_number(cell(i), 0.0) as i64;
+            let level = n(1);
+            (!cell(0).is_empty() && (1..=15).contains(&level)).then(|| (cell(0).to_string(), level, n(2), n(3), n(4), n(5), n(6)))
+        })
+        .collect()
+}
+
+/// productgather.txt : (TID du monstre, classes en bits 1 à 4, compétence, chance, ensemble) des lignes qui ont une
+/// compétence (les autres ne donnent qu'un TID). Les classes « 1;2;3;4 » hors 1 à 4 sont ignorées, comme par le client.
+pub fn parse_product_gather(text: &str) -> Vec<(u32, u8, u32, i64, i64)> {
+    let (_, rows) = parse_tsv(text);
+    rows.iter()
+        .filter_map(|r| {
+            let cell = |i: usize| r.get(i).map(|s| s.trim()).unwrap_or("");
+            let (tid, skill) = (js_number(cell(1), 0.0) as u32, js_number(cell(3), 0.0) as u32);
+            if tid == 0 || skill == 0 {
+                return None;
+            }
+            let classes = cell(2).split(';').filter_map(|c| c.trim().parse::<u8>().ok()).filter(|c| (1..=4).contains(c)).fold(0u8, |m, c| m | (1 << c));
+            Some((tid, classes, skill, js_number(cell(4), 0.0) as i64, js_number(cell(5), 0.0) as i64))
+        })
+        .collect()
+}
+
+/// productresultitem.txt : (ensemble, niveau de compétence, objet, poids). L'ensemble (colonne 0) et le niveau
+/// (colonne 3) ne sont donnés que sur la première ligne de leur bloc : les lignes suivantes en héritent.
+pub fn parse_product_results(text: &str) -> Vec<(i64, i64, u32, i64)> {
+    let (_, rows) = parse_tsv(text);
+    let (mut set, mut level) = (0i64, 0i64);
+    let mut out = Vec::new();
+    for r in &rows {
+        let cell = |i: usize| r.get(i).map(|s| s.trim()).unwrap_or("");
+        if is_uint(cell(0)) {
+            set = js_number(cell(0), 0.0) as i64;
+        }
+        if is_uint(cell(3)) {
+            level = js_number(cell(3), 0.0) as i64;
+        }
+        let tid = js_number(cell(1), 0.0) as u32;
+        if set > 0 && level > 0 && tid > 0 {
+            out.push((set, level, tid, js_number(cell(2), 0.0) as i64));
+        }
+    }
+    out
+}
+
 async fn import_loot(db: &Databases, server: &Source) -> anyhow::Result<()> {
     if server.exists("itemdroptable.txt") {
         let rows = parse_monster_drops(&server.read("itemdroptable.txt")?);
@@ -1028,6 +1155,64 @@ async fn import_all(db: &Databases, src: &Source) -> anyhow::Result<()> {
         }
         let n = replace(db, "skill_mastery", "INSERT IGNORE INTO skill_mastery (class_tid,skill_tid,tree,requires,total_points) VALUES (?,?,?,?,?)", out).await?;
         println!("✓ skill_mastery : {n}");
+    }
+
+    // ---------------------------------------------------------------- Product*.txt (production)
+    // Skill_Product.txt (ancien système, noms en GBK) et les colonnes Product_* de CharacterDataTable (vides) ne
+    // servent pas.
+    if src.exists("productcompose.txt") && src.exists("SKILLTEMPLATE.ini") {
+        let tids = skill_tids(&src.read("SKILLTEMPLATE.ini")?);
+        if src.exists("productcategory.txt") {
+            let mut missing = 0;
+            let out: Vec<Vec<Value>> = parse_product_categories(&src.read("productcategory.txt")?)
+                .into_iter()
+                .filter_map(|(category, skill, price, level, npc)| {
+                    let Some(&tid) = tids.get(&skill) else {
+                        missing += 1;
+                        return None;
+                    };
+                    Some(vec![v(category), v(tid), v(skill), v(price), v(level), v(npc)])
+                })
+                .collect();
+            let n = replace(db, "product_category", "INSERT IGNORE INTO product_category (category,skill_tid,skill_name,price,level,npc) VALUES (?,?,?,?,?,?)", out).await?;
+            println!("✓ product_category : {n} ({missing} compétence(s) sans modèle)");
+        }
+        let out: Vec<Vec<Value>> = parse_product_composes(&src.read("productcompose.txt")?)
+            .into_iter()
+            .map(|c| {
+                vec![
+                    v(c.result_tid), v(c.category), v(c.name), v(c.title_tid), v(c.item_level), v(c.price), v(c.success_rate),
+                    v(c.recipe_tid), v(c.recipe_bonus), v(json!(c.materials).to_string()),
+                ]
+            })
+            .collect();
+        let n = replace(db, "product_compose", "INSERT IGNORE INTO product_compose (result_tid,category,name,title_tid,item_level,price,success_rate,recipe_tid,recipe_bonus,materials) VALUES (?,?,?,?,?,?,?,?,?,?)", out).await?;
+        println!("✓ product_compose : {n}");
+        if src.exists("productexp.txt") {
+            let mut missing = 0;
+            let out: Vec<Vec<Value>> = parse_product_exp(&src.read("productexp.txt")?)
+                .into_iter()
+                .filter_map(|(skill, level, lo, hi, bonus, level_exp, total)| {
+                    let Some(&tid) = tids.get(&skill) else {
+                        missing += 1;
+                        return None;
+                    };
+                    Some(vec![v(tid), v(level), v(lo), v(hi), v(bonus), v(level_exp), v(total)])
+                })
+                .collect();
+            let n = replace(db, "product_exp", "INSERT IGNORE INTO product_exp (skill_tid,level,exp_min,exp_max,rate_bonus,level_exp,total_exp) VALUES (?,?,?,?,?,?,?)", out).await?;
+            println!("✓ product_exp : {n} ({missing} ligne(s) sans compétence connue)");
+        }
+        if src.exists("productgather.txt") {
+            let out: Vec<Vec<Value>> = parse_product_gather(&src.read("productgather.txt")?).into_iter().map(|(t, c, s, r, i)| vec![v(t), v(c), v(s), v(r), v(i)]).collect();
+            let n = replace(db, "product_gather", "INSERT IGNORE INTO product_gather (monster_tid,classes,skill_tid,rate,item_set) VALUES (?,?,?,?,?)", out).await?;
+            println!("✓ product_gather : {n}");
+        }
+        if src.exists("productresultitem.txt") {
+            let out: Vec<Vec<Value>> = parse_product_results(&src.read("productresultitem.txt")?).into_iter().map(|(s, l, t, w)| vec![v(s), v(l), v(t), v(w)]).collect();
+            let n = replace(db, "product_result_item", "INSERT IGNORE INTO product_result_item (item_set,skill_level,item_tid,weight) VALUES (?,?,?,?)", out).await?;
+            println!("✓ product_result_item : {n}");
+        }
     }
 
     // ---------------------------------------------------------------- ItemConvertTable.txt, itemoptiontable.txt
@@ -1326,6 +1511,50 @@ mod tests {
                     1722\t\t\t\t\t\t\r\n\
                     \t1237\tCourage\t1189;1\t1236;3\t\t30;\r\n";
         assert_eq!(parse_masteries(high), vec![(96, 526, vec![], 0), (96, 558, vec![(525, 2), (527, 2)], 0), (1722, 1237, vec![(1189, 1), (1236, 3)], 30)]);
+    }
+
+    #[test]
+    fn tables_de_production() {
+        let category = "분류\tSkill\tNemu\t겔드\t레벨\t비고\t판매 NPC\r\n\
+                        Hunt\tCollection Skill\t\t100\t1\t\tAdventurer\r\n\
+                        Cook\tCooking\t\t1000\t15\tMastery Level\tCook\r\n\
+                        \t\tBroiled Meat of Vitality\t500\t1\t\t\r\n\
+                        ALCHEMY\tAlchemy\t\t2000\t20\t\tAlchemist\r\n";
+        let c = parse_product_categories(category);
+        assert_eq!(c.iter().map(|r| (r.0, r.1.as_str(), r.2)).collect::<Vec<_>>(), vec![(0, "Collection Skill", 100), (1, "Cooking", 1000), (2, "Alchemy", 2000)]);
+        let compose = "MakeId\tCategory\tResult_TID\tResult_name\tUsingMonster\tItemLv\tMakingPrice\tSucessProb\tRecipe_TID\tRecipe_Name\tRecipe_addProb\tItemA_TID\tItemA_name\tItemA_quantity\tItemB_TID\tItemB_name\tItemB_quantity\tItemC_TID\tItemC_name\tItemC_quantity\tItemD_TID\tItemD_name\tItemD_quantity\r\n\
+                       \tCook\t644\tBroiled Meat of Vitality\t\t1\t500\t70\t623\tSalty Seasoning\t5\t4960\tBug Meat\t3\t4963\tSpider Web\t1\t641\tPotato\t1\t\t\t\r\n\
+                       \tAlchemy\t406\tSpider Potion\t\t\t500\t70\t427\tRecipe\t5\t4960\tBug Meat\t3\t4963\tSpider Web\t2\t\t\t\t\t\t\r\n\
+                       \tCook\t650\tSoup of Fury\t\t4\t900\t60\t\t\t\t4938\tMeat\t2\t4938\tMeat\t2\t\t\t\t\t\t\r\n\
+                       \t\t999\tSans catégorie\t\t1\t1\t1\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\r\n";
+        let r = parse_product_composes(compose);
+        assert_eq!(r.len(), 3);
+        assert_eq!(
+            r[0],
+            ComposeRow {
+                result_tid: 644, category: 1, name: "Broiled Meat of Vitality".into(), title_tid: 0, item_level: 1, price: 500, success_rate: 70,
+                recipe_tid: 623, recipe_bonus: 5, materials: vec![(4960, 3), (4963, 1), (641, 1)],
+            }
+        );
+        assert_eq!((r[1].category, r[1].item_level, r[1].materials.clone()), (2, 1, vec![(4960, 3), (4963, 2)]), "niveau vide : 1");
+        assert_eq!(r[2].materials, vec![(4938, 2), (4938, 2)], "matériau répété gardé tel quel");
+        let exp = "스킬종류\t레벨\tmin\tmax\t팩터\t레벨업\t누적\r\n\
+                   Collection Skill\t1\t5\t7\t0\t103\t103\t\t\r\n\
+                   Collection Skill\t3\t10\t13\t4\t597\t960\t\t\r\n\
+                   Collection Skill\t16\t1\t1\t1\t1\t1\r\n";
+        assert_eq!(parse_product_exp(exp), vec![("Collection Skill".into(), 1, 5, 7, 0, 103, 103), ("Collection Skill".into(), 3, 10, 13, 4, 597, 960)]);
+        let gather = "Target Type\tTarget TID\tClass\tSkill TID\tProbability\tItem Set\r\n\
+                      \t33\t1;2;3;4\t663\t90\t2\r\n\
+                      \t450\t2;7\t663\t50\t46\r\n\
+                      \t1200\t\t\t\t\r\n";
+        assert_eq!(parse_product_gather(gather), vec![(33, 0b11110, 663, 90, 2), (450, 0b100, 663, 50, 46)]);
+        let results = "Item Set\tItem TID\tProbability\tSkill Level\n\
+                       1\t4930\t40\t1\n\
+                       \t4921\t30\t\n\
+                       \t4933\t30\t\n\
+                       \t4930\t40\t2\n\
+                       2\t4963\t100\t1\n";
+        assert_eq!(parse_product_results(results), vec![(1, 1, 4930, 40), (1, 1, 4921, 30), (1, 1, 4933, 30), (1, 2, 4930, 40), (2, 1, 4963, 100)]);
     }
 
     #[test]

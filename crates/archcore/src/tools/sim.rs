@@ -23,6 +23,7 @@
 //!   archcore sim pvp [compte] [mdp] [perso]                   zones de combat entre joueurs : demande ignorée en combat, arène de guilde, « Retour » (op 7) ; compte MJ (pvp.rs)
 //!   archcore sim reconnect [A… B…]                            reconnexion automatique (0x63) : coupure, mauvaise clé, reprise, départ après 60 s (reconnect.rs)
 //!   archcore sim lastrefine [compte] [mdp] [perso]            commande MJ /last_refine : refus, relance de la dernière recette ; compte MJ (last_refine.rs)
+//!   archcore sim product [compte] [mdp] [perso]               production : Collection Skill chez Kauman, récolte de Vers verts, Cooking et recette chez Lucy, fabrication ; compte MJ (product.rs)
 //!   archcore sim guild [A… B…]                                guilde GmTest + SimA : création, invitation, discussion, annonce, départ, exclusion, dissolution
 //!   archcore sim guildlead [A… B…]                            guilde GmTest + SimA + 18 comptes d'appoint : liste et recherche, agrandissement, second, passation
 //!   archcore sim guildbattle [A… B…]                        combats de guildes : défi, refus, acceptation, annulation, début, coups, score, abandon, mort du chef, bilan
@@ -58,6 +59,7 @@ mod lang;
 mod last_refine;
 mod aggro;
 mod pk;
+mod product;
 mod pvp;
 mod reconnect;
 
@@ -85,6 +87,7 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         Some("portal") => Box::pin(portal(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("aggro") => Box::pin(aggro::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("pk") => Box::pin(pk::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
+        Some("product") => Box::pin(product::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("pvp") => Box::pin(pvp::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("reconnect") => Box::pin(reconnect::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("lastrefine") => Box::pin(last_refine::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
@@ -121,7 +124,7 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         Some("ignore") => Box::pin(competences::ignore(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("rune") => Box::pin(competences::rune(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("trigger") => Box::pin(competences::trigger(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
-        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol|bag|skill|effects|status|bank|portal|pvp|reconnect|lastrefine|guild|guildlead|guildbattle|guildrelation|guildwarehouse|guildmark|guildstage|gm|trade|party|quest|mobskill|counter|partyskill|mastery [arguments]"),
+        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol|bag|skill|effects|status|bank|portal|pvp|reconnect|lastrefine|product|guild|guildlead|guildbattle|guildrelation|guildwarehouse|guildmark|guildstage|gm|trade|party|quest|mobskill|counter|partyskill|mastery [arguments]"),
     }
 }
 
