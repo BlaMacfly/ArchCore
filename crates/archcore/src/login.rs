@@ -387,7 +387,8 @@ impl LoginConn {
         if (hair, face) != asked {
             warn!("[login] #{} apparence {asked:?} non proposée à la création pour le modèle {tid} : coiffure {hair}, visage {face}", s.id());
         }
-        let tpl = self.svc.templates.get(tid).cloned();
+        // Seuls les modèles de l'écran de création sont acceptés (pas un monstre ni une évolution du Scion).
+        let tpl = self.svc.templates.get(tid).cloned().filter(|_| self.svc.templates.base.contains(&tid));
         let Some(tpl) = tpl.filter(|_| self.characters.len() < MAX_CHARACTERS && !name.is_empty() && name.chars().count() <= 48) else {
             self.send_login_result(s, login_result::NAME_TAKEN);
             return Ok(());

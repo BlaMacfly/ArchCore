@@ -554,7 +554,9 @@ pub async fn enter_world_opts(cfg: &Config, user: &str, pass: &str, char_name: &
         }
         println!("  {bases} personnage(s) de base reçus");
         let m = &mini::LOGIN_CHAR_INFO;
-        let info = build_mini(m, &Fields::new(m).with(0, 96).with(1, char_name).with(6, 1).with(7, 2));
+        // Modèle créé : chevalier humain (96), ou celui d'`ARCHCORE_SIM_CREATE_TID` (377 Swashbuckler, 1724 Scion…).
+        let tid: i64 = std::env::var("ARCHCORE_SIM_CREATE_TID").ok().and_then(|v| v.parse().ok()).unwrap_or(96);
+        let info = build_mini(m, &Fields::new(m).with(0, tid).with(1, char_name).with(6, 1).with(7, 2));
         login.send(lg, Fields::new(lg).with(0, login_op::CREATE_CHAR).with(8, info)).await?;
         let created = login.expect(lg, None).await?;
         if created.int(0) == Some(login_op::LOGIN_RESULT) {

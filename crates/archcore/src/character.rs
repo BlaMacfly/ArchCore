@@ -8,11 +8,15 @@ use archcore_net::{build_mini, build_packet, Fields, Vec3};
 use mysql_async::Row;
 use std::collections::HashMap;
 
-/// TID des personnages de base proposés à la création (CharacterDataTable).
+/// Classes jouables de CharacterDataTable : modèles complétés d'après cette table.
 pub const BASE_TEMPLATE_NAMES: [&str; 14] = [
     "Knight", "Archer", "Mage", "Berserker", "Hunter", "Sorcerer", "Swashbuckler", "Ranger", "Elementalist", "Scion",
     "Slayer", "Orbiter", "Summoner", "Warrior",
 ];
+
+/// Évolutions du Scion au niveau 20 : complétées comme les autres, mais absentes de l'écran de création (Archonia n'y
+/// a qu'un bouton Scion pour le Dragon Scion).
+const EVOLVED_CLASS_NAMES: [&str; 3] = ["Slayer", "Orbiter", "Summoner"];
 
 /// Modèle de personnage (charactertemplate.ini).
 #[derive(Clone, Debug, Default)]
@@ -135,6 +139,45 @@ impl Template {
     }
 }
 
+/// Modèles jouables d'après CharacterDataTable.txt (`character_data_table.data`, JSON), qui fait foi pour
+/// Archonia : l'ancien charactertemplate.ini n'a pas les classes ajoutées depuis (Ranger, classes du Dragon
+/// Scion), donne au TID 377 un PNJ au lieu du Swashbuckler et laisse l'Elementalist sans race ni caractéristiques.
+/// Le modèle existant est gardé s'il est de la même race et de la même classe (ses autres valeurs servent),
+/// sinon remplacé ; race, sexe, classe, caractéristiques, points et vitesses viennent de la table.
+fn apply_playable(all: &mut HashMap<u32, Template>, tid: u32, name: &str, data: &serde_json::Value) {
+    let num = |key: &str| data.get(key).and_then(|v| v.as_str()).and_then(|s| s.trim().parse::<f32>().ok());
+    let int = |key: &str| num(key).map(|v| v as i32);
+    let (Some(race), Some(class)) = (int("Race"), int("Class")) else { return };
+    if race <= 0 || class <= 0 {
+        return;
+    }
+    let keep = all.get(&tid).is_some_and(|t| t.race == race && t.class == class);
+    let t = all.entry(tid).or_default();
+    if !keep {
+        *t = Template { tid, name: name.to_string(), ..Default::default() };
+    }
+    t.race = race;
+    t.class = class;
+    t.gender = int("Gender").unwrap_or(t.gender);
+    t.level = int("LVL").unwrap_or(t.level).max(1);
+    t.str_ = num("STR").unwrap_or(t.str_);
+    t.dex = num("DEX").unwrap_or(t.dex);
+    t.intel = num("INT").unwrap_or(t.intel);
+    t.con = num("CON").unwrap_or(t.con);
+    t.wis = num("Wis").unwrap_or(t.wis);
+    t.hp = int("MAX_HP").unwrap_or(t.hp);
+    t.mp = int("MAX_MP").unwrap_or(t.mp);
+    t.sp = int("MAX_SP").unwrap_or(t.sp);
+    t.movement = int("Movement Walk").unwrap_or(t.movement);
+    t.movement_fast = int("Movement Run").unwrap_or(t.movement_fast);
+    if t.attack_range == 0 {
+        t.attack_range = int("Range").unwrap_or(0);
+    }
+    if t.attack_speed == 0 {
+        t.attack_speed = int("ATK Speed").unwrap_or(0);
+    }
+}
+
 /// Donne à chaque modèle sa croissance : son propre bloc de GrowUpFactor.txt, sinon celui d'un modèle jouable
 /// de même race et de même classe (du même sexe de préférence, puis du plus petit TID).
 fn attach_growth(all: &mut HashMap<u32, Template>, mut blocks: HashMap<u32, Vec<Growth>>) {
@@ -178,20 +221,23 @@ impl Templates {
                 g.push(Growth::from_row(&r));
             }
         }
+        let placeholders = vec!["?"; BASE_TEMPLATE_NAMES.len()].join(",");
+        let sql = format!("SELECT tid, name, data FROM character_data_table WHERE name IN ({placeholders}) ORDER BY tid");
+        let params: Vec<mysql_async::Value> = BASE_TEMPLATE_NAMES.iter().map(|n| (*n).into()).collect();
+        // Modèles jouables complétés d'après CharacterDataTable avant la croissance, qu'ils empruntent au besoin.
+        let mut base = Vec::new();
+        for r in db.world.rows(&sql, params).await? {
+            let (tid, name, data): (u32, String, String) = (col(&r, "tid"), col(&r, "name"), col(&r, "data"));
+            let Ok(data) = serde_json::from_str::<serde_json::Value>(&data) else { continue };
+            apply_playable(&mut all, tid, &name, &data);
+            if all.get(&tid).is_some_and(|t| t.race > 0 && t.class > 0) && !EVOLVED_CLASS_NAMES.contains(&name.as_str()) {
+                base.push(tid);
+            }
+        }
         let block_count = blocks.len();
         attach_growth(&mut all, blocks);
         let grown = all.values().filter(|t| !t.growth.is_empty()).count();
         info!("croissance par niveau : {block_count} bloc(s) dans growup_factor, {grown} modèle(s) concerné(s)");
-        let placeholders = vec!["?"; BASE_TEMPLATE_NAMES.len()].join(",");
-        let sql = format!("SELECT tid, name FROM character_data_table WHERE name IN ({placeholders}) ORDER BY tid");
-        let params: Vec<mysql_async::Value> = BASE_TEMPLATE_NAMES.iter().map(|n| (*n).into()).collect();
-        let base_rows = db.world.rows(&sql, params).await?;
-        // Écarte les PNJ homonymes (« <Titre> Nom ») : seuls les modèles jouables vont à l'écran de création.
-        let base: Vec<u32> = base_rows
-            .iter()
-            .map(|r| col::<u32>(r, "tid"))
-            .filter(|tid| all.get(tid).is_some_and(|t| !t.name.contains('<')))
-            .collect();
         let list: Vec<String> = base.iter().map(|t| t.to_string()).collect();
         info!("{} template(s) de personnage chargé(s), {} de base : {}", all.len(), base.len(), list.join(", "));
         Ok(Templates { all, base })
@@ -494,6 +540,27 @@ pub fn character_packet(ch: &CharView, factors: &Factors, op: i64) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn modeles_jouables_de_characterdatatable() {
+        let mut all = HashMap::new();
+        // TID 377 : PNJ dans l'ancien charactertemplate.ini, Swashbuckler dans CharacterDataTable.
+        all.insert(377, Template { tid: 377, name: "<Bûcheron>".into(), hp: 5000, ..Default::default() });
+        let swash = serde_json::json!({ "Race": "3", "Gender": "2", "Class": "1", "LVL": "1", "STR": "15", "MAX_HP": "104", "Movement Run": "6000" });
+        apply_playable(&mut all, 377, "Swashbuckler", &swash);
+        let t = &all[&377];
+        assert_eq!((t.name.as_str(), t.race, t.gender, t.class, t.hp, t.movement_fast), ("Swashbuckler", 3, 2, 1, 104, 6000));
+        assert_eq!(t.str_, 15.0);
+        // Modèle absent (Scion, TID 1724) : créé ; modèle de même race et classe : gardé et complété.
+        apply_playable(&mut all, 1724, "Scion", &serde_json::json!({ "Race": "4", "Class": "3", "MAX_HP": "80" }));
+        assert_eq!((all[&1724].race, all[&1724].hp), (4, 80));
+        all.insert(96, Template { tid: 96, name: "휴먼 남자전사".into(), race: 1, class: 1, ar: 19, ..Default::default() });
+        apply_playable(&mut all, 96, "Knight", &serde_json::json!({ "Race": "1", "Class": "1", "MAX_HP": "90" }));
+        assert_eq!((all[&96].ar, all[&96].hp, all[&96].name.as_str()), (19, 90, "휴먼 남자전사"));
+        // Sans race ni classe : rien n'est fait.
+        apply_playable(&mut all, 5, "Warrior", &serde_json::json!({ "Race": "0" }));
+        assert!(!all.contains_key(&5));
+    }
 
     /// Guerrier humain (TID 96) : modèle de charactertemplate.ini et deux lignes de GrowUpFactor.txt.
     fn human_warrior(levels: usize) -> Template {
