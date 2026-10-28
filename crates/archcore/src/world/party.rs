@@ -207,7 +207,11 @@ pub fn on_management(st: &mut WorldState, sid: u32, p: &Packet) {
                 return;
             }
             let target_name = name_of(st, target);
-            if st.by_cid.get(&target).is_some_and(|t| super::option_flags::refuses(st, *t, super::option_flags::REFUSE_PARTY_IN)) {
+            // Invitations refusées dans les options, ou auteur ignoré avec « Block Invites » (buddy.rs).
+            let refuses = |t: &u32| {
+                super::option_flags::refuses(st, *t, super::option_flags::REFUSE_PARTY_IN) || super::buddy::blocks(st, *t, me, schema::buddy_flag::BLOCK_INVITE)
+            };
+            if st.by_cid.get(&target).is_some_and(refuses) {
                 info!("[groupe] {target_name} refuse les invitations de {my_name}");
                 send(st, me, management_packet(mgmt::FAILED_REFUSE, Some(me), Some(target), Some(&target_name)));
                 return;

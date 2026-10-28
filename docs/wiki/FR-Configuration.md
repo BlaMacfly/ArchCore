@@ -49,6 +49,19 @@ défaut, avec un avertissement dans le journal ; une clé inconnue (faute de fra
 | `Guild.BattleReadySeconds` | `180` | Délai (s) entre l'acceptation d'un combat de guildes et son début ; le client l'annonce en minutes. Les données d'Archonia ne le donnent pas |
 | `PvP.MurdererPointsPerKill` | `20` | Points de meurtrier pour le meurtre d'un innocent de plus de 4 niveaux en dessous, attaqué en premier (paliers 40, 60, 100). Valeur d'origine inconnue |
 | `PvP.RemissionPoints` | `2` | Points de meurtrier retirés par une rémission de 10 lettres de pardon, comme le client l'annonce |
+| `Item.WeaponWearChance` | `10` | Probabilité (%) qu'un coup qui blesse use d'un point l'arme qui le porte (choix d'ArchCore ; 0 : pas d'usure) |
+| `Item.ArmorWearChance` | `10` | Probabilité (%) qu'un coup reçu qui blesse use d'un point une pièce d'armure portée tirée au hasard (choix d'ArchCore) |
+| `World.TimeSpeed` | `6` | Vitesse du temps du jeu envoyée au client (AGPMTIMER champ 0) : 6 comme Archonia, une journée en 4 h réelles ; 1 = heure réelle |
+| `World.TimeStart` | `-1` | Heure du jeu au démarrage du serveur (0 à 23), la même pour tous ; -1 = horloge de la machine × vitesse, identique d'un démarrage à l'autre. Voir [[Protocole réseau|FR-Protocole-reseau]] |
+| `World.WeatherAuto` | `0` | 1 = météo automatique (pluie, neige ou temps clair tirés pour tout le monde) ; 0 = seulement `/weather` (choix d'ArchCore) |
+| `World.WeatherMinutes` | `30` | Minutes entre deux tirages de la météo automatique |
+| `World.WeatherRainChance`, `World.WeatherSnowChance` | `20`, `10` | Probabilités (%) de la pluie et de la neige à chaque tirage ; le reste : temps clair |
+| `Auction.MaxSales` | `100` | Ventes au plus par personnage dans la maison des ventes (1 à 100, la boîte du client) |
+| `Auction.ExpireDays` | `30` | Durée d'une vente en jours ; échue, elle sort de la recherche mais reste annulable |
+| `Summons.StatScale` | `100` | Caractéristiques des créatures invoquées, en pour cent de celles de leur modèle mises au niveau du maître (choix d'ArchCore) |
+| `Chat.ShoutRange` | `0` | Portée du cri local « /s » ; 0 : deux fois `World.ViewRadius` (choix d'ArchCore) |
+| `Wanted.ExpireDays` | `7` | Durée d'un avis de recherche, en jours depuis la dernière mise à prix (choix d'ArchCore) |
+| `Wanted.ExpLossPercent` | `5` | Part de l'expérience du niveau perdue par un criminel recherché tué par un chasseur, sans perte de niveau (choix d'ArchCore) |
 | `World.TimeZone` | `local` | Fuseau de l'horloge envoyée au client (paquet AGPMTIMER) : `local` = heure de la machine (jour/nuit, musique et ambiance suivent l'heure locale du serveur), `utc` = époque Unix brute. Voir [[Protocole réseau|FR-Protocole-reseau]] |
 | `World.ExitOnRestart` | `0` | `1` : arrête le serveur à la fin du compte à rebours de `/announce_restart` |
 | `StartPosition.<race>.Village` / `.X` / `.Y` / `.Z` | voir le modèle | Position d'apparition par race : 1 Humain, 2 Orc, 3 Elfe de lune, 4 Scion |

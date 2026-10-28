@@ -99,7 +99,7 @@ impl Bank {
         let rows = db
             .characters
             .rows(
-                "SELECT i.id, i.template_id, i.layer, i.row_idx, i.col_idx, i.count, i.convert_level, i.socket_count, i.socket_tids, i.option_tids \
+                "SELECT i.id, i.template_id, i.layer, i.row_idx, i.col_idx, i.count, i.convert_level, i.socket_count, i.socket_tids, i.option_tids, i.durability \
                  FROM character_items i JOIN characters c ON c.id = i.character_id WHERE c.account_id = ? AND i.status = ?",
                 (account_id, stored_status::BANK),
             )
@@ -108,7 +108,7 @@ impl Bank {
             .iter()
             .map(|r| {
                 let iid: u32 = col(r, "id");
-                (iid, InventoryItem { iid, tid: col(r, "template_id"), count: col(r, "count"), grid: [col(r, "layer"), col(r, "row_idx"), col(r, "col_idx")], conv: super::items::convert_of(r), options: super::items::options_of(r) })
+                (iid, InventoryItem { iid, tid: col(r, "template_id"), count: col(r, "count"), grid: [col(r, "layer"), col(r, "row_idx"), col(r, "col_idx")], conv: super::items::convert_of(r), options: super::items::options_of(r), durability: super::items::durability_of(r) })
             })
             .collect();
         Ok(Bank { account_id, money, extra_slots, items, keeper: None })
@@ -409,7 +409,7 @@ mod tests {
         assert_eq!(next_slot_price(&prices, 3), None);
         for r in 0..7 {
             for c in 0..4 {
-                bank.items.insert((r * 4 + c) as u32 + 1, InventoryItem { iid: (r * 4 + c) as u32 + 1, tid: 1, count: 1, grid: [0, r, c], conv: Default::default(), options: Vec::new() });
+                bank.items.insert((r * 4 + c) as u32 + 1, InventoryItem { iid: (r * 4 + c) as u32 + 1, tid: 1, count: 1, grid: [0, r, c], conv: Default::default(), options: Vec::new(), durability: crate::world::items::DURABILITY_FULL });
             }
         }
         assert_eq!(bank.free_slot(), Some([1, 0, 0]));

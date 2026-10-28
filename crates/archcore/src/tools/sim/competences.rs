@@ -33,7 +33,7 @@ fn say(cid: u32, text: &str) -> Fields {
 }
 
 fn system(q: &Recv) -> bool {
-    q.ptype == schema::CHATTING.id && q.int(2) == Some(chat_type::SYSTEM)
+    q.ptype == schema::CHATTING.id && q.int(2) == Some(chat_type::WHOLE_WORLD)
 }
 
 /// Commande MJ, attend la réponse du serveur.

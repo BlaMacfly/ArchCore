@@ -71,16 +71,19 @@ La liste des mondes passe par le type 0x18 (AgpmWorld), au format `Nom=Groupe=0=
 
 ## Horloge (type 0x11, AgpmTimer)
 
-Entre la position de chargement (op 8) et l'entrée en jeu, le serveur envoie un paquet AGPMTIMER :
-op 6 au champ 0, et au champ 1 l'heure du serveur en **millisecondes** (u64). Le client la fait
-avancer localement et en tire l'heure du jeu par `(ms / 3 600 000) % 24`, **sans correction de
-fuseau** (`AgpmEventNature`) : cette heure pilote le cycle jour/nuit, la musique et l'ambiance de zone
-(`skyset.ini`). Le serveur coréen d'origine envoyait vraisemblablement son heure locale.
+Entre la position de chargement (op 8) et l'entrée en jeu, le serveur envoie un paquet AGPMTIMER (drapeaux 1) : au
+champ 0 la **vitesse du temps** (u8, ce n'est pas une opération ; ignorée si 0), au champ 1 le temps du jeu en
+**millisecondes** (u64 ; ignoré si 0). Le client avance ce temps de `vitesse` ms par ms réelle et en tire l'heure par
+`(ms / 3 600 000) % 24`, **sans correction de fuseau** : elle pilote le cycle jour/nuit, la musique et l'ambiance de
+zone (`skyset.ini`). Archonia part de 12 h et de la vitesse 6 tant qu'il n'a rien reçu. Les champs 2 et 3 (u32) n'ont
+pas de lecteur connu.
 
-ArchCore envoie donc par défaut l'époque Unix **décalée du fuseau local** de la machine (minuit local
-de l'époque = 0), pour que l'heure du jeu soit l'heure du serveur ; `World.TimeZone = utc` dans la
-[[configuration|FR-Configuration]] renvoie à l'époque Unix UTC brute. Les champs 2 et 3 (u32) ne sont
-pas utilisés. `archcore sim` affiche la valeur reçue et l'heure en jeu correspondante.
+ArchCore tient une horloge **globale** (choix d'ArchCore) : vitesse `World.TimeSpeed` (6 par défaut, une journée en
+4 h réelles) ; avec `World.TimeStart` = h (0 à 23), le temps vaut h heures au démarrage du serveur ; avec -1 (défaut),
+il vaut l'horloge de la machine (`World.TimeZone` : époque Unix décalée du fuseau local, ou UTC) multipliée par la
+vitesse, la même d'un démarrage à l'autre. Deux joueurs entrés à des moments différents voient la même heure. Le
+paquet est renvoyé à tous les joueurs en jeu toutes les 10 minutes (le client recale son horloge). `archcore sim`
+affiche la valeur reçue et l'heure en jeu correspondante. Voir la [[configuration|FR-Configuration]].
 
 ## Apparition des PNJ (type 0x42, AgpmOptimizedView)
 
@@ -202,10 +205,62 @@ nom cible (49), message (bloc mémoire).
 - Le client envoie l'op 0 avec son CID, le type (0 normal, 5 chuchotement avec le nom cible) et le
   message **sans zéro final**, de moins de 256 octets. Une commande MJ est un message normal qui
   commence par `/`.
+- Archonia envoie **tout** en type 0, le mode de la barre ajoutant son préfixe au texte : `/p` groupe, `/g`
+  guilde, `/s` cri local ; le joueur tape aussi `/race` (ou `/racetrumpet`), `/scream`, `/warn`. ArchCore lit ces
+  préfixes (casse ignorée) **avant** les commandes MJ ; une commande inconnue d'un joueur sans droits MJ est ignorée
+  sans réponse. Seul le chuchotement arrive dans son type (5). Les types 3 et 4 envoyés directement restent acceptés.
+- `/s` : type 1 « [Shout] » aux joueurs à moins de `Chat.ShoutRange` (0 : deux fois `World.ViewRadius`).
+- Cadence (valeurs du code partagé d'Archonia) : un message toutes les 100 ms au plus, le surplus est ignoré ; les
+  commandes MJ n'y sont pas soumises.
 - Si le joueur a choisi une couleur de discussion, le client ajoute `\x01RRGGBB` à la fin du message.
   ArchCore le retire avant d'interpréter une commande et le garde pour l'affichage.
-- À la réception, le client refuse un message de plus de 512 octets. Le type 7 (message système)
-  s'affiche sans émetteur ; ArchCore l'utilise pour répondre au MJ, et le type 10 pour les annonces.
+- À la réception, le client refuse un message de plus de 512 octets. Types et affichage d'Archonia : 0 normal, 1
+  « [Shout] », 3 guilde, 4 groupe, 5 et 6 chuchotement, 7 (monde entier), 11 et 12 (annonces) en « [Notice] », 8 à
+  10 (système) en « [System] » (une ligne répétée en moins de 500 ms y est ignorée), 13 annonce de guilde, 16 siège,
+  17 jaune, 19 trompette de race, 20 cri des éléments ; 17, 19 et 20 sans en-tête ni nom. ArchCore répond au MJ et
+  envoie ses messages système en type 7, ses annonces en type 10 (noms corrigés le 28 octobre 2026 :
+  `WHOLE_WORLD`, `SYSTEM_LEVEL3`, `NOTICE_LEVEL1` ; valeurs envoyées inchangées).
+
+## Cris de zone (type 0x4C, AgpmAreaChatting)
+
+Du serveur au client seulement (Archonia n'en envoie jamais). Drapeaux sur 1 octet : 0 op (seule l'op 0 compte),
+1 CID de l'émetteur, 2 genre de cri (I8 : 1 race, 2 monde, 3 tous les mondes ; ignoré par le client), 3 I8 (1,
+ignoré), 4 type AGPMCHATTING du message (U32, choisit l'onglet), 5 nom (49), 6 texte (bloc mémoire). Règles
+d'ArchCore :
+
+| Commande | Objets (« usable » de genre 20, SubType) | Destinataires | Type |
+|---|---|---|---|
+| `/race` | Race Trumpet (3905), genre 1 | joueurs en jeu de la même race | 19 |
+| `/scream` | Shout of Elemental (3906, 6182, 11518), genre 2 | tous les joueurs en jeu | 20 |
+| `/warn` | Warning of Ashtal (3911), genre 3 | tous les joueurs en jeu (un seul monde) | 7 |
+
+Un objet est consommé par message (refus avec message système s'il manque) ; un cri par seconde (refus avec message).
+Le texte est composé par le serveur : `[Objet] [Nom] message` (ces onglets n'ont ni en-tête ni nom), suffixe de
+couleur gardé ; l'émetteur le reçoit aussi. L'interdiction de discussion (`/chatban`) s'applique.
+
+## Salons de discussion (type 0x2C, AgpmChannel)
+
+Drapeaux sur 4 octets : 0 op, 1 CID du demandeur, 2 nom du salon (41), 3 mot de passe (9), 4 nom de personnage (33 :
+membre, invitant, cible ou auteur), 5 genre (1 public, 2 privé, 3 guilde), 6 code de résultat, 7 message (121),
+8 liste des membres (bloc mémoire). Un CID autre que celui du joueur est refusé.
+
+| Op | Sens | Champs | Effet |
+|---|---|---|---|
+| 1 | client | 2, 3, 5 | Créer : nom pris → 1 ; 5 salons → 4 ; salon de guilde : chef seulement → 5, un par guilde → 7 ; sinon op 3 |
+| 3 | client | 2 | Entrer : inconnu → 2 ; déjà membre → 11 ; autre guilde → 6 ; plein ou 5 salons → 4 ; privé : op 8 |
+| 3 | serveur | 2, 3, 5, 8 | Entrée faite ; liste `nom1;nom2;…;` et un zéro, l'entrant compris, **toujours présente** (le client la lit sans vérifier) |
+| 4 | client → serveur | 2 | Sortie (op 4 au sortant, op 6 aux autres) ; un salon vide disparaît |
+| 5, 6 | serveur | 2, 4 | Membre arrivé, parti |
+| 7 | client → cible | 2, 4, 5 | Invitation (joueur absent → 3) ; elle dispense du mot de passe (choix d'ArchCore) |
+| 8 | serveur / client | 2 (3) | Mot de passe demandé, puis saisi (faux → 8) |
+| 9 | client → membres | 2, 4, 7 | Message relayé à tous les membres, auteur compris (le client n'affiche rien avant le retour) |
+| 10 | client → serveur | 4 | Recherche d'un joueur : op 10 s'il est en ligne, sinon 3 |
+| 11 | serveur | 6 | Résultat : 1 nom pris, 2 inconnu, 3 joueur introuvable, 4 plein, 5 pas chef, 6 pas membre de la guilde, 7 la guilde a déjà son salon, 8 mauvais mot de passe, 11 déjà membre |
+
+Limites du client : 5 salons par personnage, 15 membres (100 pour un salon de guilde), nom de 40 caractères, mot de
+passe de 8, message de 120. Salons en mémoire, quittés à la sortie du monde ; noms comparés sans la casse. La règle de
+région `<Chat>No</Chat>` (regionperculiarity.xml, message 43) n'est pas appliquée : le fichier d'Archonia n'en a
+aucune.
 
 ## Combat (type 0x41, AgpmOptimizedCharAction)
 
@@ -970,7 +1025,7 @@ réunis : les objets demandés sont repris, les récompenses données (objets, a
 
 L'onglet « Fonction » des options règle des refus que le client envoie par AGPMCHARACTER **op 0x11** (champ 1 :
 CID, champ 22 : drapeaux `INT32`), à l'entrée en jeu et à chaque case : 0x01 échanges, 0x02 invitations de
-groupe, 0x10 invitations de guilde (0x04 combat de guilde, 0x08 combat, 0x40 alliance ou hostilité, 0x80 ami
+groupe, 0x10 invitations de guilde, 0x80 demandes d'ami (0x04 combat de guilde, 0x08 combat, 0x40 alliance ou hostilité
 attendent leur système). Le serveur garde la valeur (`characters.option_flag`), la renvoie par la même op et
 arrête à la source ce qui vise un joueur qui refuse ; l'auteur reçoit le message d'Archonia :
 
@@ -1045,6 +1100,294 @@ EVENT_BASE), op 1 accord (fenêtre `UI_Remission`), op 2 rémission : mini {type
 délai de 2 heures pas écoulé). 10 lettres (TID 3311 ou 1836) retirent `PvP.RemissionPoints` points (2, comme le
 client l'annonce).
 
+## Amis et ignorés (type 0x2B, AgpmBuddy)
+
+**AGPMBUDDY** (drapeaux 4, champs de taille fixe) : 0 op, 1 CID du propriétaire de la liste (celui qui reçoit, du
+serveur au client : le client jette le paquet s'il ne connaît pas ce CID), 2 nom de l'autre joueur (CHAR[33]),
+3 drapeaux (`UINT32` : 0x1 bloquer la discussion, 0x2 l'échange, 0x4 les invitations de groupe et de guilde,
+0x00100000 en ligne, 0x02000000 liste d'amis — absent : liste d'ignorés), 4 région (op 7), 5 relation « Buddy »,
+6 code de résultat (op 8). L'op 15 a son propre paquet, même type : 0 op, 1 CID, 2 nombre (`INT16`), 3 30 noms
+de 33 octets à la suite (CHAR[990]), 4 30 drapeaux (`UINT32`).
+
+| Op | Sens | Rôle |
+|---|---|---|
+| 1 | client, serveur | Ajout : ignoré (drapeaux 0), ou acceptation d'une demande d'ami (nom du demandeur, 0x02000000) ; le serveur répond par l'entrée retenue |
+| 2 | client, serveur | Demande d'ami : relayée à la cible en ligne (nom = demandeur) |
+| 3 | client, serveur | Refus : relayé au demandeur (nom = la cible) |
+| 4 | client, serveur | Retrait d'un ami ou d'un ignoré |
+| 5 | client, serveur | Cases de blocage d'un ignoré |
+| 6 | serveur | État en ligne d'un joueur de la liste (bit 0x00100000) ; le client ne fait que changer l'icône |
+| 7 | client, serveur | Détail d'un ami : sa région (champ 4, RegionTemplate ; -1 hors ligne) |
+| 8 | serveur | Résultat (champ 6) : 1 déjà dans une liste, 2 hors ligne ou inconnu, 3 liste pleine, 4 soi-même ou nom invalide, 12 demande « Buddy » invalide |
+| 9 | serveur | Fin de la liste initiale : le client relit `Ini\IgnoreList.txt` et envoie l'op 15 |
+| 10 à 14 | | Relation « Buddy » (mentor et disciple) : reportée ; l'op 10 reçoit le code 12 |
+| 15 | client | Ignorés du fichier local du client (30 au plus) |
+
+À l'entrée en jeu, ArchCore envoie une op 1 par entrée (amis avec l'état en ligne, ignorés avec leurs blocages),
+puis l'op 9 ; l'op 15 qui suit est fusionnée en base (noms connus manquants, avec leurs cases), sans réponse. Les
+joueurs en jeu qui ont le nouveau venu dans leurs amis reçoivent l'op 6, et de même à sa sortie du monde.
+
+Choix d'ArchCore (le serveur d'origine n'est pas connu) : 30 amis et 30 ignorés, noms comparés sans casse, un même
+personnage dans une seule des deux listes ; demande d'ami seulement vers un joueur en jeu, ignoré connecté ou non ;
+l'acceptation ajoute chacun chez l'autre, le retrait ne vaut que chez le demandeur ; l'option « refuser les demandes
+d'ami » (bit 0x80 de l'op 0x11) renvoie aussitôt l'op 3. Les blocages s'appliquent au serveur : chuchotement d'un
+ignoré « Block Chat » non transmis (l'auteur voit son message comme d'habitude, comme avec le filtre du client) ;
+demande d'échange (« Block Trade ») et invitations de groupe et de guilde (« Block Invites ») refusées avec le message
+des options (voir plus haut). En base : `character_buddy`.
+
+## Courrier (type 0x2D, AgpmMailBox)
+
+**AGPMMAILBOX** (drapeaux 2) : 0 op, 1 CID du joueur, 2 courrier (mini-paquet), 3 IID de la pièce jointe (op 3),
+4 résultat (0 succès ; le client ne distingue aucun autre code). **Courrier** (drapeaux 2) : 0 identifiant, 1
+expéditeur (CHAR[33]), 2 destinataire (CHAR[33], le nom exact du personnage : comparé avec la casse), 3 objet
+(CHAR[51]), 4 date (secondes Unix), 5 drapeaux (0x01 lu, 0x10 pièce récupérée), 6 TID et 7 quantité (`INT16`) de la
+pièce jointe, 8 texte (bloc mémoire, zéro final compris, 1 à 1000 octets). Pour un courrier existant, le client ne
+remplit que l'identifiant.
+
+| Op | Sens | Rôle |
+|---|---|---|
+| 0 | serveur | Courrier arrivé (« YouHaveMail »), inséré en tête de la liste du client |
+| 1 | client, serveur | Suppression ; à la réponse 0, le client retire le courrier |
+| 2 | client | Courrier ouvert : marqué lu, sans réponse |
+| 3 | client, serveur | Écriture (destinataire, objet, texte ; champ 3 : IID joint ou 0) ; réponse : `MAIL_WRITE_SUCCESS` ou `MAIL_WRITE_FAIL` |
+| 4 | client, serveur | Récupération de la pièce jointe ; réponse avec l'identifiant (drapeau 0x10) |
+| 5 | serveur | Boîte vidée (inutilisée) |
+
+Le client ne demande jamais la liste : à l'entrée en jeu, ArchCore envoie une op 0 par courrier, du plus ancien au
+plus récent. Il ne retire rien lui-même : à l'envoi, le serveur décompte une feuille d'« Ordinary Letter Paper »
+(TID 3601, AGPMITEM op 2 ou op 1) et retire la pièce jointe (op 1) ; à la récupération, il l'ajoute à l'inventaire
+(op 0, statut 2, première case libre). Choix d'ArchCore : une feuille par lettre, pas d'or joint, une seule pièce
+(la pile entière) qui reste la même ligne de `character_items` (statut 4, options et conversion gardées) ;
+destinataire cherché en base, hors ligne compris, et servi aussitôt s'il est en jeu ; 30 courriers par boîte ; pas
+d'expiration. Codes de refus (accompagnés d'un message système) : 1 échec (soi-même, courrier mal formé), 2
+destinataire inconnu, 3 boîte pleine, 4 pas de papier, 5 objet interdit (papiers 3601-3602, TID 4609 à 4623, comme le
+client), 6 inventaire plein, 7 objet lié (`BoundType` 1), 8 hors de l'inventaire, 10 objet de la boutique
+(`Cash`), 11 suppression d'un courrier dont la pièce n'est pas récupérée. En base : `mail`.
+
+## Usure et réparation (types 0x04 et 0x34, AgpmItem et AgpmEventItemRepair)
+
+La durabilité maximale d'un objet est la colonne `DUR` d'itemdatatable.txt (une valeur commençant par `@` marque un
+objet inusable) ; le client ne lit le maximum que dans son modèle. La durabilité actuelle est le **facteur « objet »**
+(sous-paquet 10 du mini CHAR_FACTORS, 5 `INT32`, drapeaux 1), champ 0, dans le champ 10 d'AGPMITEM : envoyée avec
+l'objet (op 0) quand elle est entamée, et à chaque changement par une op 2 sans statut ni case (champs 0, 2 IID, 3
+TID, 4 propriétaire, 10). Le client n'en affiche que le pourcentage : fenêtre `UI_EquipStatus` allumée sous 21 %,
+case marquée à 0 %.
+
+Usure (règles d'ArchCore, le client n'en contient aucune) : chaque coup qui blesse, compétences comprises, use d'un
+point l'arme qui le porte avec la probabilité `Item.WeaponWearChance` (10 %) — arme montée à cheval, sinon main
+droite, sinon arme de la main gauche ; chaque coup reçu qui blesse use d'un point, avec `Item.ArmorWearChance`
+(10 %), une pièce d'armure portée tirée au hasard (corps, tête, mains, jambes, pieds, bouclier). Pas d'usure à la
+mort. À 0, l'objet reste porté mais ne compte plus dans les facteurs (dégâts, défense, options, runes) jusqu'à sa
+réparation. Commande MJ `/durability <valeur|-1>` : durabilité de l'équipement porté.
+
+**AGPMEVENTITEMREPAIR** (0x34, drapeaux 1) : 0 op, 1 événement (EVENT_BASE, fonction 17), 2 CID du joueur, 3 IID des
+20 cases de la grille de réparation (`INT32[20]`, ligne × 4 + colonne, 0 : vide), 4 coût calculé par le client
+(`INT64`), 5 code de résultat. La fonction 17 des PNJ (25 forgerons, 4 éleveurs) est envoyée sans données, comme la
+banque.
+
+| Op | Sens | Rôle |
+|---|---|---|
+| 3 | client | Ouverture demandée au PNJ (champs 0 à 2) |
+| 4 | serveur | Accord : fenêtres `UI_Repair` et inventaire |
+| 0 | client | Réparation des objets de la grille (objets de l'inventaire seulement : un objet porté doit être retiré) |
+| 1 | serveur | Résultat : 1 réussi (fenêtre fermée), 2 pas assez d'or, 3 déjà plein, 4 échec, 5 objet qui ne se répare pas |
+
+Prix, comme le client : `tronc((prix au PNJ / DUR) × (DUR − actuelle) × 0,5)` par objet, sans taxe de région ; un
+écart avec le coût envoyé donne le code 4. Réussite : argent débité (AGPMCHARACTER champ 8), chaque objet remis
+plein (op 2, champ 10), puis code 1 ; noté dans `log_shop` (action `repair`). Refus : PNJ hors de portée ou sans
+fonction 17 (code 4), objet sans `DUR` ou inusable (code 5), objets tous pleins (code 3). Un meurtrier de palier 2 ou
+plus est refusé avant l'ouverture, par un message système (le client a le texte `CharacterPenalty_CantConvert`,
+pénalité 3, mais le paquet qui le déclenche n'est pas établi).
+
+## Montures (types 0x04 et 0x4D, AgpmItem et AgpmRide)
+
+Une monture est un objet de **partie 14** (Kind 32) ; la partie 15 porte l'arme montée (lance, étendard). Le client
+n'envoie jamais AgpmRide : il monte en équipant l'objet (AGPMITEM op 2, statut 3) et descend en le retirant (statut
+2). **AGPMRIDE** (0x4D, drapeaux 1) : 0 op, 1 CID du cavalier, 2 IID de l'objet monture (op 6 : TID du modèle), 3
+temps restant (ignoré). Ops du serveur : 2 monté, 4 descendu, 5 fin de durée (sans effet dans le client), 6 monté sur
+un modèle (inutilisée).
+
+Montée : objet équipé (au joueur et à ceux qui le voient), facteurs recalculés (au joueur et à ses voisins), puis op 2
+(CID, IID, 0) au joueur et à ses voisins ; le client crée la monture d'après le `SubType` de l'objet. Descente : objet
+rangé, facteurs, op 4. À cheval, `Run_Buff` de l'objet remplace marche et course (le client lève alors son plafond de
+60 000). Vue : bit 1 du champ 18 d'AGPMCHARACTER (« transformation ») ; un joueur qui arrive en vue reçoit le
+personnage, son équipement puis l'op 2 ; à l'entrée en jeu, le cavalier reçoit l'op 2 après ses objets.
+
+Refus de monter (l'objet reste dans l'inventaire) : en combat (coup donné ou reçu depuis moins de 10 s,
+AgpmSystemMessage code 24 « CannotRideWhileCombat »), meurtrier de palier 2 ou plus (message système), région sans le
+bit 0x10 du champ `Type` de RegionTemplate (code 42), personnage mort. Descente forcée à la mort et dans une région sans
+montures (marche ou téléportation) ; un inventaire plein l'empêche (message système, nouvel essai à chaque tour). À
+cheval : combat permis, l'arme montée remplace celles des mains (à pied, elle ne compte pas) ; compétences refusées
+(seules celles marquées `auto_attack`, que le client ne lance pas, y échappent) ; consommables refusés sans
+`EnableOnRide`. Choix d'ArchCore : pas de retrait des renforcements en montant, pas d'expiration (aucune monture des
+données n'a `RemainTime` ni `ExpireTime`).
+
+## Maison des ventes (type 0x0B, AgpmAuction)
+
+Achat immédiat, à prix fixe, de **la pile entière** (pas d'enchères). **AGPMAUCTION** (drapeaux 2) : 0 op, 1 CID du
+joueur, 2 sous-paquet selon l'op, 3 résultat (0 succès). Sous-paquets : **SALES** (drapeaux 2 : 0 identifiant de
+vente, 1 docID, 2 numéro de l'objet en base, 3 IID, 4 prix en or, 5 prix en CC, 6 quantité, 7 statut 0 en vente / 1
+vendu, 8 date, 9 TID), **SELL** (0 IID, 1 quantité, 2 or, 3 CC, 4 date, 5 IID d'un parchemin Marvel), **CANCEL** (0
+identifiant, 1 TID, 2 quantité), **CONFIRM** (0 identifiant, 1 TID, 2 quantité, 3 gain en or, 4 gain en CC),
+**BUY** (0 docID, 1 quantité, 2 TID, 3 or, 4 CC), **SELECT2** (0 TID, 1 curseur docID, 2 sens, 3 total, 4 résultats),
+**ROWSET** (drapeaux 2 : 0 index, 1 texte de requête, 2 en-têtes, 3 lignes, 4 colonnes, 5 taille d'une ligne, 6
+tampon, 7 décalages U32 des colonnes ; chaque valeur est une chaîne terminée par un zéro). Prix et identifiants en
+I64/U64 ; Archonia n'a pas d'op « SELECT ».
+
+| Op | Sens | Rôle |
+|---|---|---|
+| 1, 2, 3 | serveur | Vente ajoutée à la boîte du vendeur (SALES), retirée (identifiant), statut changé (1 : vendu, bouton « Confirm ») |
+| 4 | client, serveur | Mise en vente ; réponse 0 (sysstr 451) avant le retrait de l'objet, 6 : plus de place (279) |
+| 5 | client, serveur | Annulation (identifiant) ; 0 (452), 7 : inventaire plein (280) |
+| 6 | client, serveur | Encaissement (identifiant) ; 0 (453) avec les gains |
+| 7 | client, serveur | Achat ; 0 (454), 5 quantité (274), 7 inventaire plein (275), 12 plus disponible (276) |
+| 9, 10 | client, serveur | Ouverture chez un PNJ de fonction 28 (EVENT_BASE), accord avec le même EVENT_BASE |
+| 12 | client, serveur | Recherche par TID |
+
+Ouverture : le client envoie l'op 9 avec l'EVENT_BASE de l'« Item Trader » (fonction 28, sans données dans sa vue,
+comme la banque) ; ArchCore répond l'op 10 si le PNJ est à portée (1500), sauf au palier 3 de meurtrier. Recherche :
+le client part du curseur 9 999 999 999 999 en sens 0 et redemande avec le docID de la dernière ligne tant qu'il en
+reçoit 15 ; ArchCore rend au plus 15 ventes du TID (sens 0 : docID inférieurs, décroissants ; sens 1 : supérieurs) et
+le nombre total, sans les ventes échues. Colonnes des lignes : 0 docID, 1 vendeur, 2 identifiant de vente, 3 or, 4 CC,
+5 IID, 6 TID, 7 quantité, 8 date, 9 conversion (vide), 10 durabilité, 11 durabilité maximale, 12 options « a,b,c »,
+13 à 15 vides. Le client trie et pagine lui-même.
+
+Choix d'ArchCore (le serveur d'origine n'est pas connu) : l'identifiant de vente sert aussi de docID ; or et CC
+(`characters.cash`) au prix de la base, jamais celui du paquet (le client envoie un CC nul) ; frais de 3 % de l'or et
+du CC prélevés à la mise en vente, non remboursés à l'annulation, pas de taxe à l'encaissement ; prix comme le client
+(or 0 ou de 100 000 à 1 000 000 000, CC jusqu'à 1 000 000, pas les deux nuls) ; seulement un objet de l'inventaire
+ordinaire, hors échange, classé dans la maison des ventes (`FirstCategory`, `SecondCategory`), ni d'événement ni lié
+dès l'obtention ; parchemin Marvel ignoré ; `Auction.MaxSales` ventes par personnage ; après `Auction.ExpireDays`
+jours une vente sort de la recherche mais reste annulable. Ouvrir, chercher et acheter exigent le PNJ ; vendre,
+annuler et encaisser se font de la boîte de ventes (fenêtre `UI_SalesBox2`), partout. Le vendeur en jeu reçoit l'op
+3 à l'achat ; hors ligne, il retrouve sa vente « vendue » à l'entrée (une op 1 par vente). Un refus sans code connu du
+client est accompagné d'un message système. L'objet reste une ligne de `character_items` (statut 5), puis passe à
+l'acheteur. En base : `auction_sale`, journal `log_auction`.
+
+## Commutateur d'équipement (type 0x6A, AgpmItemSet)
+
+Jeux d'équipement de la fenêtre `UI_SwitchEditor` d'Archonia ; malgré son nom, AgpmItemSet n'a **aucun bonus de
+panoplie** (aucune table dans les données). **AGPMITEMSET** (drapeaux 1) : 0 op, 1 emplacement (0 à 99 ; op 4 :
+emplacement actif, -1 aucun), 2 argument (op 3 : rempli 1 / vide 0 ; op 6 : `(de << 4) | vers` ; op 7 : position),
+3 objets (CHAR[4000]) : jetons `E,<partie>,<identifiant>` séparés par `:`, 10 au plus, l'identifiant étant le champ
+26 (U64) d'AGPMITEM. Emplacement = `(profil × 10 + configuration) × 2 + jeu` (jeu A 0, B 1), calculé par le client.
+
+| Op | Sens | Rôle |
+|---|---|---|
+| 0 | client | Enregistrer l'équipement porté ; réponse op 3 puis op 5 |
+| 1 | client | Porter le jeu (vide : tout retirer) ; réponse : changements d'équipement (AGPMITEM), op 4 |
+| 2 | client | Vider ; op 3 (0), op 5 vide |
+| 3, 4, 5 | serveur | Emplacement rempli ou vide, emplacement actif, objets |
+| 6, 7 | client | Déplacer, retirer un objet du jeu ; op 5 |
+
+À l'entrée en jeu, ArchCore envoie ops 3 et 5 par emplacement rempli puis l'op 4, après les objets (AGPMITEM porte
+désormais le champ 26 = IID, l'identifiant en base, pour tous les objets ; le champ 19 « drapeaux », où le client lit
+la liaison, n'est pas envoyé). Choix d'ArchCore : gratuit ; porter un jeu passe par le chemin de l'équipement manuel
+(niveau, race, classe, sexe, monture, place pour ranger), objet par objet, sans message en cas de refus ; objets
+absents de l'inventaire ignorés ; pas d'op 4 après un enregistrement ; un déplacement au-delà du dernier objet le met
+en fin de liste. Profils, noms et touches restent dans le fichier local du client. En base : `character_item_set`,
+`characters.item_set_active`.
+
+## Météo (types 0x30 et 0x47, AgpmEventNature et AgpmNatureEffect)
+
+Du serveur au client seulement. **AGPMEVENTNATURE** (0x30, drapeaux 1) : 0 météo (I8), 1 et 2 (I64) sans lecteur
+connu. Le client ne réagit qu'à 0 (fin de l'effet en fondu, 5 s), 3 (pluie : effet de nature 1, ciel 99) et 5
+(neige : effet 0, ciel 98). **AGPMNATUREEFFECT** (0x47, drapeaux 2) : 0 identifiant d'effet de `NatureEffect.ini`
+(-1 : arrêt) ; ArchCore ne s'en sert pas, la météo suffit. Choix d'ArchCore : une météo commune à tous, fixée par
+`/weather clear|rain|snow` ([[Administration|FR-Administration]]) ou tirée toutes les `World.WeatherMinutes` minutes
+si `World.WeatherAuto` vaut 1 ; envoyée à tous les joueurs en jeu à chaque changement et à l'entrée en jeu ; non
+enregistrée (temps clair au démarrage). Les compétences de l'Archlord sur le ciel (478 « Day and Night », 522, 523)
+attendent le système de l'Archlord.
+
+## Invocations (type 0x4F, AgpmSummons)
+
+Créatures des compétences (colonne `summons` de SKILL_SPEC) et des objets à « Use skill id ». **AGPMSUMMONS**
+(drapeaux 2) : 0 op (I8), 1 CID du maître (I32), 2 CID de la créature (I32), 3 TID de la créature (I32), 4 type
+d'invocation (op 0) ou nouvelle limite (ops 3 et 4) (I8), 5 propension (I8 : 0 attaque, 1 défense, 2 ombre), 6 et 7
+horodatages (U64, non nuls), 8 « forcée » (U8 : 1 hors limite). Tous les constructeurs du client posent le champ 8 :
+ArchCore l'envoie toujours.
+
+| Op | Sens | Champs | Rôle |
+|---|---|---|---|
+| 0 | serveur | 1 à 8 | Invocation ajoutée ; le client l'ignore si la créature ne lui est pas déjà connue avec l'état de son type |
+| 1 | serveur | 1, 2 | Invocation retirée (état « invoqué » effacé, emplacement forcé rendu) |
+| 2 | client → serveur → maître | 1, 2, 5 | Propension (boutons de `UI_TargetSummonsMenu2`) ; acceptée pour une invocation de type 1 du joueur, renvoyée au maître (son étiquette ne change qu'à la réception) |
+| 3 | serveur | 1, 4 | Limite des invocations (1 au départ côté client) |
+| 4 | serveur | 1, 4 | Limite des créatures apprivoisées (inutilisée) |
+
+Apparition, dans cet ordre : vue de la créature (0x42 op 1, CID de la plage 0x58000000), état spécial (AGPMCHARACTER
+op 1, champ 17 : 0x800 pour les types 1 et 8, 0xC00 pour le type 4), puis l'op 0, au maître et à ceux qui la voient ;
+un joueur qui l'aperçoit plus tard reçoit les trois. Fin : op 1 au maître et à ceux qui la voient, puis AGPMCHARACTER
+op 2 (op 3 après la mort, pour laisser l'animation).
+
+| `summons` | Compétences | ArchCore |
+|---|---|---|
+| 1 | esprits (Griolli…), Sacred One, Bomba, Legion of the Dead, Call Royal Knight | type 1 : `summons_tid`, `summons_count` exemplaires, `duration` ; limite du maître, relevée au besoin jusqu'au nombre invoqué (op 3) ; la plus ancienne part |
+| 2 | Lightning Trap, Holy Ground | type 4, immobile, au plus `limit_quantity` de la même compétence ; frappe les monstres à sa portée (aucune pour Holy Ground) ; reste à la mort du maître |
+| 4 | Increase Gate | limite relevée à 1 + `limit_quantity` pendant `duration` (op 3), puis rendue (les plus anciennes en trop partent) |
+| 5 | Elemental Heal (passive) | son `percent.max_hp` s'ajoute aux PV des invocations |
+| 6 | parchemins d'invocation (objets) | type 1 forcé, un par parchemin, l'objet est consommé |
+| 8 | familiers (objets, `CanStopUsingItem`) | type 8 forcé, un à la fois ; suit sans combattre ni être attaquable ; réutiliser l'objet le renvoie |
+| 7, 11 | Call on Nature, Evil Light, pièges de faille | non pris en charge (pas de TID de créature) |
+
+Choix d'ArchCore : caractéristiques du modèle (CharacterDataTable) × niveau du maître / « LVL » du modèle ×
+`Summons.StatScale` %, niveau = celui du maître (un familier garde celles de son modèle) ; horodatages = apparition et
+fin prévue en ms Unix (un familier : dans dix ans). Une invocation de combat reste à ~200 unités du maître et le
+rejoint d'un saut au-delà de 3000 ; en attaque, elle frappe la cible du maître, sinon les monstres qui le visent ou la
+visent et les joueurs qui les attaquent ; en défense, ces derniers seulement ; en ombre, rien. Les monstres frappés la
+prennent pour cible (coups normaux). Un monstre qu'elle tue l'est par le maître (expérience avec partage de groupe,
+butin, quêtes ; ses dégâts comptent pour lui). Combat entre joueurs : elle n'attaque un joueur que si son maître le
+peut ; l'attaquer suit les règles envers son maître ; jamais la sienne ; les compétences de zone des joueurs ne la
+touchent pas. Fin : durée, mort, maître mort (sauf créatures fixes), parti ou téléporté (portail, parchemin, MJ ; un
+familier le suit). Non faits : apprivoisement, paquet d'arrêt d'un familier (inconnu), renforcements des familiers.
+
+## Coiffeurs (type 0x43, AgpmEventCharCustomize)
+
+Drapeaux sur 1 octet : 0 op, 1 événement (`EVENT_BASE`, fonction 29), 2 CID du joueur, 3 visage (I8), 4 coiffure
+(I8) ; -1 : inchangé. 14 PNJ « <Stylist> ». Le protocole n'a pas de code de résultat.
+
+| Op | Sens | Effet |
+|---|---|---|
+| 0 | client | Ouvrir la fenêtre : coiffeur de fonction 29 à portée → op 1 |
+| 1 | serveur | Accord (événement et CID renvoyés) ; le client ouvre `UI_Customizing`, ou affiche lui-même son refus s'il est monté ou transformé |
+| 2 | client | Achat (visage, coiffure) ; le client ferme la fenêtre sans attendre de réponse |
+
+Table `character_customize` (charactercustomizelist.txt) : genre (coiffure, visage), numéro (celui des champs 20 et 21
+d'AGPMCHARACTER), nom, `Case` (0 création et coiffeur, 1 coiffeur, 2 création), modèle, niveau exigé, prix (or, ou
+objets si `Price(Skull)` n'est pas nul : jamais dans les données). Achat, comme la logique partagée du client : prix =
+somme des prix (taxe de région nulle), niveau exigé = celui du visage s'il est choisi (aucun pour une coiffure seule),
+`Case` non vérifié. ArchCore refuse en plus, par un message système : joueur monté, valeur absente pour son modèle ou
+identique à l'actuelle, prix en objets, niveau ou or insuffisant. Accepté : or débité, apparence enregistrée,
+AGPMCHARACTER op 1 (champs 20 et 21 changés) au joueur et à ceux qui le voient. À la création d'un personnage, visage
+et coiffure doivent être proposés à la création pour le modèle (Case 0 ou 2), sinon 0.
+
+## Avis de recherche (type 0x46, AgpmWantedCriminal)
+
+Drapeaux sur 2 octets : 0 op, 1 CID, 2 page, 3 rang, 4 résultat / drapeau / genre, 5 mini-paquet (`EVENT_BASE` pour
+les ops 0 et 1, sinon mini sur 2 octets : nom (33), montant (I64), niveau, TID du modèle, en ligne). Les ops 4 à 8
+sont réservées au serveur.
+
+| Op | Sens | Effet |
+|---|---|---|
+| 0 → 1 | client → serveur | Tableau ouvert près d'un PNJ de fonction 32 (18 chefs de ville), à 1600 unités au plus |
+| 2 | client → serveur | Mise à prix {nom, prime} ; réponse : 0 réussie, 1 sous la prime de base, 2 or insuffisant, 3 pas de droit (ou tableau plein) |
+| 3 → 4 | client → serveur | Page 0 à 9 : une op 4 par ligne (rang, mini), puis op 4 de page -100 sans mini |
+| 5 | client ↔ serveur | Rang et prime cumulée (le client la demande toutes les 30 s quand il est recherché) ; plus recherché : op 7 drapeau 0 |
+| 6 | serveur | Nom du tueur à la victime (bouton « Wanted » de la fenêtre de mort) ; sans nom à la résurrection |
+| 7 | serveur | Drapeau « recherché » (icône `WantedAlarm`), à l'entrée en jeu et à chaque mise à prix |
+| 8 | serveur | Genre 4 : prime touchée par le chasseur ; genre 5 : expérience perdue par le criminel |
+
+Règles d'ArchCore (le client ne fait qu'afficher) : l'op 6 est envoyée quand le tueur a frappé le premier une victime
+innocente, ou quand il est meurtrier (palier 1 au moins), jamais dans un Battleground ni en combat de guildes ; le
+droit dure jusqu'à la résurrection ou une mise à prix réussie. Prime de base selon le niveau du poseur (50 000 jusqu'au
+niveau 20, 100 000 jusqu'à 40, 200 000 jusqu'à 60, 400 000 jusqu'à 80, 1 000 000 au-delà, table du client), payée sur
+l'argent porté puis sur la banque. Un avis par criminel : les primes s'ajoutent (tables `wanted_criminal` et
+`wanted_bounty`), l'échéance est repoussée à chaque mise à prix (`Wanted.ExpireDays`) ; 100 avis au plus, classés par
+prime décroissante. Le joueur qui tue un criminel recherché, hors de son groupe et de sa guilde, touche la prime
+cumulée ; le criminel perd `Wanted.ExpLossPercent` de l'expérience de son niveau (sans perdre de niveau) et son avis
+disparaît. Un criminel recherché n'est pas innocent : le tuer ne donne ni points de meurtrier ni statut de premier
+attaquant.
+
 ## Types connus
 
 | Type | Module | Type | Module |
@@ -1069,5 +1412,12 @@ client l'annonce).
 | 0x3F | Sphère d'alchimie (raffinage) | | |
 | 0x07 | Échange entre joueurs | 0x3E | Quêtes des PNJ |
 | 0x17 | Production | 0x3A | PNJ de production |
+| 0x2B | Amis et ignorés | 0x2D | Courrier |
+| 0x34 | Réparation des objets | 0x4D | Montures |
+| 0x0B | Maison des ventes | 0x6A | Commutateur d'équipement |
+| 0x30 | Météo (AgpmEventNature) | 0x47 | Effets de nature |
+| 0x4F | Invocations (AgpmSummons) | 0x4C | Cris de zone (AgpmAreaChatting) |
+| 0x2C | Salons de discussion (AgpmChannel) | 0x43 | Coiffeurs (AgpmEventCharCustomize) |
+| 0x46 | Avis de recherche (AgpmWantedCriminal) | | |
 
 Les schémas complets des 86 modules sont dans `data/re/packet-schemas.json`.

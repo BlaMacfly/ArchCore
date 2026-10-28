@@ -421,6 +421,8 @@ pub struct CharView {
     pub criminal: i64,
     pub criminal_left: i64,
     pub murderer_left: i64,
+    /// Champ 18 (« transformation ») : bit 0 transformé, bit 1 monté (`world/ride.rs`), bit 2 évolution.
+    pub transform: i64,
 }
 
 /// Secondes Unix actuelles.
@@ -447,6 +449,7 @@ impl From<&CharacterRow> for CharView {
             criminal: (c.criminal_until > unix_now()) as i64,
             criminal_left: (c.criminal_until - unix_now()).clamp(0, 1200),
             murderer_left: (c.murderer_until - unix_now()).clamp(0, 7200),
+            transform: 0,
         }
     }
 }
@@ -474,7 +477,7 @@ pub fn character_packet(ch: &CharView, factors: &Factors, op: i64) -> Vec<u8> {
         .with(15, 0)
         .with(16, 0)
         .with(17, 0)
-        .with(18, 0)
+        .with(18, ch.transform)
         .with(19, "")
         .with(20, ch.face)
         .with(21, ch.hair)

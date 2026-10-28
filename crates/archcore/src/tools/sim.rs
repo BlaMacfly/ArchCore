@@ -31,7 +31,20 @@
 //!   archcore sim guildrelation [A… B…]                      alliances et hostilités : demande, refus, accord, départ, trêve, relecture, dissolution
 //!   archcore sim guildwarehouse [A… B…]                     entrepôt de guilde : gardien (fonction 35), effectif, dépôt, droits, dissolution refusée, retrait
 //!   archcore sim guildstage setup|present|chef|dissoudre|guerre-prep|guerre-defi|guerre-refus|relation-prep|relation-repond|relation-demande|entrepot-prep [s]  mise en scène des guildes pour les captures d'ArchRust (sim/guilds.rs)
-//!   archcore sim refusal [A… B…]                              options de GmTest (op 0x11) : SimA ne peut ni l'inviter en groupe (op 14) ni lui proposer d'échange (op 25)
+//!   archcore sim buddy [A… B…]                                amis et ignorés GmTest + SimA : refus, demande acceptée, état en ligne, blocages, fichier local (buddy.rs)
+//!   archcore sim mail [A… B…]                                 courrier GmTest → SimA : refus, lettre et pièce jointe hors ligne, lecture, récupération, suppression (mail.rs)
+//!   archcore sim repair [compte] [mdp] [perso]                usure (Item.WeaponWearChance = 100 dans la configuration du simulateur), épée cassée, réparation chez Halo ; compte MJ (repair.rs)
+//!   archcore sim auction [A… B…]                              maison des ventes chez Fotherbee : refus, mise en vente par GmTest, recherche et achat par SimA, encaissement, annulation (auction.rs)
+//!   archcore sim itemset [compte] [mdp] [perso]               commutateur d'équipement : enregistrer, retirer, rééquiper (op 1), déplacer, relu à l'entrée ; compte MJ (itemset.rs)
+//!   archcore sim nature [A… B…]                               horloge commune à deux connexions décalées, /weather reçu par tous et à l'entrée ; A compte MJ (nature.rs)
+//!   archcore sim ride [A… B…]                                 montures, SimDepart (compte MJ) + SimA : monter, vitesse, op 2 vue, reconnexion, descente, refus en combat, mort (ride.rs)
+//!   archcore sim summons [compte] [mdp] [perso]               invocations, GmEffets (compte MJ) : Griolli (vue, état 0x800, op 0), ver tué par l'esprit, expérience au maître,
+//!                                                             propension (op 2), fin à la téléportation, Bomba expirée, limite, familier d'objet (summons.rs)
+//!   archcore sim chat [A… B…]                                 préfixes d'Archonia en type 0 (« /p », « /g », « /s »), commande inconnue sans réponse, « /race » avec Race Trumpet (chat.rs)
+//!   archcore sim channel [A… B…]                              salons de discussion : création, nom pris, entrée, message, mot de passe, invitation, recherche, sortie (channel.rs)
+//!   archcore sim customize [A… B…]                            coiffeur Gladiol : ouverture, refus faute d'or, achat d'une coiffure vue par SimA, coiffure d'origine remise (customize.rs)
+//!   archcore sim wanted [A… B…]                               avis de recherche : meurtre d'un innocent (op 6), mise à prix, tableau chez Rembrandt, prime touchée (wanted.rs)
+//!   archcore sim refusal [A… B…]                             options de GmTest (op 0x11) : SimA ne peut ni l'inviter en groupe (op 14) ni lui proposer d'échange (op 25)
 //!   archcore sim gm [compte] [mdp] [perso]                    commandes MJ d'ArchCore : /speed (×5, refus au-delà de 10, retour) et /additem ; compte MJ
 //!   archcore sim status [compte] [mdp] [perso]                état spécial : Shield Bash étourdit un Ver vert (champ 17), puis l'état retombe ; compte MJ, personnage GmEffets
 //!   archcore sim effects [compte] [mdp] [perso]               passive (défense), renforcement (vitesse d'attaque), zone, affaiblissement d'un Ver vert ; compte MJ, personnage GmEffets
@@ -53,15 +66,27 @@ use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
+mod buddy;
+mod channel;
+mod chat;
 mod competences;
+mod customize;
 mod guilds;
 mod lang;
 mod last_refine;
+mod mail;
 mod aggro;
+mod auction;
+mod itemset;
+mod nature;
 mod pk;
 mod product;
 mod pvp;
 mod reconnect;
+mod repair;
+mod ride;
+mod summons;
+mod wanted;
 
 /// Valeur facultative affichée sans « Some(…) ».
 fn o<T: std::fmt::Display>(v: Option<T>) -> String {
@@ -99,6 +124,18 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         Some("guildwarehouse") => Box::pin(guilds::guild_warehouse(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("guildbattle") => Box::pin(guilds::guild_battle(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("guildlead") => Box::pin(guilds::guild_lead(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
+        Some("buddy") => Box::pin(buddy::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
+        Some("mail") => Box::pin(mail::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
+        Some("repair") => Box::pin(repair::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
+        Some("auction") => Box::pin(auction::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
+        Some("itemset") => Box::pin(itemset::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
+        Some("nature") => Box::pin(nature::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
+        Some("summons") => Box::pin(summons::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmEffets"))).await,
+        Some("ride") => Box::pin(ride::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "SimDepart"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
+        Some("chat") => Box::pin(chat::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
+        Some("channel") => Box::pin(channel::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
+        Some("customize") => Box::pin(customize::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
+        Some("wanted") => Box::pin(wanted::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("refusal") => Box::pin(refusal(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("party") => Box::pin(party(&a(1, "sima"), &a(2, "sima"), &a(3, "SimA"), &a(4, "simb"), &a(5, "simb"), &a(6, "SimB"))).await,
         Some("trade") => Box::pin(private_trade(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
@@ -124,7 +161,7 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         Some("ignore") => Box::pin(competences::ignore(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("rune") => Box::pin(competences::rune(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("trigger") => Box::pin(competences::trigger(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
-        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol|bag|skill|effects|status|bank|portal|pvp|reconnect|lastrefine|product|guild|guildlead|guildbattle|guildrelation|guildwarehouse|guildmark|guildstage|gm|trade|party|quest|mobskill|counter|partyskill|mastery [arguments]"),
+        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol|bag|skill|effects|status|bank|portal|pvp|reconnect|lastrefine|product|guild|guildlead|guildbattle|guildrelation|guildwarehouse|guildmark|guildstage|gm|buddy|mail|repair|ride|auction|itemset|nature|summons|chat|channel|customize|wanted|trade|party|quest|mobskill|counter|partyskill|mastery [arguments]"),
     }
 }
 
@@ -327,6 +364,17 @@ pub struct InWorld {
     pub language_ack: Option<String>,
     /// Conversions reçues avec les objets (AGPMITEMCONVERT op 0) : (IID, renforcement, sockets, remplis).
     pub converts: Vec<(i64, i64, i64, i64)>,
+    /// Durabilités entamées reçues avec les objets (AGPMITEM champ 10, facteur « objet ») : (IID, durabilité).
+    pub durabilities: Vec<(i64, i64)>,
+    /// Champ 18 du personnage (« transformation » : bit 1 monté) et AgpmRide reçus pendant l'entrée : (op, IID).
+    pub transform: i64,
+    pub rides: Vec<(i64, i64)>,
+    /// AGPMTIMER reçu à l'entrée : temps du jeu (ms), vitesse, instant de réception.
+    pub game_ms: i64,
+    pub time_speed: i64,
+    pub timer_at: std::time::Instant,
+    /// Champ 26 (identifiant stable) des objets reçus à l'entrée : (IID, identifiant).
+    pub item_keys: Vec<(i64, i64)>,
 }
 
 /// Paquets complets mis bout à bout (champs « tous les objets », « compétences » de la vue op 2).
@@ -391,6 +439,12 @@ fn factors_combat(bytes: &[u8]) -> Option<((i64, i64), i64)> {
 fn factors_hp(bytes: &[u8]) -> Option<i64> {
     let f = decode_mini(&mini::CHAR_FACTORS, bytes).ok()?;
     decode_mini(&mini::FACTOR_POINT, f.bytes(3)?).ok()?.int(0)
+}
+
+/// Durabilité actuelle d'un objet : champ 10 d'AGPMITEM, facteur « objet » (sous-paquet 10), champ 0.
+pub fn item_durability(bytes: &[u8]) -> Option<i64> {
+    let f = decode_mini(&mini::CHAR_FACTORS, bytes).ok()?;
+    decode_mini(&mini::FACTOR_ITEM, f.bytes(10)?).ok()?.int(0)
 }
 
 /// Se connecte au login, entre dans le monde avec `char_name` (créé s'il n'existe pas).
@@ -513,7 +567,8 @@ pub async fn enter_world_opts(cfg: &Config, user: &str, pass: &str, char_name: &
     let cid = loading.int(4).unwrap_or(0) as u32;
     println!("  position de chargement : {:.0}, {:.0}, {:.0}", start.x, start.y, start.z);
     let timer = world.expect(&schema::TIMER, None).await?;
-    let game_ms = timer.int(1).unwrap_or(0);
+    let timer_at = std::time::Instant::now();
+    let (game_ms, time_speed) = (timer.int(1).unwrap_or(0), timer.int(0).unwrap_or(0));
     println!("  horloge du serveur : {game_ms} ms, soit {} h en jeu", (game_ms / 3_600_000) % 24);
     world.send(cm, Fields::new(cm).with(0, char_mgr_op::ENTER_WORLD)).await?;
     let me = world.expect(&schema::CHARACTER, Some(0)).await?;
@@ -532,6 +587,9 @@ pub async fn enter_world_opts(cfg: &Config, user: &str, pass: &str, char_name: &
     let mut npcs = Vec::new();
     let mut items = Vec::new();
     let mut converts = Vec::new();
+    let mut item_keys = Vec::new();
+    let (mut durabilities, mut rides) = (Vec::new(), Vec::new());
+    let transform = me.int(18).unwrap_or(0);
     let (mut quests_done, mut quests_active) = (Vec::new(), Vec::new());
     let mut language_ack = None;
     loop {
@@ -543,6 +601,7 @@ pub async fn enter_world_opts(cfg: &Config, user: &str, pass: &str, char_name: &
                         || q.is(&schema::OPT_VIEW, Some(2))
                         || q.is(&schema::QUEST, None)
                         || q.is(&schema::ARCHCORE_EXT, Some(ext_op::LANGUAGE_ACK))
+                        || q.is(&schema::RIDE, None)
                         || q.is(cm, Some(char_mgr_op::FINISH_ENTER))
                 },
                 5000,
@@ -554,6 +613,10 @@ pub async fn enter_world_opts(cfg: &Config, user: &str, pass: &str, char_name: &
         }
         if p.ptype == schema::ARCHCORE_EXT.id {
             language_ack = p.fields().text(16);
+            continue;
+        }
+        if p.ptype == schema::RIDE.id {
+            rides.push((p.int(0).unwrap_or(0), p.int(2).unwrap_or(0)));
             continue;
         }
         if p.is(&schema::QUEST, Some(5)) {
@@ -579,6 +642,10 @@ pub async fn enter_world_opts(cfg: &Config, user: &str, pass: &str, char_name: &
             for raw in split_packets(p.fields().bytes(6).unwrap_or_default()) {
                 if let Ok(i) = decode_packet(&schema::ITEM, raw) {
                     items.push((i.int(2).unwrap_or(0), i.int(3).unwrap_or(0), i.int(1).unwrap_or(0), i.int(5).unwrap_or(0)));
+                    item_keys.push((i.int(2).unwrap_or(0), i.int(26).unwrap_or(0)));
+                    if let Some(d) = i.bytes(10).and_then(item_durability) {
+                        durabilities.push((i.int(2).unwrap_or(0), d));
+                    }
                 } else if let Ok(c) = decode_packet(&schema::ITEM_CONVERT, raw) {
                     converts.push((c.int(2).unwrap_or(0), c.int(5).unwrap_or(0), c.int(6).unwrap_or(0), c.int(7).unwrap_or(0)));
                 }
@@ -609,7 +676,7 @@ pub async fn enter_world_opts(cfg: &Config, user: &str, pass: &str, char_name: &
     println!("  niveau {level}, {} compétence(s) : {skills:?}", skills.len());
     println!("  entrée en jeu confirmée");
     println!("  quêtes : terminées {quests_done:?}, en cours {quests_active:?}");
-    Ok(InWorld { world, cid, start, monsters, npcs, level, bank_money, bank_size, items, quests_done, quests_active, skills, language_ack, converts })
+    Ok(InWorld { world, cid, start, monsters, npcs, level, bank_money, bank_size, items, quests_done, quests_active, skills, language_ack, converts, durabilities, transform, rides, game_ms, time_speed, timer_at, item_keys })
 }
 
 async fn client(user: &str, pass: &str, char_name: &str, commands: &[String]) -> anyhow::Result<()> {
@@ -993,6 +1060,10 @@ async fn equip(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
     let me = w.cid as i64;
     let say = |cid: u32, text: &str| Fields::new(ch).with(0, 0).with(1, cid).with(2, chat_type::NORMAL).with(6, crate::tools::to_cp1252(text));
 
+    // L'armure demande le niveau 2 : d'autres scénarios laissent le personnage au niveau 1.
+    w.world.send(ch, say(w.cid, "/level 2")).await?;
+    w.world.expect_where(|q| q.ptype == ch.id, 3000, "réponse à /level").await?;
+
     step("objets créés par commande MJ");
     let mut iids = std::collections::HashMap::new();
     for tid in [SWORD, ARMOR, WAND] {
@@ -1278,7 +1349,7 @@ async fn quest(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
     let cfg = crate::config::load()?;
     let (qs, ch, it) = (&schema::QUEST, &schema::CHATTING, &schema::ITEM);
     let say = |cid: u32, text: &str| Fields::new(ch).with(0, 0).with(1, cid).with(2, chat_type::NORMAL).with(6, crate::tools::to_cp1252(text));
-    let system = |q: &Recv| q.ptype == ch.id && q.int(2) == Some(chat_type::SYSTEM);
+    let system = |q: &Recv| q.ptype == ch.id && q.int(2) == Some(chat_type::WHOLE_WORLD);
     let result = |op: i64, tid: i64| move |q: &Recv| q.is(&schema::QUEST, Some(op)) && q.int(4) == Some(tid);
 
     step(&format!("{char_name} entre en jeu, niveau 120"));
@@ -1380,7 +1451,7 @@ async fn bank(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
     let made = w.world.expect_where(|q| q.is(it, None) && q.int(3) == Some(POTION) && q.int(1) == Some(2), 3000, "potions créées").await?;
     let iid = made.int(2).unwrap_or(0);
     w.world.send(it, Fields::new(it).with(0, 2).with(1, BANK).with(2, iid).with(8, grid([0, 6, 3]))).await?;
-    w.world.expect_where(|q| q.ptype == ch.id && q.int(2) == Some(chat_type::SYSTEM), 3000, "refus").await?;
+    w.world.expect_where(|q| q.ptype == ch.id && q.int(2) == Some(chat_type::WHOLE_WORLD), 3000, "refus").await?;
     println!("  ✓ refusé (fenêtre fermée)");
 
     step("ouverture chez Holly");
@@ -1404,7 +1475,7 @@ async fn bank(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
         println!("  · le compte a déjà {} page(s) en plus", w.bank_size);
     }
     w.world.send(it, Fields::new(it).with(0, 22).with(4, w.cid)).await?;
-    let no = w.world.expect_where(|q| (q.ptype == ch.id && q.int(2) == Some(chat_type::SYSTEM)) || q.is(sm, Some(0)), 3000, "refus").await?;
+    let no = w.world.expect_where(|q| (q.ptype == ch.id && q.int(2) == Some(chat_type::WHOLE_WORLD)) || q.is(sm, Some(0)), 3000, "refus").await?;
     println!("  ✓ page suivante refusée ({})", if no.ptype == ch.id { "pas en vente contre de l'or".to_string() } else { format!("message {}", o(no.int(1))) });
 
     step("dépôt d'une pile et de 1000 pièces");
@@ -1857,7 +1928,7 @@ async fn gm_commands(user: &str, pass: &str, char_name: &str) -> anyhow::Result<
     let (it, ch, c) = (&schema::ITEM, &schema::CHATTING, &schema::CHARACTER);
     let say = |cid: u32, text: &str| Fields::new(ch).with(0, 0).with(1, cid).with(2, chat_type::NORMAL).with(6, crate::tools::to_cp1252(text));
     let speed = |q: &Recv| q.is(c, Some(1)) && q.fields().bytes(7).and_then(factors_run_speed).is_some();
-    let reply = |q: &Recv| q.ptype == ch.id && q.int(2) == Some(chat_type::SYSTEM);
+    let reply = |q: &Recv| q.ptype == ch.id && q.int(2) == Some(chat_type::WHOLE_WORLD);
 
     step(&format!("{char_name} entre en jeu"));
     let mut w = enter_world(&cfg, user, pass, char_name, "").await?;
@@ -2094,7 +2165,7 @@ async fn skill_effects(user: &str, pass: &str, char_name: &str) -> anyhow::Resul
     let mut w = enter_world(&cfg, user, pass, char_name, "").await?;
     let me = w.cid as i64;
     let say = |cid: u32, text: &str| Fields::new(ch).with(0, 0).with(1, cid).with(2, chat_type::NORMAL).with(6, crate::tools::to_cp1252(text));
-    let system = |q: &Recv| q.ptype == ch.id && q.int(2) == Some(chat_type::SYSTEM);
+    let system = |q: &Recv| q.ptype == ch.id && q.int(2) == Some(chat_type::WHOLE_WORLD);
     let mine = |q: &Recv| q.is(c, Some(1)) && q.int(1) == Some(me) && q.fields().bytes(7).is_some();
 
     step("niveau 25, argent");
@@ -2240,7 +2311,7 @@ async fn skill_status(user: &str, pass: &str, char_name: &str) -> anyhow::Result
     step(&format!("{char_name} entre en jeu"));
     let mut w = enter_world(&cfg, user, pass, char_name, "").await?;
     let say = |cid: u32, text: &str| Fields::new(ch).with(0, 0).with(1, cid).with(2, chat_type::NORMAL).with(6, crate::tools::to_cp1252(text));
-    let system = |q: &Recv| q.ptype == ch.id && q.int(2) == Some(chat_type::SYSTEM);
+    let system = |q: &Recv| q.ptype == ch.id && q.int(2) == Some(chat_type::WHOLE_WORLD);
     let level = w.level.max(1);
     w.world.send(ch, say(w.cid, "/level 25")).await?;
     w.world.expect_where(system, 3000, "niveau 25").await?;
@@ -2359,7 +2430,7 @@ async fn skill(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
     let mut w = enter_world(&cfg, user, pass, char_name, "").await?;
     let me = w.cid as i64;
     let say = |cid: u32, text: &str| Fields::new(ch).with(0, 0).with(1, cid).with(2, chat_type::NORMAL).with(6, crate::tools::to_cp1252(text));
-    let system = |q: &Recv| q.ptype == ch.id && q.int(2) == Some(chat_type::SYSTEM);
+    let system = |q: &Recv| q.ptype == ch.id && q.int(2) == Some(chat_type::WHOLE_WORLD);
     anyhow::ensure!(w.skills.iter().any(|s| s.1 == NORMAL_ATTACK), "Normal Attack absente : {:?}", w.skills);
     println!("  ✓ Normal Attack connue");
 
@@ -2522,7 +2593,7 @@ async fn monster_skill(user: &str, pass: &str, char_name: &str) -> anyhow::Resul
     let mut w = enter_world(&cfg, user, pass, char_name, "").await?;
     let me = w.cid as i64;
     let say = |cid: u32, text: &str| Fields::new(ch).with(0, 0).with(1, cid).with(2, chat_type::NORMAL).with(6, crate::tools::to_cp1252(text));
-    let system = |q: &Recv| q.ptype == ch.id && q.int(2) == Some(chat_type::SYSTEM);
+    let system = |q: &Recv| q.ptype == ch.id && q.int(2) == Some(chat_type::WHOLE_WORLD);
     let level = w.level.max(1);
     w.world.send(ch, say(w.cid, "/invincible 0")).await?;
     w.world.expect_where(system, 3000, "invincibilité levée").await?;
@@ -2623,7 +2694,7 @@ async fn counter_attack(user: &str, pass: &str, char_name: &str) -> anyhow::Resu
     let me = w.cid as i64;
     anyhow::ensure!(w.skills.iter().any(|s| s.1 == COUNTER), "Counter Attack absente : {:?}", w.skills);
     let say = |cid: u32, text: &str| Fields::new(ch).with(0, 0).with(1, cid).with(2, chat_type::NORMAL).with(6, crate::tools::to_cp1252(text));
-    let system = |q: &Recv| q.ptype == ch.id && q.int(2) == Some(chat_type::SYSTEM);
+    let system = |q: &Recv| q.ptype == ch.id && q.int(2) == Some(chat_type::WHOLE_WORLD);
     let level = w.level.max(1);
     w.world.send(ch, say(w.cid, "/invincible 0")).await?;
     w.world.expect_where(system, 3000, "invincibilité levée").await?;
@@ -2714,7 +2785,7 @@ async fn party_skill(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str)
     a.world.expect_where(|q| q.is(pm, Some(2)), 3000, "groupe formé").await?;
     println!("  ✓ groupe formé");
     let say = |cid: u32, text: &str| Fields::new(ch).with(0, 0).with(1, cid).with(2, chat_type::NORMAL).with(6, crate::tools::to_cp1252(text));
-    let system = |q: &Recv| q.ptype == ch.id && q.int(2) == Some(chat_type::SYSTEM);
+    let system = |q: &Recv| q.ptype == ch.id && q.int(2) == Some(chat_type::WHOLE_WORLD);
     let level = a.level.max(1);
     let on = |q: &Recv, who: i64| q.is(k, Some(4)) && q.int(1) == Some(song) && skill_owner(q, 2) == Some(who);
 
@@ -2765,7 +2836,7 @@ async fn mastery(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> 
     step(&format!("{char_name} entre en jeu, niveau 60"));
     let mut w = enter_world(&cfg, user, pass, char_name, "").await?;
     let say = |cid: u32, text: &str| Fields::new(ch).with(0, 0).with(1, cid).with(2, chat_type::NORMAL).with(6, crate::tools::to_cp1252(text));
-    let system = |q: &Recv| q.ptype == ch.id && q.int(2) == Some(chat_type::SYSTEM);
+    let system = |q: &Recv| q.ptype == ch.id && q.int(2) == Some(chat_type::WHOLE_WORLD);
     let level = w.level.max(1);
     w.world.send(ch, say(w.cid, "/level 60")).await?;
     w.world.expect_where(system, 3000, "niveau 60").await?;

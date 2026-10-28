@@ -140,8 +140,18 @@ pub async fn use_item(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet,
         return Ok(());
     }
     let Some(item) = player.inventory.get(iid).cloned() else { return Ok(()) };
+    // À cheval : seuls les consommables marqués « EnableOnRide » servent (ride.rs).
+    if super::ride::is_mounted(&player.inventory) && catalog.get(item.tid).is_some_and(|d| !d.enable_on_ride) {
+        debug!("[objet] {} : objet {} refusé à cheval", player.ch.name, item.tid);
+        super::send_system(st, sid, "Cet objet ne s'utilise pas à cheval.");
+        return Ok(());
+    }
     if let Some(scroll) = catalog.get(item.tid).and_then(|d| d.scroll) {
         return super::travel::use_scroll(ctx, st, sid, &item, scroll, now).await;
+    }
+    // Familier, parchemin d'invocation : compétence d'invocation de l'objet (summons.rs).
+    if let Some(u) = catalog.use_skill.get(&item.tid).copied().filter(|u| super::summons::is_summons_skill(ctx, u.skill_tid)) {
+        return super::summons::use_item(ctx, st, sid, &item, u, now).await;
     }
     let Some(potion) = catalog.get(item.tid).and_then(|d| d.potion) else {
         debug!("[objet] {} utilise l'objet {} : sans effet géré", player.ch.name, item.tid);

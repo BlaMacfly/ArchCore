@@ -239,6 +239,97 @@ l'action 17). Chez Lucy (Cook) : recette refusée sans Cooking (code 5), Cooking
 achetée puis déjà connue, potion d'alchimie refusée ; fabrication sans matériaux (code 6), puis avec matériaux et
 assaisonnement (consommés) jusqu'à une réussite. Reconnexion : op 1 rend la recette. Tout est effacé à la fin.
 
+## Test des amis et du courrier
+
+```bash
+ARCHCORE_CONF_DIR=config/test archcore sim buddy [compteA mdpA persoA compteB mdpB persoB]
+ARCHCORE_CONF_DIR=config/test archcore sim mail [compteA mdpA persoA compteB mdpB persoB]
+```
+
+`sim buddy` (GmTest MJ, SimA ; listes vidées en base au début et à la fin) : listes vides à l'entrée (op 9), fichier
+local d'ignorés envoyé par GmTest (op 15 : SimB), refus du serveur (soi-même code 4, nom inconnu code 2, relation
+« Buddy » code 12, option « refus d'ami » de SimA : op 3 aussitôt), demande acceptée (op 1 des deux côtés, en ligne),
+doublon (code 1), région de l'ami (op 7) ; SimA se reconnecte (op 6 hors ligne puis en ligne, liste relue de la base),
+retire GmTest (chez lui seulement) et l'ignore avec « Block Chat » et « Block Trade » : chuchotement non transmis,
+échange refusé (op 25) ; invitation de groupe reçue, puis refusée (op 14) avec « Block Invites » ; cases décochées,
+le chuchotement passe ; GmTest revient et retrouve son ami et l'ignoré SimB. `sim mail` (GmTest MJ, SimA ;
+courriers effacés) : GmTest reçoit 3 feuilles de papier à lettre et 5 potions, se voit refuser un destinataire
+inconnu (code 2), lui-même (code 1) et le papier joint (code 5), écrit à SimA hors ligne avec les potions (retirées,
+une feuille décomptée) ; SimA entre et reçoit le courrier (op 0), le lit (noté en base), ne peut pas le supprimer
+avant de récupérer la pièce (code 11), récupère les potions (même objet) puis le supprime ; une seconde lettre lui
+arrive aussitôt, SimA en jeu.
+
+## Test de la réparation et des montures
+
+```bash
+ARCHCORE_CONF_DIR=config/test archcore sim repair [compte] [mdp] [perso]
+ARCHCORE_CONF_DIR=config/test archcore sim ride [compteA mdpA persoA compteB mdpB persoB]
+```
+
+`sim repair` (GmTest MJ ; à lancer avec `Item.WeaponWearChance = 100` dans la configuration du serveur de test) :
+GmTest porte une Short Sword (DUR 88) et une Halfsteel Armor (DUR 63), frappe un Ver vert et voit l'épée perdre un
+point par coup (AGPMITEM op 2, champ 10 : 87, 86, 85) ; `/durability 0` : l'épée cassée ne compte plus dans les
+dégâts ; `/durability 40`, objets rangés, reconnexion : 40 relu à l'entrée en jeu ; chez Halo, ouverture (op 3 →
+op 4), coût faux (code 4), réparation (argent débité du prix du client, objets pleins, code 1), objets déjà pleins
+(code 3), potion (code 5). `sim ride` (SimDepart sur le compte MJ, SimA témoin) : niveau 40, White Horse (TID 3002) ;
+monter (objet porté, course 10 500, AgpmRide op 2 chez les deux), reconnexion à cheval (champ 18 = 2, op 2 à
+l'entrée), descendre (op 4, course d'origine), montée refusée juste après un coup sur un Ver vert (code 24, cheval
+resté dans l'inventaire) puis acceptée 11 s plus tard, mort à cheval (`/kill`) : descente forcée.
+
+## Test de la maison des ventes, du commutateur et de la météo
+
+```bash
+ARCHCORE_CONF_DIR=config/test archcore sim auction [compteA mdpA persoA compteB mdpB persoB]
+ARCHCORE_CONF_DIR=config/test archcore sim itemset [compte] [mdp] [perso]
+ARCHCORE_CONF_DIR=config/test archcore sim nature [compteA mdpA persoA compteB mdpB persoB]
+```
+
+`sim auction` (GmTest MJ vendeur, SimA acheteuse ; ventes effacées, or et CC fixés en base) : chez Fotherbee
+(« Item Trader »), ouverture (op 9 → op 10) ; refus d'une épée sans catégorie, d'un prix sous 100 000 et d'une pile
+partielle ; 5 potions mises en vente pour 150 000 or et 20 CC (op 4, op 1, potions retirées, 4 500 d'or de frais) ;
+SimA les trouve par le TID (op 12, ligne du rowset), se voit refuser une mauvaise quantité (code 5), achète (même
+IID chez elle, or et CC débités, op 7) ; GmTest reçoit l'op 3 (vendu), un second achat donne le code 12 ; GmTest
+encaisse (op 6, or et CC crédités, op 2) ; une seconde vente revient à l'entrée en jeu (op 1) et s'annule (potions
+rendues, op 5, op 2). `sim itemset` (GmTest) : champ 26 = IID ; épée et armure portées, enregistrées dans
+l'emplacement 3 (op 3, op 5, pas d'op 4), rangées puis rééquipées par l'op 1 (op 4), déplacement (op 6) et retrait
+(op 7) d'un objet du jeu, emplacement vide porté (tout est retiré), relecture à l'entrée (ops 3, 5 puis 4), emplacement
+vidé (op 2). `sim nature` : GmTest puis SimA 3 s plus tard reçoivent la même horloge (écart réel × vitesse), temps
+clair à l'entrée ; `/weather rain` reçu par les deux et à la reconnexion de SimA, `/weather` décrit la météo,
+`/weather clear` reçu par les deux.
+
+## Test des invocations
+
+```bash
+ARCHCORE_CONF_DIR=config/test archcore sim summons [compte] [mdp] [perso]
+```
+
+GmEffets (compte MJ) reçoit en base Griolli (TID 315) et Bomba (619), passe niveau 80, invincible, chez les Vers
+verts. Griolli : vue de la créature (TID 543), état 0x800 puis AgpmSummons op 0, dans cet ordre (type 1, horodatages
+non nuls). Attaque d'un ver éloigné : l'esprit (portée 1500) le tue avant l'arrivée du maître, l'expérience revient au
+maître. Propension « défense » (op 2) renvoyée ; refusée pour un monstre ordinaire. `/move` : op 1 puis retrait de la
+vue. Bomba (Big Tim, 10 s) : op 1 à l'expiration. Griolli puis Bomba : la limite d'une invocation renvoie Griolli
+(op 1) avant Big Tim (op 0). Doogie <Rank 1> (objet 7564) : familier (type 8, forcé), renvoyé en réutilisant l'objet.
+Niveau rétabli, compétences et objet retirés de la base à la fin.
+
+## Test de la discussion, des salons, des coiffeurs et des avis de recherche
+
+```bash
+ARCHCORE_CONF_DIR=config/test archcore sim chat|channel|customize|wanted [compteA mdpA persoA compteB mdpB persoB]
+```
+
+GmTest (compte MJ) et SimA. `sim chat` : SimA envoie comme Archonia « /p » et « /g » en type 0 (refus du groupe et
+de la guilde, pas « Commande inconnue »), « /s » (type 1 reçu par GmTest), une commande inconnue (aucune réponse),
+« /race » sans trompette (refus) puis avec deux Race Trumpet données par le MJ (AgpmAreaChatting type 19
+« [Race Trumpet] [SimA] … » chez les deux, une trompette consommée ; second cri dans la seconde refusé ; le suivant
+consomme la dernière). `sim channel` : salon public (création, nom pris, entrée, déjà membre, message relayé aux
+deux), salon privé (op 8, mauvais mot de passe, entrée), sortie, invitation sans mot de passe, recherche d'un joueur,
+salon inconnu, salon vide disparu. `sim customize` : chez Gladiol, ouverture (op 0 → op 1), coiffure 4 refusée faute
+d'or puis achetée (or débité, champ 21 chez GmTest et chez SimA), même coiffure refusée, coiffure 1 remise.
+`sim wanted` : GmTest tue SimA (op 6), mise à prix refusée sous la prime de base puis acceptée (op 7 et op 5 chez
+GmTest), seconde refusée, tableau chez Rembrandt (op 4 puis fin de page), SimA niveau 60 tue GmTest : prime touchée
+(op 8 genre 4), op 8 genre 5 et op 7 drapeau 0 chez GmTest ; niveaux rétablis. Les avis (`wanted_criminal`,
+`wanted_bounty`) restent en base : à vider entre deux passes.
+
 ## Test des quêtes
 
 ```bash

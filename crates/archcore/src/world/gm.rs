@@ -260,6 +260,8 @@ pub static COMMANDS: &[CommandDef] = &[
     CommandDef { name: "create", level: 3, args: Some(&["name", "int", "int?", "int?"]), usage: "/create \"nom\" <TID> <quantité> <0|1>" },
     CommandDef { name: "additem", level: 3, args: Some(&["int", "int?"]), usage: "/additem <TID> <quantité>" },
     CommandDef { name: "speed", level: 2, args: Some(&["int"]), usage: "/speed <1-10>" },
+    CommandDef { name: "weather", level: 2, args: Some(&["word?"]), usage: "/weather clear|rain|snow" },
+    CommandDef { name: "durability", level: 3, args: Some(&["int"]), usage: "/durability <valeur|-1>" },
     CommandDef { name: "questreset", level: 3, args: Some(&["int"]), usage: "/questreset <TID>" },
     CommandDef { name: "recast", level: 3, args: Some(&[]), usage: "/recast" },
     CommandDef { name: "last_refine", level: 3, args: Some(&[]), usage: "/last_refine" },
@@ -287,14 +289,21 @@ pub async fn execute(world: &Arc<World>, st: &mut WorldState, sid: u32, text: &s
     let (name, tokens) = match parsed {
         Ok(v) => v,
         Err(e) => {
-            send_system(st, sid, &format!("Commande invalide : {}", e.0));
+            if gm_level > 0 {
+                send_system(st, sid, &format!("Commande invalide : {}", e.0));
+            }
             return Ok(true);
         }
     };
     let cmd = command(&name);
-    // Un joueur sans droits ne voit pas la liste des commandes MJ.
+    // Un joueur sans droits ne voit pas la liste des commandes MJ : sa commande inconnue est ignorée sans réponse
+    // (les préfixes de discussion d'Archonia sont lus avant, dans chat.rs).
     let Some(cmd) = cmd.filter(|_| gm_level > 0) else {
-        send_system(st, sid, &format!("Commande inconnue : /{name}"));
+        if gm_level > 0 {
+            send_system(st, sid, &format!("Commande inconnue : /{name}"));
+        } else {
+            crate::debug!("[mj] /{name} d'un joueur sans droits : ignorée");
+        }
         return Ok(true);
     };
     let required = level_for(world, &name);
@@ -425,6 +434,25 @@ async fn run(world: &Arc<World>, st: &mut WorldState, sid: u32, cmd: &CommandDef
             let p = &st.players[&sid];
             info!("[mj] {} : vitesse de déplacement ×{n}", p.ch.name);
             Ok(format!("Vitesse de déplacement ×{n} (course {}).", p.factors.status[9]))
+        }
+        "weather" => match a[0].name() {
+            // Sans argument : météo et heure du jeu.
+            None => Ok(super::nature::describe(ctx, st)),
+            Some(word) => match super::nature::parse_weather(word) {
+                None => err(format!("météo inconnue : {word}")),
+                Some(code) => {
+                    let by = format!("/weather de {}", st.players[&sid].ch.name);
+                    super::nature::set_weather(st, code, &by);
+                    Ok(format!("Météo : {}.", super::nature::weather_label(code)))
+                }
+            },
+        },
+        "durability" => {
+            // Durabilité de l'équipement porté qui s'use (-1 : pleine), pour essayer l'usure et la réparation.
+            let value = a[0].int().unwrap_or(-1).clamp(-1, i32::MAX as i64) as i32;
+            let n = super::repair::set_worn_durability(ctx, st, sid, value).await?;
+            info!("[mj] {} : durabilité de l'équipement porté à {value} ({n} objet(s))", st.players[&sid].ch.name);
+            Ok(if value < 0 { format!("Durabilité pleine pour {n} objet(s) porté(s).") } else { format!("Durabilité {value} pour {n} objet(s) porté(s).") })
         }
         "money" => {
             let amount = a[0].int().unwrap_or(-1);

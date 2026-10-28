@@ -647,6 +647,48 @@ pub fn parse_bank_slot_prices(text: &str) -> Vec<(u8, i64)> {
         .collect()
 }
 
+/// Une ligne de charactercustomizelist.txt (coiffure ou visage proposé à un modèle).
+#[derive(Clone, Debug, PartialEq)]
+pub struct CustomizeRow {
+    /// 1 coiffure (« Hair »), 2 visage (« Face »).
+    pub kind: u8,
+    pub number: i64,
+    pub name: String,
+    pub case_kind: i64,
+    pub character_tid: u32,
+    pub use_level: i64,
+    pub price: i64,
+    pub price_item_tid: u32,
+}
+
+/// Coiffures et visages (charactercustomizelist.txt), dans l'ordre du fichier ; une ligne de genre inconnu arrête la
+/// lecture, comme le client (`Type` vide ou autre que Hair / Face = fin de table).
+pub fn parse_customize(text: &str) -> Vec<CustomizeRow> {
+    let (h, rows) = parse_tsv(text);
+    let c = ["Type", "Number", "Sell Name", "Case", "CharacterTID", "UseLevel", "Price(Money)", "Price(Skull)"].map(|n| h.iter().position(|x| x == n));
+    let mut out = Vec::new();
+    for r in &rows {
+        let cell = |i: Option<usize>| i.and_then(|i| r.get(i)).map(|s| s.trim().to_string()).unwrap_or_default();
+        let n = |i: Option<usize>| js_number(&cell(i), 0.0) as i64;
+        let kind = match cell(c[0]).as_str() {
+            "Hair" => 1,
+            "Face" => 2,
+            _ => break,
+        };
+        out.push(CustomizeRow {
+            kind,
+            number: n(c[1]),
+            name: cell(c[2]),
+            case_kind: n(c[3]),
+            character_tid: n(c[4]) as u32,
+            use_level: n(c[5]),
+            price: n(c[6]),
+            price_item_tid: n(c[7]) as u32,
+        });
+    }
+    out
+}
+
 /// Tailles de guilde de guildmaxmember.txt : (taille, or, TID et nombre de crânes exigés). La première
 /// colonne, sans titre, est la taille ; les colonnes suivantes sont lues à leur place.
 pub fn parse_guild_max_members(text: &str) -> Vec<(i64, i64, i64, i64)> {
@@ -1354,6 +1396,23 @@ async fn import_all(db: &Databases, src: &Source) -> anyhow::Result<()> {
         println!("✓ bank_slot_price : {n}");
     }
 
+    // ---------------------------------------------------------------- charactercustomizelist.txt (coiffures, visages)
+    if src.exists("charactercustomizelist.txt") {
+        let out: Vec<Vec<Value>> = parse_customize(&src.read("charactercustomizelist.txt")?)
+            .into_iter()
+            .enumerate()
+            .map(|(i, r)| vec![v(i as u32), v(r.kind), v(r.number), v(r.name), v(r.case_kind), v(r.character_tid), v(r.use_level), v(r.price), v(r.price_item_tid)])
+            .collect();
+        let n = replace(
+            db,
+            "character_customize",
+            "INSERT INTO character_customize (row_order,kind,number,name,case_kind,character_tid,use_level,price,price_item_tid) VALUES (?,?,?,?,?,?,?,?,?)",
+            out,
+        )
+        .await?;
+        println!("✓ character_customize : {n}");
+    }
+
     // ---------------------------------------------------------------- itemdatatable.txt (prix, piles)
     {
         let (header, rows) = parse_tsv(&src.read("itemdatatable.txt")?);
@@ -1489,6 +1548,17 @@ mod tests {
         let marks = parse_guild_marks("Type\tNumber\tName\tPrice\tSkull\tN\tCC\r\nBottom\t3\tFond 3\t10000\t0\t0\t\r\nSymbol\t65\tSymbole\t40000\t0\t0\t99999\r\nColor\t2\tColor 2\t0\tFF6C261A\t0\t\r\n");
         assert_eq!((marks[0].tid, marks[0].gold, marks[1].tid, marks[1].cash), (3, 10_000, 65 << 16, 99_999));
         assert_eq!((marks[2].layer, marks[2].tid, marks[2].argb), (4, 2 << 24, 0xFF6C_261A));
+    }
+
+    #[test]
+    fn coiffures_et_visages() {
+        let text = "Type\tNumber\tSell Name\tCase\tCharacterTID\tUseLevel\tPrice(Money)\tPrice(Skull)\r\n\
+                    Hair\t0\tSpiked 1\t0\t96\t1\t0\t0\r\nHair\t4\tTop Volume 1\t1\t96\t7\t1000\t0\r\n\
+                    Face\t2\tType 12\t1\t96\t10\t3000\t0\r\n-\t0\t\t0\t0\t0\t0\t0\r\nFace\t3\tAprès la fin\t0\t96\t1\t0\t0\r\n";
+        let rows = parse_customize(text);
+        assert_eq!(rows.len(), 3, "une ligne de genre inconnu clôt la table");
+        assert_eq!((rows[1].kind, rows[1].number, rows[1].name.as_str(), rows[1].case_kind, rows[1].use_level, rows[1].price), (1, 4, "Top Volume 1", 1, 7, 1000));
+        assert_eq!((rows[2].kind, rows[2].number, rows[2].character_tid, rows[2].price_item_tid), (2, 2, 96, 0));
     }
 
     #[test]

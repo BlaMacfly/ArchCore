@@ -21,7 +21,7 @@ Toutes sont en `utf8mb4`.
 | Table | Contenu |
 |---|---|
 | `characters` | Compte, emplacement, nom unique, modèle (TID), niveau, expérience, PV/PM/PE, position, argent, banque, coiffure, visage, charisme, suppression logique |
-| `character_items` | Objets : statut 0 inventaire, 1 équipé, 2 banque (rattaché au personnage qui l'a déposé), 3 entrepôt de guilde (`guild_id` ; le personnage qui l'a déposé reste noté) |
+| `character_items` | Objets : statut 0 inventaire, 1 équipé, 2 banque (rattaché au personnage qui l'a déposé), 3 entrepôt de guilde (`guild_id` ; le personnage qui l'a déposé reste noté), 4 pièce jointe d'un courrier (rattachée au destinataire), 5 en vente dans la maison des ventes (rattaché au vendeur) ; `durability` : -1 pleine (colonne DUR du modèle), sinon durabilité actuelle (usure, `repair.rs`) |
 | `character_quests` | Quêtes en cours (compteurs des monstres A et B) et terminées |
 | `account_bank` | Banque du compte : argent, pages en plus de la première (créée à la première entrée, avec l'argent que les personnages avaient en banque) |
 | `character_skills` | Compétences apprises et leur niveau (« Normal Attack » n'y figure pas : tout personnage la connaît) ; `exp` : expérience cumulée d'une compétence de production |
@@ -30,6 +30,12 @@ Toutes sont en `utf8mb4`.
 | `guild_hostile` | Hostilités entre guildes, une ligne par sens (`guild_id`, `other_id`, `since`) |
 | `guild_warehouse` | Entrepôt de guilde : argent, pages en plus de la première |
 | `guild_member` | Membre d'une guilde (un personnage au plus dans une) : rang (1 membre, 2 demande d'adhésion, 3 demande de départ, 10 chef, 11 second), date d'adhésion, date de la demande de départ |
+| `character_buddy` | Amis et ignorés : l'autre personnage (`other_id`), drapeaux du paquet (0x02000000 ami, sinon ignoré avec ses blocages 0x1 discussion, 0x2 échange, 0x4 invitations), relation « Buddy » (inutilisée) |
+| `mail` | Courrier : destinataire, expéditeur (nom gardé si le personnage est supprimé), objet, texte, date (secondes Unix), drapeaux (0x01 lu, 0x10 pièce récupérée), pièce jointe (`item_id` → `character_items` au statut 4) |
+| `auction_sale` | Maison des ventes : vendeur, objet en vente (`item_id` → `character_items` au statut 5, NULL une fois vendu), TID, quantité, prix en or et en CC, frais prélevés, statut (0 en vente, 1 vendu à encaisser), dates d'enregistrement et d'échéance, acheteur ; l'identifiant est aussi le docID du paquet |
+| `character_item_set` | Commutateur d'équipement : emplacement (0 à 99) et ses objets (« E,partie,identifiant » séparés par « : ») ; l'emplacement porté est `characters.item_set_active` (-1 aucun) |
+| `wanted_criminal` | Avis de recherche : criminel, prime cumulée, première et dernière mise à prix, échéance (`Wanted.ExpireDays` après la dernière) ; effacé à la capture |
+| `wanted_bounty` | Historique des mises à prix : criminel, poseur, montant, date ; chasseur qui a touché la prime et date de la capture |
 | `character_ui_status` | Statut d'interface : potions de vie et de mana de la barre, seuils de leur prise automatique (%), affichage du casque |
 
 ## `archcore_world` — données du jeu (`sql/003_world.sql`)
@@ -66,6 +72,7 @@ Remplie par `archcore import` à partir des tables du client.
 | `teleport_object` | `obj*.ini` (événement 8) | 291 portails : objet, point porté, position |
 | `teleport_fee` | `TeleportFee.txt` | 227 prix de trajet (départ, arrivée) |
 | `bank_slot_price` | `bankslotprice.txt` | Prix des pages de banque en plus (-1 : pas en vente contre de l'or) |
+| `character_customize` | `charactercustomizelist.txt` | Coiffures (1) et visages (2) par modèle : numéro (champs 20 et 21 d'AGPMCHARACTER), nom, `Case` (0 création et coiffeur, 1 coiffeur, 2 création), niveau exigé, prix en or ou en objets, ordre du fichier |
 | `guild_max_member` | `guildmaxmember.txt` | Tailles de guilde et leur prix ; la première ligne est la guilde neuve (50 places, 10 000 pièces), les suivantes les agrandissements |
 | `guild_mark` | `guildmark.txt` | Éléments d'emblème : couche (1 fond, 2 motif, 3 symbole, 4 couleur), numéro, TID (numéro << 8 × (couche − 1)), nom, prix en or, crânes, argent liquide, couleur ARGB |
 
@@ -128,8 +135,9 @@ index par personnage ou compte et par date.
 | Table | Contenu |
 |---|---|
 | `log_trade` | Échange conclu : les deux personnages, l'or et les objets (`[{iid, tid, count}]`) donnés par chacun |
-| `log_shop` | Achat ou vente à un PNJ : personnage, PNJ, objet (TID, IID), quantité, prix |
+| `log_shop` | Achat, vente ou réparation (`repair`) chez un PNJ : personnage, PNJ, objet (TID, IID), quantité, prix |
 | `log_bank` | Dépôt ou retrait à la banque du compte : objet (TID, IID, quantité) ou or |
+| `log_auction` | Maison des ventes : mise en vente, achat, annulation ou encaissement, vente, auteur (et vendeur pour un achat), objet (TID, IID), quantité, prix en or et en CC, frais |
 | `log_gm` | Commande MJ : auteur, niveau, commande, arguments, réussite, réponse |
 
 **Mesure.** Une requête plus longue que `Database.SlowQueryMs` (200 ms par défaut) est notée « requête lente » dans le
@@ -152,6 +160,9 @@ fait de même au démarrage :
 | compétence inconnue (`character_skills.skill_tid` → `skill_template`) | grave |
 | quête absente de `quest_template` | avertissement |
 | recette absente de `product_compose` (`character_recipes.recipe_tid`) | avertissement |
+| pièce jointe de courrier introuvable (`mail.item_id` sans objet au statut 4 chez le destinataire) | avertissement |
+| objet en vente introuvable (`auction_sale` en vente sans objet au statut 5 chez le vendeur) | avertissement |
+| coiffure ou visage absent de `character_customize` pour le modèle du personnage (table importée) | avertissement |
 | banque sans compte, langue de compte inconnue | avertissement |
 | identifiant de personnage dans la plage des PNJ (≥ 0x40000000), d'objet dans celle des boutiques (≥ 0x20000000) | grave |
 

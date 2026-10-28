@@ -13,10 +13,12 @@ use archcore_net::{schema, Fields, Packet};
 pub const UPDATE_OPTION_FLAG: i64 = 0x11;
 
 /// Bits du champ 22 appliqués par le serveur. Les autres attendent leur système : 0x04 combat de guilde,
-/// 0x08 combat, 0x40 alliance ou hostilité de guilde, 0x80 ami.
+/// 0x08 combat, 0x40 alliance ou hostilité de guilde.
 pub const REFUSE_TRADE: u32 = 0x01;
 pub const REFUSE_PARTY_IN: u32 = 0x02;
 pub const REFUSE_GUILD_IN: u32 = 0x10;
+/// Demandes d'ami (« OP_RefuseBuddy ») : non relayées, le demandeur reçoit un refus (AGPMBUDDY op 3, buddy.rs).
+pub const REFUSE_BUDDY: u32 = 0x80;
 
 /// Le joueur `sid` refuse-t-il ce que `bit` désigne ?
 pub fn refuses(st: &WorldState, sid: u32, bit: u32) -> bool {

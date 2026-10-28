@@ -70,16 +70,19 @@ The world list goes through type 0x18 (AgpmWorld), formatted as `Name=Group=0=St
 
 ## Clock (type 0x11, AgpmTimer)
 
-Between the loading position (op 8) and the world entry, the server sends an AGPMTIMER packet: op 6
-in field 0, and in field 1 the server time in **milliseconds** (u64). The client advances it locally
-and derives the game hour as `(ms / 3 600 000) % 24`, **without any time-zone correction**
-(`AgpmEventNature`): that hour drives the day/night cycle, the music and the zone ambience
-(`skyset.ini`). The original Korean server most likely sent its local time.
+Between the loading position (op 8) and the world entry, the server sends an AGPMTIMER packet (1-byte flags): in
+field 0 the **time speed** (u8, not an operation; ignored when 0), in field 1 the game time in **milliseconds** (u64;
+ignored when 0). The client advances that time by `speed` ms per real ms and derives the hour as
+`(ms / 3 600 000) % 24`, **without any time-zone correction**: it drives the day/night cycle, the music and the zone
+ambience (`skyset.ini`). Archonia starts at 12:00 with speed 6 until it receives anything. Fields 2 and 3 (u32) have no
+known reader.
 
-ArchCore therefore sends by default the Unix epoch **shifted by the machine's local offset** (local
-midnight of the epoch = 0), so that the game hour is the server's hour; `World.TimeZone = utc` in
-the [[configuration|EN-Configuration]] sends the raw UTC Unix epoch instead. Fields 2 and 3 (u32) are
-unused. `archcore sim` prints the received value and the matching game hour.
+ArchCore keeps a **global** clock (ArchCore's choice): speed `World.TimeSpeed` (6 by default, a day lasts 4 real
+hours); with `World.TimeStart` = h (0 to 23), the time is h o'clock when the server starts; with -1 (default), it is
+the machine's clock (`World.TimeZone`: Unix epoch shifted by the local offset, or UTC) multiplied by the speed, the
+same from one start to the next. Two players entering at different moments see the same hour. The packet is resent to
+every player in game every 10 minutes (the client resynchronises its clock). `archcore sim` prints the received value
+and the matching game hour. See the [[configuration|EN-Configuration]].
 
 ## NPC spawning (type 0x42, AgpmOptimizedView)
 
@@ -198,10 +201,60 @@ message (memory block).
 - The client sends op 0 with its CID, the type (0 normal, 5 whisper with the target name) and the
   message **without a trailing zero**, under 256 bytes. A GM command is a normal message starting
   with `/`.
+- Archonia sends **everything** as type 0, the chat bar mode adding its prefix to the text: `/p` party, `/g`
+  guild, `/s` local shout; the player also types `/race` (or `/racetrumpet`), `/scream`, `/warn`. ArchCore reads these
+  prefixes (case ignored) **before** GM commands; an unknown command from a player without GM rights is ignored with
+  no answer. Only whispers come with their own type (5). Types 3 and 4 sent directly are still accepted.
+- `/s`: type 1 "[Shout]" to players closer than `Chat.ShoutRange` (0: twice `World.ViewRadius`).
+- Rate (values of Archonia's shared code): one message every 100 ms at most, the rest is ignored; GM commands are
+  not limited.
 - If the player picked a chat color, the client appends `\x01RRGGBB` to the message. ArchCore strips
   it before parsing a command and keeps it for display.
-- On receipt, the client rejects a message over 512 bytes. Type 7 (system message) is shown without
-  a sender; ArchCore uses it to answer the GM, and type 10 for announcements.
+- On receipt, the client rejects a message over 512 bytes. Archonia's types and display: 0 normal, 1 "[Shout]",
+  3 guild, 4 party, 5 and 6 whisper, 7 (whole world), 11 and 12 (notices) as "[Notice]", 8 to 10 (system) as
+  "[System]" (a line repeated within 500 ms is ignored there), 13 guild notice, 16 siege, 17 yellow, 19 race trumpet,
+  20 elemental shout; 17, 19 and 20 have neither header nor name. ArchCore answers the GM and sends its system
+  messages as type 7, its announcements as type 10 (names fixed on 28 October 2026: `WHOLE_WORLD`, `SYSTEM_LEVEL3`,
+  `NOTICE_LEVEL1`; values sent unchanged).
+
+## Area shouts (type 0x4C, AgpmAreaChatting)
+
+Server to client only (Archonia never sends it). 1-byte flags: 0 op (only op 0 matters), 1 sender CID, 2 shout kind
+(I8: 1 race, 2 world, 3 all worlds; ignored by the client), 3 I8 (1, ignored), 4 AGPMCHATTING type of the message
+(U32, picks the tab), 5 name (49), 6 text (memory block). ArchCore's rules:
+
+| Command | Items ("usable" of kind 20, SubType) | Recipients | Type |
+|---|---|---|---|
+| `/race` | Race Trumpet (3905), kind 1 | players in game of the same race | 19 |
+| `/scream` | Shout of Elemental (3906, 6182, 11518), kind 2 | all players in game | 20 |
+| `/warn` | Warning of Ashtal (3911), kind 3 | all players in game (a single world) | 7 |
+
+One item is used up per message (refused with a system message when missing); one shout per second (refused with a
+message). The server builds the text: `[Item] [Name] message` (these tabs have neither header nor name), color suffix
+kept; the sender gets it too. Chat bans (`/chatban`) apply.
+
+## Chat rooms (type 0x2C, AgpmChannel)
+
+4-byte flags: 0 op, 1 requester CID, 2 room name (41), 3 password (9), 4 character name (33: member, inviter, target
+or author), 5 kind (1 public, 2 private, 3 guild), 6 result code, 7 message (121), 8 member list (memory block). A
+CID other than the player's is refused.
+
+| Op | Direction | Fields | Effect |
+|---|---|---|---|
+| 1 | client | 2, 3, 5 | Create: name taken → 1; 5 rooms → 4; guild room: master only → 5, one per guild → 7; otherwise op 3 |
+| 3 | client | 2 | Join: unknown → 2; already a member → 11; other guild → 6; full or 5 rooms → 4; private: op 8 |
+| 3 | server | 2, 3, 5, 8 | Joined; list `name1;name2;…;` plus a zero, the newcomer included, **always present** (the client reads it unchecked) |
+| 4 | client → server | 2 | Leave (op 4 to the leaver, op 6 to the others); an empty room disappears |
+| 5, 6 | server | 2, 4 | Member joined, left |
+| 7 | client → target | 2, 4, 5 | Invitation (absent player → 3); it waives the password (ArchCore's choice) |
+| 8 | server / client | 2 (3) | Password asked, then typed (wrong → 8) |
+| 9 | client → members | 2, 4, 7 | Message relayed to every member, author included (the client shows nothing before it comes back) |
+| 10 | client → server | 4 | Player search: op 10 when online, otherwise 3 |
+| 11 | server | 6 | Result: 1 name taken, 2 unknown, 3 player not found, 4 full, 5 not master, 6 not a guild member, 7 the guild already has a room, 8 wrong password, 11 already a member |
+
+Client limits: 5 rooms per character, 15 members (100 for a guild room), 40-character name, 8-character password,
+120-character message. Rooms live in memory and are left when leaving the world; names are compared regardless of
+case. The `<Chat>No</Chat>` region rule (regionperculiarity.xml, message 43) is not applied: Archonia's file has none.
 
 ## Combat (type 0x41, AgpmOptimizedCharAction)
 
@@ -929,7 +982,7 @@ and completed.
 
 The options' "Function" tab sets refusals that the client sends in AGPMCHARACTER **op 0x11** (field 1: CID,
 field 22: `INT32` flags), on world entry and on each checkbox: 0x01 trades, 0x02 party invitations, 0x10 guild
-invitations (0x04 guild battle, 0x08 battle, 0x40 alliance or hostility, 0x80 buddy wait for their system). The
+invitations, 0x80 friend requests (0x04 guild battle, 0x08 battle, 0x40 alliance or hostility wait for their system). The
 server keeps the value (`characters.option_flag`), sends it back in the same op and stops at the source what
 targets a player who refuses; the author gets Archonia's message:
 
@@ -1000,6 +1053,282 @@ mini), op 1 grant (`UI_Remission` window), op 2 remission: mini {type 4 = letter
 result} from the server (type 4 result 1 success, 3 no point, 7 not enough letters; type 1 result 0 the 2-hour delay
 has not passed). 10 letters (TID 3311 or 1836) remove `PvP.RemissionPoints` points (2, as the client announces).
 
+## Friends and ignore list (type 0x2B, AgpmBuddy)
+
+**AGPMBUDDY** (flags 4, fixed-size fields): 0 op, 1 CID of the list owner (the receiver, from server to client: the
+client drops the packet when it does not know that CID), 2 other player's name (CHAR[33]), 3 flags (`UINT32`: 0x1
+block chat, 0x2 block trade, 0x4 block party and guild invitations, 0x00100000 online, 0x02000000 friend list —
+absent: ignore list), 4 region (op 7), 5 "Buddy" relation, 6 result code (op 8). Op 15 has its own packet, same
+type: 0 op, 1 CID, 2 count (`INT16`), 3 30 names of 33 bytes in a row (CHAR[990]), 4 30 flags (`UINT32`).
+
+| Op | Direction | Role |
+|---|---|---|
+| 1 | client, server | Add: ignored player (flags 0), or accepting a friend request (requester's name, 0x02000000); the server answers with the entry it kept |
+| 2 | client, server | Friend request: relayed to the online target (name = requester) |
+| 3 | client, server | Refusal: relayed to the requester (name = the target) |
+| 4 | client, server | Remove a friend or an ignored player |
+| 5 | client, server | Block checkboxes of an ignored player |
+| 6 | server | Online state of a listed player (bit 0x00100000); the client only changes the icon |
+| 7 | client, server | Friend detail: their region (field 4, RegionTemplate; -1 offline) |
+| 8 | server | Result (field 6): 1 already in a list, 2 offline or unknown, 3 list full, 4 oneself or invalid name, 12 invalid "Buddy" request |
+| 9 | server | End of the initial list: the client reads `Ini\IgnoreList.txt` again and sends op 15 |
+| 10 to 14 | | "Buddy" relation (mentor and disciple): postponed; op 10 gets code 12 |
+| 15 | client | Ignored players from the client's local file (30 at most) |
+
+On world entry ArchCore sends one op 1 per entry (friends with their online state, ignored players with their
+blocks), then op 9; the following op 15 is merged into the database (known names that are missing, with their
+checkboxes), with no reply. Players in game who have the newcomer among their friends get op 6, and likewise when
+they leave the world.
+
+ArchCore's choices (the original server is unknown): 30 friends and 30 ignored players, names compared without case,
+a given character in only one of the two lists; friend requests only towards a player in game, ignoring works online
+or offline; accepting adds each player to the other's list, removing only applies to the requester; the "refuse
+friend requests" option (bit 0x80 of op 0x11) sends op 3 back at once. Blocks are applied by the server: a whisper
+from an ignored player with "Block Chat" is not delivered (the author sees their message as usual, like with the
+client's filter); trade requests ("Block Trade") and party and guild invitations ("Block Invites") are refused with
+the options' message (see above). Database: `character_buddy`.
+
+## Mail (type 0x2D, AgpmMailBox)
+
+**AGPMMAILBOX** (flags 2): 0 op, 1 player's CID, 2 mail (mini packet), 3 IID of the attached item (op 3), 4 result
+(0 success; the client tells no other code apart). **Mail** (flags 2): 0 id, 1 sender (CHAR[33]), 2 recipient
+(CHAR[33], the character's exact name: compared with case), 3 subject (CHAR[51]), 4 date (Unix seconds), 5 flags
+(0x01 read, 0x10 item collected), 6 TID and 7 count (`INT16`) of the attached item, 8 text (memory block, final zero
+included, 1 to 1000 bytes). For an existing mail the client only fills in the id.
+
+| Op | Direction | Role |
+|---|---|---|
+| 0 | server | Mail arrived ("YouHaveMail"), inserted at the top of the client's list |
+| 1 | client, server | Delete; on result 0 the client removes the mail |
+| 2 | client | Mail opened: marked read, no reply |
+| 3 | client, server | Write (recipient, subject, text; field 3: attached IID or 0); reply: `MAIL_WRITE_SUCCESS` or `MAIL_WRITE_FAIL` |
+| 4 | client, server | Collect the attached item; reply with the id (flag 0x10) |
+| 5 | server | Mailbox emptied (unused) |
+
+The client never asks for the list: on world entry ArchCore sends one op 0 per mail, from oldest to newest. It
+removes nothing itself: on sending, the server takes one "Ordinary Letter Paper" sheet (TID 3601, AGPMITEM op 2 or
+op 1) and removes the attached item (op 1); on collection it adds it to the inventory (op 0, status 2, first free
+slot). ArchCore's choices: one sheet per letter, no gold, a single attached item (the whole stack) that stays the
+same `character_items` row (status 4, options and conversion kept); recipient looked up in the database, offline
+included, and served at once when in game; 30 mails per mailbox; no expiry. Refusal codes (with a system message):
+1 failure (oneself, malformed mail), 2 unknown recipient, 3 mailbox full, 4 no paper, 5 forbidden item (papers
+3601-3602, TIDs 4609 to 4623, like the client), 6 inventory full, 7 bound item (`BoundType` 1), 8 not in the
+inventory, 10 shop item (`Cash`), 11 deleting a mail whose item was not collected. Database: `mail`.
+
+## Wear and repair (types 0x04 and 0x34, AgpmItem and AgpmEventItemRepair)
+
+An item's maximum durability is the `DUR` column of itemdatatable.txt (a value starting with `@` marks an
+unbreakable item); the client reads the maximum from its own template only. The current durability is the **"item"
+factor** (sub-packet 10 of the CHAR_FACTORS mini, 5 `INT32`, 1-byte flags), field 0, in AGPMITEM field 10: sent with
+the item (op 0) once it is worn down, and on every change by an op 2 without status or slot (fields 0, 2 IID, 3 TID,
+4 owner, 10). The client only shows the percentage: `UI_EquipStatus` lights up below 21 %, the slot is marked at 0 %.
+
+Wear (ArchCore's rules, the client contains none): every hit that wounds, skills included, wears the weapon that
+dealt it by one point with probability `Item.WeaponWearChance` (10 %) — mounted weapon on horseback, otherwise right
+hand, otherwise a left-hand weapon; every wounding hit received wears one worn armour piece picked at random (body,
+head, hands, legs, feet, shield) by one point with `Item.ArmorWearChance` (10 %). No wear on death. At 0 the item
+stays worn but no longer counts in the factors (damage, defence, options, runes) until repaired. GM command
+`/durability <value|-1>`: durability of the worn equipment.
+
+**AGPMEVENTITEMREPAIR** (0x34, 1-byte flags): 0 op, 1 event (EVENT_BASE, function 17), 2 player CID, 3 IIDs of the 20
+repair grid cells (`INT32[20]`, row × 4 + column, 0: empty), 4 cost computed by the client (`INT64`), 5 result code.
+NPC function 17 (25 blacksmiths, 4 animal breeders) is sent without data, like the bank.
+
+| Op | Direction | Role |
+|---|---|---|
+| 3 | client | Opening requested from the NPC (fields 0 to 2) |
+| 4 | server | Granted: `UI_Repair` and inventory windows |
+| 0 | client | Repair of the grid items (inventory items only: a worn item must be taken off first) |
+| 1 | server | Result: 1 success (window closed), 2 not enough gold, 3 already full, 4 failure, 5 item cannot be repaired |
+
+Price, like the client: `trunc((NPC price / DUR) × (DUR − current) × 0.5)` per item, no region tax; a mismatch with
+the cost sent gives code 4. Success: gold debited (AGPMCHARACTER field 8), every item made full again (op 2, field
+10), then code 1; logged in `log_shop` (action `repair`). Refusals: NPC out of range or without function 17 (code 4),
+item without `DUR` or unbreakable (code 5), all items full (code 3). A murderer of tier 2 or more is refused before
+the window opens, by a system message (the client has the `CharacterPenalty_CantConvert` text, penalty 3, but the
+packet that triggers it is not established).
+
+## Mounts (types 0x04 and 0x4D, AgpmItem and AgpmRide)
+
+A mount is a **part 14** item (Kind 32); part 15 holds the mounted weapon (lance, banner). The client never sends
+AgpmRide: it mounts by equipping the item (AGPMITEM op 2, status 3) and dismounts by taking it off (status 2).
+**AGPMRIDE** (0x4D, 1-byte flags): 0 op, 1 rider CID, 2 mount item IID (op 6: mount template TID), 3 time left
+(ignored). Server ops: 2 mounted, 4 dismounted, 5 time out (no effect in the client), 6 mounted on a template
+(unused).
+
+Mounting: item equipped (to the player and those who see him), factors recomputed (to the player and his
+neighbours), then op 2 (CID, IID, 0) to the player and his neighbours; the client builds the mount from the item's
+`SubType`. Dismounting: item stored, factors, op 4. On horseback the item's `Run_Buff` replaces walk and run speed
+(the client then lifts its 60,000 cap). View: bit 1 of AGPMCHARACTER field 18 ("transformation"); a player coming into
+view receives the character, his equipment, then op 2; on entering the game the rider gets op 2 after his items.
+
+Mounting refused (the item stays in the inventory): in combat (hit dealt or received less than 10 s ago,
+AgpmSystemMessage code 24 "CannotRideWhileCombat"), murderer of tier 2 or more (system message), region without bit
+0x10 of RegionTemplate `Type` (code 42), dead character. Forced dismount on death and in a region without mounts
+(walking or teleport); a full inventory prevents it (system message, retried every tick). On horseback: combat
+allowed, the mounted weapon replaces the hand weapons (on foot it does not count); skills refused (only those marked
+`auto_attack`, which the client never casts, escape this); consumables refused without `EnableOnRide`. ArchCore's
+choices: buffs are not removed when mounting, no expiry (no mount in the data has `RemainTime` or `ExpireTime`).
+
+## Auction house (type 0x0B, AgpmAuction)
+
+Instant purchase, at a fixed price, of **the whole stack** (no bidding). **AGPMAUCTION** (2-byte flags): 0 op, 1
+player CID, 2 sub-packet depending on the op, 3 result (0 success). Sub-packets: **SALES** (2-byte flags: 0 sale id, 1
+docID, 2 item number in the database, 3 IID, 4 gold price, 5 CC price, 6 count, 7 status 0 on sale / 1 sold, 8 date,
+9 TID), **SELL** (0 IID, 1 count, 2 gold, 3 CC, 4 date, 5 IID of a Marvel scroll), **CANCEL** (0 id, 1 TID, 2 count),
+**CONFIRM** (0 id, 1 TID, 2 count, 3 gold earned, 4 CC earned), **BUY** (0 docID, 1 count, 2 TID, 3 gold, 4 CC),
+**SELECT2** (0 TID, 1 docID cursor, 2 direction, 3 total, 4 results), **ROWSET** (2-byte flags: 0 index, 1 query
+text, 2 headers, 3 rows, 4 columns, 5 row size, 6 buffer, 7 U32 column offsets; every value is a zero-terminated
+string). Prices and ids are I64/U64; Archonia has no "SELECT" op.
+
+| Op | Direction | Role |
+|---|---|---|
+| 1, 2, 3 | server | Sale added to the seller's box (SALES), removed (id), status changed (1: sold, "Confirm" button) |
+| 4 | client, server | Listing; answer 0 (sysstr 451) before the item is removed, 6: no more room (279) |
+| 5 | client, server | Cancel (id); 0 (452), 7: inventory full (280) |
+| 6 | client, server | Collect (id); 0 (453) with the earnings |
+| 7 | client, server | Purchase; 0 (454), 5 count (274), 7 inventory full (275), 12 no longer available (276) |
+| 9, 10 | client, server | Opening at a function 28 NPC (EVENT_BASE), granted with the same EVENT_BASE |
+| 12 | client, server | Search by TID |
+
+Opening: the client sends op 9 with the "Item Trader" EVENT_BASE (function 28, without data in its view, like the
+bank); ArchCore answers op 10 when the NPC is in range (1500), except at murderer level 3. Search: the client starts
+from the cursor 9,999,999,999,999 in direction 0 and asks again with the last row's docID while it gets 15 rows;
+ArchCore returns at most 15 sales of the TID (direction 0: lower docIDs, descending; direction 1: higher ones) and the
+total, without expired sales. Row columns: 0 docID, 1 seller, 2 sale id, 3 gold, 4 CC, 5 IID, 6 TID, 7 count, 8 date,
+9 conversion (empty), 10 durability, 11 maximum durability, 12 options "a,b,c", 13 to 15 empty. The client sorts and
+pages by itself.
+
+ArchCore's choices (the original server is unknown): the sale id is also the docID; gold and CC (`characters.cash`)
+at the database price, never the packet's (the client sends a zero CC); a 3 % fee on gold and CC taken when listing,
+not refunded on cancel, no tax when collecting; prices as the client allows (gold 0 or 100,000 to 1,000,000,000, CC
+up to 1,000,000, not both zero); only an item of the ordinary inventory, not in a trade, classified for the auction
+house (`FirstCategory`, `SecondCategory`), neither an event item nor bound on pick-up; Marvel scroll ignored;
+`Auction.MaxSales` sales per character; after `Auction.ExpireDays` days a sale leaves the search but can still be
+cancelled. Opening, searching and buying need the NPC; listing, cancelling and collecting are done from the sales box
+(`UI_SalesBox2` window), anywhere. A seller in game gets op 3 on purchase; offline, they find the sale "sold" on
+entering the game (one op 1 per sale). A refusal without a code known to the client comes with a system message. The
+item stays a `character_items` row (status 5), then goes to the buyer. In the database: `auction_sale`, log
+`log_auction`.
+
+## Equipment switch (type 0x6A, AgpmItemSet)
+
+Equipment sets of Archonia's `UI_SwitchEditor` window; despite its name, AgpmItemSet has **no set bonus** (no table
+in the data). **AGPMITEMSET** (1-byte flags): 0 op, 1 slot (0 to 99; op 4: active slot, -1 none), 2 argument (op 3:
+filled 1 / empty 0; op 6: `(from << 4) | to`; op 7: position), 3 items (CHAR[4000]): `E,<part>,<id>` tokens separated
+by `:`, 10 at most, the id being AGPMITEM field 26 (U64). Slot = `(profile × 10 + config) × 2 + set` (set A 0, B 1),
+computed by the client.
+
+| Op | Direction | Role |
+|---|---|---|
+| 0 | client | Save the worn equipment; answer op 3 then op 5 |
+| 1 | client | Wear the set (empty: take everything off); answer: equipment changes (AGPMITEM), op 4 |
+| 2 | client | Clear; op 3 (0), empty op 5 |
+| 3, 4, 5 | server | Slot filled or empty, active slot, items |
+| 6, 7 | client | Move, remove an item of the set; op 5 |
+
+On entering the game, ArchCore sends ops 3 and 5 for each filled slot then op 4, after the items (AGPMITEM now carries
+field 26 = IID, the database id, for every item; field 19 "flags", where the client reads binding, is not sent).
+ArchCore's choices: free; wearing a set goes through the manual equipment path (level, race, class, gender, mount,
+room to store), item by item, with no message on refusal; items no longer in the inventory are skipped; no op 4 after
+saving; moving past the last item puts it at the end of the list. Profiles, names and hotkeys stay in the client's
+local file. In the database: `character_item_set`, `characters.item_set_active`.
+
+## Weather (types 0x30 and 0x47, AgpmEventNature and AgpmNatureEffect)
+
+Server to client only. **AGPMEVENTNATURE** (0x30, 1-byte flags): 0 weather (I8), 1 and 2 (I64) with no known reader.
+The client only reacts to 0 (effect fades out, 5 s), 3 (rain: nature effect 1, sky 99) and 5 (snow: effect 0, sky
+98). **AGPMNATUREEFFECT** (0x47, 2-byte flags): 0 effect id from `NatureEffect.ini` (-1: stop); ArchCore does not use
+it, the weather is enough. ArchCore's choices: one weather for everyone, set by `/weather clear|rain|snow`
+([[Administration|EN-Administration]]) or rolled every `World.WeatherMinutes` minutes when `World.WeatherAuto` is 1;
+sent to every player in game on each change and on entering the game; not saved (clear on start). The Archlord's sky
+skills (478 "Day and Night", 522, 523) wait for the Archlord system.
+
+## Summons (type 0x4F, AgpmSummons)
+
+Creatures of skills (`summons` column of SKILL_SPEC) and of items with "Use skill id". **AGPMSUMMONS** (2-byte
+flags): 0 op (I8), 1 master's CID (I32), 2 creature's CID (I32), 3 creature's TID (I32), 4 summon type (op 0) or new
+limit (ops 3 and 4) (I8), 5 propensity (I8: 0 attack, 1 defense, 2 shadow), 6 and 7 timestamps (U64, non-zero), 8
+"forced" (U8: 1 outside the limit). Every client constructor sets field 8: ArchCore always sends it.
+
+| Op | Direction | Fields | Role |
+|---|---|---|---|
+| 0 | server | 1 to 8 | Summon added; the client ignores it unless the creature is already known with its type's state |
+| 1 | server | 1, 2 | Summon removed ("summoned" state cleared, forced slot given back) |
+| 2 | client → server → master | 1, 2, 5 | Propensity (`UI_TargetSummonsMenu2` buttons); accepted for the player's own type 1 summon, sent back to the master (the label only changes on receipt) |
+| 3 | server | 1, 4 | Summon limit (1 at first on the client) |
+| 4 | server | 1, 4 | Tamed creature limit (unused) |
+
+Appearance, in this order: creature view (0x42 op 1, CID in the 0x58000000 range), special state (AGPMCHARACTER op 1,
+field 17: 0x800 for types 1 and 8, 0xC00 for type 4), then op 0, to the master and to those who see it; a player who
+sees it later gets all three. End: op 1 to the master and to those who see it, then AGPMCHARACTER op 2 (op 3 after a
+death, to leave the animation).
+
+| `summons` | Skills | ArchCore |
+|---|---|---|
+| 1 | spirits (Griolli…), Sacred One, Bomba, Legion of the Dead, Call Royal Knight | type 1: `summons_tid`, `summons_count` copies, `duration`; master's limit, raised if needed up to the number summoned (op 3); the oldest leaves |
+| 2 | Lightning Trap, Holy Ground | type 4, fixed, at most `limit_quantity` of the same skill; hits monsters within its range (none for Holy Ground); stays when the master dies |
+| 4 | Increase Gate | limit raised to 1 + `limit_quantity` for `duration` (op 3), then given back (the oldest extra ones leave) |
+| 5 | Elemental Heal (passive) | its `percent.max_hp` is added to the summons' HP |
+| 6 | summoning scrolls (items) | forced type 1, one per scroll, the item is used up |
+| 8 | pets (items, `CanStopUsingItem`) | forced type 8, one at a time; follows without fighting or being attackable; using the item again sends it back |
+| 7, 11 | Call on Nature, Evil Light, rift traps | not handled (no creature TID) |
+
+ArchCore's choices: the model's stats (CharacterDataTable) × master's level / model's "LVL" × `Summons.StatScale` %,
+level = the master's (a pet keeps its model's); timestamps = appearance and planned end in Unix ms (a pet: ten years
+ahead). A combat summon stays ~200 units from its master and jumps to him beyond 3000; in attack it hits the master's
+target, otherwise monsters targeting him or it and players attacking them; in defense, only the latter; in shadow,
+nothing. Monsters it hits target it back (normal hits). A monster it kills is killed by the master (experience with
+party sharing, loot, quests; its damage counts as his). Player versus player: it only attacks a player its master may
+attack; attacking it follows the rules towards its master; never one's own; players' area skills do not hit it. End:
+duration, death, master dead (except fixed creatures), gone or teleported (portal, scroll, GM; a pet follows). Not
+done: taming, a pet's stop packet (unknown), pets' buffs.
+
+## Stylists (type 0x43, AgpmEventCharCustomize)
+
+1-byte flags: 0 op, 1 event (`EVENT_BASE`, function 29), 2 player CID, 3 face (I8), 4 hair style (I8); -1:
+unchanged. 14 "<Stylist>" NPCs. The protocol has no result code.
+
+| Op | Direction | Effect |
+|---|---|---|
+| 0 | client | Open the window: function 29 stylist in range → op 1 |
+| 1 | server | Grant (event and CID sent back); the client opens `UI_Customizing`, or shows its own refusal when mounted or transformed |
+| 2 | client | Purchase (face, hair style); the client closes the window without waiting for an answer |
+
+`character_customize` table (charactercustomizelist.txt): kind (hair style, face), number (the one of AGPMCHARACTER
+fields 20 and 21), name, `Case` (0 creation and stylist, 1 stylist, 2 creation), model, required level, price (gold,
+or items when `Price(Skull)` is not zero: never in the data). Purchase, as the client's shared logic: price = sum of
+the prices (no region tax), required level = the face's when one is chosen (none for a hair style alone), `Case` not
+checked. ArchCore also refuses, with a system message: mounted player, value missing for the player's model or equal
+to the current one, item price, too low a level or not enough gold. Accepted: gold taken, look saved, AGPMCHARACTER
+op 1 (changed fields 20 and 21) to the player and to those who see them. On character creation, face and hair style
+must be offered at creation for the model (Case 0 or 2), otherwise 0.
+
+## Wanted posters (type 0x46, AgpmWantedCriminal)
+
+2-byte flags: 0 op, 1 CID, 2 page, 3 rank, 4 result / flag / kind, 5 mini-packet (`EVENT_BASE` for ops 0 and 1,
+otherwise a 2-byte mini: name (33), amount (I64), level, model TID, online). Ops 4 to 8 are server-only.
+
+| Op | Direction | Effect |
+|---|---|---|
+| 0 → 1 | client → server | Board opened near a function 32 NPC (18 town chiefs), 1600 units at most |
+| 2 | client → server | Bounty {name, amount}; answer: 0 done, 1 under the base bounty, 2 not enough gold, 3 no right (or board full) |
+| 3 → 4 | client → server | Page 0 to 9: one op 4 per line (rank, mini), then an op 4 with page -100 and no mini |
+| 5 | client ↔ server | Rank and total bounty (the client asks every 30 s while wanted); no longer wanted: op 7 flag 0 |
+| 6 | server | Killer's name to the victim ("Wanted" button of the death window); empty on resurrection |
+| 7 | server | "Wanted" flag (`WantedAlarm` icon), on entering the game and on each bounty |
+| 8 | server | Kind 4: bounty paid to the hunter; kind 5: experience lost by the criminal |
+
+ArchCore's rules (the client only displays): op 6 is sent when the killer struck an innocent victim first, or when the
+killer is a murderer (level 1 at least), never in a Battleground nor in a guild battle; the right lasts until
+resurrection or a successful bounty. Base bounty by the poster's level (50,000 up to level 20, 100,000 up to 40,
+200,000 up to 60, 400,000 up to 80, 1,000,000 beyond, client's table), paid from carried gold then from the bank. One
+poster per criminal: bounties add up (`wanted_criminal` and `wanted_bounty` tables), each bounty pushes the expiry back
+(`Wanted.ExpireDays`); 100 posters at most, ranked by decreasing bounty. The player who kills a wanted criminal,
+outside the criminal's party and guild, gets the total bounty; the criminal loses `Wanted.ExpLossPercent` of the
+level's experience (never a level) and the poster disappears. A wanted criminal is not innocent: killing one gives
+neither murderer points nor first attacker status.
+
 ## Known types
 
 | Type | Module | Type | Module |
@@ -1024,5 +1353,12 @@ has not passed). 10 letters (TID 3311 or 1836) remove `PvP.RemissionPoints` poin
 | 0x3F | Alchemy sphere (refining) | | |
 | 0x07 | Trading between players | 0x3E | NPC quests |
 | 0x17 | Production | 0x3A | Production NPCs |
+| 0x2B | Friends and ignore list | 0x2D | Mail |
+| 0x34 | Item repair | 0x4D | Mounts |
+| 0x0B | Auction house | 0x6A | Equipment switch |
+| 0x30 | Weather (AgpmEventNature) | 0x47 | Nature effects |
+| 0x4F | Summons (AgpmSummons) | 0x4C | Area shouts (AgpmAreaChatting) |
+| 0x2C | Chat rooms (AgpmChannel) | 0x43 | Stylists (AgpmEventCharCustomize) |
+| 0x46 | Wanted posters (AgpmWantedCriminal) | | |
 
 Full schemas for the 86 modules are in `data/re/packet-schemas.json`.

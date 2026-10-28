@@ -37,6 +37,10 @@ pub mod stored_status {
     pub const BANK: i64 = 2;
     /// Entrepôt de guilde (`guild_id` renseigné).
     pub const GUILD_WAREHOUSE: i64 = 3;
+    /// Pièce jointe d'un courrier (`mail.item_id`), rattachée au destinataire jusqu'à sa récupération.
+    pub const MAILBOX: i64 = 4;
+    /// En vente dans la maison des ventes (`auction_sale.item_id`), rattachée au vendeur jusqu'à l'achat.
+    pub const AUCTION: i64 = 5;
 }
 
 /// Inventaire : 4 sacs de 4 × 4 cases utilisés (la grille du client en a 5 × 5 × 5).
@@ -79,19 +83,35 @@ fn grid_field(status: i64) -> usize {
 }
 
 /// AGPMITEM op 0 (ajout). `grid` = [sac, ligne, colonne] pour l'inventaire, la banque, une boutique ou
-/// l'échange.
+/// l'échange. Champ 26 : identifiant stable de l'objet, l'IID (voir `item_add_of`).
 pub fn item_add(iid: u32, tid: u32, owner: Option<u32>, count: i64, status: i64, grid: Option<Grid>) -> Vec<u8> {
     let s = &schema::ITEM;
-    let f = Fields::new(s).with(0, item_op::ADD).with(1, status).with(2, iid).with(3, tid).with_opt(4, owner).with(5, count);
+    let f = Fields::new(s).with(0, item_op::ADD).with(1, status).with(2, iid).with(3, tid).with_opt(4, owner).with(5, count).with(26, iid as u64);
     build_packet(s, &f.with_opt(grid_field(status), grid.map(grid_mini)))
 }
 
-/// AGPMITEM op 0 d'un objet connu, avec ses options (champ 20).
+/// AGPMITEM op 0 d'un objet connu, avec ses options (champ 20) et son identifiant stable (champ 26 : l'IID, qui est
+/// l'identifiant en base ; le commutateur d'équipement, `itemset.rs`, désigne les objets par lui).
 pub fn item_add_of(i: &InventoryItem, owner: u32, status: i64, grid: Option<Grid>) -> Vec<u8> {
     let s = &schema::ITEM;
-    let f = Fields::new(s).with(0, item_op::ADD).with(1, status).with(2, i.iid).with(3, i.tid).with(4, owner).with(5, i.count);
+    let f = Fields::new(s).with(0, item_op::ADD).with(1, status).with(2, i.iid).with(3, i.tid).with(4, owner).with(5, i.count).with(26, i.iid as u64);
     let f = f.with_opt(grid_field(status), grid.map(grid_mini));
+    // Durabilité entamée : facteur « objet » (champ 10) ; pleine, le client garde celle du modèle.
+    let f = f.with_opt(10, (i.durability >= 0).then(|| durability_factors(i.durability)));
     build_packet(s, &f.with_opt(20, (!i.options.is_empty()).then(|| super::options::options_mini(&i.options))))
+}
+
+/// Champ 10 d'AGPMITEM (mini CHAR_FACTORS) réduit au facteur « objet » (sous-paquet 10) : durabilité actuelle au
+/// champ 0. Le maximum affiché par le client (sous-valeur 6) ne vient que de son modèle.
+pub fn durability_factors(current: i32) -> Vec<u8> {
+    let (fi, cf) = (&mini::FACTOR_ITEM, &mini::CHAR_FACTORS);
+    build_mini(cf, &Fields::new(cf).with(10, build_mini(fi, &Fields::new(fi).with(0, current.max(0)))))
+}
+
+/// AGPMITEM op 2 (mise à jour) de la seule durabilité d'un objet, sans statut ni case : le client ne le déplace pas.
+pub fn item_durability(iid: u32, tid: u32, owner: u32, current: i32) -> Vec<u8> {
+    let s = &schema::ITEM;
+    build_packet(s, &Fields::new(s).with(0, item_op::UPDATE).with(2, iid).with(3, tid).with(4, owner).with(10, durability_factors(current)))
 }
 
 /// AGPMITEM op 1 (retrait).
@@ -152,6 +172,17 @@ pub struct ItemData {
     pub option_tids: Vec<u16>,
     /// Genre (« Kind ») ; le bit 0x20 marque les objets qu'un meurtrier de palier 2 ne peut pas acheter.
     pub kind: i64,
+    /// Liaison (« BoundType ») : 1 lié dès l'obtention, 2 lié à l'usage ; 0 aucune.
+    pub bound_type: i64,
+    /// Objet de la boutique payante (« Cash » non nul).
+    pub cash: bool,
+    /// Consommable utilisable à cheval (« EnableOnRide »).
+    pub enable_on_ride: bool,
+    /// Catégories de la maison des ventes (« FirstCategory », « SecondCategory ») ; un objet sans les deux ne peut pas y
+    /// être mis en vente.
+    pub auction_category: (i64, i64),
+    /// Objet d'événement (« EventItem »).
+    pub event_item: bool,
 }
 
 /// Options fixes d'un objet (colonne « OptionTID », séparées par « ; »).
@@ -212,6 +243,30 @@ pub struct EquipData {
     pub max_option: i64,
     /// Groupes d'options liées (« Link_id », séparés par « ; ») d'un objet unique.
     pub link_ids: Vec<i64>,
+    /// Durabilité maximale (« DUR ») ; 0 : l'objet ne s'use pas. Une valeur commençant par « @ » marque un objet
+    /// inusable (`unbreakable`, le client affiche alors 50 000) : jamais usé, jamais réparé.
+    pub durability: i32,
+    pub unbreakable: bool,
+    /// Monture (partie 14) : vitesse de course à cheval (« Run_Buff ») et modèle de la monture (« SubType »).
+    pub run_buff: i32,
+    pub ride_tid: i64,
+}
+
+impl EquipData {
+    /// L'objet s'use et se répare : durabilité maximale positive et pas inusable.
+    pub fn wears(&self) -> bool {
+        self.durability > 0 && !self.unbreakable
+    }
+
+    /// Durabilité actuelle d'un exemplaire : la valeur enregistrée, ou le maximum pour `DURABILITY_FULL`.
+    pub fn current_durability(&self, stored: i32) -> i32 {
+        if stored < 0 { self.durability } else { stored.min(self.durability) }
+    }
+
+    /// Exemplaire cassé (durabilité 0) : il ne compte plus dans les facteurs de son porteur.
+    pub fn is_broken(&self, stored: i32) -> bool {
+        self.wears() && self.current_durability(stored) == 0
+    }
 }
 
 /// Préfixe des colonnes élémentaires d'itemdatatable.txt, dans l'ordre des attributs 1 à 8 (« Linghtning »
@@ -228,6 +283,8 @@ impl EquipData {
         if part < 2 || kind <= 0 {
             return None;
         }
+        let dur = text("DUR");
+        let unbreakable = dur.starts_with('@');
         Some(EquipData {
             part,
             kind,
@@ -253,6 +310,10 @@ impl EquipData {
             min_option: num("MinOption"),
             max_option: num("MaxOption"),
             link_ids: text("Link_id").split(';').filter_map(|t| t.trim().parse::<i64>().ok()).filter(|t| *t > 0).collect(),
+            durability: if unbreakable { 0 } else { dur.parse::<f64>().map(|v| v.max(0.0) as i32).unwrap_or(0) },
+            unbreakable,
+            run_buff: num("Run_Buff") as i32,
+            ride_tid: num("SubType"),
         })
     }
 }
@@ -263,16 +324,42 @@ pub struct ShopEntry {
     pub count: i64,
 }
 
+/// Compétence lancée par l'utilisation d'un objet (« Use skill id », « Use skill level ») ; « CanStopUsingItem » : son
+/// effet s'arrête en réutilisant l'objet (familiers, `summons.rs`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct UseSkill {
+    pub skill_tid: u32,
+    pub level: u32,
+    pub can_stop: bool,
+}
+
+impl UseSkill {
+    pub fn from_raw(raw: &serde_json::Value) -> Option<Self> {
+        let num = |k: &str| raw.get(k).and_then(|v| v.as_str()).and_then(|t| t.trim().parse::<f64>().ok()).unwrap_or(0.0);
+        let skill_tid = num("Use skill id");
+        (skill_tid > 0.0).then(|| UseSkill { skill_tid: skill_tid as u32, level: (num("Use skill level") as u32).max(1), can_stop: num("CanStopUsingItem") != 0.0 })
+    }
+}
+
 /// Catalogue des objets (prix, piles) et listes des boutiques.
 #[derive(Default)]
 pub struct ItemCatalog {
     pub items: HashMap<u32, ItemData>,
     pub shops: HashMap<i64, Vec<ShopEntry>>,
+    /// Objets qui lancent une compétence à l'utilisation, par TID.
+    pub use_skill: HashMap<u32, UseSkill>,
 }
 
 impl ItemCatalog {
     pub async fn load(db: &Databases) -> anyhow::Result<Self> {
         let rows = db.world.rows("SELECT tid, name, npc_price, pc_price, stack, raw FROM item_data", ()).await?;
+        let use_skill: HashMap<u32, UseSkill> = rows
+            .iter()
+            .filter_map(|r| {
+                let raw = serde_json::from_str::<serde_json::Value>(&col::<String>(r, "raw")).ok()?;
+                UseSkill::from_raw(&raw).map(|u| (col::<u32>(r, "tid"), u))
+            })
+            .collect();
         let items: HashMap<u32, ItemData> = rows
             .iter()
             .map(|r| {
@@ -284,8 +371,10 @@ impl ItemCatalog {
                 let stone = raw.as_ref().and_then(stone_of);
                 let usable_type = raw.as_ref().map(usable_type_of).unwrap_or(0);
                 let option_tids = raw.as_ref().map(option_tids_of).unwrap_or_default();
-                let kind = raw.as_ref().and_then(|v| v.get("Kind")?.as_str()?.trim().parse::<i64>().ok()).unwrap_or(0);
-                (tid, ItemData { tid, name: col(r, "name"), npc_price: col(r, "npc_price"), pc_price: col(r, "pc_price"), stack: col::<i64>(r, "stack").max(1), equip, potion, scroll, stone, usable_type, option_tids, kind })
+                let column = |k: &str| raw.as_ref().and_then(|v| v.get(k)?.as_str()?.trim().parse::<i64>().ok()).unwrap_or(0);
+                let (kind, bound_type, cash, enable_on_ride) = (column("Kind"), column("BoundType"), column("Cash") != 0, column("EnableOnRide") != 0);
+                let (auction_category, event_item) = ((column("FirstCategory"), column("SecondCategory")), column("EventItem") != 0);
+                (tid, ItemData { tid, name: col(r, "name"), npc_price: col(r, "npc_price"), pc_price: col(r, "pc_price"), stack: col::<i64>(r, "stack").max(1), equip, potion, scroll, stone, usable_type, option_tids, kind, bound_type, cash, enable_on_ride, auction_category, event_item })
             })
             .collect();
         let lists = db.world.rows("SELECT template_id, tid, count FROM npc_trade_list ORDER BY template_id, idx", ()).await?;
@@ -293,8 +382,8 @@ impl ItemCatalog {
         for r in &lists {
             shops.entry(col(r, "template_id")).or_default().push(ShopEntry { tid: col(r, "tid"), count: col::<i64>(r, "count").max(1) });
         }
-        info!("{} objet(s) et {} boutique(s) chargé(s)", items.len(), shops.len());
-        Ok(ItemCatalog { items, shops })
+        info!("{} objet(s) et {} boutique(s) chargé(s), {} objet(s) à compétence", items.len(), shops.len(), use_skill.len());
+        Ok(ItemCatalog { items, shops, use_skill })
     }
 
     pub fn get(&self, tid: u32) -> Option<&ItemData> {
@@ -316,10 +405,21 @@ pub struct InventoryItem {
     pub conv: super::convert::ItemConvert,
     /// TID des options (5 au plus).
     pub options: Vec<u16>,
+    /// Durabilité enregistrée : `DURABILITY_FULL` (-1) pour « pleine » (colonne DUR du modèle), sinon la valeur
+    /// actuelle (voir `repair.rs`).
+    pub durability: i32,
 }
 
-/// Colonnes de conversion lues avec un objet.
-pub const CONVERT_COLUMNS: &str = "convert_level, socket_count, socket_tids, option_tids";
+/// Colonnes d'état lues avec un objet : conversion, options et durabilité.
+pub const CONVERT_COLUMNS: &str = "convert_level, socket_count, socket_tids, option_tids, durability";
+
+/// Durabilité « pleine » en base (`character_items.durability`) : la colonne DUR du modèle.
+pub const DURABILITY_FULL: i32 = -1;
+
+/// Durabilité d'une ligne de `character_items` (colonne `durability`).
+pub fn durability_of(r: &mysql_async::Row) -> i32 {
+    col(r, "durability")
+}
 
 /// Options d'une ligne de `character_items` (colonne `option_tids`).
 pub fn options_of(r: &mysql_async::Row) -> Vec<u16> {
@@ -352,7 +452,7 @@ impl Inventory {
         let mut inv = Inventory { character_id, ..Default::default() };
         for r in &rows {
             let iid: u32 = col(r, "id");
-            let item = InventoryItem { iid, tid: col(r, "template_id"), count: col(r, "count"), grid: [col(r, "layer"), col(r, "row_idx"), col(r, "col_idx")], conv: convert_of(r), options: options_of(r) };
+            let item = InventoryItem { iid, tid: col(r, "template_id"), count: col(r, "count"), grid: [col(r, "layer"), col(r, "row_idx"), col(r, "col_idx")], conv: convert_of(r), options: options_of(r), durability: durability_of(r) };
             if col::<i64>(r, "status") == stored_status::EQUIP {
                 inv.equipment.insert(item.grid[0], item);
             } else {
@@ -424,7 +524,7 @@ impl Inventory {
                 (item.clone(), false)
             }
             Placement::Slot(grid) => {
-                let item = InventoryItem { iid: new_iid, tid, count, grid, conv: Default::default(), options: Vec::new() };
+                let item = InventoryItem { iid: new_iid, tid, count, grid, conv: Default::default(), options: Vec::new(), durability: DURABILITY_FULL };
                 self.items.insert(new_iid, item.clone());
                 (item, true)
             }
@@ -564,7 +664,7 @@ impl Inventory {
                 (INSERT_ITEM, (self.character_id, tid, stored_status::INVENTORY, grid[0], grid[1], grid[2], n).into()),
             ])
             .await? as u32;
-        let part = InventoryItem { iid: new_iid, tid, count: n, grid, conv: Default::default(), options: Vec::new() };
+        let part = InventoryItem { iid: new_iid, tid, count: n, grid, conv: Default::default(), options: Vec::new(), durability: DURABILITY_FULL };
         self.items.insert(new_iid, part.clone());
         let origin = self.items.get_mut(&iid).unwrap();
         origin.count = left;
@@ -591,7 +691,7 @@ mod tests {
     fn premiere_case_libre() {
         let mut inv = Inventory { character_id: 1, ..Default::default() };
         assert_eq!(inv.free_slot(), Some([0, 0, 0]));
-        inv.items.insert(3, InventoryItem { iid: 3, tid: 190, count: 5, grid: [0, 0, 0], conv: Default::default(), options: Vec::new() });
+        inv.items.insert(3, InventoryItem { iid: 3, tid: 190, count: 5, grid: [0, 0, 0], conv: Default::default(), options: Vec::new(), durability: DURABILITY_FULL });
         assert_eq!(inv.free_slot(), Some([0, 0, 1]));
         assert_eq!(inv.stack_for(190, 10, 9999), Some(3));
         assert_eq!(inv.stack_for(190, 10, 1), None);
@@ -601,7 +701,7 @@ mod tests {
     #[test]
     fn place_des_objets_ajoutes() {
         let mut inv = Inventory { character_id: 1, ..Default::default() };
-        inv.items.insert(3, InventoryItem { iid: 3, tid: 190, count: 5, grid: [0, 0, 0], conv: Default::default(), options: Vec::new() });
+        inv.items.insert(3, InventoryItem { iid: 3, tid: 190, count: 5, grid: [0, 0, 0], conv: Default::default(), options: Vec::new(), durability: DURABILITY_FULL });
         assert_eq!(inv.placement(190, 10, 9999, None), Some(Placement::Stack(3, 15)));
         assert_eq!(inv.placement(190, 10, 1, Some([0, 2, 2])), Some(Placement::Slot([0, 2, 2])));
         assert_eq!(inv.placement(191, 1, 1, Some([0, 0, 0])), Some(Placement::Slot([0, 0, 1])), "case voulue occupée");
@@ -616,7 +716,7 @@ mod tests {
     #[test]
     fn case_occupee() {
         let mut inv = Inventory { character_id: 1, ..Default::default() };
-        inv.items.insert(3, InventoryItem { iid: 3, tid: 190, count: 5, grid: [0, 1, 2], conv: Default::default(), options: Vec::new() });
+        inv.items.insert(3, InventoryItem { iid: 3, tid: 190, count: 5, grid: [0, 1, 2], conv: Default::default(), options: Vec::new(), durability: DURABILITY_FULL });
         assert_eq!(inv.at([0, 1, 2]).map(|i| i.iid), Some(3));
         assert!(inv.at([0, 0, 0]).is_none());
     }

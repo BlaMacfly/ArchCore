@@ -29,8 +29,8 @@ UPDATE archcore_auth.account SET gm_level = 3 WHERE username = 'admin';
 ```
 
 The account must log in again for the change to apply. The server decides whether a command is
-allowed for that level: the client only sends it. A level 0 player who types a GM command gets
-"Unknown command".
+allowed for that level: the client only sends it. A level 0 player who types a GM command gets no
+answer (the chat prefixes "/p", "/g", "/s", "/race", "/scream" and "/warn" are read before commands).
 
 ## 2. Two ways to send a command
 
@@ -75,6 +75,8 @@ messages. ArchCore's replies are in French.
 | `/speed <1-10>` | 2 | Multiplies the GM's movement speed (walk and run); `1` restores it. Kept when equipment or effects change, forgotten on logout. ArchCore-specific command |
 | `/rename_char "old" "new"` | 2 | Renames in the database (2 to 24 characters, no space). An online player sees the new name on next login |
 | `/additem <TID> [count]` | 3 | Shortcut for `/create` on yourself: adds the item (1 by default, up to 9999) to the GM's inventory, tradable. ArchCore-specific command |
+| `/weather [clear\|rain\|snow]` | 2 | Weather for every player in game (rain, snow, clear); without an argument, the weather and the game hour. ArchCore-specific command |
+| `/durability <value\|-1>` | 3 | Sets the durability of the worn equipment that wears out (`-1`: full, 0: broken); to try wear and repair. ArchCore-specific command |
 | `/create "name" <TID> <count> <0\|1>` | 3 | Adds the item to `character_items`, in the first free inventory slot. An online player gets it at once; the character can also be offline |
 | `/questreset <TID>` | 3 | Clears quest TID (in progress or completed) from the GM's journal; visible on next login. ArchCore-specific command |
 | `/recast` | 3 | Resets the GM's skill recast delays on the server side (the client may still show its own). ArchCore-specific command |
@@ -191,6 +193,8 @@ Example: `/SetExp 2.0`, then `/GetExp` to check.
 | ✅ `/create "name" <TID> <count> <0\|1>` | Gives an item to the character. `TID` = item ID; the last number makes it untradable (1) |
 | ✅ `/additem <TID> [count]` | Adds an item to your own inventory (ArchCore addition, not in the panel) |
 | ✅ `/speed <1-10>` | Multiplies your movement speed (ArchCore addition, not in the panel) |
+| ✅ `/weather [clear\|rain\|snow]` | Everyone's weather, or weather and game hour (ArchCore addition, not in the panel) |
+| ✅ `/durability <value\|-1>` | Sets the durability of your worn equipment (ArchCore addition, not in the panel) |
 | ✅ `/money <amount> ["name"]` | Sets an online character's gold (ArchCore addition, not in the panel) |
 | ✅ `/charisma <points> ["name"]` | Gives charisma points to an online character (ArchCore addition, not in the panel) |
 | ✅ `/level <level> ["name"]` | Sets an online character's level (ArchCore addition, not in the panel) |

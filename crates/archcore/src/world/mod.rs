@@ -6,33 +6,47 @@
 //!   AGSMCHARMANAGER op 9 ENTER_WORLD
 //!       → paquet personnage complet, AGPMADMIN (niveau MJ), vue op 2 (inventaire), déplacement, PNJ,
 //!         AGSMCHARMANAGER op 7, mises à jour
-//!   AGPMCHATTING (0x0F) op 0 : message ; « /… » = commande MJ (gm.rs)
+//!   AGPMCHATTING (0x0F) op 0 : message ; préfixes « /p », « /g », « /s », cris (chat.rs), sinon « /… » = commande MJ (gm.rs)
 //!   AGPMOPTIMIZEDCHARMOVE (0x40) : déplacement (presence.rs)
 //!   AGPMEVENTNPCDIALOG (0x37), AGCMEVENTNPCTRADE (0x32) : PNJ (npc_events.rs, npc_trade.rs)
 //!   AGPMSKILL (0x05), AGPMEVENTSKILLMASTER (0x3B) : compétences (skills.rs)
 //!   AGPMEVENTBANK (0x36), AGPMCHARACTER op 7 : banque (bank.rs) ; AGPMPRIVATETRADE (0x07) : échange (trade.rs)
 //!   AGPMQUEST (0x13), AGPMEVENTQUEST (0x3E) : quêtes (quests.rs)
 //!   AGPMPRODUCT (0x17), AGPMEVENTPRODUCT (0x3A) : production, récolte et fabrication (product.rs)
+//!   AGPMBUDDY (0x2B) : amis et ignorés (buddy.rs) ; AGPMMAILBOX (0x2D) : courrier (mail.rs)
+//!   AGPMEVENTITEMREPAIR (0x34) : usure et réparation (repair.rs) ; AgpmRide (0x4D, serveur → client) : montures (ride.rs)
+//!   AgpmAuction (0x0B) : maison des ventes (auction.rs) ; AgpmItemSet (0x6A) : commutateur d'équipement (itemset.rs)
+//!   AGPMTIMER (0x11), AgpmEventNature (0x30), serveur → client : horloge du monde et météo (nature.rs)
+//!   AgpmSummons (0x4F) : invocations des compétences et familiers des objets ; op 2 du client = propension (summons.rs)
+//!   AgpmAreaChatting (0x4C, serveur → client) : cris de zone (chat.rs) ; AgpmChannel (0x2C) : salons de discussion (channel.rs)
+//!   AgpmEventCharCustomize (0x43) : coiffeurs (customize.rs) ; AgpmWantedCriminal (0x46) : avis de recherche (wanted.rs)
 //! ```
 //! L'état du monde est partagé derrière un verrou : les paquets de tous les joueurs sont traités un à
 //! un, comme dans la boucle unique du serveur Node.
 
 pub mod addon;
 pub mod ai;
+pub mod auction;
 pub mod bank;
+pub mod buddy;
+pub mod channel;
 pub mod chat;
 pub mod combat;
 pub mod convert;
+pub mod customize;
 pub mod effects;
 pub mod equipment;
 pub mod gm;
 pub mod guild;
 pub mod items;
+pub mod itemset;
 pub mod lang;
 pub mod loot;
+pub mod mail;
 pub mod map;
 pub mod monster_skills;
 pub mod monsters;
+pub mod nature;
 pub mod npc_events;
 pub mod npc_trade;
 pub mod npcs;
@@ -49,11 +63,15 @@ pub mod reconnect;
 pub mod recovery;
 pub mod regions;
 pub mod remission;
+pub mod repair;
+pub mod ride;
 pub mod sector;
 pub mod skills;
+pub mod summons;
 pub mod trade;
 pub mod ui_status;
 pub mod travel;
+pub mod wanted;
 
 use crate::character::{character_packet, factors_mini, make_factors, move_mini, CharView, CharacterRow, Factors, MoveMini, Templates};
 use crate::config::Config;
@@ -105,6 +123,8 @@ pub struct WorldCtx {
     pub recipes: refinery::Recipes,
     /// Production : récolte, recettes de cuisine et d'alchimie, niveaux (tables Product*.txt).
     pub product: product::ProductCatalog,
+    /// Coiffures et visages proposés (charactercustomizelist.txt).
+    pub customize: customize::CustomizeTable,
     pub view_radius: f64,
 }
 
@@ -200,11 +220,27 @@ pub struct Player {
     pub remission_keeper: Option<u32>,
     /// Recettes de cuisine et d'alchimie connues (TID de l'objet produit).
     pub recipes: Vec<u32>,
+    /// Listes d'amis et d'ignorés, demandes d'ami reçues.
+    pub buddies: buddy::Buddies,
+    /// Boîte aux lettres.
+    pub mailbox: mail::MailBox,
+    /// Coups donnés et reçus pas encore comptés dans l'usure de l'équipement (`repair.rs`).
+    pub wear: repair::Wear,
+    /// Descente forcée de monture impossible (inventaire plein), déjà signalée.
+    pub ride_stuck: bool,
+    /// Maison des ventes : ventes du personnage, PNJ chez qui la planche est ouverte.
+    pub auction: auction::Auction,
+    /// Commutateur d'équipement : jeux enregistrés, emplacement actif.
+    pub item_sets: itemset::ItemSets,
+    /// Cadence de la discussion : dernier message, dernier cri de zone.
+    pub chat: chat::ChatClock,
+    /// Tueur (CID, nom) que ce joueur, mort, peut mettre à prix (wanted.rs).
+    pub wanted_killer: Option<(u32, String)>,
 }
 
 impl Player {
     pub fn view(&self) -> CharView {
-        CharView::from(&self.ch)
+        CharView { transform: ride::transform_bits(&self.inventory), ..CharView::from(&self.ch) }
     }
     pub fn send(&self, schema: &archcore_net::Schema, fields: Fields) {
         self.sess.send(schema, fields);
@@ -245,6 +281,14 @@ pub struct WorldState {
     pub evicted: HashSet<u32>,
     /// Cadavres réservés ou déjà récoltés (production), par CID du monstre.
     pub harvests: HashMap<u32, product::Harvest>,
+    /// Horloge du monde et météo.
+    pub nature: nature::Nature,
+    /// Invocations en cours et limites de chaque maître.
+    pub summons: summons::Summons,
+    /// Salons de discussion (channel.rs).
+    pub channels: channel::Channels,
+    /// Avis de recherche en cours (wanted.rs).
+    pub wanted: wanted::Board,
 }
 
 impl WorldState {
@@ -301,6 +345,15 @@ impl Service for WorldService {
                 | ptype::RECONNECT
                 | ptype::PRODUCT
                 | ptype::EVENT_PRODUCT
+                | ptype::BUDDY
+                | ptype::MAILBOX
+                | ptype::EVENT_ITEM_REPAIR
+                | ptype::AUCTION
+                | ptype::ITEM_SET
+                | ptype::SUMMONS
+                | ptype::CHANNEL
+                | ptype::EVENT_CHAR_CUSTOMIZE
+                | ptype::WANTED_CRIMINAL
                 | ptype::ARCHCORE_EXT
         )
     }
@@ -412,6 +465,15 @@ impl Connection for WorldConn {
             ptype::UI_STATUS => ui_status::on_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::PRODUCT => product::on_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::EVENT_PRODUCT => product::on_event(ctx, &mut st, self.sid, &p).await?,
+            ptype::BUDDY => buddy::on_packet(ctx, &mut st, self.sid, &p).await?,
+            ptype::MAILBOX => mail::on_packet(ctx, &mut st, self.sid, &p).await?,
+            ptype::EVENT_ITEM_REPAIR => repair::on_packet(ctx, &mut st, self.sid, &p).await?,
+            ptype::AUCTION => auction::on_packet(ctx, &mut st, self.sid, &p).await?,
+            ptype::ITEM_SET => itemset::on_packet(ctx, &mut st, self.sid, &p).await?,
+            ptype::SUMMONS => summons::on_packet(&mut st, self.sid, &p),
+            ptype::CHANNEL => channel::on_packet(&mut st, self.sid, &p),
+            ptype::EVENT_CHAR_CUSTOMIZE => customize::on_packet(ctx, &mut st, self.sid, &p).await?,
+            ptype::WANTED_CRIMINAL => wanted::on_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::RECONNECT => {
                 if let Some(sid) = reconnect::on_packet(ctx, &mut st, s, &p).await? {
                     self.sid = sid;
@@ -444,8 +506,14 @@ pub(super) async fn remove_player(ctx: &WorldCtx, st: &mut WorldState, sid: u32)
         party::on_leave_world(st, cid);
         // Les membres de sa guilde le voient hors ligne.
         guild::on_leave_world(st, cid);
+        // Il sort de ses salons de discussion.
+        channel::on_leave_world(st, cid);
     }
+    // Ceux qui l'ont en ami le voient hors ligne.
+    buddy::on_leave_world(st, sid);
     guild::warehouse::on_leave_world(st, sid);
+    // Ses invocations disparaissent avec lui.
+    summons::on_owner_leave(st, sid);
     if let Err(e) = presence::leave(ctx, st, sid).await {
         warn!("[world] départ de #{sid} : {e:#}");
     }
@@ -501,6 +569,10 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
     let quests = quests::PlayerQuests::load(&ctx.db, ch.id).await?;
     let ui_status = ui_status::UiStatus::load(&ctx.db, ch.id).await?;
     let recipes = product::load_recipes(&ctx.db, ch.id).await?;
+    let buddies = buddy::Buddies::load(&ctx.db, ch.id).await?;
+    let mailbox = mail::MailBox::load(&ctx.db, ch.id).await?;
+    let auction = auction::Auction::load(&ctx.db, ch.id).await?;
+    let item_sets = itemset::ItemSets::load(&ctx.db, ch.id).await?;
     // Banque du compte : son argent et ses pages remplacent ceux de la ligne du personnage.
     ch.bank_money = bank.money;
     ch.bank_size = bank.extra_slots as i32;
@@ -535,10 +607,8 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
     s.send(&schema::CHARACTER, Fields::new(&schema::CHARACTER).with(0, 25).with(1, ch.id).with(23, 0));
     let cm = &schema::CHAR_MANAGER;
     s.send(cm, Fields::new(cm).with(0, char_mgr_op::LOADING_POS).with(4, ch.id).with(5, pos));
-    // AGPMTIMER champ 1 : le client en tire l'heure du ciel par (ms / 3 600 000) % 24 sans correction
-    // de fuseau, d'où l'heure locale par défaut (config world.timeZone).
-    let now_ms = ctx.config.world.time_zone.game_time_ms();
-    s.send(&schema::TIMER, Fields::new(&schema::TIMER).with(0, 6).with(1, now_ms));
+    // AGPMTIMER : vitesse du temps et temps du jeu de l'horloge globale du monde (nature.rs).
+    s.send(&schema::TIMER, nature::timer_fields(ctx, st));
     ctx.db.characters.exec("UPDATE characters SET last_played = NOW() WHERE id = ?", (ch.id,)).await?;
 
     let cid = ch.id;
@@ -588,6 +658,14 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
             pvp: pvp::PvpState::default(),
             remission_keeper: None,
             recipes,
+            buddies,
+            mailbox,
+            wear: repair::Wear::default(),
+            ride_stuck: false,
+            auction,
+            item_sets,
+            chat: chat::ChatClock::default(),
+            wanted_killer: None,
         },
     );
     st.by_cid.insert(cid, s.id());
@@ -625,6 +703,8 @@ fn enter_world(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle) {
     let empty = Vec::<u8>::new();
     p.send(ov, Fields::new(ov).with(0, 2).with(6, all_items).with(7, empty.clone()).with(8, skills::all_packets(p)));
     p.send(ov, Fields::new(ov).with(0, 2).with(6, empty.clone()).with(7, empty));
+    // Monture portée : AgpmRide op 2, une fois ses objets connus du client.
+    ride::on_enter(st, sid);
     let mv = &schema::OPT_CHAR_MOVE;
     p.send(mv, Fields::new(mv).with(0, p.ch.id).with(1, pos).with(2, pos).with(5, MOVE_STOP_SYNC).with(6, 0));
     let sent = send_nearby_npcs(ctx, st, sid, pos);
@@ -649,6 +729,16 @@ fn enter_world(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle) {
     p.send(c, Fields::new(c).with(0, 1).with(1, p.ch.id).with(4, 2).with(7, factors_mini(&p.factors)));
     let region = ctx.map.region(pos.x as f64, pos.z as f64).map(|r| r.to_string()).unwrap_or_else(|| "inconnue".into());
     info!("[world] #{sid} {} est en jeu (région {region})", p.ch.name);
+    // Amis et ignorés (op 1 puis op 9) ; ceux qui l'ont en ami le voient en ligne.
+    buddy::on_enter(st, sid);
+    // Courriers de la boîte (op 0), du plus ancien au plus récent.
+    mail::on_enter(st, sid);
+    // Ventes du personnage (op 1), jeux du commutateur (ops 3, 5 puis 4), météo en cours.
+    auction::on_enter(st, sid);
+    itemset::on_enter(st, sid);
+    nature::on_enter(st, sid);
+    // Criminel recherché : icône (op 7) et rang (op 5).
+    wanted::on_enter(st, sid);
     reconnect::on_enter(st, sid);
 }
 
@@ -682,10 +772,15 @@ pub fn send_nearby_npcs(ctx: &WorldCtx, st: &mut WorldState, sid: u32, pos: Vec3
 pub fn sync_monsters(ctx: &WorldCtx, st: &mut WorldState, sid: u32, pos: Vec3) -> (usize, usize) {
     let Some(p) = st.players.get_mut(&sid) else { return (0, 0) };
     let mut added = 0;
+    let now = Instant::now();
     for m in st.monsters.near(pos, sector::REACH).filter(|m| m.is_visible() && sector::sees(pos, m.pos)) {
         if p.seen_monsters.insert(m.cid) {
             let name = ctx.locale.resolve(crate::locale::kind::MONSTER_NAME, m.tid, &p.language, &m.name);
             p.sess.send_raw(st.monsters.view_packet_named(m, &name));
+            // Invocation : son état spécial puis l'op 0 d'AgpmSummons, après la vue (summons.rs).
+            for extra in st.summons.view_extras(m.cid, st.monsters.status(m.cid, now)) {
+                p.sess.send_raw(extra);
+            }
             added += 1;
         }
     }
@@ -718,14 +813,14 @@ pub fn sync_monsters(ctx: &WorldCtx, st: &mut WorldState, sid: u32, pos: Vec3) -
 pub fn send_system(st: &WorldState, sid: u32, text: &str) {
     if let Some(p) = st.players.get(&sid) {
         for line in text.split('\n') {
-            p.send_raw(chat::chat_packet(chat_type::SYSTEM, None, None, None, line));
+            p.send_raw(chat::chat_packet(chat_type::WHOLE_WORLD, None, None, None, line));
         }
     }
 }
 
 /// Annonce (type 10) à tous les joueurs en jeu.
 pub fn broadcast_notice(st: &WorldState, text: &str) {
-    let pkt = chat::chat_packet(chat_type::NOTICE, None, None, None, text);
+    let pkt = chat::chat_packet(chat_type::SYSTEM_LEVEL3, None, None, None, text);
     for p in st.players.values() {
         p.send_raw(pkt.clone());
     }
@@ -849,6 +944,8 @@ pub async fn chat_ban(ctx: &WorldCtx, st: &mut WorldState, name: &str, minutes: 
 
 /// Téléporte un joueur en (x, z). Sans y, garde l'altitude actuelle.
 pub async fn teleport(ctx: &WorldCtx, st: &mut WorldState, sid: u32, x: f64, y: Option<f64>, z: f64) -> anyhow::Result<Vec3> {
+    // Ses invocations de combat disparaissent ; son familier le suit (summons.rs, après le déplacement).
+    summons::on_owner_teleport(st, sid);
     let Some(p) = st.players.get_mut(&sid) else { anyhow::bail!("joueur absent") };
     // Sans altitude donnée : la hauteur du sol (map_height), sinon l'altitude actuelle.
     let y = y.or_else(|| ctx.map.height(x, z).map(f64::from)).unwrap_or(p.ch.pos_y);
@@ -862,6 +959,7 @@ pub async fn teleport(ctx: &WorldCtx, st: &mut WorldState, sid: u32, x: f64, y: 
     let (id, name) = (p.ch.id, p.ch.name.clone());
     let sent = send_nearby_npcs(ctx, st, sid, pos);
     presence::refresh(st, sid);
+    summons::follow_teleport(ctx, st, sid);
     ctx.db.characters.exec("UPDATE characters SET pos_x = ?, pos_y = ?, pos_z = ? WHERE id = ?", (pos.x as f64, pos.y as f64, pos.z as f64, id)).await?;
     info!("[mj] {name} téléporté en {}, {}, {} ({sent} PNJ envoyé(s))", pos.x, pos.y, pos.z);
     Ok(pos)

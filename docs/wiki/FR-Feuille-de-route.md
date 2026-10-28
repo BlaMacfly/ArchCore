@@ -51,7 +51,7 @@
   échange, prix des PNJ, expérience), charisme gagné, rémission auprès des pardonneurs, compétences offensives sur
   les joueurs (Ctrl, zones) ; côté ArchRust, attaque et compétences avec Ctrl, messages, couleur des noms, annonces
   de zone et fenêtre `UI_Remission`. Les gardes restent passifs comme leur IA d'Archonia (`UseNormalAttack` 0) ;
-  les avis de recherche attendent des règles serveur qu'aucune source ne donne.
+  avis de recherche : voir plus bas.
 - Monstres préventifs : ceux dont l'IA a `PreemptiveType` 1 attaquent d'eux-mêmes un joueur dans leur portée
   (`PreemptiveRange`), sauf les cibles que leurs conditions de niveau excluent. Validé au simulateur (scénario `aggro`). Validé au simulateur le 27 octobre 2026 (scénario
   `pk`). Montants des points de meurtrier et du charisme réglables, ceux d'origine étant inconnus.
@@ -62,6 +62,49 @@
   en jeu. Les règles de réussite, de quantité et d'expérience sont des choix d'ArchCore, décrits dans
   [[Protocole réseau|FR-Protocole-reseau]]. Validé au simulateur le 27 octobre 2026 (scénario `product`) ; fenêtres
   d'ArchRust (`UI_PDSkill`, `UI_PDSkillBuy`, `UI_Compose`) en cours, à confirmer en jeu.
+- Amis et ignorés (type 0x2B) : demande d'ami relayée et acceptée des deux côtés, refus, retrait, état en ligne
+  (op 6) et région d'un ami, liste d'ignorés en base fusionnée avec le fichier local du client, blocages appliqués au
+  serveur (chuchotement, échange, invitations de groupe et de guilde). Courrier (type 0x2D) : lettre contre une feuille
+  de papier à lettre, une pièce jointe, destinataire hors ligne, boîte envoyée à l'entrée en jeu, lecture,
+  récupération, suppression. Règles d'ArchCore décrites dans [[Protocole réseau|FR-Protocole-reseau]]. Validé au
+  simulateur le 28 octobre 2026 (scénarios `buddy` et `mail`), à confirmer en jeu ; la relation « Buddy » (mentor
+  et disciple) est reportée.
+- Usure et réparation (types 0x04 et 0x34) : durabilité (colonne `DUR`) enregistrée et envoyée au client (facteur
+  « objet »), usure de l'arme à chaque coup porté et d'une armure à chaque coup reçu (`Item.WeaponWearChance`,
+  `Item.ArmorWearChance`), objet à 0 sans effet jusqu'à sa réparation, réparation chez les forgerons et éleveurs
+  (fonction 17) au prix du client. Montures (types 0x04 et 0x4D) : monter en équipant l'objet de partie 14, AgpmRide
+  op 2 et op 4 diffusées, vitesse `Run_Buff`, vue par les autres (champ 18), refus en combat, pour un meurtrier et
+  hors des régions permises, descente forcée à la mort. Règles d'ArchCore décrites dans
+  [[Protocole réseau|FR-Protocole-reseau]]. Validé au simulateur le 28 octobre 2026 (scénarios `repair` et `ride`), à
+  confirmer en jeu ; affichage par ArchRust en cours.
+- Maison des ventes (type 0x0B) : planche ouverte chez les « Item Trader » (fonction 28), mise en vente de la pile
+  entière à prix fixe en or et en CC (frais de 3 %), recherche par TID, achat immédiat au prix de la base, vente
+  conclue annoncée au vendeur, encaissement, annulation, ventes envoyées à l'entrée en jeu. Commutateur d'équipement
+  (type 0x6A) : 100 emplacements enregistrés, rééquipés par le chemin de l'équipement manuel, relus à l'entrée en jeu
+  (Archonia n'a pas de bonus de panoplie). Horloge du monde commune à tous (AgpmTimer, vitesse `World.TimeSpeed`,
+  renvoyée toutes les 10 min) et météo (type 0x30 : `/weather`, météo automatique `World.WeatherAuto`). Règles
+  d'ArchCore décrites dans [[Protocole réseau|FR-Protocole-reseau]]. Validé au simulateur le 28 octobre 2026
+  (scénarios `auction`, `itemset` et `nature`), à confirmer en jeu ; fenêtres d'ArchRust en cours. Les compétences de
+  l'Archlord sur le ciel (478, 522, 523) attendent le système de l'Archlord.
+- Invocations (type 0x4F) : esprits de l'Élémentaliste, Sacred One, Legion of the Dead et autres invocations des
+  compétences (créature au niveau du maître, `Summons.StatScale`), créatures fixes (pièges), Increase Gate (limite
+  relevée), parchemins d'invocation et familiers des objets ; vue, état spécial puis op 0 dans l'ordre exigé par le
+  client, suivi du maître, propensions attaque, défense et ombre (op 2), monstres qui ripostent contre l'invocation,
+  expérience et butin au maître, fin à l'expiration, à la mort, à la téléportation ou au départ du maître et au-delà
+  de la limite. Règles d'ArchCore décrites dans [[Protocole réseau|FR-Protocole-reseau]]. Validé au simulateur le
+  28 octobre 2026 (scénario `summons`), à confirmer en jeu ; fenêtres de cible d'ArchRust à faire. Restent
+  l'apprivoisement, Call on Nature et Evil Light (pas de créature dans les données) et les pièges de faille.
+- Discussion : préfixes d'Archonia lus par le serveur (« /p », « /g », « /s » envoyés en type 0, avant les commandes
+  MJ ; commande inconnue d'un joueur ignorée), cri local « [Shout] » (`Chat.ShoutRange`), cris de zone (type 0x4C :
+  `/race`, `/scream`, `/warn`, un objet consommé par message, un cri par seconde), salons de discussion (type 0x2C :
+  publics, privés, de guilde, invitations, recherche d'un joueur ; 5 par personnage, en mémoire). Coiffeurs (type
+  0x43, fonction 29) : coiffure et visage de `charactercustomizelist.txt` achetés au prix du client, vus des autres
+  joueurs ; apparence de création contrôlée. Avis de recherche (type 0x46, fonction 32) : droit de mise à prix donné
+  à la victime d'un premier attaquant ou d'un meurtrier, prime de base selon le niveau, primes cumulées en base
+  (`Wanted.ExpireDays`), tableau des 100 avis, prime touchée par le chasseur, expérience perdue par le criminel
+  (`Wanted.ExpLossPercent`). Règles d'ArchCore décrites dans [[Protocole réseau|FR-Protocole-reseau]]. Validé au
+  simulateur le 28 octobre 2026 (scénarios `chat`, `channel`, `customize` et `wanted`), à confirmer en jeu ;
+  fenêtres d'ArchRust en cours. La règle de région `<Chat>No</Chat>` n'est pas appliquée (aucune dans les données).
 - Client ArchRust (branche `client`) : combat (attaque, coups, mort, résurrection, butin), groupes, autres
   joueurs, inventaire et équipement, PNJ (dialogue, boutique, banque et achat de pages, quêtes), compétences
   (instructeurs, lancement, barre de raccourcis), portails de téléportation (fenêtre et chargement d'origine, confirmation des zones de combat entre joueurs,
@@ -105,6 +148,8 @@
 8. Commandes MJ restantes de la page [[Administration|FR-Administration]] : elles attendent leurs systèmes
    (arène, événements, failles, réglages de région…), listés à la fin de sa section 4.
 9. Fin de la traduction : environ 54 000 textes restants.
+10. Relation « Buddy » (mentor et disciple, AgpmBuddy ops 10 à 14) : contraintes `MentorConstrict` et effet « inventaire
+    vidé » inconnus ; en attente d'une source fiable.
 
 ## Plus tard
 

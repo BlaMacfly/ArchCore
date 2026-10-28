@@ -290,6 +290,8 @@ fn hit_player(ctx: &WorldCtx, st: &mut WorldState, m: &Monster, t: &SkillTemplat
     p.factors.point[POINT_HP] = hp;
     if total > 0 {
         effects::lift_status(&mut p.skills.effects, status::SLEEP);
+        // Usure d'une pièce d'armure (repair.rs).
+        p.wear.taken = p.wear.taken.saturating_add(1);
     }
     let (pcid, mp) = (p.ch.id, p.factors.point[1]);
     let player_mods = effects::total(&p.skills.effects);

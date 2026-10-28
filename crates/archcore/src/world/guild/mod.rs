@@ -621,7 +621,9 @@ fn invite(st: &mut WorldState, sid: u32, p: &Packet) {
         return;
     };
     let tcid = st.players[&tsid].ch.id;
-    if super::option_flags::refuses(st, tsid, super::option_flags::REFUSE_GUILD_IN) {
+    // Invitations refusées dans les options, ou chef ignoré avec « Block Invites » (buddy.rs).
+    let my_cid = st.players[&sid].ch.id;
+    if super::option_flags::refuses(st, tsid, super::option_flags::REFUSE_GUILD_IN) || super::buddy::blocks(st, tsid, my_cid, archcore_net::schema::buddy_flag::BLOCK_INVITE) {
         info!("[guilde] {target_name} refuse les invitations de guilde");
         send_to(st, sid, system_packet(code::JOIN_REFUSE, Some(&target_name), None));
         return;

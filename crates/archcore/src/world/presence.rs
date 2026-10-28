@@ -230,6 +230,7 @@ pub(super) fn set_visible(st: &mut WorldState, viewer: u32, target: u32, visible
     let tid = t.ch.id;
     let add = character_add_packet(t);
     let gear = super::equipment::view_packets(t);
+    let ride = super::ride::view_packet(t);
     let link = super::guild::view_packet(st, tid);
     let has_dest = t.dest.is_some();
     let mv = if has_dest { Some(move_fields(st, target)) } else { None };
@@ -239,6 +240,10 @@ pub(super) fn set_visible(st: &mut WorldState, viewer: u32, target: u32, visible
         // Équipement porté, après le personnage auquel il se rattache.
         for g in gear {
             v.send_raw(g);
+        }
+        // Monture : le client la crée déjà en voyant l'objet sur un personnage marqué monté ; l'op 2 est sans risque.
+        if let Some(r) = ride {
+            v.send_raw(r);
         }
         // Guilde à laquelle il appartient.
         if let Some(l) = link {

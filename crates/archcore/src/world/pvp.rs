@@ -18,6 +18,8 @@
 //! (champ 26) ; tuer un joueur de son niveau ou plus rapporte autant de charisme que son niveau (message 24). Les
 //! montants sont ceux de la configuration : le serveur d'origine ne les a pas laissés. Paliers de meurtrier (40, 60,
 //! 100) : voir [`murderer_level`].
+//! Avis de recherche (droit de la victime de mettre son tueur à prix, prime touchée sur un criminel recherché, qui
+//! n'est pas innocent) : voir `wanted.rs`.
 use super::combat::{self, Attacker, Defender, REACH_TOLERANCE};
 use super::skills::CharismaSource;
 use super::{WorldCtx, WorldState};
@@ -207,8 +209,8 @@ pub fn on_hit(ctx: &WorldCtx, st: &mut WorldState, sid: u32, tsid: u32, now: Ins
         }
         p.send_raw(build_packet(&schema::PVP, &base(op::ADD_ENEMY, p.ch.id).with(2, other_cid).with(5, zone)));
     }
-    // Premier attaquant : attaque forcée en zone libre sur un innocent.
-    let innocent = st.players.get(&tsid).is_some_and(|t| t.ch.criminal_until <= unix_now() && murderer_level(t.ch.murderer) == 0);
+    // Premier attaquant : attaque forcée en zone libre sur un innocent (un criminel recherché ne l'est pas).
+    let innocent = st.players.get(&tsid).is_some_and(|t| t.ch.criminal_until <= unix_now() && murderer_level(t.ch.murderer) == 0 && !st.wanted.is_wanted(t.ch.id));
     if zone == mode::FREE && innocent {
         set_criminal(ctx, st, sid);
     }
@@ -273,16 +275,21 @@ pub async fn on_kill(ctx: &WorldCtx, st: &mut WorldState, sid: u32, tsid: u32) -
     let (kname, vname) = (k.ch.name.clone(), v.ch.name.clone());
     let (klevel, vlevel) = (k.factors.status[7], v.factors.status[7]);
     let aggressor = k.pvp.enemy(v.ch.id).is_some_and(|e| e.aggressor);
-    let innocent = v.ch.criminal_until <= unix_now() && murderer_level(v.ch.murderer) == 0;
+    // Un criminel recherché n'est pas innocent (wanted.rs).
+    let innocent = v.ch.criminal_until <= unix_now() && murderer_level(v.ch.murderer) == 0 && !st.wanted.is_wanted(v.ch.id);
     let battleground = in_battleground(ctx, st, sid);
+    // Droit de la victime de mettre son tueur à prix : frappée la première en étant innocente, ou tuée par un meurtrier.
+    let guilty = !battleground && ((aggressor && innocent) || murderer_level(k.ch.murderer) >= 1);
     part(st, sid, tsid);
     info!("[pvp] {kname} tue {vname}");
+    // Prime touchée sur un criminel recherché : ce meurtre ne donne pas de points de meurtrier.
+    let bounty = super::wanted::on_kill(ctx, st, sid, tsid, guilty).await?;
     let zone = zone_mode(ctx, st, sid);
     if let Some(k) = st.players.get_mut(&sid) {
         k.ch.pvp_win += 1;
         k.send_raw(info_packet(k.ch.id, k.ch.pvp_win, k.ch.pvp_lose, zone));
         k.send_raw(message(code::KILL_PLAYER, None, Some(&vname)));
-        if aggressor && innocent && !battleground && klevel - vlevel > MURDER_LEVEL_GAP {
+        if aggressor && innocent && !bounty && !battleground && klevel - vlevel > MURDER_LEVEL_GAP {
             let before = murderer_level(k.ch.murderer);
             k.ch.murderer = (k.ch.murderer + ctx.config.world.pvp_murderer_points).min(99_999);
             k.ch.murderer_until = unix_now() + MURDERER_SECS;

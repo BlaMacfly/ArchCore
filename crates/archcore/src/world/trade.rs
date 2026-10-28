@@ -127,9 +127,11 @@ fn request(st: &mut WorldState, sid: u32, target_cid: u32) {
     let Some(target) = st.by_cid.get(&target_cid).copied() else { return cancel(st, sid) };
     let (me, other) = (&st.players[&sid], st.players.get(&target));
     let Some(other) = other else { return cancel(st, sid) };
-    // Échanges refusés dans les options : « Option_Trade_Off_User » chez l'auteur (op 25, CID visé).
-    if super::option_flags::refuses(st, target, super::option_flags::REFUSE_TRADE) {
-        info!("[échange] {} refuse les échanges ({} demandait)", other.ch.name, me.ch.name);
+    // Échanges refusés dans les options, ou auteur ignoré avec « Block Trade » (buddy.rs) : « Option_Trade_Off_User »
+    // chez l'auteur (op 25, CID visé).
+    let blocked = super::buddy::blocks(st, target, me.ch.id, archcore_net::schema::buddy_flag::BLOCK_TRADE);
+    if blocked || super::option_flags::refuses(st, target, super::option_flags::REFUSE_TRADE) {
+        info!("[échange] {} refuse les échanges ({} demandait{})", other.ch.name, me.ch.name, if blocked { ", ignoré" } else { "" });
         let cid = me.ch.id;
         return send(st, sid, packet(op::REFUSE, Some(target_cid), Some(cid)));
     }

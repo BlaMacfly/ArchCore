@@ -235,6 +235,95 @@ corpse is not gathered twice (code 7, cast refused with action 17). At Lucy (Coo
 without materials (code 6), then with materials and seasoning (used up) until one succeeds. Reconnection: op 1
 returns the recipe. Everything is wiped at the end.
 
+## Friends and mail test
+
+```bash
+ARCHCORE_CONF_DIR=config/test archcore sim buddy [userA passA charA userB passB charB]
+ARCHCORE_CONF_DIR=config/test archcore sim mail [userA passA charA userB passB charB]
+```
+
+`sim buddy` (GmTest GM, SimA; lists wiped in the database at the start and at the end): empty lists on entry (op 9),
+local ignore file sent by GmTest (op 15: SimB), server refusals (oneself code 4, unknown name code 2, "Buddy"
+relation code 12, SimA's "refuse friend requests" option: op 3 at once), request accepted (op 1 on both sides,
+online), duplicate (code 1), the friend's region (op 7); SimA reconnects (op 6 offline then online, list read back
+from the database), removes GmTest (on its side only) and ignores it with "Block Chat" and "Block Trade": whisper not
+delivered, trade refused (op 25); party invitation received, then refused (op 14) with "Block Invites"; boxes
+unticked, the whisper gets through; GmTest comes back and finds its friend and the ignored SimB. `sim mail` (GmTest
+GM, SimA; mails wiped): GmTest gets 3 letter paper sheets and 5 potions, is refused an unknown recipient (code 2),
+itself (code 1) and the attached paper (code 5), writes to SimA while offline with the potions (removed, one sheet
+taken); SimA enters and gets the mail (op 0), reads it (recorded in the database), cannot delete it before collecting
+the item (code 11), collects the potions (same item) then deletes it; a second letter arrives at once, SimA in game.
+
+## Repair and mounts test
+
+```bash
+ARCHCORE_CONF_DIR=config/test archcore sim repair [user] [pass] [character]
+ARCHCORE_CONF_DIR=config/test archcore sim ride [userA passA charA userB passB charB]
+```
+
+`sim repair` (GmTest GM; run with `Item.WeaponWearChance = 100` in the test server configuration): GmTest wears a
+Short Sword (DUR 88) and a Halfsteel Armor (DUR 63), hits a Green Worm and sees the sword lose one point per hit
+(AGPMITEM op 2, field 10: 87, 86, 85); `/durability 0`: the broken sword no longer counts in the damage;
+`/durability 40`, items stored, reconnection: 40 read back on entering the game; at Halo's, opening (op 3 → op 4),
+wrong cost (code 4), repair (gold debited at the client's price, items full, code 1), items already full (code 3),
+potion (code 5). `sim ride` (SimDepart on the GM account, SimA watching): level 40, White Horse (TID 3002); mounting
+(item worn, run speed 10,500, AgpmRide op 2 for both), reconnecting on horseback (field 18 = 2, op 2 on entry),
+dismounting (op 4, original speed), mounting refused right after hitting a Green Worm (code 24, horse left in the
+inventory) then accepted 11 s later, death on horseback (`/kill`): forced dismount.
+
+## Auction house, equipment switch and weather test
+
+```bash
+ARCHCORE_CONF_DIR=config/test archcore sim auction [accountA passA charA accountB passB charB]
+ARCHCORE_CONF_DIR=config/test archcore sim itemset [account] [password] [character]
+ARCHCORE_CONF_DIR=config/test archcore sim nature [accountA passA charA accountB passB charB]
+```
+
+`sim auction` (GmTest GM seller, SimA buyer; sales wiped, gold and CC set in the database): at Fotherbee ("Item
+Trader"), opening (op 9 → op 10); refusal of a sword without a category, of a price under 100,000 and of a partial
+stack; 5 potions listed for 150,000 gold and 20 CC (op 4, op 1, potions removed, 4,500 gold fee); SimA finds them by
+TID (op 12, rowset line), is refused a wrong count (code 5), buys (same IID on her side, gold and CC debited, op 7);
+GmTest gets op 3 (sold), a second purchase gives code 12; GmTest collects (op 6, gold and CC credited, op 2); a second
+sale comes back on entering the game (op 1) and is cancelled (potions returned, op 5, op 2). `sim itemset` (GmTest):
+field 26 = IID; sword and armour worn, saved in slot 3 (op 3, op 5, no op 4), stored then re-equipped by op 1 (op 4),
+move (op 6) and removal (op 7) of a set item, empty slot worn (everything taken off), read back on entering (ops 3, 5
+then 4), slot cleared (op 2). `sim nature`: GmTest then SimA 3 s later get the same clock (real gap × speed), clear
+weather on entering; `/weather rain` received by both and when SimA reconnects, `/weather` describes the weather,
+`/weather clear` received by both.
+
+## Summons test
+
+```bash
+ARCHCORE_CONF_DIR=config/test archcore sim summons [account] [password] [character]
+```
+
+GmEffets (GM account) gets Griolli (TID 315) and Bomba (619) in the database, goes to level 80, invincible, among the
+Green Worms. Griolli: creature view (TID 543), state 0x800 then AgpmSummons op 0, in this order (type 1, non-zero
+timestamps). Attacking a distant worm: the spirit (range 1500) kills it before the master arrives, the experience goes
+to the master. "Defense" propensity (op 2) sent back; refused for an ordinary monster. `/move`: op 1 then removal from
+view. Bomba (Big Tim, 10 s): op 1 on expiry. Griolli then Bomba: the one-summon limit sends Griolli back (op 1) before
+Big Tim (op 0). Doogie <Rank 1> (item 7564): pet (type 8, forced), sent back by using the item again. Level restored,
+skills and item removed from the database at the end.
+
+## Chat, chat rooms, stylists and wanted posters test
+
+```bash
+ARCHCORE_CONF_DIR=config/test archcore sim chat|channel|customize|wanted [accountA passA charA accountB passB charB]
+```
+
+GmTest (GM account) and SimA. `sim chat`: SimA sends like Archonia "/p" and "/g" as type 0 (party and guild
+refusals, not "Unknown command"), "/s" (type 1 received by GmTest), an unknown command (no answer), "/race" without a
+trumpet (refused) then with two Race Trumpets given by the GM (AgpmAreaChatting type 19 "[Race Trumpet] [SimA] …" on
+both sides, one trumpet used up; a second shout within the second refused; the next one uses up the last).
+`sim channel`: public room (creation, name taken, joining, already a member, message relayed to both), private room
+(op 8, wrong password, joining), leaving, invitation without password, player search, unknown room, empty room gone.
+`sim customize`: at Gladiol's, opening (op 0 → op 1), hair style 4 refused for lack of gold then bought (gold taken,
+field 21 for GmTest and for SimA), same hair style refused, hair style 1 restored. `sim wanted`: GmTest kills SimA
+(op 6), bounty refused under the base bounty then accepted (op 7 and op 5 for GmTest), second one refused, board at
+Rembrandt's (op 4 then end of page), SimA at level 60 kills GmTest: bounty paid (op 8 kind 4), op 8 kind 5 and op 7
+flag 0 for GmTest; levels restored. Posters (`wanted_criminal`, `wanted_bounty`) stay in the database: empty them
+between two runs.
+
 ## Quests test
 
 ```bash

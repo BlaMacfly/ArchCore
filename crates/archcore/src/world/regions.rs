@@ -35,18 +35,21 @@ pub struct ResurrectionPoint {
 #[derive(Default)]
 pub struct Regions {
     safety: HashMap<u16, i64>,
+    /// Champ Type de chaque région (bits 0x10 : montures permises).
+    type_bits: HashMap<u16, u32>,
     points: HashMap<u16, Vec<ResurrectionPoint>>,
 }
 
 impl Regions {
     pub async fn load(db: &Databases) -> anyhow::Result<Self> {
         let mut r = Regions::default();
-        let Ok(rows) = db.world.rows("SELECT id, safety FROM region_template", ()).await else {
+        let Ok(rows) = db.world.rows("SELECT id, safety, type_bits FROM region_template", ()).await else {
             crate::warn!("régions non chargées : lancer `archcore db-init` puis `archcore import`");
             return Ok(r);
         };
         for row in &rows {
             r.safety.insert(col::<u32>(row, "id") as u16, col(row, "safety"));
+            r.type_bits.insert(col::<u32>(row, "id") as u16, col(row, "type_bits"));
         }
         for row in db.world.rows("SELECT region_id, pos_x, pos_y, pos_z, race, class FROM resurrection_point", ()).await? {
             let pos = Vec3::new(col::<f64>(&row, "pos_x") as f32, col::<f64>(&row, "pos_y") as f32, col::<f64>(&row, "pos_z") as f32);
@@ -72,6 +75,11 @@ impl Regions {
 
     pub fn is_safe(&self, region: u16) -> bool {
         self.safety.get(&region) == Some(&SAFE)
+    }
+
+    /// Champ Type d'une région connue.
+    pub fn type_bits(&self, region: u16) -> Option<u32> {
+        self.type_bits.get(&region).copied()
     }
 
     /// Point de résurrection de la région le plus proche de `from`, permis à cette race et cette classe.

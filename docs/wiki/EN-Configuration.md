@@ -49,6 +49,19 @@ unknown key (typo) is reported.
 | `Guild.BattleReadySeconds` | `180` | Delay (s) between accepting a guild battle and its start; the client announces it in minutes. Archonia's data do not give it |
 | `PvP.MurdererPointsPerKill` | `20` | Murderer points for killing an innocent more than 4 levels below, attacked first (thresholds 40, 60, 100). Original value unknown |
 | `PvP.RemissionPoints` | `2` | Murderer points removed by a remission with 10 letters of pardon, as the client announces |
+| `Item.WeaponWearChance` | `10` | Chance (%) that a wounding hit wears the weapon that dealt it by one point (ArchCore's choice; 0: no wear) |
+| `Item.ArmorWearChance` | `10` | Chance (%) that a wounding hit received wears one worn armour piece picked at random by one point (ArchCore's choice) |
+| `World.TimeSpeed` | `6` | Game time speed sent to the client (AGPMTIMER field 0): 6 as in Archonia, a day lasts 4 real hours; 1 = real time |
+| `World.TimeStart` | `-1` | Game hour when the server starts (0 to 23), the same for everyone; -1 = machine clock × speed, the same from one start to the next. See [[Network protocol|EN-Network-protocol]] |
+| `World.WeatherAuto` | `0` | 1 = automatic weather (rain, snow or clear rolled for everyone); 0 = `/weather` only (ArchCore's choice) |
+| `World.WeatherMinutes` | `30` | Minutes between two automatic weather rolls |
+| `World.WeatherRainChance`, `World.WeatherSnowChance` | `20`, `10` | Chances (%) of rain and snow on each roll; otherwise clear |
+| `Auction.MaxSales` | `100` | Maximum sales per character in the auction house (1 to 100, the client's box) |
+| `Auction.ExpireDays` | `30` | Duration of a sale in days; once expired it leaves the search but can still be cancelled |
+| `Summons.StatScale` | `100` | Stats of summoned creatures, in percent of their model's stats brought to the master's level (ArchCore's choice) |
+| `Chat.ShoutRange` | `0` | Range of the local "/s" shout; 0: twice `World.ViewRadius` (ArchCore's choice) |
+| `Wanted.ExpireDays` | `7` | Lifetime of a wanted poster, in days since the last bounty (ArchCore's choice) |
+| `Wanted.ExpLossPercent` | `5` | Share of the level's experience lost by a wanted criminal killed by a hunter, never a level (ArchCore's choice) |
 | `World.TimeZone` | `local` | Time zone of the clock sent to the client (AGPMTIMER packet): `local` = the machine's time (day/night cycle, music and ambience follow the server's local time), `utc` = raw Unix epoch. See [[Network protocol|EN-Network-protocol]] |
 | `World.ExitOnRestart` | `0` | `1`: stops the server at the end of the `/announce_restart` countdown |
 | `StartPosition.<race>.Village` / `.X` / `.Y` / `.Z` | see the template | Spawn position per race: 1 Human, 2 Orc, 3 Moon Elf, 4 Scion |

@@ -97,6 +97,34 @@ fn checks(n: &Names) -> Vec<Check> {
             sample: "CONCAT('recette ', x.recipe_tid, ' de ', COALESCE(p.name, CONCAT('personnage ', x.character_id)))",
         },
         Check {
+            label: "pièces jointes de courrier introuvables",
+            severity: Severity::Warning,
+            rows: format!(
+                "`{c}`.mail x LEFT JOIN `{c}`.character_items r ON r.id = x.item_id AND r.status = 4 AND r.character_id = x.recipient_id \
+                 WHERE x.item_id IS NOT NULL AND r.id IS NULL"
+            ),
+            sample: "CONCAT('courrier ', x.id, ' (objet ', x.item_id, ')')",
+        },
+        Check {
+            label: "objets en vente introuvables",
+            severity: Severity::Warning,
+            rows: format!(
+                "`{c}`.auction_sale x LEFT JOIN `{c}`.character_items r ON r.id = x.item_id AND r.status = 5 AND r.character_id = x.seller_id                  WHERE x.status = 0 AND r.id IS NULL"
+            ),
+            sample: "CONCAT('vente ', x.id, ' (objet ', COALESCE(x.item_id, '-'), ')')",
+        },
+        Check {
+            label: "apparences absentes de character_customize",
+            severity: Severity::Warning,
+            rows: format!(
+                "`{c}`.characters x LEFT JOIN `{w}`.character_customize h ON h.character_tid = x.template_id AND h.kind = 1 AND h.number = x.hair \
+                 LEFT JOIN `{w}`.character_customize f ON f.character_tid = x.template_id AND f.kind = 2 AND f.number = x.face \
+                 WHERE x.deleted_at IS NULL AND (h.row_order IS NULL OR f.row_order IS NULL) \
+                 AND EXISTS (SELECT 1 FROM `{w}`.character_customize t WHERE t.character_tid = x.template_id)"
+            ),
+            sample: "CONCAT(x.name, ' (modèle ', x.template_id, ', coiffure ', x.hair, ', visage ', x.face, ')')",
+        },
+        Check {
             label: "banques sans compte",
             severity: Severity::Warning,
             rows: format!("`{c}`.account_bank x LEFT JOIN `{a}`.account r ON r.id = x.account_id WHERE r.id IS NULL"),
@@ -194,7 +222,7 @@ mod tests {
     fn requetes_des_controles() {
         let n = Names { auth: "a_auth", characters: "a_chars", world: "a_world" };
         let all = checks(&n);
-        assert_eq!(all.len(), 11);
+        assert_eq!(all.len(), 14);
         // Chaque contrôle nomme ses bases : il passe par le pool des personnages.
         for k in &all {
             assert!(k.rows.contains("`a_chars`.") || k.rows.contains("`a_auth`.") || k.rows.contains("`a_world`.import_run"), "{}", k.label);

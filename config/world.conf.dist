@@ -167,6 +167,69 @@ PvP.MurdererPointsPerKill = 20
 
 PvP.RemissionPoints = 2
 
+#    Item.WeaponWearChance
+#        Probabilité, en pour cent, qu'un coup qui blesse (compétences comprises) use d'un
+#        point l'arme qui le porte. Le client d'origine ne donne aucune règle d'usure :
+#        valeur choisie par ArchCore. 0 : les armes ne s'usent pas.
+#        Défaut : 10
+
+Item.WeaponWearChance = 10
+
+#    Item.ArmorWearChance
+#        Probabilité, en pour cent, qu'un coup reçu qui blesse use d'un point une pièce
+#        d'armure portée tirée au hasard (corps, tête, mains, jambes, pieds, bouclier).
+#        Choix d'ArchCore. 0 : les armures ne s'usent pas.
+#        Défaut : 10
+
+Item.ArmorWearChance = 10
+
+#    Auction.MaxSales
+#        Ventes au plus par personnage dans la maison des ventes (1 à 100 : la boîte
+#        de ventes du client a 100 cases). La limite du serveur d'origine n'est pas
+#        connue.
+#        Défaut : 100
+
+Auction.MaxSales = 100
+
+#    Auction.ExpireDays
+#        Durée d'une vente, en jours (« 30 days » dans le texte du client). Échue, la
+#        vente n'est plus proposée à la recherche ; le vendeur l'annule pour reprendre
+#        son objet.
+#        Défaut : 30
+
+Auction.ExpireDays = 30
+
+#    Summons.StatScale
+#        Caractéristiques des créatures invoquées (esprits, Sacred One, parchemins
+#        d'invocation), en pour cent : celles de leur modèle (CharacterDataTable),
+#        mises au niveau du maître (niveau du maître / niveau du modèle), puis
+#        multipliées par ce taux. La règle du serveur d'origine n'est pas connue.
+#        Défaut : 100
+
+Summons.StatScale = 100
+
+#    Chat.ShoutRange
+#        Portée du cri local (« /s », onglet « [Shout] »), en unités du monde.
+#        0 : deux fois World.ViewRadius. La portée d'origine n'est pas connue.
+#        Défaut : 0
+
+Chat.ShoutRange = 0
+
+#    Wanted.ExpireDays
+#        Durée d'un avis de recherche, en jours depuis la dernière mise à prix.
+#        Échu, l'avis disparaît du tableau et sa prime est perdue. Choix d'ArchCore.
+#        Défaut : 7
+
+Wanted.ExpireDays = 7
+
+#    Wanted.ExpLossPercent
+#        Part de l'expérience du niveau (en pour cent) perdue par un criminel
+#        recherché tué par un chasseur ; jamais au point de perdre un niveau.
+#        Choix d'ArchCore : le client affiche la perte sans en donner la règle.
+#        Défaut : 5
+
+Wanted.ExpLossPercent = 5
+
 #    World.TimeZone
 #        Fuseau de l'horloge envoyée au client, qui en tire l'heure du ciel.
 #            local : heure de la machine du serveur
@@ -174,6 +237,46 @@ PvP.RemissionPoints = 2
 #        Défaut : "local"
 
 World.TimeZone = "local"
+
+#    World.TimeSpeed
+#        Vitesse du temps du jeu (multiplicateur de l'horloge réelle), envoyée au
+#        client avec l'heure. 6 comme Archonia : une heure du jeu dure 10 minutes,
+#        une journée 4 heures. 1 : heure réelle.
+#        Défaut : 6
+
+World.TimeSpeed = 6
+
+#    World.TimeStart
+#        Heure du jeu au démarrage du serveur (0 à 23). Tous les joueurs voient la
+#        même heure ; elle repart de cette valeur à chaque démarrage.
+#        -1 : heure tirée de l'horloge de la machine (World.TimeZone) multipliée par
+#        World.TimeSpeed, identique d'un démarrage à l'autre.
+#        Défaut : -1
+
+World.TimeStart = -1
+
+#    World.WeatherAuto
+#        1 = météo automatique : toutes les World.WeatherMinutes minutes, le serveur
+#        tire pluie, neige ou temps clair pour tout le monde. 0 = seulement la
+#        commande MJ /weather. Choix d'ArchCore : le client d'origine ne dit rien de
+#        la politique météo du serveur.
+#        Défaut : 0
+
+World.WeatherAuto = 0
+
+#    World.WeatherMinutes
+#        Minutes réelles entre deux tirages de la météo automatique.
+#        Défaut : 30
+
+World.WeatherMinutes = 30
+
+#    World.WeatherRainChance, World.WeatherSnowChance
+#        Probabilités, en pour cent, de la pluie et de la neige à chaque tirage de la
+#        météo automatique ; le reste : temps clair.
+#        Défaut : 20 et 10
+
+World.WeatherRainChance = 20
+World.WeatherSnowChance = 10
 
 #    World.ExitOnRestart
 #        1 = arrêter le serveur à la fin du compte à rebours de /announce_restart

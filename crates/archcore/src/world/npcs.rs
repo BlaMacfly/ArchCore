@@ -15,6 +15,8 @@ use std::path::Path;
 /// Fonctions d'événement (ApmEventManager) des PNJ, numéros relevés dans npc.ini.
 pub mod event_function {
     pub const NPC_TRADE: i64 = 9;
+    /// Réparation des objets (forgerons, éleveurs) : AgpmEventItemRepair, sans données.
+    pub const ITEM_REPAIR: i64 = 17;
     pub const BANK: i64 = 20;
     /// Forgeron : conversion des objets (sockets, renforcement).
     pub const ITEM_CONVERT: i64 = 22;
@@ -26,6 +28,12 @@ pub mod event_function {
     pub const PRODUCT: i64 = 24;
     pub const SKILL_MASTER: i64 = 25;
     pub const QUEST: i64 = 27;
+    /// Maison des ventes (« Item Trader ») : AgpmAuction, sans données.
+    pub const AUCTION: i64 = 28;
+    /// Coiffeur (« Stylist ») : AgpmEventCharCustomize, sans données.
+    pub const CHAR_CUSTOMIZE: i64 = 29;
+    /// Tableau des avis de recherche (chefs de ville) : AgpmWantedCriminal, sans données.
+    pub const WANTED_CRIMINAL: i64 = 32;
 }
 
 /// Type d'objet « personnage » dans les mini EVENT_BASE (0 aucun, 1 objet, 2 modèle d'objet, 3 personnage).
@@ -108,8 +116,9 @@ pub fn event_block(npc: &Npc) -> Vec<u8> {
             out.extend(build_packet(em, &Fields::new(em).with(0, event_base(npc.cid, ev.function)).with(1, data)));
             continue;
         }
-        if matches!(ev.function, event_function::BANK | event_function::GUILD | event_function::GUILD_WAREHOUSE | event_function::ITEM_CONVERT) {
-            // Gardien de banque (et entrepôt de guilde), gestionnaire de guilde, forgeron : fonctions sans données.
+        if matches!(ev.function, event_function::BANK | event_function::GUILD | event_function::GUILD_WAREHOUSE | event_function::ITEM_CONVERT | event_function::ITEM_REPAIR | event_function::AUCTION | event_function::CHAR_CUSTOMIZE | event_function::WANTED_CRIMINAL) {
+            // Gardien de banque (et entrepôt de guilde), gestionnaire de guilde, forgeron (conversion, réparation),
+            // marchand de la maison des ventes, coiffeur, tableau des avis de recherche : fonctions sans données.
             let em = &schema::EVENT_MANAGER;
             out.extend(build_packet(em, &Fields::new(em).with(0, event_base(npc.cid, ev.function))));
             continue;

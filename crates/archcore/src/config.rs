@@ -64,6 +64,35 @@ pub struct WorldConfig {
     /// Points de meurtrier retirés par une rémission de 10 lettres de pardon (`PvP.RemissionPoints`, 2 comme le
     /// client l'annonce).
     pub pvp_remission_points: u32,
+    /// Usure (`world/repair.rs`) : probabilité, en pour cent, qu'un coup porté use l'arme (`Item.WeaponWearChance`, 10) et
+    /// qu'un coup reçu use une pièce d'armure (`Item.ArmorWearChance`, 10). Valeurs choisies par ArchCore.
+    pub item_weapon_wear_chance: f64,
+    pub item_armor_wear_chance: f64,
+    /// Horloge du monde (`world/nature.rs`) : vitesse du temps du jeu (`World.TimeSpeed`, 6 comme Archonia : une journée
+    /// en 4 h réelles) et heure du jeu au démarrage du serveur (`World.TimeStart`, 0 à 23 ; -1 : heure tirée de
+    /// l'horloge de la machine, identique d'un démarrage à l'autre).
+    pub time_speed: u8,
+    pub time_start: i64,
+    /// Météo automatique (`World.WeatherAuto`) : toutes les `World.WeatherMinutes` minutes, pluie ou neige tirées avec
+    /// ces probabilités en pour cent (`World.WeatherRainChance`, `World.WeatherSnowChance`), sinon temps clair.
+    pub weather_auto: bool,
+    pub weather_minutes: u64,
+    pub weather_rain_chance: f64,
+    pub weather_snow_chance: f64,
+    /// Maison des ventes (`world/auction.rs`) : ventes au plus par personnage (`Auction.MaxSales`, 100 : la boîte du
+    /// client) et durée d'une vente en jours (`Auction.ExpireDays`, 30 comme le texte du client).
+    pub auction_max_sales: usize,
+    pub auction_expire_days: i64,
+    /// Invocations (`world/summons.rs`) : caractéristiques du modèle, mises au niveau du maître, multipliées par ce
+    /// pourcentage (`Summons.StatScale`, 100 ; choix d'ArchCore, la règle d'origine n'est pas connue).
+    pub summons_stat_scale: f64,
+    /// Portée du cri local `/s` (`Chat.ShoutRange`, 0 : deux fois `World.ViewRadius`) ; choix d'ArchCore.
+    pub chat_shout_range: f64,
+    /// Avis de recherche (`world/wanted.rs`) : durée d'un avis en jours depuis la dernière mise à prix
+    /// (`Wanted.ExpireDays`, 7) et part de l'expérience du niveau perdue par un criminel tué par un chasseur, en pour
+    /// cent (`Wanted.ExpLossPercent`, 5). Choix d'ArchCore : le client n'en dit rien.
+    pub wanted_expire_days: i64,
+    pub wanted_exp_loss_percent: f64,
 }
 
 /// Fuseau de l'horloge envoyée au client (`World.TimeZone`). Le client calcule l'heure du ciel par
@@ -162,6 +191,20 @@ impl Default for WorldConfig {
             guild_battle_ready_secs: 180,
             pvp_murderer_points: 20,
             pvp_remission_points: 2,
+            item_weapon_wear_chance: 10.0,
+            item_armor_wear_chance: 10.0,
+            time_speed: 6,
+            time_start: -1,
+            weather_auto: false,
+            weather_minutes: 30,
+            weather_rain_chance: 20.0,
+            weather_snow_chance: 10.0,
+            auction_max_sales: 100,
+            auction_expire_days: 30,
+            summons_stat_scale: 100.0,
+            chat_shout_range: 0.0,
+            wanted_expire_days: 7,
+            wanted_exp_loss_percent: 5.0,
         }
     }
 }
@@ -391,6 +434,20 @@ fn read_world(s: &Settings, cfg: &mut Config) {
         guild_battle_ready_secs: s.parse("Guild.BattleReadySeconds", d.guild_battle_ready_secs),
         pvp_murderer_points: s.parse("PvP.MurdererPointsPerKill", d.pvp_murderer_points),
         pvp_remission_points: s.parse("PvP.RemissionPoints", d.pvp_remission_points),
+        item_weapon_wear_chance: s.parse("Item.WeaponWearChance", d.item_weapon_wear_chance),
+        item_armor_wear_chance: s.parse("Item.ArmorWearChance", d.item_armor_wear_chance),
+        time_speed: s.parse("World.TimeSpeed", d.time_speed).max(1),
+        time_start: s.parse("World.TimeStart", d.time_start).clamp(-1, 23),
+        weather_auto: s.flag("World.WeatherAuto", d.weather_auto),
+        weather_minutes: s.parse("World.WeatherMinutes", d.weather_minutes).max(1),
+        weather_rain_chance: s.parse("World.WeatherRainChance", d.weather_rain_chance),
+        weather_snow_chance: s.parse("World.WeatherSnowChance", d.weather_snow_chance),
+        auction_max_sales: s.parse("Auction.MaxSales", d.auction_max_sales).clamp(1, 100),
+        auction_expire_days: s.parse("Auction.ExpireDays", d.auction_expire_days).max(1),
+        summons_stat_scale: s.parse("Summons.StatScale", d.summons_stat_scale).clamp(1.0, 10_000.0),
+        chat_shout_range: s.parse("Chat.ShoutRange", d.chat_shout_range).max(0.0),
+        wanted_expire_days: s.parse("Wanted.ExpireDays", d.wanted_expire_days).max(1),
+        wanted_exp_loss_percent: s.parse("Wanted.ExpLossPercent", d.wanted_exp_loss_percent).clamp(0.0, 100.0),
         language: s.string("World.Language", &d.language),
         rates,
         gm_command_levels,
@@ -517,7 +574,21 @@ pub fn to_values(cfg: &Config, which: Which) -> Vec<(String, String)> {
             put("Guild.BattleReadySeconds", w.guild_battle_ready_secs.to_string());
             put("PvP.MurdererPointsPerKill", w.pvp_murderer_points.to_string());
             put("PvP.RemissionPoints", w.pvp_remission_points.to_string());
+            put("Item.WeaponWearChance", fmt_num(w.item_weapon_wear_chance));
+            put("Item.ArmorWearChance", fmt_num(w.item_armor_wear_chance));
             put("World.TimeZone", w.time_zone.name().into());
+            put("World.TimeSpeed", w.time_speed.to_string());
+            put("World.TimeStart", w.time_start.to_string());
+            put("World.WeatherAuto", (w.weather_auto as i64).to_string());
+            put("World.WeatherMinutes", w.weather_minutes.to_string());
+            put("World.WeatherRainChance", fmt_num(w.weather_rain_chance));
+            put("World.WeatherSnowChance", fmt_num(w.weather_snow_chance));
+            put("Auction.MaxSales", w.auction_max_sales.to_string());
+            put("Auction.ExpireDays", w.auction_expire_days.to_string());
+            put("Summons.StatScale", fmt_num(w.summons_stat_scale));
+            put("Chat.ShoutRange", fmt_num(w.chat_shout_range));
+            put("Wanted.ExpireDays", w.wanted_expire_days.to_string());
+            put("Wanted.ExpLossPercent", fmt_num(w.wanted_exp_loss_percent));
             put("World.ExitOnRestart", (w.exit_on_restart as i64).to_string());
             put("Client.DataDir", cfg.client.data_dir.clone());
             let mut races: Vec<&String> = w.start_positions.keys().collect();

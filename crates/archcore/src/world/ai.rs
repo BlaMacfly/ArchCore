@@ -2,8 +2,9 @@
 //!
 //! Un monstre ne s'en prend qu'à ceux qui l'ont frappé. Il retient chaque agresseur avec les dégâts reçus et
 //! l'oublie 30 s après son dernier coup. Toutes les 500 ms, il vise celui qui lui a fait le plus de dégâts
-//! parmi les joueurs vivants, en jeu et à moins de 5000 unités ; il le rejoint, puis le frappe au rythme de
-//! sa vitesse d'attaque. Sans agresseur, il rentre à son point d'apparition ; s'il s'en est éloigné de plus
+//! parmi les joueurs vivants, en jeu et à moins de 5000 unités, et les invocations qui l'ont frappé
+//! (`summons.rs`) ; il le rejoint, puis le frappe au rythme de sa vitesse d'attaque (une invocation ne reçoit
+//! que des coups normaux). Sans agresseur, il rentre à son point d'apparition ; s'il s'en est éloigné de plus
 //! de 10 000 unités, il y est ramené d'un coup avec tous ses PV.
 //!
 //! Marche : un monstre avance pas à pas vers sa destination à chaque tour, comme les joueurs ; il entre dans la
@@ -78,7 +79,10 @@ pub fn add_aggro(st: &mut WorldState, cid: u32, attacker: u32, damage: u64, now:
         }
         None => m.aggro.push(Aggro { cid: attacker, damage, until: now + AGGRO_TIME }),
     }
-    st.monsters.engaged.insert(cid);
+    // Une invocation retient ses agresseurs (propension « défense ») mais suit sa propre IA (summons.rs).
+    if m.owner.is_none() {
+        st.monsters.engaged.insert(cid);
+    }
 }
 
 /// Monstres « préventifs » (`PreemptiveType` 1 de leur IA) au repos que voit un joueur : chacun engage le joueur le
@@ -121,20 +125,27 @@ pub fn preemptive_step(st: &mut WorldState, now: Instant) {
     }
 }
 
-/// Agresseur à viser : le plus de dégâts parmi les joueurs vivants, en jeu et assez proches.
+/// Agresseur à viser : le plus de dégâts parmi les joueurs vivants, en jeu et assez proches, et les invocations
+/// vivantes qui l'ont frappé (`summons.rs`).
 pub fn choose_target(st: &WorldState, m: &Monster) -> Option<u32> {
     m.aggro
         .iter()
         .filter(|a| {
-            st.by_cid.get(&a.cid).and_then(|sid| st.players.get(sid)).is_some_and(|p| {
+            let player = st.by_cid.get(&a.cid).and_then(|sid| st.players.get(sid)).is_some_and(|p| {
                 p.in_game
                     && !p.dead
                     && p.skills.status_sent & status::UNTOUCHABLE == 0
                     && combat::dist2d(p.ch.pos(), m.pos) <= CHASE_LIMIT
-            })
+            });
+            player || summon_target(st, a.cid).is_some_and(|pos| combat::dist2d(pos, m.pos) <= CHASE_LIMIT)
         })
         .max_by_key(|a| a.damage)
         .map(|a| a.cid)
+}
+
+/// Position d'une invocation vivante qu'un monstre peut prendre pour cible.
+fn summon_target(st: &WorldState, cid: u32) -> Option<Vec3> {
+    st.monsters.get(cid).filter(|s| s.owner.is_some() && s.is_alive()).map(|s| s.pos)
 }
 
 /// Vitesse en dixièmes d'unité par seconde : celle du monstre, sinon celle d'Archonia par défaut.
@@ -149,7 +160,7 @@ fn travel(distance: f64, speed: i32, fast: bool) -> Duration {
 
 /// Déplace le monstre jusqu'à `dest` (chez les joueurs qui le voient), en courant ou en marchant ; rend le
 /// temps de trajet, d'après la vitesse donnée.
-fn walk(map: &WorldMap, st: &mut WorldState, cid: u32, dest: Vec3, run: i32) -> Duration {
+pub(super) fn walk(map: &WorldMap, st: &mut WorldState, cid: u32, dest: Vec3, run: i32) -> Duration {
     go(map, st, cid, dest, run, true)
 }
 
@@ -198,11 +209,16 @@ pub fn walk_step(map: &WorldMap, st: &mut WorldState, now: Instant) {
         }
         let Some(m) = st.monsters.get(cid) else { continue };
         let view = super::monsters::MonsterRegistry::view_packet(&st.monsters, m);
+        // Invocation : son état spécial et l'op 0 d'AgpmSummons suivent la vue (summons.rs).
+        let extras = st.summons.view_extras(cid, st.monsters.status(cid, now));
         let mv = &schema::OPT_CHAR_MOVE;
         let fields = Fields::new(mv).with(0, cid).with(1, next).with(2, w.dest).with(5, if arrived { 0x04 } else if w.fast { combat::MOVE_FAST } else { 0 }).with(6, 0);
         for p in st.players.values_mut().filter(|p| p.in_game) {
             if super::sector::sees(p.view_pos, next) && p.seen_monsters.insert(cid) {
                 p.send_raw(view.clone());
+                for e in &extras {
+                    p.send_raw(e.clone());
+                }
                 if !arrived {
                     p.send(mv, fields.clone());
                 }
@@ -275,7 +291,7 @@ fn monster_step(ctx: &WorldCtx, st: &mut WorldState, cid: u32, now: Instant) -> 
         st.monsters.engaged.remove(&cid);
         return None;
     };
-    if !m.is_alive() {
+    if !m.is_alive() || m.owner.is_some() {
         disengage(st, cid);
         return None;
     }
@@ -308,7 +324,7 @@ fn monster_step(ctx: &WorldCtx, st: &mut WorldState, cid: u32, now: Instant) -> 
         return None;
     }
     let mut target = m.target;
-    let valid = |t: u32| st.by_cid.get(&t).and_then(|sid| st.players.get(sid)).is_some_and(|p| p.in_game && !p.dead);
+    let valid = |t: u32| st.by_cid.get(&t).and_then(|sid| st.players.get(sid)).is_some_and(|p| p.in_game && !p.dead) || summon_target(st, t).is_some();
     if now >= m.scan_at || !target.is_some_and(valid) {
         let mut probe = m.clone();
         probe.aggro = aggro.clone();
@@ -323,6 +339,10 @@ fn monster_step(ctx: &WorldCtx, st: &mut WorldState, cid: u32, now: Instant) -> 
         }
     }
     let Some(tcid) = target else { return None };
+    if let Some(at) = summon_target(st, tcid) {
+        strike_summon(ctx, st, &m, &stats, state, tcid, at, now);
+        return None;
+    }
     let sid = st.by_cid[&tcid];
     let p = &st.players[&sid];
     let shielded = p.invincible_until.is_some_and(|t| now < t);
@@ -413,6 +433,58 @@ fn monster_step(ctx: &WorldCtx, st: &mut WorldState, cid: u32, now: Instant) -> 
         return counter(st, sid, cid, countered, now);
     }
     None
+}
+
+/// Le monstre `m` vise une invocation (`summons.rs`) en `at` : poursuite jusqu'à sa portée, puis coup normal au rythme
+/// de sa vitesse d'attaque (ses compétences restent pour les joueurs). L'invocation tombée à 0 PV disparaît.
+#[allow(clippy::too_many_arguments)]
+fn strike_summon(ctx: &WorldCtx, st: &mut WorldState, m: &Monster, stats: &super::monsters::MonsterStats, state: u64, tcid: u32, at: Vec3, now: Instant) {
+    let cid = m.cid;
+    let Some(s) = st.monsters.get(tcid).cloned() else { return };
+    let sstats = st.monsters.stats_for(&s);
+    let reach = stats.range.max(50) as f64 + sstats.hit_range as f64;
+    let distance = combat::dist2d(m.pos, at);
+    if distance > reach + REACH_TOLERANCE {
+        if state & status::NO_MOVE != 0 {
+            return;
+        }
+        let k = ((distance - reach * 0.8) / distance).max(0.0) as f32;
+        let dest = Vec3::new(m.pos.x + (at.x - m.pos.x) * k, at.y, m.pos.z + (at.z - m.pos.z) * k);
+        let run = super::effects::speed(stats.run, st.monsters.mods(cid).movement_pct);
+        let t = walk(&ctx.map, st, cid, dest, run);
+        st.monsters.get_mut(cid).unwrap().ready_at = now + t;
+        return;
+    }
+    let normal = st.monsters.ai_of(cid).is_none_or(|a| a.normal_attack);
+    if state & status::NO_ATTACK != 0 || !normal {
+        st.monsters.get_mut(cid).unwrap().ready_at = now + SCAN_INTERVAL;
+        return;
+    }
+    let mods = st.monsters.mods(cid);
+    let (min_damage, max_damage) = super::effects::monster_damage(stats.min_damage, stats.max_damage, &mods);
+    let attacker = Attacker { level: m.level as i32, ar: stats.ar, min_damage, max_damage, ..Default::default() };
+    let defender = Defender::of_monster(s.level as i32, &sstats, &st.monsters.mods(tcid));
+    let mut rng = rand::thread_rng();
+    let (outcome, physical) = combat::strike_at(&mut rng, combat::monster_hit_chance(&attacker, &defender), &attacker, &defender);
+    let mut parts = vec![(combat::RESULT_PHYSICAL, physical)];
+    if outcome == combat::result::SUCCESS {
+        let spirit = stats.spirit.map(|(lo, hi)| (lo as f64, hi.max(lo) as f64));
+        parts.extend(combat::spirit_hits(&mut rng, combat::spirit_chance(false, m.level as i32, s.level as i32), &spirit, &defender.resist, false));
+    }
+    let damage: i32 = parts.iter().map(|(_, d)| d).sum();
+    let speed = super::effects::speed(stats.attack_speed, mods.atk_speed_pct).max(1) as u64;
+    st.monsters.get_mut(cid).unwrap().ready_at = now + Duration::from_millis(60_000 / speed);
+    st.monsters.walking.remove(&cid);
+    let target = st.monsters.get_mut(tcid).unwrap();
+    target.hp = (target.hp - damage).max(0);
+    let hp = target.hp;
+    let factors = (damage > 0).then(|| combat::parts_factors(hp, sstats.max_mp, &parts));
+    let watchers = combat::viewers(st, tcid);
+    combat::broadcast(st, &watchers, &combat::action_packet(cid, tcid, outcome, factors));
+    debug!("[ia] {} ({cid:#x}) frappe l'invocation {tcid:#x} : résultat {outcome}, {damage} dégât(s), {hp} PV", m.name);
+    if hp == 0 {
+        super::summons::died(st, tcid);
+    }
 }
 
 /// Contre-attaque : les dégâts du coup reçu reviennent au monstre, annoncés comme un coup du joueur

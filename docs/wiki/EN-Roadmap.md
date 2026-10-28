@@ -49,7 +49,7 @@
   enemies, first attacker, wins and losses, murderer points and their penalties (party, trade, NPC prices,
   experience), charisma gained, remission at the pardoners, offensive skills on players (Ctrl, areas); on the ArchRust
   side, Ctrl attack and skills, messages, name colours, area announcements and the `UI_Remission` window. Guards stay
-  passive like their Archonia AI (`UseNormalAttack` 0); wanted posters wait for server rules that no source gives.
+  passive like their Archonia AI (`UseNormalAttack` 0); wanted posters: see below.
 - Preemptive monsters: those whose AI has `PreemptiveType` 1 attack a player within their range (`PreemptiveRange`) on
   their own, except targets their level conditions exclude. Validated with the simulator (`aggro` scenario). Validated with the simulator on 27 October 2026 (`pk` scenario). Murderer point and
   charisma amounts are configurable, the original ones being unknown.
@@ -60,6 +60,49 @@
   experience rules are ArchCore's choices, documented in [[Network protocol|EN-Network-protocol]]. Validated with the
   simulator on 27 October 2026 (`product` scenario); the ArchRust windows (`UI_PDSkill`, `UI_PDSkillBuy`,
   `UI_Compose`) are on the way, to be confirmed in game.
+- Friends and ignore list (type 0x2B): friend requests relayed and accepted on both sides, refusal, removal, online
+  state (op 6) and a friend's region, ignore list kept in the database and merged with the client's local file,
+  blocks applied by the server (whispers, trade, party and guild invitations). Mail (type 0x2D): a letter for one
+  letter paper sheet, one attached item, offline recipient, mailbox sent on entering the game, reading, collecting,
+  deleting. ArchCore's rules are described in [[Network protocol|EN-Network-protocol]]. Validated with the simulator
+  on 28 October 2026 (`buddy` and `mail` scenarios), to be confirmed in game; the "Buddy" relation (mentor and
+  disciple) is postponed.
+- Wear and repair (types 0x04 and 0x34): durability (`DUR` column) stored and sent to the client ("item" factor),
+  weapon wear on every hit dealt and armour wear on every hit received (`Item.WeaponWearChance`,
+  `Item.ArmorWearChance`), an item at 0 has no effect until repaired, repair at blacksmiths and animal breeders
+  (function 17) at the client's price. Mounts (types 0x04 and 0x4D): mounting by equipping the part 14 item,
+  AgpmRide op 2 and op 4 broadcast, `Run_Buff` speed, seen by others (field 18), refused in combat, for a murderer and
+  outside allowed regions, forced dismount on death. ArchCore's rules are described in
+  [[Network protocol|EN-Network-protocol]]. Validated with the simulator on 28 October 2026 (`repair` and `ride`
+  scenarios), to be confirmed in game; display by ArchRust in progress.
+- Auction house (type 0x0B): board opened at the "Item Trader" NPCs (function 28), listing a whole stack at a fixed
+  price in gold and CC (3 % fee), search by TID, instant purchase at the database price, completed sale announced to
+  the seller, collecting, cancelling, sales sent on entering the game. Equipment switch (type 0x6A): 100 saved slots,
+  re-equipped through the manual equipment path, read back on entering the game (Archonia has no set bonus). World
+  clock shared by everyone (AgpmTimer, `World.TimeSpeed` speed, resent every 10 min) and weather (type 0x30:
+  `/weather`, automatic weather `World.WeatherAuto`). ArchCore's rules are described in
+  [[Network protocol|EN-Network-protocol]]. Validated with the simulator on 28 October 2026 (`auction`, `itemset` and
+  `nature` scenarios), to be confirmed in game; ArchRust windows in progress. The Archlord's sky skills (478, 522, 523)
+  wait for the Archlord system.
+- Summons (type 0x4F): Elementalist spirits, Sacred One, Legion of the Dead and the other skill summons (creature at
+  the master's level, `Summons.StatScale`), fixed creatures (traps), Increase Gate (raised limit), summoning scrolls
+  and item pets; view, special state then op 0 in the order the client requires, following the master, attack,
+  defense and shadow propensities (op 2), monsters fighting back against the summon, experience and loot to the
+  master, end on expiry, on death, when the master teleports or leaves, and beyond the limit. ArchCore's rules are
+  described in [[Network protocol|EN-Network-protocol]]. Validated with the simulator on 28 October 2026 (`summons`
+  scenario), to be confirmed in game; ArchRust target windows still to do. Taming, Call on Nature and Evil Light (no
+  creature in the data) and rift traps remain.
+- Chat: Archonia's prefixes read by the server ("/p", "/g", "/s" sent as type 0, before GM commands; a player's
+  unknown command is ignored), local "[Shout]" (`Chat.ShoutRange`), area shouts (type 0x4C: `/race`, `/scream`,
+  `/warn`, one item used up per message, one shout per second), chat rooms (type 0x2C: public, private, guild,
+  invitations, player search; 5 per character, kept in memory). Stylists (type 0x43, function 29): hair style and face
+  from `charactercustomizelist.txt` bought at the client's price, seen by other players; creation look checked.
+  Wanted posters (type 0x46, function 32): the victim of a first attacker or of a murderer may put a price on the
+  killer, base bounty by level, bounties added up and stored (`Wanted.ExpireDays`), board of 100 posters, bounty paid
+  to the hunter, experience lost by the criminal (`Wanted.ExpLossPercent`). ArchCore's rules are described in
+  [[Network protocol|EN-Network-protocol]]. Validated with the simulator on 28 October 2026 (`chat`, `channel`,
+  `customize` and `wanted` scenarios), to be confirmed in game; ArchRust windows in progress. The `<Chat>No</Chat>`
+  region rule is not applied (there is none in the data).
 - ArchRust client (`client` branch): combat (attacking, hits, death, resurrection, loot), parties, other
   players, inventory and equipment, NPCs (dialog, shop, bank and buying pages, quests), skills (trainers,
   casting, shortcut bar), teleport portals (original window and loading screen, confirmation of player-versus-player zones, "Return",
@@ -100,6 +143,8 @@
 8. Remaining GM commands on the [[Administration|EN-Administration]] page: they wait for their systems (arena,
    events, rifts, region settings…), listed at the end of its section 4.
 9. Finish the translation: about 54,000 texts left.
+10. "Buddy" relation (mentor and disciple, AgpmBuddy ops 10 to 14): the `MentorConstrict` limits and the "inventory
+    emptied" effect are unknown; waiting for a reliable source.
 
 ## Later
 

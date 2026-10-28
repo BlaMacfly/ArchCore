@@ -1,5 +1,5 @@
 //! Journaux de l'économie et de l'administration, dans la base `archcore_logs` (écriture seule) : échanges
-//! conclus, achats et ventes aux PNJ, mouvements de la banque, commandes MJ.
+//! conclus, achats et ventes aux PNJ, mouvements de la banque, maison des ventes, commandes MJ.
 //!
 //! Chaque écriture part dans sa propre tâche, hors du verrou du monde : un journal lent ou indisponible ne
 //! retarde jamais le jeu, et son échec ne fait qu'un avertissement.
@@ -75,6 +75,32 @@ pub fn bank_page(db: &Databases, account_id: u32, character: (u32, &str), page: 
         "de banque",
         "INSERT INTO log_bank (account_id, character_id, name, action, count, money) VALUES (?,?,?,'page',?,?)",
         (account_id, character.0, cut(character.1, 48), page, price).into(),
+    );
+}
+
+/// Opération de la maison des ventes (`world/auction.rs`).
+pub struct AuctionLog<'a> {
+    pub sale_id: u32,
+    /// `vente`, `achat`, `annulation` ou `encaissement`.
+    pub action: &'static str,
+    /// Auteur : le vendeur, ou l'acheteur pour un achat (alors `other` est le vendeur).
+    pub character: (u32, &'a str),
+    pub other: Option<u32>,
+    pub tid: u32,
+    pub iid: Option<u32>,
+    pub count: i64,
+    /// Prix (or, CC) de la vente.
+    pub price: (i64, i64),
+    /// Frais payés à la mise en vente (or, CC).
+    pub fee: (i64, i64),
+}
+
+pub fn auction(db: &Databases, e: &AuctionLog) {
+    write(
+        &db.logs,
+        "de la maison des ventes",
+        "INSERT INTO log_auction (sale_id, action, character_id, name, other_id, item_tid, item_iid, count, gold, cc, fee_gold, fee_cc) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        (e.sale_id, e.action, e.character.0, cut(e.character.1, 48), e.other, e.tid, e.iid, e.count, e.price.0, e.price.1, e.fee.0, e.fee.1).into(),
     );
 }
 

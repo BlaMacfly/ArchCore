@@ -76,6 +76,8 @@ pub struct MonsterStats {
     pub spirit: [(i32, i32); 8],
     /// Résistances élémentaires (pour cent), même ordre.
     pub resist: [i32; 8],
+    /// Niveau du modèle (« LVL ») : base de la mise à l'échelle d'une invocation (`summons.rs`).
+    pub level: i32,
 }
 
 impl MonsterStats {
@@ -114,6 +116,7 @@ impl MonsterStats {
             },
             spirit: ["Magic", "Water", "Fire", "Earth", "Air", "Poison", "Thunder", "Ice"].map(|e| (n(&format!("{e} Min_Damage")), n(&format!("{e} Max_Damage")))),
             resist: ["Magic", "Water", "Fire", "Earth", "Air", "Poison", "Thunder", "Ice"].map(|e| n(&format!("{e} Res."))),
+            level: n("LVL"),
         }
     }
 
@@ -188,6 +191,8 @@ pub struct Monster {
     pub patrol_at: Instant,
     /// IA du point d'apparition (0 : aucune).
     pub ai_tid: u32,
+    /// Créature invoquée : CID de son maître (`summons.rs`) ; elle n'a ni point d'apparition ni réapparition.
+    pub owner: Option<u32>,
 }
 
 impl Monster {
@@ -251,6 +256,13 @@ pub struct MonsterRegistry {
     pub ai: HashMap<u32, super::monster_skills::MonsterAi>,
     pub skill_state: HashMap<u32, super::monster_skills::SkillState>,
     pub casts: HashMap<u32, super::monster_skills::MonsterCast>,
+    /// Caractéristiques propres à une créature (invocation mise au niveau de son maître), à la place de celles de
+    /// son modèle.
+    pub custom: HashMap<u32, MonsterStats>,
+    /// États spéciaux permanents d'une créature (0x800 « invoquée »…), ajoutés à ceux de ses effets.
+    pub fixed_status: HashMap<u32, u64>,
+    /// Nom de chaque modèle (« Name » de CharacterDataTable.txt), pour les créatures sans point d'apparition.
+    pub names: HashMap<u32, String>,
     by_cid: HashMap<u32, usize>,
     grid: HashMap<(i64, i64), Vec<usize>>,
 }
@@ -311,6 +323,7 @@ pub fn spawn_point(p: &SpawnPoint, first_cid: u32, blocked: &dyn Fn(f64, f64) ->
                 roam: r,
                 patrol_at: now + std::time::Duration::from_millis(rng.gen_range(0..45_000)),
                 ai_tid: p.ai_tid,
+                owner: None,
             }
         })
         .collect()
@@ -333,8 +346,12 @@ impl MonsterRegistry {
             }
         };
         let mut stats = HashMap::new();
+        let mut names = HashMap::new();
         for r in db.world.rows("SELECT tid, data FROM character_data_table", ()).await? {
             if let Ok(v) = serde_json::from_str::<serde_json::Value>(&col::<String>(&r, "data")) {
+                if let Some(name) = v.get("Name").and_then(|n| n.as_str()) {
+                    names.insert(col::<u32>(&r, "tid"), translator.translate(name));
+                }
                 stats.insert(col::<u32>(&r, "tid"), MonsterStats::from_data(&v));
             }
         }
@@ -365,6 +382,7 @@ impl MonsterRegistry {
         let without = points.iter().filter(|p| !stats.contains_key(&p.tid)).count();
         let mut reg = Self::from_points(&points, &|x, z| map.is_blocked(x, z));
         reg.stats = stats;
+        reg.names = names;
         // IA des points (aidatatable.txt) ; la table manque tant que `archcore import --server` ne l'a pas remplie.
         match db.world.rows("SELECT tid, data FROM monster_ai", ()).await {
             Ok(rows) => {
@@ -440,9 +458,61 @@ impl MonsterRegistry {
         self.effects.get(&cid).map(|l| super::effects::total(l)).unwrap_or_default()
     }
 
-    /// États spéciaux en cours d'un monstre.
+    /// États spéciaux en cours d'un monstre, permanents compris.
     pub fn status(&self, cid: u32, now: Instant) -> u64 {
-        self.effects.get(&cid).map(|l| super::effects::active_status(l, now)).unwrap_or(0)
+        let fixed = self.fixed_status.get(&cid).copied().unwrap_or(0);
+        fixed | self.effects.get(&cid).map(|l| super::effects::active_status(l, now)).unwrap_or(0)
+    }
+
+    /// Ajoute une créature en cours de jeu (invocation) ; son CID ne doit pas être déjà pris.
+    pub fn insert(&mut self, m: Monster) {
+        let i = self.monsters.len();
+        self.by_cid.insert(m.cid, i);
+        self.grid.entry(cell_of(m.pos.x as f64, m.pos.z as f64)).or_default().push(i);
+        self.monsters.push(m);
+    }
+
+    /// Retire une créature (et tout ce qui la suit : effets, marche, agresseurs…). La dernière du tableau prend sa
+    /// place : les indices de la grille et de `by_cid` sont corrigés.
+    pub fn remove(&mut self, cid: u32) -> Option<Monster> {
+        let i = self.by_cid.remove(&cid)?;
+        let cell = cell_of(self.monsters[i].pos.x as f64, self.monsters[i].pos.z as f64);
+        if let Some(v) = self.grid.get_mut(&cell) {
+            v.retain(|&j| j != i);
+        }
+        let last = self.monsters.len() - 1;
+        if i != last {
+            let moved = &self.monsters[last];
+            let (moved_cid, moved_cell) = (moved.cid, cell_of(moved.pos.x as f64, moved.pos.z as f64));
+            if let Some(v) = self.grid.get_mut(&moved_cell) {
+                for j in v.iter_mut().filter(|j| **j == last) {
+                    *j = i;
+                }
+            }
+            self.by_cid.insert(moved_cid, i);
+        }
+        let m = self.monsters.swap_remove(i);
+        self.pending.remove(&cid);
+        self.engaged.remove(&cid);
+        self.effects.remove(&cid);
+        self.status_sent.remove(&cid);
+        self.walking.remove(&cid);
+        self.grounded.remove(&cid);
+        self.skill_state.remove(&cid);
+        self.casts.remove(&cid);
+        self.custom.remove(&cid);
+        self.fixed_status.remove(&cid);
+        Some(m)
+    }
+
+    /// Caractéristiques d'une créature : les siennes (invocation), sinon celles de son modèle.
+    pub fn stats_for(&self, m: &Monster) -> MonsterStats {
+        self.custom.get(&m.cid).cloned().unwrap_or_else(|| self.stats_of(m.tid))
+    }
+
+    /// Créature invoquée (vivante ou non) : CID de son maître.
+    pub fn owner_of(&self, cid: u32) -> Option<u32> {
+        self.get(cid).and_then(|m| m.owner)
     }
 
     /// Un coup réveille le monstre endormi.
@@ -481,7 +551,7 @@ impl MonsterRegistry {
     /// Comme `view_packet`, avec le nom à afficher (localisé pour le joueur, voir `locale.rs`).
     pub fn view_packet_named(&self, m: &Monster, name: &str) -> Vec<u8> {
         let clamp16 = |v: f64| v.round().clamp(-32768.0, 32767.0) as i64;
-        let stats = self.stats.get(&m.tid).cloned().unwrap_or_default();
+        let stats = self.stats_for(m);
         let vs = &mini::OPT_VIEW_CHAR;
         let view = build_mini(
             vs,
@@ -555,6 +625,33 @@ mod tests {
         reg.relocate(MONSTER_CID_BASE + 6, Vec3::new(30_000.0, 0.0, 30_000.0));
         assert_eq!(reg.near(Vec3::new(-9000.0, 0.0, -9000.0), 10.0).count(), 0);
         assert_eq!(reg.near(Vec3::new(30_000.0, 0.0, 30_000.0), 10.0).count(), 1);
+    }
+
+    #[test]
+    fn ajout_et_retrait_en_cours_de_jeu() {
+        let mut reg = MonsterRegistry::from_points(&[point(1, 0.0, 0.0, 3, 0.0), point(2, 20_000.0, 0.0, 1, 0.0)], &|_, _| false);
+        let mut s = spawn_point(&point(9, 100.0, 0.0, 1, 0.0), 0x5800_0001, &|_, _| false).remove(0);
+        s.owner = Some(7);
+        reg.insert(s);
+        reg.custom.insert(0x5800_0001, MonsterStats { max_hp: 999, ..Default::default() });
+        reg.fixed_status.insert(0x5800_0001, 0x800);
+        reg.engaged.insert(0x5800_0001);
+        assert_eq!(reg.owner_of(0x5800_0001), Some(7));
+        assert_eq!(reg.near(Vec3::new(0.0, 0.0, 0.0), 500.0).count(), 4);
+        assert_eq!(reg.status(0x5800_0001, Instant::now()), 0x800, "état permanent");
+        assert_eq!(reg.stats_for(reg.get(0x5800_0001).unwrap()).max_hp, 999);
+        // Retrait d'un monstre du milieu du tableau : le dernier (l'invocation) prend sa place, toujours retrouvable.
+        assert!(reg.remove(MONSTER_CID_BASE + 1).is_some());
+        assert!(reg.get(MONSTER_CID_BASE + 1).is_none());
+        assert_eq!(reg.get(0x5800_0001).map(|m| m.pos.x), Some(100.0));
+        assert_eq!(reg.near(Vec3::new(0.0, 0.0, 0.0), 500.0).count(), 3);
+        reg.relocate(0x5800_0001, Vec3::new(20_000.0, 0.0, 0.0));
+        assert_eq!(reg.near(Vec3::new(20_000.0, 0.0, 0.0), 10.0).count(), 2);
+        assert!(reg.remove(0x5800_0001).is_some());
+        assert!(reg.custom.is_empty() && reg.fixed_status.is_empty() && reg.engaged.is_empty(), "suivis oubliés");
+        assert_eq!(reg.near(Vec3::new(20_000.0, 0.0, 0.0), 10.0).count(), 1);
+        assert_eq!(reg.monsters.len(), 3);
+        assert!(reg.remove(0x5800_0001).is_none());
     }
 
     #[test]

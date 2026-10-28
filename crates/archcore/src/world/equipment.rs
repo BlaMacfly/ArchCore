@@ -13,7 +13,7 @@
 //! champ 5, case libre au champ 7 ; nouvelle pile par op 0, l'ancienne mise à jour par op 2) ; op 21 détruit
 //! un objet de l'inventaire (op 1 en réponse).
 
-use super::items::{item_add, item_count, item_remove, item_status, item_update, EquipData, Grid, Inventory, ItemCatalog};
+use super::items::{item_add, item_count, item_remove, item_status, item_update, EquipData, Grid, Inventory, InventoryItem, ItemCatalog};
 use super::{send_system, Player, WorldCtx, WorldState};
 use crate::character::{factors_mini, make_factors, Factors, POINT_HP};
 use crate::{debug, info};
@@ -26,6 +26,9 @@ pub mod part {
     pub const HAND_RIGHT: i64 = 10;
     pub const RING1: i64 = 11;
     pub const RING2: i64 = 12;
+    /// Monture (Kind 32) et arme montée (lance, étendard).
+    pub const RIDE: i64 = 14;
+    pub const LANCER: i64 = 15;
 }
 /// « Kind » d'une arme.
 pub const KIND_WEAPON: i64 = 2;
@@ -78,20 +81,30 @@ pub fn displaced(inv: &Inventory, catalog: &ItemCatalog, e: &EquipData, at: i64)
     out
 }
 
-/// Caractéristiques des objets portés.
+/// Objets portés qui comptent dans les facteurs : pas ceux dont la durabilité est tombée à 0 (ils restent portés
+/// jusqu'à leur réparation, `repair.rs`) ; à cheval, l'arme montée (partie 15) remplace les armes des mains, et à
+/// pied elle ne compte pas (`ride.rs`).
+pub fn counted<'a>(inv: &'a Inventory, catalog: &'a ItemCatalog) -> impl Iterator<Item = (&'a InventoryItem, &'a EquipData)> + 'a {
+    let mounted = super::ride::is_mounted(inv);
+    inv.equipment.iter().filter_map(move |(at, i)| {
+        let e = catalog.get(i.tid).and_then(|d| d.equip.as_ref())?;
+        let hand_weapon = matches!(*at, part::HAND_LEFT | part::HAND_RIGHT) && e.kind == KIND_WEAPON;
+        let skipped = e.is_broken(i.durability) || (mounted && hand_weapon) || (!mounted && *at == part::LANCER);
+        (!skipped).then_some((i, e))
+    })
+}
+
+/// Caractéristiques des objets portés (ceux qui comptent, voir `counted`).
 pub fn worn(inv: &Inventory, catalog: &ItemCatalog, table: &super::convert::ConvertTable) -> Vec<EquipData> {
     let stone = |tid: u32| catalog.get(tid).and_then(|d| d.stone);
-    inv.equipment
-        .values()
-        .filter_map(|i| catalog.get(i.tid).and_then(|d| d.equip.as_ref()).map(|e| super::convert::effective(table, e, &i.conv, stone)))
-        .collect()
+    counted(inv, catalog).map(|(i, e)| super::convert::effective(table, e, &i.conv, stone)).collect()
 }
 
 /// TID des options de l'équipement porté par un personnage de niveau `level` : les siennes, celles des runes
 /// serties (« OptionTID » ; une pierre d'esprit n'en a pas) et les options liées de l'objet à ce niveau.
 pub fn worn_options(inv: &Inventory, catalog: &ItemCatalog, options: &super::options::OptionCatalog, level: i64) -> Vec<u16> {
     let mut out = Vec::new();
-    for i in inv.equipment.values() {
+    for (i, _) in counted(inv, catalog) {
         out.extend(i.options.iter().copied());
         out.extend(i.conv.filled.iter().filter_map(|t| catalog.get(*t)).flat_map(|d| d.option_tids.iter().copied()));
         if let Some(e) = catalog.get(i.tid).and_then(|d| d.equip.as_ref()) {
@@ -105,7 +118,7 @@ pub fn worn_options(inv: &Inventory, catalog: &ItemCatalog, options: &super::opt
 /// compétences des runes serties, retrouvées par leur nom dans le catalogue des compétences.
 pub fn worn_gear(ctx: &WorldCtx, inv: &Inventory, level: i64) -> super::options::Gear {
     let mut g = ctx.options.gear(&worn_options(inv, &ctx.catalog, &ctx.options, level));
-    for i in inv.equipment.values() {
+    for (i, _) in counted(inv, &ctx.catalog) {
         for rune in i.conv.filled.iter().filter_map(|t| ctx.convert.runes.get(t)) {
             let Some((name, skill_level, rate)) = &rune.skill else { continue };
             match ctx.skills.by_name(name) {
@@ -162,6 +175,11 @@ pub fn recompute_factors(ctx: &WorldCtx, p: &mut Player) {
     f.status[7] = old.status[7];
     f.dirt = old.dirt;
     super::effects::apply(&mut f, &super::effects::total(&p.skills.effects));
+    // À cheval : la vitesse de la monture (« Run_Buff ») remplace marche et course.
+    if let Some(speed) = super::ride::mount_speed(&p.inventory, &ctx.catalog) {
+        f.status[8] = speed;
+        f.status[9] = speed;
+    }
     // Vitesse de déplacement multipliée par /speed (MJ), jusqu'à la déconnexion.
     if p.gm_speed > 1 {
         f.status[8] = f.status[8].saturating_mul(p.gm_speed);
@@ -206,8 +224,8 @@ pub async fn on_item_update(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &P
     }
     let worn_part = player.inventory.equipment.iter().find(|(_, i)| i.iid == iid).map(|(part, _)| *part);
     match (status, worn_part) {
-        (item_status::EQUIP, None) => equip(ctx, st, sid, iid).await,
-        (item_status::INVENTORY, Some(at)) => unequip(ctx, st, sid, at, wanted_grid(p)).await,
+        (item_status::EQUIP, None) => equip(ctx, st, sid, iid, false).await.map(|_| ()),
+        (item_status::INVENTORY, Some(at)) => unequip(ctx, st, sid, at, wanted_grid(p), false).await.map(|_| ()),
         (item_status::INVENTORY, None) => move_in_bag(ctx, st, sid, iid, wanted_grid(p)).await,
         _ => {
             debug!("[équipement] #{sid} statut {status} pour l'objet {iid} : ignoré");
@@ -224,31 +242,48 @@ fn resync(st: &WorldState, sid: u32, iid: u32) {
     }
 }
 
-async fn equip(ctx: &WorldCtx, st: &mut WorldState, sid: u32, iid: u32) -> anyhow::Result<()> {
+/// Porte un objet de l'inventaire, avec les contrôles du client (niveau, race, classe, sexe, monture, place pour ranger
+/// ce qui est remplacé). `quiet` : refus sans message ni renvoi de la place (commutateur d'équipement, `itemset.rs`).
+/// Rend vrai si l'objet est porté.
+pub async fn equip(ctx: &WorldCtx, st: &mut WorldState, sid: u32, iid: u32, quiet: bool) -> anyhow::Result<bool> {
+    let refused = |st: &WorldState, text: &str| {
+        if !quiet {
+            send_system(st, sid, text);
+            resync(st, sid, iid);
+        }
+    };
     let p = &st.players[&sid];
-    let Some(item) = p.inventory.get(iid).cloned() else { return Ok(()) };
-    let Some(data) = ctx.catalog.get(item.tid) else { return Ok(()) };
+    let Some(item) = p.inventory.get(iid).cloned() else { return Ok(false) };
+    let Some(data) = ctx.catalog.get(item.tid) else { return Ok(false) };
     let Some(e) = data.equip.clone() else {
-        send_system(st, sid, "Cet objet ne se porte pas.");
-        resync(st, sid, iid);
-        return Ok(());
+        refused(st, "Cet objet ne se porte pas.");
+        return Ok(false);
     };
     let f = &p.factors;
     let (level, race, class, gender) = (f.status[7] as i64, f.ftype[0] as i64, f.ftype[2] as i64, f.ftype[1] as i64);
     if let Err(why) = check(&e, level, race, class, gender) {
-        send_system(st, sid, &format!("Vous ne pouvez pas porter {} : {why}.", data.name));
-        resync(st, sid, iid);
         info!("[équipement] {} : {} refusé ({why})", p.ch.name, data.name);
-        return Ok(());
+        refused(st, &format!("Vous ne pouvez pas porter {} : {why}.", data.name));
+        return Ok(false);
     }
     let at = target_part(&p.inventory, &e);
+    // Monture : monter est refusé en combat, à un meurtrier, dans une région sans montures (ride.rs).
+    if at == part::RIDE {
+        if let Some(why) = super::ride::refusal(ctx, st, sid) {
+            if !quiet {
+                super::ride::refuse(st, sid, why);
+                resync(st, sid, iid);
+            }
+            return Ok(false);
+        }
+    }
+    let p = &st.players[&sid];
     let free = displaced(&p.inventory, &ctx.catalog, &e, at);
     let (cid, name, label) = (p.ch.id, p.ch.name.clone(), data.name.clone());
     let player = st.players.get_mut(&sid).unwrap();
     let Some((worn_item, stored)) = player.inventory.equip(&ctx.db, iid, at, &free).await? else {
-        send_system(st, sid, "Pas assez de place dans l'inventaire pour changer d'équipement.");
-        resync(st, sid, iid);
-        return Ok(());
+        refused(st, "Pas assez de place dans l'inventaire pour changer d'équipement.");
+        return Ok(false);
     };
     for s in &stored {
         player.send_raw(item_update(s, cid, item_status::INVENTORY));
@@ -259,23 +294,43 @@ async fn equip(ctx: &WorldCtx, st: &mut WorldState, sid: u32, iid: u32) -> anyho
     }
     to_viewers(st, sid, &super::items::item_add_of(&worn_item, cid, item_status::EQUIP, None));
     refresh_factors(ctx, st, sid);
+    if at == part::RIDE {
+        super::ride::on_mount(st, sid, &worn_item);
+    }
     info!("[équipement] {name} porte {label} (partie {at}{})", if stored.is_empty() { String::new() } else { format!(", {} objet(s) rangé(s)", stored.len()) });
-    Ok(())
+    Ok(true)
 }
 
-async fn unequip(ctx: &WorldCtx, st: &mut WorldState, sid: u32, at: i64, wanted: Option<Grid>) -> anyhow::Result<()> {
+/// Range dans l'inventaire l'objet porté sur `at` ; `quiet` : inventaire plein sans message. Rend vrai si l'objet est
+/// rangé.
+pub async fn unequip(ctx: &WorldCtx, st: &mut WorldState, sid: u32, at: i64, wanted: Option<Grid>, quiet: bool) -> anyhow::Result<bool> {
     let player = st.players.get_mut(&sid).unwrap();
     let cid = player.ch.id;
     let Some(item) = player.inventory.unequip(&ctx.db, at, wanted).await? else {
-        send_system(st, sid, "Pas de place dans l'inventaire.");
-        return Ok(());
+        if !quiet {
+            send_system(st, sid, "Pas de place dans l'inventaire.");
+        }
+        return Ok(false);
     };
     player.send_raw(item_update(&item, cid, item_status::INVENTORY));
     let name = player.ch.name.clone();
     to_viewers(st, sid, &item_remove(item.iid, Some(cid)));
     refresh_factors(ctx, st, sid);
+    if at == part::RIDE {
+        super::ride::on_dismount(st, sid);
+    }
     info!("[équipement] {name} retire l'objet {} (partie {at})", item.tid);
-    Ok(())
+    Ok(true)
+}
+
+/// Range l'objet porté sur `at` à l'initiative du serveur (descente forcée de monture) : comme un retrait demandé
+/// par le joueur. Rend faux si l'inventaire est plein.
+pub async fn force_unequip(ctx: &WorldCtx, st: &mut WorldState, sid: u32, at: i64) -> anyhow::Result<bool> {
+    let Some(p) = st.players.get(&sid) else { return Ok(false) };
+    if !p.inventory.equipment.contains_key(&at) || p.inventory.free_slot().is_none() {
+        return Ok(false);
+    }
+    unequip(ctx, st, sid, at, None, false).await
 }
 
 async fn move_in_bag(ctx: &WorldCtx, st: &mut WorldState, sid: u32, iid: u32, wanted: Option<Grid>) -> anyhow::Result<()> {
@@ -350,7 +405,7 @@ mod tests {
     fn catalog(entries: &[(u32, EquipData)]) -> ItemCatalog {
         let mut c = ItemCatalog::default();
         for (tid, e) in entries {
-            c.items.insert(*tid, ItemData { tid: *tid, name: format!("objet {tid}"), npc_price: 0, pc_price: 0, stack: 1, equip: Some(e.clone()), potion: None, scroll: None, stone: None, usable_type: 0, option_tids: Vec::new(), kind: 0 });
+            c.items.insert(*tid, ItemData { tid: *tid, name: format!("objet {tid}"), npc_price: 0, pc_price: 0, stack: 1, equip: Some(e.clone()), potion: None, scroll: None, stone: None, usable_type: 0, option_tids: Vec::new(), kind: 0, bound_type: 0, cash: false, enable_on_ride: false, auction_category: (0, 0), event_item: false });
         }
         c
     }
@@ -372,20 +427,38 @@ mod tests {
         let shield = EquipData { part: part::HAND_LEFT, kind: 4, hand: 1, ..Default::default() };
         let cat = catalog(&[(1, weapon(1)), (2, shield.clone()), (3, weapon(2))]);
         let mut inv = Inventory::default();
-        inv.equipment.insert(part::HAND_RIGHT, InventoryItem { iid: 10, tid: 1, count: 1, grid: [10, 0, 0], conv: Default::default(), options: Vec::new() });
-        inv.equipment.insert(part::HAND_LEFT, InventoryItem { iid: 11, tid: 2, count: 1, grid: [9, 0, 0], conv: Default::default(), options: Vec::new() });
+        inv.equipment.insert(part::HAND_RIGHT, InventoryItem { iid: 10, tid: 1, count: 1, grid: [10, 0, 0], conv: Default::default(), options: Vec::new(), durability: crate::world::items::DURABILITY_FULL });
+        inv.equipment.insert(part::HAND_LEFT, InventoryItem { iid: 11, tid: 2, count: 1, grid: [9, 0, 0], conv: Default::default(), options: Vec::new(), durability: crate::world::items::DURABILITY_FULL });
         // Arme à une main : seule l'arme en main droite est rangée.
         assert_eq!(displaced(&inv, &cat, &weapon(1), part::HAND_RIGHT), vec![part::HAND_RIGHT]);
         // Arme à deux mains : le bouclier aussi.
         assert_eq!(displaced(&inv, &cat, &weapon(2), part::HAND_RIGHT), vec![part::HAND_RIGHT, part::HAND_LEFT]);
         // Bouclier alors qu'une arme à deux mains est tenue : elle est rangée.
-        inv.equipment.insert(part::HAND_RIGHT, InventoryItem { iid: 12, tid: 3, count: 1, grid: [10, 0, 0], conv: Default::default(), options: Vec::new() });
+        inv.equipment.insert(part::HAND_RIGHT, InventoryItem { iid: 12, tid: 3, count: 1, grid: [10, 0, 0], conv: Default::default(), options: Vec::new(), durability: crate::world::items::DURABILITY_FULL });
         inv.equipment.remove(&part::HAND_LEFT);
         assert_eq!(displaced(&inv, &cat, &shield, part::HAND_LEFT), vec![part::HAND_RIGHT]);
         // Second anneau.
         let ring = EquipData { part: part::RING1, kind: 8, ..Default::default() };
-        inv.equipment.insert(part::RING1, InventoryItem { iid: 13, tid: 4, count: 1, grid: [11, 0, 0], conv: Default::default(), options: Vec::new() });
+        inv.equipment.insert(part::RING1, InventoryItem { iid: 13, tid: 4, count: 1, grid: [11, 0, 0], conv: Default::default(), options: Vec::new(), durability: crate::world::items::DURABILITY_FULL });
         assert_eq!(target_part(&inv, &ring), part::RING2);
+    }
+
+    #[test]
+    fn objets_qui_comptent() {
+        let sword = EquipData { durability: 88, ..weapon(1) };
+        let armor = EquipData { part: 2, kind: 1, defense: 4, durability: 63, ..Default::default() };
+        let lance = EquipData { part: part::LANCER, kind: KIND_WEAPON, min_damage: 50, durability: 100, ..Default::default() };
+        let horse = EquipData { part: part::RIDE, kind: 32, run_buff: 10500, ..Default::default() };
+        let cat = catalog(&[(1, sword), (2, armor), (3, lance), (4, horse)]);
+        let item = |iid: u32, tid: u32, at: i64, durability: i32| InventoryItem { iid, tid, count: 1, grid: [at, 0, 0], conv: Default::default(), options: Vec::new(), durability };
+        let mut inv = Inventory::default();
+        inv.equipment.insert(part::HAND_RIGHT, item(10, 1, part::HAND_RIGHT, -1));
+        inv.equipment.insert(2, item(11, 2, 2, 0));
+        inv.equipment.insert(part::LANCER, item(12, 3, part::LANCER, 5));
+        let tids = |inv: &Inventory| counted(inv, &cat).map(|(i, _)| i.tid).collect::<Vec<_>>();
+        assert_eq!(tids(&inv), vec![1], "armure cassée (0) et lance à pied ne comptent pas");
+        inv.equipment.insert(part::RIDE, item(13, 4, part::RIDE, -1));
+        assert_eq!(tids(&inv), vec![4, 3], "à cheval : la lance remplace l'épée");
     }
 
     #[test]

@@ -16,7 +16,7 @@ pub async fn run(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> 
     let cfg = crate::config::load()?;
     let (it, ch, rf) = (&schema::ITEM, &schema::CHATTING, &schema::REFINERY);
     let say = |cid: u32, text: &str| Fields::new(ch).with(0, 0).with(1, cid).with(2, chat_type::NORMAL).with(6, crate::tools::to_cp1252(text));
-    let reply = |text: &'static str| move |q: &super::Recv| q.ptype == ch.id && q.int(2) == Some(chat_type::SYSTEM) && q.fields().text(6).is_some_and(|t| t.contains(text));
+    let reply = |text: &'static str| move |q: &super::Recv| q.ptype == ch.id && q.int(2) == Some(chat_type::WHOLE_WORLD) && q.fields().text(6).is_some_and(|t| t.contains(text));
 
     step(&format!("{char_name} entre en jeu"));
     let mut w = enter_world(&cfg, user, pass, char_name, "").await?;

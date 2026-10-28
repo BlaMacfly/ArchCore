@@ -290,6 +290,13 @@ pub fn on_action(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) {
     let target = p.int(1).unwrap_or(0) as u32;
     let forced = p.int(6).unwrap_or(0) != 0;
     let alive = st.monsters.get(target).is_some_and(|m| m.is_alive() && st.monsters.stats_of(m.tid).is_attackable());
+    // Invocation d'un autre joueur : règles du combat entre joueurs envers son maître (summons.rs).
+    if alive {
+        if let Err(r) = super::summons::may_attack(ctx, st, sid, target, forced) {
+            super::pvp::refuse(st, sid, r);
+            return;
+        }
+    }
     // Joueur : combat de guildes ou règles du combat entre joueurs (pvp.rs).
     let foe = !alive
         && match st.by_cid.get(&target).copied() {
@@ -342,6 +349,8 @@ pub async fn step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) -> anyhow::
             kill(ctx, st, sid, cid, now).await?;
         }
     }
+    // Invocations : fin, suivi du maître, combat (expérience et butin à leur maître).
+    super::summons::step(ctx, st, now).await?;
     ai::patrol_step(ctx, st, now);
     ai::preemptive_step(st, now);
     super::pvp::step(ctx, st, now);
@@ -351,6 +360,9 @@ pub async fn step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) -> anyhow::
     super::skills::step(ctx, st, now).await?;
     super::portal::step(st);
     super::guild::step(ctx, st, now).await?;
+    // Usure des coups de ce tour, descentes de monture forcées.
+    super::repair::step(ctx, st).await?;
+    super::ride::step(ctx, st).await?;
     Ok(())
 }
 
@@ -383,7 +395,7 @@ async fn attack_step(ctx: &WorldCtx, st: &mut WorldState, sid: u32, now: Instant
         st.players.get_mut(&sid).unwrap().attack = None;
         return Ok(());
     };
-    let stats = st.monsters.stats_of(m.tid);
+    let stats = st.monsters.stats_for(&m);
     // Distance depuis la position que le serveur suit (marche en cours comprise) : on ne frappe qu'à portée.
     let reach = p.factors.attack[0].max(50) as f64 + stats.hit_range as f64;
     if dist2d(p.ch.pos(), m.pos) > reach + REACH_TOLERANCE {
@@ -426,6 +438,7 @@ async fn attack_step(ctx: &WorldCtx, st: &mut WorldState, sid: u32, now: Instant
     broadcast(st, &watchers, &action_packet(cid, m.cid, outcome, factors));
     if damage > 0 {
         ai::add_aggro(st, m.cid, cid, damage as u64, now);
+        super::repair::hit_dealt(st, sid);
     }
     debug!("[combat] {name} → {} : résultat {outcome}, {damage} dégât(s), {hp}/{} PV", m.name, m.max_hp);
     if hp == 0 {
@@ -467,9 +480,15 @@ pub(super) fn approach(st: &mut WorldState, sid: u32, m: &Monster, hit_range: f6
 
 /// Mort d'un monstre : statut « mort » chez ceux qui le voient, expérience au tueur, cadavre programmé.
 pub(super) async fn kill(ctx: &WorldCtx, st: &mut WorldState, killer_sid: u32, cid: u32, now: Instant) -> anyhow::Result<()> {
+    // Invocation : elle disparaît, sans expérience ni butin (summons.rs).
+    if st.monsters.owner_of(cid).is_some() {
+        super::summons::died(st, cid);
+        return Ok(());
+    }
+    // Dégâts de chaque agresseur, pour la répartition de l'expérience d'un groupe ; ceux d'une invocation comptent pour
+    // son maître.
+    let damage = super::summons::damage_by_owner(st, cid);
     let target = st.monsters.get_mut(cid).unwrap();
-    // Dégâts de chaque agresseur, pour la répartition de l'expérience d'un groupe.
-    let damage: std::collections::HashMap<u32, u64> = target.aggro.iter().map(|a| (a.cid, a.damage)).collect();
     let pos = target.pos;
     target.life = Life::Dead { remove_at: now + CORPSE_TIME };
     target.aggro.clear();
@@ -650,6 +669,13 @@ pub fn divert(st: &mut WorldState, sid: u32, parts: &[(usize, i32)]) -> Vec<(usi
 pub fn hit_player(st: &mut WorldState, sid: u32, monster: u32, outcome: i64, parts: &[(usize, i32)]) {
     let parts = &divert(st, sid, parts);
     let damage: i32 = parts.iter().map(|(_, d)| d).sum();
+    // Usure : l'armure de la victime, l'arme de l'attaquant quand c'est un joueur (combat entre joueurs, de guildes).
+    if damage > 0 {
+        super::repair::hit_taken(st, sid);
+        if let Some(attacker) = st.by_cid.get(&monster).copied() {
+            super::repair::hit_dealt(st, attacker);
+        }
+    }
     let Some(p) = st.players.get_mut(&sid) else { return };
     super::recovery::in_combat(&mut p.timers, Instant::now());
     let hp = (p.factors.point[POINT_HP] - damage).max(0);
@@ -701,6 +727,8 @@ pub fn player_death(st: &mut WorldState, sid: u32) {
     send_around(st, sid, &plain);
     // Les effets des compétences tombent à la mort (pas les passives) ; facteurs recalculés à la résurrection.
     super::skills::clear_player_effects(st, sid);
+    // Ses invocations et son familier disparaissent (pas les créatures fixes, qui vont au bout de leur durée).
+    super::summons::on_owner_death(st, sid);
 }
 
 /// AGPMCHARACTER op 9 : résurrection au village de départ de la race, tous PV et PM, invincible 10 s.
@@ -718,6 +746,8 @@ pub async fn resurrect(ctx: &WorldCtx, st: &mut WorldState, sid: u32) -> anyhow:
     let plain = status_packet(p, 0);
     info!("[combat] {} ressuscite au village", p.ch.name);
     send_around(st, sid, &plain);
+    // Le droit de mettre son tueur à prix s'éteint.
+    super::wanted::on_resurrect(st, sid);
     super::teleport(ctx, st, sid, x, y, z).await?;
     Ok(())
 }

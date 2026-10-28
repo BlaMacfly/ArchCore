@@ -51,6 +51,11 @@ pub mod status {
     pub const HIDE_AGGRO: u64 = 0x40;
     pub const STUN_PROTECT: u64 = 0x80;
     pub const TRANSPARENT: u64 = 0x200;
+    /// Créatures invoquées (`summons.rs`) : immobile (créature fixe), invoquée, apprivoisée. Le client n'accepte une
+    /// invocation (AgpmSummons op 0) que si la créature porte déjà l'état de son type.
+    pub const DONT_MOVE: u64 = 0x400;
+    pub const SUMMONER: u64 = 0x800;
+    pub const TAME: u64 = 0x1000;
     pub const HALF_TRANSPARENT: u64 = 0x20_0000;
     pub const NORMAL_ATK_INVINCIBLE: u64 = 0x2000_0000;
     pub const SKILL_ATK_INVINCIBLE: u64 = 0x4000_0000;

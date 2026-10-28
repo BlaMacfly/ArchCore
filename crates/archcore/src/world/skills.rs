@@ -200,6 +200,10 @@ pub struct SkillLevel {
     /// Purge (bits de `effects::dispel`) et, pour une purge répétée, sa période (`interval`, 1000 ms à défaut).
     pub dispel: u64,
     pub purge_every_ms: Option<u64>,
+    /// Invocation (`summons.rs`) : TID de la créature, exemplaires (0 : un), limite propre à la compétence.
+    pub summons_tid: u32,
+    pub summons_count: u32,
+    pub limit_quantity: u32,
 }
 
 /// Champs de SKILL_SPEC qui règlent les valeurs d'un niveau.
@@ -280,6 +284,9 @@ impl SkillLevel {
             debuff: num("buff_type") == 1.0,
             dispel: effects::parse_dispel(sp.dispel_magic).0,
             purge_every_ms: effects::parse_dispel(sp.dispel_magic).1.then(|| if num("interval") > 0.0 { num("interval") as u64 } else { 1000 }),
+            summons_tid: num("summons_tid").max(0.0) as u32,
+            summons_count: num("summons_count").max(0.0) as u32,
+            limit_quantity: num("limit_quantity").max(0.0) as u32,
         }
     }
 
@@ -399,6 +406,9 @@ pub struct SkillTemplate {
     pub auto_attack: bool,
     /// États spéciaux (colonne special_status).
     pub status: u64,
+    /// Nature d'invocation (colonne `summons` de SKILL_SPEC : 1 invocation, 2 fixe, 4 limite relevée, 5 soin des
+    /// invocations, 6 parchemin d'invocation, 7, 8 familier, 11 ; 0 : aucune), voir `summons.rs`.
+    pub summons: i64,
     /// Niveau n à l'indice n - 1.
     pub levels: Vec<SkillLevel>,
 }
@@ -525,6 +535,7 @@ impl SkillCatalog {
                     melee_attack: int("melee_attack"),
                     auto_attack: int("auto_attack") != 0,
                     status: effects::parse_status(raw_status),
+                    summons: int("summons"),
                     levels: Vec::new(),
                 },
             );
@@ -863,6 +874,12 @@ fn request_cast(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) {
     if t.auto_attack || t.nature().passive {
         return;
     }
+    // À cheval : compétences refusées (le client l'annonce par sysstr 320 ; récolte comprise, sysstr 527).
+    if super::ride::is_mounted(&player.inventory) {
+        debug!("[compétence] {name} : {} refusée à cheval", t.name);
+        send_system(st, sid, "Vous ne pouvez pas utiliser cette compétence à cheval.");
+        return stop(st, sid);
+    }
     if matches!(player.skills.cast, Some(Cast { stage: Stage::Casting { .. }, .. })) {
         debug!("[compétence] {name} : incantation déjà en cours");
         return;
@@ -880,6 +897,13 @@ fn request_cast(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) {
         return super::product::request_cast(ctx, st, sid, owned, target, now);
     }
     let alive = st.monsters.get(target).is_some_and(|m| m.is_alive() && st.monsters.stats_of(m.tid).is_attackable());
+    // Invocation d'un autre joueur : règles du combat entre joueurs envers son maître (summons.rs).
+    if alive && t.offensive() {
+        if let Err(r) = super::summons::may_attack(ctx, st, sid, target, forced) {
+            super::pvp::refuse(st, sid, r);
+            return;
+        }
+    }
     // Autre joueur visé par une compétence offensive : règles du combat entre joueurs (pvp.rs).
     let foe = match st.by_cid.get(&target).copied().filter(|t2| *t2 != sid && t.offensive() && !alive) {
         Some(tsid) => match super::pvp::check(ctx, st, sid, tsid, forced) {
@@ -1014,6 +1038,11 @@ async fn complete(ctx: &WorldCtx, st: &mut WorldState, sid: u32, cast: Cast, now
     if p.dead || t.is_product() {
         return Ok(());
     }
+    // Invocation (colonne `summons` de SKILL_SPEC) : créatures, limite relevée (summons.rs).
+    if t.summons != 0 {
+        super::summons::on_cast(ctx, st, sid, t, lv, now);
+        return Ok(());
+    }
     let (caster_tid, me) = (p.ch.template_id, p.dest.unwrap_or_else(|| p.ch.pos()));
     if !t.offensive() {
         // Compétence amie : son lanceur (soin, renforcement) et, pour une compétence de groupe, les membres de son
@@ -1050,7 +1079,8 @@ async fn complete(ctx: &WorldCtx, st: &mut WorldState, sid: u32, cast: Cast, now
         let mut near: Vec<(f64, u32)> = st
             .monsters
             .near(center, radius)
-            .filter(|m| m.is_alive() && !targets.contains(&m.cid) && st.monsters.stats_of(m.tid).is_attackable())
+            // Les invocations ne sont touchées que désignées (règles du combat entre joueurs envers leur maître).
+            .filter(|m| m.is_alive() && m.owner.is_none() && !targets.contains(&m.cid) && st.monsters.stats_of(m.tid).is_attackable())
             .filter(|m| in_area(t.area(), m.pos, center, me, toward, lv))
             .map(|m| (combat::dist2d(m.pos, center), m.cid))
             .collect();
@@ -1107,7 +1137,7 @@ async fn hit_monster(ctx: &WorldCtx, st: &mut WorldState, sid: u32, owned: &Owne
     let Some(m) = st.monsters.get(cid).filter(|m| m.is_alive()).cloned() else { return Ok(()) };
     let Some(p) = st.players.get(&sid) else { return Ok(()) };
     let caster = p.ch.id;
-    let stats = st.monsters.stats_of(m.tid);
+    let stats = st.monsters.stats_for(&m);
     let mods = st.monsters.mods(cid);
     let (attacker, spirit) = (Attacker::of_player(p), spirit_ranges(&p.factors));
     let defender = attacker.pierce(&Defender::of_monster(m.level as i32, &stats, &mods));
@@ -1118,6 +1148,7 @@ async fn hit_monster(ctx: &WorldCtx, st: &mut WorldState, sid: u32, owned: &Owne
     let hp = target.hp;
     if total > 0 {
         st.monsters.wake(cid);
+        super::repair::hit_dealt(st, sid);
     }
     let mut watchers = combat::viewers(st, cid);
     if !watchers.contains(&sid) {
@@ -1180,6 +1211,10 @@ async fn hit_player(ctx: &WorldCtx, st: &mut WorldState, sid: u32, owned: &Owned
     v.factors.point[POINT_HP] = hp;
     super::recovery::in_combat(&mut v.timers, now);
     let max_mp = v.factors.point[1];
+    if total > 0 {
+        super::repair::hit_taken(st, tsid);
+        super::repair::hit_dealt(st, sid);
+    }
     combat::send_around(st, tsid, &result_packet(caster, owned, target, result_factors(hp, max_mp, &damages)));
     if !combat::send_around_contains(st, tsid, sid) {
         if let Some(me) = st.players.get(&sid) {
@@ -1832,6 +1867,7 @@ mod tests {
             range_code: 202,
             auto_attack: false,
             status: 0,
+            summons: 0,
             levels: vec![SkillLevel::from_consts(&consts), SkillLevel { require_level: 7, require_point: 1, upgrade_cost: 480, ..SkillLevel::from_consts(&consts) }],
         }
     }

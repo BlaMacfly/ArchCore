@@ -355,6 +355,23 @@ impl LoginConn {
         p.bytes(8).and_then(|b| decode_mini(&mini::LOGIN_CHAR_INFO, b).ok()).unwrap_or_else(|| Fields::new(&mini::LOGIN_CHAR_INFO))
     }
 
+    /// Coiffure ou visage choisi à la création, contrôlé par `customize::creation_value` contre les lignes du modèle ;
+    /// table illisible (pas encore créée) : valeur gardée.
+    async fn creation_look(&self, tid: u32, kind: u8, number: i64) -> i32 {
+        let number = number.clamp(-1, 255) as i32;
+        let sql = "SELECT number, case_kind FROM character_customize WHERE character_tid = ? AND kind = ?";
+        match self.svc.db.world.rows(sql, (tid, kind)).await {
+            Ok(rows) => {
+                let rows: Vec<(i32, i32)> = rows.iter().map(|r| (crate::db::col(r, "number"), crate::db::col(r, "case_kind"))).collect();
+                crate::world::customize::creation_value(&rows, number).max(0)
+            }
+            Err(e) => {
+                warn!("[login] coiffures et visages illisibles ({e:#}) : apparence gardée");
+                number.max(0)
+            }
+        }
+    }
+
     async fn create_char(&mut self, s: &SessionHandle, p: &Packet) -> anyhow::Result<()> {
         if !self.require_account(s) {
             return Ok(());
@@ -362,9 +379,14 @@ impl LoginConn {
         let info = Self::info_values(p);
         let tid = info.int(0).unwrap_or(0) as u32;
         let name = info.text(1).unwrap_or_default().trim().to_string();
-        let hair = info.int(6).unwrap_or(0);
-        let face = info.int(7).unwrap_or(0);
-        info!("[login] #{} création : {name:?} tid={tid} hair={hair} face={face}", s.id());
+        let asked = (info.int(6).unwrap_or(0), info.int(7).unwrap_or(0));
+        info!("[login] #{} création : {name:?} tid={tid} hair={} face={}", s.id(), asked.0, asked.1);
+        // Coiffure et visage proposés à la création pour ce modèle (character_customize, Case 0 ou 2), sinon 0.
+        let hair = self.creation_look(tid, crate::world::customize::kind::HAIR, asked.0).await as i64;
+        let face = self.creation_look(tid, crate::world::customize::kind::FACE, asked.1).await as i64;
+        if (hair, face) != asked {
+            warn!("[login] #{} apparence {asked:?} non proposée à la création pour le modèle {tid} : coiffure {hair}, visage {face}", s.id());
+        }
         let tpl = self.svc.templates.get(tid).cloned();
         let Some(tpl) = tpl.filter(|_| self.characters.len() < MAX_CHARACTERS && !name.is_empty() && name.chars().count() <= 48) else {
             self.send_login_result(s, login_result::NAME_TAKEN);

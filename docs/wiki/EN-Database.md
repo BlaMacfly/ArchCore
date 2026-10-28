@@ -20,7 +20,7 @@ ArchCore uses three main MariaDB databases, plus a log database, created and upd
 | Table | Content |
 |---|---|
 | `characters` | Account, slot, unique name, template (TID), level, experience, HP/MP/SP, position, money, bank, hair, face, charisma, soft delete |
-| `character_items` | Items: status 0 inventory, 1 equipped, 2 bank (attached to the character who deposited it), 3 guild warehouse (`guild_id`; the character who deposited it stays recorded) |
+| `character_items` | Items: status 0 inventory, 1 equipped, 2 bank (attached to the character who deposited it), 3 guild warehouse (`guild_id`; the character who deposited it stays recorded), 4 item attached to a mail (attached to the recipient), 5 on sale in the auction house (attached to the seller); `durability`: -1 full (template DUR column), otherwise current durability (wear, `repair.rs`) |
 | `character_quests` | Quests in progress (monster A and B counters) and completed |
 | `account_bank` | Account bank: money, pages beyond the first (created on first entry, with the money the characters had in the bank) |
 | `character_skills` | Learned skills and their level ("Normal Attack" is not stored: every character knows it); `exp`: cumulative experience of a production skill |
@@ -29,6 +29,12 @@ ArchCore uses three main MariaDB databases, plus a log database, created and upd
 | `guild_hostile` | Hostilities between guilds, one row per direction (`guild_id`, `other_id`, `since`) |
 | `guild_warehouse` | Guild warehouse: money, pages beyond the first |
 | `guild_member` | Guild member (a character is in one at most): rank (1 member, 2 join request, 3 leave request, 10 master, 11 sub-master), join date, leave request date |
+| `character_buddy` | Friends and ignored players: the other character (`other_id`), packet flags (0x02000000 friend, otherwise ignored with its blocks 0x1 chat, 0x2 trade, 0x4 invitations), "Buddy" relation (unused) |
+| `mail` | Mail: recipient, sender (name kept if the character is deleted), subject, text, date (Unix seconds), flags (0x01 read, 0x10 item collected), attached item (`item_id` → `character_items` with status 4) |
+| `auction_sale` | Auction house: seller, item on sale (`item_id` → `character_items` with status 5, NULL once sold), TID, count, gold and CC prices, fees taken, status (0 on sale, 1 sold, to collect), listing and expiry dates, buyer; the id is also the packet's docID |
+| `character_item_set` | Equipment switch: slot (0 to 99) and its items ("E,part,id" separated by ":"); the worn slot is `characters.item_set_active` (-1 none) |
+| `wanted_criminal` | Wanted posters: criminal, total bounty, first and last bounty, expiry (`Wanted.ExpireDays` after the last one); deleted on capture |
+| `wanted_bounty` | Bounty history: criminal, poster, amount, date; hunter who got the bounty and capture date |
 | `character_ui_status` | Interface status: the bar's life and mana potions, their automatic use thresholds (%), helmet display |
 
 ## `archcore_world` — game data (`sql/003_world.sql`)
@@ -65,6 +71,7 @@ Filled by `archcore import` from the client tables.
 | `teleport_object` | `obj*.ini` (event 8) | 291 portals: object, point carried, position |
 | `teleport_fee` | `TeleportFee.txt` | 227 trip fees (departure, arrival) |
 | `bank_slot_price` | `bankslotprice.txt` | Price of extra bank pages (-1: cannot be bought with gold) |
+| `character_customize` | `charactercustomizelist.txt` | Hair styles (1) and faces (2) per model: number (AGPMCHARACTER fields 20 and 21), name, `Case` (0 creation and stylist, 1 stylist, 2 creation), required level, gold or item price, file order |
 | `guild_max_member` | `guildmaxmember.txt` | Guild sizes and their price; the first row is a new guild (50 places, 10,000 coins), the next ones the enlargements |
 | `guild_mark` | `guildmark.txt` | Guild mark items: layer (1 background, 2 pattern, 3 symbol, 4 colour), number, TID (number << 8 × (layer − 1)), name, gold price, skulls, cash, ARGB colour |
 
@@ -125,8 +132,9 @@ character or account and by date.
 | Table | Content |
 |---|---|
 | `log_trade` | Completed trade: both characters, the gold and items (`[{iid, tid, count}]`) each one gave |
-| `log_shop` | Purchase or sale to an NPC: character, NPC, item (TID, IID), count, price |
+| `log_shop` | Purchase, sale or repair (`repair`) at an NPC: character, NPC, item (TID, IID), count, price |
 | `log_bank` | Deposit or withdrawal at the account bank: item (TID, IID, count) or gold |
+| `log_auction` | Auction house: listing, purchase, cancel or collect, sale, author (and seller for a purchase), item (TID, IID), count, gold and CC prices, fees |
 | `log_gm` | GM command: author, level, command, arguments, success, reply |
 
 **Measurement.** A query longer than `Database.SlowQueryMs` (200 ms by default) is logged as a slow query in the
@@ -148,6 +156,9 @@ start-up:
 | unknown skill (`character_skills.skill_tid` → `skill_template`) | serious |
 | quest missing from `quest_template` | warning |
 | recipe missing from `product_compose` (`character_recipes.recipe_tid`) | warning |
+| mail attachment not found (`mail.item_id` without an item with status 4 owned by the recipient) | warning |
+| item on sale not found (`auction_sale` on sale without an item with status 5 owned by the seller) | warning |
+| hair style or face missing from `character_customize` for the character's model (table imported) | warning |
 | bank without an account, unknown account language | warning |
 | character id in the NPC range (≥ 0x40000000), item id in the shop range (≥ 0x20000000) | serious |
 

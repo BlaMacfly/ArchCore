@@ -68,7 +68,7 @@ pub async fn run(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> 
     a2.expect_where(|q| q.is(c, Some(0)) && q.int(1) == Some(b.cid as i64), 3000, &format!("{cb} renvoyé")).await?;
     println!("  ✓ accord 1, nouvelle clé {k2}, position, PNJ et {cb} renvoyés");
     a2.send(ch, Fields::new(ch).with(0, 0).with(1, cid).with(2, chat_type::NORMAL).with(6, crate::tools::to_cp1252("/GetExp"))).await?;
-    let reply = a2.expect_where(|q| q.ptype == ch.id && q.int(2) == Some(chat_type::SYSTEM), 3000, "réponse à /GetExp").await?;
+    let reply = a2.expect_where(|q| q.ptype == ch.id && q.int(2) == Some(chat_type::WHOLE_WORLD), 3000, "réponse à /GetExp").await?;
     println!("  ✓ commande sur la nouvelle connexion : {}", reply.fields().text(6).unwrap_or_default());
     anyhow::ensure!(b.world.expect_where(removed(cid), 500, "retrait").await.is_err(), "{ca} retiré pendant la reprise");
 

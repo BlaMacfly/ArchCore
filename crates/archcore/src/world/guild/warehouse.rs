@@ -105,7 +105,7 @@ async fn load(db: &Databases, gid: u32) -> anyhow::Result<Warehouse> {
     let rows = db
         .characters
         .rows(
-            "SELECT id, template_id, layer, row_idx, col_idx, count, convert_level, socket_count, socket_tids, option_tids \
+            "SELECT id, template_id, layer, row_idx, col_idx, count, convert_level, socket_count, socket_tids, option_tids, durability \
              FROM character_items WHERE guild_id = ? AND status = ?",
             (gid, stored_status::GUILD_WAREHOUSE),
         )
@@ -114,7 +114,7 @@ async fn load(db: &Databases, gid: u32) -> anyhow::Result<Warehouse> {
         .iter()
         .map(|r| {
             let iid: u32 = col(r, "id");
-            (iid, InventoryItem { iid, tid: col(r, "template_id"), count: col(r, "count"), grid: [col(r, "layer"), col(r, "row_idx"), col(r, "col_idx")], conv: crate::world::items::convert_of(r), options: crate::world::items::options_of(r) })
+            (iid, InventoryItem { iid, tid: col(r, "template_id"), count: col(r, "count"), grid: [col(r, "layer"), col(r, "row_idx"), col(r, "col_idx")], conv: crate::world::items::convert_of(r), options: crate::world::items::options_of(r), durability: crate::world::items::durability_of(r) })
         })
         .collect();
     Ok(Warehouse { loaded: true, money, slots, items, viewers: Vec::new() })
