@@ -5,7 +5,7 @@
 //! et un niveau 20 au moins des deux côtés (message 25) ; pas de coup sur son groupe en zone libre, ni sur un ami
 //! (même guilde, guilde alliée) en zone de combat (message 20) ; un meurtrier de 100 points ou plus ne force plus
 //! d'attaque ; une cible invincible donne le message 17. Dans les Battlegrounds (régions 110-114, 123-125, 175,
-//! 176), seules des races différentes se battent, sans Ctrl.
+//! 176) et dans un Shrine en combat (`shrine.rs`), seules des races différentes se battent, sans Ctrl.
 //!
 //! Une attaque forcée fait des deux joueurs des ennemis l'un pour l'autre (op 2, mode de la zone), pour 5 minutes
 //! prolongées à chaque coup ; le premier ennemi donne le message 3 (« en combat »), le dernier retiré le 4.
@@ -14,8 +14,8 @@
 //!
 //! À la mort : victoire et défaite comptées (op 0, messages 12 et 5), inimitié levée des deux côtés. Tuer, après
 //! l'avoir attaqué en premier, un innocent de plus de 4 niveaux en dessous donne des points de meurtrier
-//! (`PvP.MurdererPointsPerKill`, hors Battleground), qui ouvrent un délai de 2 heures avant la rémission
-//! (champ 26) ; tuer un joueur de son niveau ou plus rapporte autant de charisme que son niveau (message 24). Les
+//! (`PvP.MurdererPointsPerKill`, hors Battleground, Battle Square et Shrine en combat : `battlesquare.rs`), qui
+//! ouvrent un délai de 2 heures avant la rémission (champ 26) ; tuer un joueur de son niveau ou plus rapporte autant de charisme que son niveau (message 24). Les
 //! montants sont ceux de la configuration : le serveur d'origine ne les a pas laissés. Paliers de meurtrier (40, 60,
 //! 100) : voir [`murderer_level`].
 //! Avis de recherche (droit de la victime de mettre son tueur à prix, prime touchée sur un criminel recherché, qui
@@ -38,11 +38,17 @@ pub mod op {
 
 /// Codes des messages système (op 18, champ 1), affichés par le client avec les textes `PvP_Msg_*`.
 pub mod code {
+    /// Entrée dans une zone de combat (Battle Square) : « PvP_Msg_EnterCombatArea ».
+    pub const ENTER_COMBAT_AREA: i64 = 2;
     pub const NOW_PVP: i64 = 3;
     pub const NONE_PVP: i64 = 4;
     pub const DEAD: i64 = 5;
     pub const KILL_PLAYER: i64 = 12;
+    /// « You moved to a Battle Square. »
+    pub const MOVE_BATTLE_SQUARE: i64 = 13;
     pub const TARGET_INVINCIBLE: i64 = 17;
+    /// Niveau insuffisant pour la Battle Square (le client affiche son propre seuil).
+    pub const NOT_ENOUGH_LEVEL: i64 = 18;
     pub const CANNOT_ATTACK_FRIEND: i64 = 20;
     pub const CHARISMA_UP: i64 = 24;
     pub const CANNOT_PVP_BY_LEVEL: i64 = 25;
@@ -66,8 +72,6 @@ pub const MURDERER_SECS: i64 = 7200;
 pub const MURDERER_LEVELS: [u32; 3] = [40, 60, 100];
 /// Écart de niveau au-delà duquel tuer un innocent rend meurtrier.
 const MURDER_LEVEL_GAP: i32 = 4;
-/// Régions des Battlegrounds, en dur dans le client (`FUN_1402ea830`).
-const BATTLEGROUNDS: [u16; 10] = [110, 111, 112, 113, 114, 123, 124, 125, 175, 176];
 
 /// Palier de meurtrier : 0 sous 40 points, puis 1, 2 et 3.
 pub fn murderer_level(points: u32) -> usize {
@@ -117,9 +121,7 @@ pub fn zone_mode(ctx: &WorldCtx, st: &WorldState, sid: u32) -> i64 {
 }
 
 fn in_battleground(ctx: &WorldCtx, st: &WorldState, sid: u32) -> bool {
-    let Some(p) = st.players.get(&sid) else { return false };
-    let pos = p.ch.pos();
-    ctx.map.region(pos.x as f64, pos.z as f64).is_some_and(|r| BATTLEGROUNDS.contains(&r))
+    super::battlesquare::in_battleground(ctx, st, sid)
 }
 
 /// Refus d'une attaque, avec le message à montrer à l'agresseur s'il y en a un.
@@ -142,6 +144,15 @@ pub fn check(ctx: &WorldCtx, st: &WorldState, sid: u32, tsid: u32, forced: bool)
     // Battlegrounds : races différentes seulement.
     if in_battleground(ctx, st, sid) && in_battleground(ctx, st, tsid) {
         return if a.factors.ftype[0] != c.factors.ftype[0] { Ok(()) } else { Err(Refusal(None)) };
+    }
+    // Shrine en combat (shrine.rs) : de même, entre joueurs du même Shrine.
+    if let (Some(x), Some(y)) = (super::shrine::active_shrine(ctx, st, sid), super::shrine::active_shrine(ctx, st, tsid)) {
+        return if x == y && a.factors.ftype[0] != c.factors.ftype[0] { Ok(()) } else { Err(Refusal(None)) };
+    }
+    // Siège en cours (siege/war.rs) : guildes de camps opposés sans Ctrl, jamais dans un même camp ; les autres joueurs
+    // suivent les règles ordinaires.
+    if let Some(ok) = super::siege::war::pvp_rule(ctx, st, sid, tsid) {
+        return if ok { Ok(()) } else { Err(Refusal(Some(code::CANNOT_ATTACK_FRIEND))) };
     }
     let (ma, mc) = (zone_mode(ctx, st, sid), zone_mode(ctx, st, tsid));
     let enemy = a.pvp.enemy(c.ch.id).is_some();
@@ -209,7 +220,11 @@ pub fn on_hit(ctx: &WorldCtx, st: &mut WorldState, sid: u32, tsid: u32, now: Ins
         }
         p.send_raw(build_packet(&schema::PVP, &base(op::ADD_ENEMY, p.ch.id).with(2, other_cid).with(5, zone)));
     }
-    // Premier attaquant : attaque forcée en zone libre sur un innocent (un criminel recherché ne l'est pas).
+    // Premier attaquant : attaque forcée en zone libre sur un innocent (un criminel recherché ne l'est pas) ; jamais dans
+    // les zones de combat organisé (Battleground, Battle Square, Shrine).
+    if super::battlesquare::free_kill_zone(ctx, st, sid) {
+        return;
+    }
     let innocent = st.players.get(&tsid).is_some_and(|t| t.ch.criminal_until <= unix_now() && murderer_level(t.ch.murderer) == 0 && !st.wanted.is_wanted(t.ch.id));
     if zone == mode::FREE && innocent {
         set_criminal(ctx, st, sid);
@@ -277,7 +292,8 @@ pub async fn on_kill(ctx: &WorldCtx, st: &mut WorldState, sid: u32, tsid: u32) -
     let aggressor = k.pvp.enemy(v.ch.id).is_some_and(|e| e.aggressor);
     // Un criminel recherché n'est pas innocent (wanted.rs).
     let innocent = v.ch.criminal_until <= unix_now() && murderer_level(v.ch.murderer) == 0 && !st.wanted.is_wanted(v.ch.id);
-    let battleground = in_battleground(ctx, st, sid);
+    // Battleground, Battle Square, Shrine en combat : ni points de meurtrier ni mise à prix.
+    let battleground = super::battlesquare::free_kill_zone(ctx, st, sid) || super::battlesquare::free_kill_zone(ctx, st, tsid);
     // Droit de la victime de mettre son tueur à prix : frappée la première en étant innocente, ou tuée par un meurtrier.
     let guilty = !battleground && ((aggressor && innocent) || murderer_level(k.ch.murderer) >= 1);
     part(st, sid, tsid);
@@ -309,6 +325,8 @@ pub async fn on_kill(ctx: &WorldCtx, st: &mut WorldState, sid: u32, tsid: u32) -
     if murderer_level(st.players.get(&sid).map_or(0, |k| k.ch.murderer)) >= 1 {
         super::party::expel_murderer(st, sid);
     }
+    // Battle Square : crâne lâché par la victime.
+    super::battlesquare::on_pvp_kill(ctx, st, sid, tsid, klevel, vlevel);
     if vlevel >= klevel {
         let gain = super::skills::gain_charisma(ctx, st, sid, vlevel.max(0) as u32, CharismaSource::Pvp).await?;
         if let Some(k) = st.players.get(&sid).filter(|_| gain > 0) {

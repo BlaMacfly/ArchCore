@@ -44,6 +44,16 @@
 //!   archcore sim channel [A… B…]                              salons de discussion : création, nom pris, entrée, message, mot de passe, invitation, recherche, sortie (channel.rs)
 //!   archcore sim customize [A… B…]                            coiffeur Gladiol : ouverture, refus faute d'or, achat d'une coiffure vue par SimA, coiffure d'origine remise (customize.rs)
 //!   archcore sim wanted [A… B…]                               avis de recherche : meurtre d'un innocent (op 6), mise à prix, tableau chez Rembrandt, prime touchée (wanted.rs)
+//!   archcore sim shrine [A… B…]                              combat de Shrine, GmTest (MJ, humain) + Grokk (orc) : /shrine open 1, refus de niveau (code 47), entrée,
+//!                                                             combat sans Ctrl ni points de meurtrier, résurrection en zone de race, gravure, victoire, pièces (shrine.rs)
+//!   archcore sim battlesquare [A… B…]                        Battle Square : superviseur Valiant (refus de niveau, voyage), codes 2 et 13, meurtre sans pénalité, crâne (battlesquare.rs)
+//!   archcore sim boss [compte] [mdp] [perso]                  fenêtre des boss : op 1 à l'entrée, heure du serveur (AgpmTimer 2-3), op 4 → op 3 + op 5, op 6 → op 5, op 7 contre Basilis (boss.rs)
+//!   archcore sim siege [A… B…]                               guerre de siège d'Inflame, GmTest (MJ, SimSiegeA) + SimA (SimSiegeB) : propriétaire, déclaration, commandant Garrison,
+//!                                                             candidatures, /siege start, combat sans Ctrl, résurrection 0x13, portes, trône, Yeux, carving, fin (siege/)
+//!   archcore sim archlord [A… B…]                            titre d'ArchLord, GmTest (MJ, SimLordA, Inflame) + SimA : /archlord set, guerre de Rensphere, carving,
+//!                                                             nouvel ArchLord (op 1, op 0), Rain Control pour tous, garde royal, refus à SimA (archlord.rs)
+//!   archcore sim tax [A… B…]                                 taxes d'Inflame : intendant Alfredo (op 1, 3, 2 : codes 3, 0, 2), op 4 à tous, achat chez Damian
+//!                                                             taxé de 10 %, /tax, versement forcé à la banque, registre (tax.rs)
 //!   archcore sim refusal [A… B…]                             options de GmTest (op 0x11) : SimA ne peut ni l'inviter en groupe (op 14) ni lui proposer d'échange (op 25)
 //!   archcore sim gm [compte] [mdp] [perso]                    commandes MJ d'ArchCore : /speed (×5, refus au-delà de 10, retour) et /additem ; compte MJ
 //!   archcore sim status [compte] [mdp] [perso]                état spécial : Shield Bash étourdit un Ver vert (champ 17), puis l'état retombe ; compte MJ, personnage GmEffets
@@ -76,7 +86,12 @@ mod lang;
 mod last_refine;
 mod mail;
 mod aggro;
+mod archlord;
 mod auction;
+mod battlesquare;
+mod boss;
+mod shrine;
+mod siege;
 mod itemset;
 mod nature;
 mod pk;
@@ -86,6 +101,7 @@ mod reconnect;
 mod repair;
 mod ride;
 mod summons;
+mod tax;
 mod wanted;
 
 /// Valeur facultative affichée sans « Some(…) ».
@@ -135,6 +151,12 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         Some("chat") => Box::pin(chat::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("channel") => Box::pin(channel::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("customize") => Box::pin(customize::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
+        Some("shrine") => Box::pin(shrine::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "test2"), &a(5, "test2"), &a(6, "Grokk"))).await,
+        Some("battlesquare") => Box::pin(battlesquare::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
+        Some("boss") => Box::pin(boss::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
+        Some("siege") => Box::pin(siege::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
+        Some("archlord") => Box::pin(archlord::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
+        Some("tax") => Box::pin(tax::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("wanted") => Box::pin(wanted::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("refusal") => Box::pin(refusal(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("party") => Box::pin(party(&a(1, "sima"), &a(2, "sima"), &a(3, "SimA"), &a(4, "simb"), &a(5, "simb"), &a(6, "SimB"))).await,
@@ -161,7 +183,7 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         Some("ignore") => Box::pin(competences::ignore(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("rune") => Box::pin(competences::rune(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("trigger") => Box::pin(competences::trigger(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
-        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol|bag|skill|effects|status|bank|portal|pvp|reconnect|lastrefine|product|guild|guildlead|guildbattle|guildrelation|guildwarehouse|guildmark|guildstage|gm|buddy|mail|repair|ride|auction|itemset|nature|summons|chat|channel|customize|wanted|trade|party|quest|mobskill|counter|partyskill|mastery [arguments]"),
+        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol|bag|skill|effects|status|bank|portal|pvp|reconnect|lastrefine|product|guild|guildlead|guildbattle|guildrelation|guildwarehouse|guildmark|guildstage|gm|buddy|mail|repair|ride|auction|itemset|nature|summons|chat|channel|customize|wanted|shrine|battlesquare|boss|siege|archlord|tax|trade|party|quest|mobskill|counter|partyskill|mastery [arguments]"),
     }
 }
 
@@ -373,6 +395,8 @@ pub struct InWorld {
     pub game_ms: i64,
     pub time_speed: i64,
     pub timer_at: std::time::Instant,
+    /// AGPMTIMER champs 2 (heure du serveur, secondes Unix) et 3 (décalage de son fuseau, secondes).
+    pub server_time: (i64, i64),
     /// Champ 26 (identifiant stable) des objets reçus à l'entrée : (IID, identifiant).
     pub item_keys: Vec<(i64, i64)>,
 }
@@ -569,6 +593,7 @@ pub async fn enter_world_opts(cfg: &Config, user: &str, pass: &str, char_name: &
     let timer = world.expect(&schema::TIMER, None).await?;
     let timer_at = std::time::Instant::now();
     let (game_ms, time_speed) = (timer.int(1).unwrap_or(0), timer.int(0).unwrap_or(0));
+    let server_time = (timer.int(2).unwrap_or(0), timer.int(3).unwrap_or(0) as u32 as i32 as i64);
     println!("  horloge du serveur : {game_ms} ms, soit {} h en jeu", (game_ms / 3_600_000) % 24);
     world.send(cm, Fields::new(cm).with(0, char_mgr_op::ENTER_WORLD)).await?;
     let me = world.expect(&schema::CHARACTER, Some(0)).await?;
@@ -676,7 +701,7 @@ pub async fn enter_world_opts(cfg: &Config, user: &str, pass: &str, char_name: &
     println!("  niveau {level}, {} compétence(s) : {skills:?}", skills.len());
     println!("  entrée en jeu confirmée");
     println!("  quêtes : terminées {quests_done:?}, en cours {quests_active:?}");
-    Ok(InWorld { world, cid, start, monsters, npcs, level, bank_money, bank_size, items, quests_done, quests_active, skills, language_ack, converts, durabilities, transform, rides, game_ms, time_speed, timer_at, item_keys })
+    Ok(InWorld { world, cid, start, monsters, npcs, level, bank_money, bank_size, items, quests_done, quests_active, skills, language_ack, converts, durabilities, transform, rides, game_ms, time_speed, timer_at, server_time, item_keys })
 }
 
 async fn client(user: &str, pass: &str, char_name: &str, commands: &[String]) -> anyhow::Result<()> {

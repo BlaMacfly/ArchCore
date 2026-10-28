@@ -76,6 +76,11 @@ messages. ArchCore's replies are in French.
 | `/rename_char "old" "new"` | 2 | Renames in the database (2 to 24 characters, no space). An online player sees the new name on next login |
 | `/additem <TID> [count]` | 3 | Shortcut for `/create` on yourself: adds the item (1 by default, up to 9999) to the GM's inventory, tradable. ArchCore-specific command |
 | `/weather [clear\|rain\|snow]` | 2 | Weather for every player in game (rain, snow, clear); without an argument, the weather and the game hour. ArchCore-specific command |
+| `/shrine [open\| `/siege [start|end <castle> | owner <castle> <guild|-> | hp <castle> <HP>]` | 3 | Without an argument, the castles' state; `start` closes the applications and opens the battle, `end` ends it (the guild of the last carving takes the castle), `owner` gives the castle to a guild (`-`: none) and resets its calendar to status 0, `hp` lowers the HP of a warring castle's intact objects (tests). ArchCore-specific command |
+|close <n>]` | 3 | Without an argument, the Shrines' state; `open` opens Shrine `n`'s battle without waiting for its schedule, `close` ends it with no winner. ArchCore-specific command |
+| ✅ `/siege [start|end|owner|hp …]` | Castles' state, forced start and end of a siege, owner, objects' HP (ArchCore addition, not in the panel) |
+| `/tax [pay [castle]]` | 3 | Without an argument, rates and income of each castle's regions; `pay` pays a castle's (or every castle's) income at once to the owning guild's master, minus the ArchLord's tribute. ArchCore-specific command |
+| `/archlord [set <name> \| clear]` | 3 | Sets the ArchLord (ops 0 and 1 to everyone) or removes him; without an argument, the ArchLord's name. The ArchLord's `/archlord <message>`: message to the whole server. `/archlordbegin`, `/archlordend` (Rensphere war), `/nextstep`, `/archlordactivate <name>`, `/archlorddeactivate`, `/castleowner <castle> <guild>`, `/deletecastleowner <castle>`: Archonia commands (sysstr 622 to 629, 636, 657, 658) |
 | `/durability <value\|-1>` | 3 | Sets the durability of the worn equipment that wears out (`-1`: full, 0: broken); to try wear and repair. ArchCore-specific command |
 | `/create "name" <TID> <count> <0\|1>` | 3 | Adds the item to `character_items`, in the first free inventory slot. An online player gets it at once; the character can also be offline |
 | `/questreset <TID>` | 3 | Clears quest TID (in progress or completed) from the GM's journal; visible on next login. ArchCore-specific command |
@@ -194,6 +199,7 @@ Example: `/SetExp 2.0`, then `/GetExp` to check.
 | ✅ `/additem <TID> [count]` | Adds an item to your own inventory (ArchCore addition, not in the panel) |
 | ✅ `/speed <1-10>` | Multiplies your movement speed (ArchCore addition, not in the panel) |
 | ✅ `/weather [clear\|rain\|snow]` | Everyone's weather, or weather and game hour (ArchCore addition, not in the panel) |
+| ✅ `/shrine [open\|close <n>]` | Shrines' state, forced opening or closing of a battle (ArchCore addition, not in the panel) |
 | ✅ `/durability <value\|-1>` | Sets the durability of your worn equipment (ArchCore addition, not in the panel) |
 | ✅ `/money <amount> ["name"]` | Sets an online character's gold (ArchCore addition, not in the panel) |
 | ✅ `/charisma <points> ["name"]` | Gives charisma points to an online character (ArchCore addition, not in the panel) |

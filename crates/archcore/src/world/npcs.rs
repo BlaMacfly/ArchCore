@@ -34,6 +34,12 @@ pub mod event_function {
     pub const CHAR_CUSTOMIZE: i64 = 29;
     /// Tableau des avis de recherche (chefs de ville) : AgpmWantedCriminal, sans données.
     pub const WANTED_CRIMINAL: i64 = 32;
+    /// Commandant de siège : AgpmEventSiegeWarNPC, sans données ; le château est celui de la région du PNJ.
+    pub const SIEGE_WAR_NPC: i64 = 33;
+    /// Intendant « Grand Advisor » : AgpmTax (taxes des régions du château), sans données.
+    pub const TAX: i64 = 34;
+    /// Événement ArchLord (AgpmArchlord op 7) : aucun PNJ ni objet du client ne le porte.
+    pub const ARCHLORD: i64 = 36;
 }
 
 /// Type d'objet « personnage » dans les mini EVENT_BASE (0 aucun, 1 objet, 2 modèle d'objet, 3 personnage).
@@ -116,9 +122,10 @@ pub fn event_block(npc: &Npc) -> Vec<u8> {
             out.extend(build_packet(em, &Fields::new(em).with(0, event_base(npc.cid, ev.function)).with(1, data)));
             continue;
         }
-        if matches!(ev.function, event_function::BANK | event_function::GUILD | event_function::GUILD_WAREHOUSE | event_function::ITEM_CONVERT | event_function::ITEM_REPAIR | event_function::AUCTION | event_function::CHAR_CUSTOMIZE | event_function::WANTED_CRIMINAL) {
+        if matches!(ev.function, event_function::BANK | event_function::GUILD | event_function::GUILD_WAREHOUSE | event_function::ITEM_CONVERT | event_function::ITEM_REPAIR | event_function::AUCTION | event_function::CHAR_CUSTOMIZE | event_function::WANTED_CRIMINAL | event_function::SIEGE_WAR_NPC | event_function::TAX) {
             // Gardien de banque (et entrepôt de guilde), gestionnaire de guilde, forgeron (conversion, réparation),
-            // marchand de la maison des ventes, coiffeur, tableau des avis de recherche : fonctions sans données.
+            // marchand de la maison des ventes, coiffeur, tableau des avis de recherche, commandant de siège, intendant :
+            // fonctions sans données.
             let em = &schema::EVENT_MANAGER;
             out.extend(build_packet(em, &Fields::new(em).with(0, event_base(npc.cid, ev.function))));
             continue;

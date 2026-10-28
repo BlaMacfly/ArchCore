@@ -58,6 +58,10 @@ pub async fn run(mode: &str) -> anyhow::Result<()> {
         let recipes = crate::world::refinery::Recipes::load(&db).await?;
         let product = crate::world::product::ProductCatalog::load(&db).await?;
         let customize = crate::world::customize::CustomizeTable::load(&db).await;
+        let shrines = crate::world::shrine::ShrineCatalog::load(&db).await;
+        let bosses = crate::world::boss::BossCatalog::load(&db).await;
+        let skulls = crate::world::battlesquare::SkullTable::load(&db).await;
+        let sieges = crate::world::siege::SiegeCatalog::load(&db).await;
         let mut level_exp = Vec::new();
         for r in db.world.rows("SELECT level, exp FROM level_exp ORDER BY level", ()).await? {
             let level: usize = crate::db::col(&r, "level");
@@ -67,6 +71,7 @@ pub async fn run(mode: &str) -> anyhow::Result<()> {
             level_exp[level] = crate::db::col(&r, "exp");
         }
         let monsters = crate::world::monsters::MonsterRegistry::load(&db, &translator, &map, config.world.monster_density).await?;
+        let siege = crate::world::siege::Sieges::load(&db, &sieges, &map, &monsters).await;
         let state = crate::world::WorldState {
             view_radius: config.world.view_radius,
             monsters,
@@ -74,10 +79,13 @@ pub async fn run(mode: &str) -> anyhow::Result<()> {
             rates: crate::world::gm::ServerRates::new(&config.world.rates),
             nature: crate::world::nature::Nature::new(config.world.time_zone),
             wanted: crate::world::wanted::Board::load(&db).await,
+            archlord: crate::world::archlord::Archlord::load(&db).await,
+            tax: crate::world::tax::Taxes::load(&db, &sieges).await,
+            siege,
             ..Default::default()
         };
         let w = Arc::new(crate::world::World {
-            ctx: crate::world::WorldCtx { db: db.clone(), templates: templates.clone(), config: config.clone(), npcs, catalog, map, level_exp, loot, regions, skills, quests, locale, portals, bank_slot_prices, convert, options, recipes, product, customize, view_radius: config.world.view_radius },
+            ctx: crate::world::WorldCtx { db: db.clone(), templates: templates.clone(), config: config.clone(), npcs, catalog, map, level_exp, loot, regions, skills, quests, locale, portals, bank_slot_prices, convert, options, recipes, product, customize, shrines, bosses, skulls, sieges, view_radius: config.world.view_radius },
             state: tokio::sync::Mutex::new(state),
         });
         crate::world::presence::spawn_autosave(w.clone());

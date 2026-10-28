@@ -290,6 +290,11 @@ pub fn on_action(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) {
     let target = p.int(1).unwrap_or(0) as u32;
     let forced = p.int(6).unwrap_or(0) != 0;
     let alive = st.monsters.get(target).is_some_and(|m| m.is_alive() && st.monsters.stats_of(m.tid).is_attackable());
+    // Objet de siège : seulement pendant le combat, selon le camp et l'ordre d'attaque (siege/war.rs).
+    if alive && !super::siege::war::may_hit(ctx, st, sid, target) {
+        debug!("[combat] #{sid} : objet de siège {target:#x} pas attaquable maintenant");
+        return;
+    }
     // Invocation d'un autre joueur : règles du combat entre joueurs envers son maître (summons.rs).
     if alive {
         if let Err(r) = super::summons::may_attack(ctx, st, sid, target, forced) {
@@ -360,6 +365,15 @@ pub async fn step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) -> anyhow::
     super::skills::step(ctx, st, now).await?;
     super::portal::step(st);
     super::guild::step(ctx, st, now).await?;
+    // Combats de Shrine, compteur de dégâts des boss, horaire du Battleground.
+    super::shrine::step(ctx, st, now).await?;
+    super::boss::step(ctx, st, now);
+    super::battlesquare::step(ctx, st, now);
+    // Guerres de siège : calendrier, combat, carving.
+    super::siege::step(ctx, st, now).await?;
+    // Guerre de Rensphere et effets de l'ArchLord ; versements des taxes.
+    super::archlord::step(ctx, st, now).await?;
+    super::tax::step(ctx, st, now).await?;
     // Usure des coups de ce tour, descentes de monture forcées.
     super::repair::step(ctx, st).await?;
     super::ride::step(ctx, st).await?;
@@ -501,10 +515,19 @@ pub(super) async fn kill(ctx: &WorldCtx, st: &mut WorldState, killer_sid: u32, c
     let target = st.monsters.get_mut(cid).unwrap();
     let (tid, name) = (target.tid, target.name.clone());
     st.monsters.pending.insert(cid);
+    // Boss de la fenêtre des boss d'Archonia : classement du combat, liste renvoyée.
+    super::boss::on_kill(ctx, st, tid, cid, &damage);
     let c = &schema::CHARACTER;
     let dead = build_packet(c, &Fields::new(c).with(0, 1).with(1, cid).with(11, ACTION_STATUS_DEAD));
     let watchers = viewers(st, cid);
     broadcast(st, &watchers, &dead);
+    // Objet de siège détruit : variantes, étapes du siège ; ni expérience ni butin (siege/war.rs).
+    if super::siege::war::on_kill(ctx, st, killer_sid, cid, now) {
+        if let Some(p) = st.players.get_mut(&killer_sid) {
+            p.attack = None;
+        }
+        return Ok(());
+    }
     let base = st.monsters.stats_of(tid).exp.max(0) as f64;
     let gain = (base * st.rates.get("exp")).round().max(0.0) as u64;
     let Some(p) = st.players.get_mut(&killer_sid) else { return Ok(()) };
@@ -599,6 +622,7 @@ fn life_step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) {
         match m.life {
             Life::Dead { .. } => {
                 m.life = Life::Gone { respawn_at: now + Duration::from_secs(respawn_delay(m.respawn_sec, m.respawn_max_sec, &mut rand::thread_rng()) as u64) };
+                let tid = m.tid;
                 let gone = character_remove_packet(cid);
                 for p in st.players.values_mut() {
                     if p.seen_monsters.remove(&cid) {
@@ -607,6 +631,8 @@ fn life_step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) {
                 }
                 // Cadavre parti : sa récolte (product.rs) est oubliée.
                 st.harvests.remove(&cid);
+                // Boss suivi : prochaine apparition connue.
+                super::boss::on_life_change(ctx, st, tid);
             }
             Life::Gone { .. } => {
                 m.life = Life::Alive;
@@ -618,6 +644,9 @@ fn life_step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) {
                 st.monsters.walking.remove(&cid);
                 st.monsters.pending.remove(&cid);
                 respawn_view(ctx, st, cid);
+                if let Some(tid) = st.monsters.get(cid).map(|m| m.tid) {
+                    super::boss::on_life_change(ctx, st, tid);
+                }
             }
             Life::Alive => {
                 st.monsters.pending.remove(&cid);
@@ -733,6 +762,11 @@ pub fn player_death(st: &mut WorldState, sid: u32) {
 
 /// AGPMCHARACTER op 9 : résurrection au village de départ de la race, tous PV et PM, invincible 10 s.
 pub async fn resurrect(ctx: &WorldCtx, st: &mut WorldState, sid: u32) -> anyhow::Result<()> {
+    resurrect_at(ctx, st, sid, None).await
+}
+
+/// Résurrection en `at` (point de siège : siege/war.rs), sinon selon la zone ou au village.
+pub async fn resurrect_at(ctx: &WorldCtx, st: &mut WorldState, sid: u32, at: Option<Vec3>) -> anyhow::Result<()> {
     if !st.players.get(&sid).is_some_and(|p| p.dead) {
         return Ok(());
     }
@@ -742,9 +776,14 @@ pub async fn resurrect(ctx: &WorldCtx, st: &mut WorldState, sid: u32) -> anyhow:
     p.invincible_until = Some(Instant::now() + RESURRECTION_GRACE);
     p.factors.point[POINT_HP] = p.factors.point_max[0];
     p.factors.point[1] = p.factors.point_max[1];
-    let (x, y, z) = super::travel::home_village(ctx, p);
+    // Battleground : fort de sa race ; Shrine en combat : zone de sa race (battlesquare.rs) ; sinon le village.
+    let (x, y, z) = match at.or_else(|| super::battlesquare::resurrection_point(ctx, st, sid)) {
+        Some(at) => (at.x as f64, Some(at.y as f64), at.z as f64),
+        None => super::travel::home_village(ctx, &st.players[&sid]),
+    };
+    let p = st.players.get_mut(&sid).unwrap();
     let plain = status_packet(p, 0);
-    info!("[combat] {} ressuscite au village", p.ch.name);
+    info!("[combat] {} ressuscite en {x:.0}, {z:.0}", p.ch.name);
     send_around(st, sid, &plain);
     // Le droit de mettre son tueur à prix s'éteint.
     super::wanted::on_resurrect(st, sid);

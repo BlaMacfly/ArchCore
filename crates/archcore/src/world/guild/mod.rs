@@ -546,7 +546,10 @@ async fn create(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> an
     let password = cut(p.text(9).unwrap_or_default().trim(), MAX_PASSWORD);
     let player = &st.players[&sid];
     let (cid, level, money) = (player.ch.id, player.ch.level, player.ch.money as i64);
-    let (size, cost) = st.guilds.first_size();
+    let (size, base_cost) = st.guilds.first_size();
+    // Prix taxé dans la région du joueur (tax.rs).
+    let taxed = super::tax::quote(ctx, st, sid, base_cost);
+    let cost = taxed.total;
     let refusal = if st.guilds.of(cid).is_some() {
         Some((code::ALREADY_MEMBER, None))
     } else if st.guilds.named(&name).is_some() {
@@ -605,6 +608,7 @@ async fn create(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> an
     announce_link(st, cid);
     send_to(st, sid, system_packet(code::CREATE_COMPLETE, None, None));
     info!("[guilde] {} crée la guilde {name} ({cost} pièce(s))", st.players[&sid].ch.name);
+    super::tax::collect(ctx, st, &taxed).await?;
     Ok(())
 }
 

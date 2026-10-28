@@ -20,14 +20,21 @@
 //!   AgpmSummons (0x4F) : invocations des compétences et familiers des objets ; op 2 du client = propension (summons.rs)
 //!   AgpmAreaChatting (0x4C, serveur → client) : cris de zone (chat.rs) ; AgpmChannel (0x2C) : salons de discussion (channel.rs)
 //!   AgpmEventCharCustomize (0x43) : coiffeurs (customize.rs) ; AgpmWantedCriminal (0x46) : avis de recherche (wanted.rs)
+//!   AgpmShrineBattle (0x62, brut) : combats de Shrine (shrine.rs) ; AgpmBoss (0x64) : fenêtre des boss (boss.rs)
+//!   AgcmBattleGround (0x58, brut, serveur → client) : annonces du Battleground ; Battle Square (battlesquare.rs)
+//!   AgpmSiegeWar (0x49), AgpmEventSiegeWarNPC (0x50), AgpmWarInfo (0x61, serveur → client) : guerres de siège (siege/)
+//!   AgpmArchlord (0x55) : titre d'ArchLord, guerre de Rensphere (archlord.rs) ; AgpmTax (0x53) : taxes des régions (tax.rs)
 //! ```
 //! L'état du monde est partagé derrière un verrou : les paquets de tous les joueurs sont traités un à
 //! un, comme dans la boucle unique du serveur Node.
 
 pub mod addon;
 pub mod ai;
+pub mod archlord;
 pub mod auction;
 pub mod bank;
+pub mod battlesquare;
+pub mod boss;
 pub mod buddy;
 pub mod channel;
 pub mod chat;
@@ -66,12 +73,16 @@ pub mod remission;
 pub mod repair;
 pub mod ride;
 pub mod sector;
+pub mod shrine;
 pub mod skills;
 pub mod summons;
+pub mod tax;
 pub mod trade;
 pub mod ui_status;
 pub mod travel;
 pub mod wanted;
+pub mod siege;
+pub mod warinfo;
 
 use crate::character::{character_packet, factors_mini, make_factors, move_mini, CharView, CharacterRow, Factors, MoveMini, Templates};
 use crate::config::Config;
@@ -125,6 +136,14 @@ pub struct WorldCtx {
     pub product: product::ProductCatalog,
     /// Coiffures et visages proposés (charactercustomizelist.txt).
     pub customize: customize::CustomizeTable,
+    /// Combats de Shrine (tables `shrine`, `shrine_reward`).
+    pub shrines: shrine::ShrineCatalog,
+    /// Boss de la fenêtre des boss d'Archonia (table `boss_window`).
+    pub bosses: boss::BossCatalog,
+    /// Crânes de la Battle Square (pvpskulldroptable.txt).
+    pub skulls: battlesquare::SkullTable,
+    /// Guerres de siège : châteaux (SiegeWar.txt), objets d'assaut, points de résurrection.
+    pub sieges: siege::SiegeCatalog,
     pub view_radius: f64,
 }
 
@@ -289,6 +308,18 @@ pub struct WorldState {
     pub channels: channel::Channels,
     /// Avis de recherche en cours (wanted.rs).
     pub wanted: wanted::Board,
+    /// Combats de Shrine annoncés ou en cours (shrine.rs).
+    pub shrines: shrine::Shrines,
+    /// Fenêtre des boss : dernières morts, dernier combat (boss.rs).
+    pub bosses: boss::Bosses,
+    /// Horaire du Battleground (battlesquare.rs).
+    pub battleground: battlesquare::BattlegroundClock,
+    /// Châteaux, candidatures et sièges en cours (siege/).
+    pub siege: siege::Sieges,
+    /// ArchLord en titre, guerre de Rensphere, gardes et effets de ses compétences (archlord.rs).
+    pub archlord: archlord::Archlord,
+    /// Taux et recettes des régions des châteaux (tax.rs).
+    pub tax: tax::Taxes,
 }
 
 impl WorldState {
@@ -354,6 +385,12 @@ impl Service for WorldService {
                 | ptype::CHANNEL
                 | ptype::EVENT_CHAR_CUSTOMIZE
                 | ptype::WANTED_CRIMINAL
+                | ptype::SHRINE_BATTLE
+                | ptype::BOSS
+                | ptype::SIEGE_WAR
+                | ptype::EVENT_SIEGE_WAR_NPC
+                | ptype::ARCHLORD
+                | ptype::TAX
                 | ptype::ARCHCORE_EXT
         )
     }
@@ -434,13 +471,21 @@ impl Connection for WorldConn {
             ptype::CHARACTER if p.int(0) == Some(combat::REQUEST_RESURRECTION_TOWN) => combat::resurrect(ctx, &mut st, self.sid).await?,
             ptype::CHARACTER if p.int(0) == Some(bank::MOVE_BANK_MONEY) => bank::move_money(ctx, &mut st, self.sid, p.int(9).unwrap_or(0)).await?,
             ptype::CHARACTER if p.int(0) == Some(option_flags::UPDATE_OPTION_FLAG) => option_flags::on_packet(ctx, &mut st, self.sid, &p).await?,
+            // Résurrection de siège : 0x13 au point intérieur, 0x14 à l'extérieur (siege/war.rs).
+            ptype::CHARACTER if matches!(p.int(0), Some(siege::war::RESURRECT_INNER | siege::war::RESURRECT_OUTER)) => {
+                siege::war::resurrect(ctx, &mut st, self.sid, p.int(0) == Some(siege::war::RESURRECT_INNER)).await?
+            }
             ptype::CHARACTER => debug!("[world] #{} AGPMCHARACTER op {:?} (ignoré)", s.id(), p.int(0)),
             ptype::CHATTING => chat::on_chatting(&world, &mut st, self.sid, &p).await?,
             ptype::OPT_CHAR_MOVE => presence::on_move(ctx, &mut st, self.sid, &p),
             ptype::OPT_CHAR_ACTION => combat::on_action(ctx, &mut st, self.sid, &p),
             ptype::REMISSION => remission::on_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::ITEM => loot::on_item_packet(ctx, &mut st, self.sid, &p).await?,
-            ptype::EVENT_NPC_DIALOG => npc_events::on_dialog(ctx, &st, self.sid, &p),
+            ptype::EVENT_NPC_DIALOG => {
+                npc_events::on_dialog(ctx, &st, self.sid, &p);
+                // Superviseurs de la Battle Square : voyage à l'étage du niveau du joueur.
+                battlesquare::on_dialog(ctx, &mut st, self.sid, &p).await?;
+            }
             ptype::EVENT_NPC_TRADE => npc_trade::on_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::ARCHCORE_EXT => match p.int(0) {
                 Some(ext_op::SET_LANGUAGE | ext_op::TEXT_REQUEST) => lang::on_packet(ctx, &mut st, self.sid, &p).await?,
@@ -474,6 +519,12 @@ impl Connection for WorldConn {
             ptype::CHANNEL => channel::on_packet(&mut st, self.sid, &p),
             ptype::EVENT_CHAR_CUSTOMIZE => customize::on_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::WANTED_CRIMINAL => wanted::on_packet(ctx, &mut st, self.sid, &p).await?,
+            ptype::SHRINE_BATTLE => shrine::on_packet(ctx, &mut st, self.sid, &p).await?,
+            ptype::BOSS => boss::on_packet(ctx, &mut st, self.sid, &p).await?,
+            ptype::SIEGE_WAR => siege::on_packet(ctx, &mut st, self.sid, &p).await?,
+            ptype::EVENT_SIEGE_WAR_NPC => siege::on_npc_packet(ctx, &st, self.sid, &p),
+            ptype::ARCHLORD => archlord::on_packet(&st, self.sid, &p),
+            ptype::TAX => tax::on_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::RECONNECT => {
                 if let Some(sid) = reconnect::on_packet(ctx, &mut st, s, &p).await? {
                     self.sid = sid;
@@ -739,6 +790,14 @@ fn enter_world(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle) {
     nature::on_enter(st, sid);
     // Criminel recherché : icône (op 7) et rang (op 5).
     wanted::on_enter(st, sid);
+    // Liste des Shrines (op 2) et des boss d'Archonia (op 1).
+    shrine::on_enter(ctx, st, sid);
+    boss::on_enter(ctx, st, sid);
+    // Châteaux (op 0), listes des sièges, tableau d'un siège en cours.
+    siege::on_enter(ctx, st, sid);
+    // ArchLord (op 0), étape de la guerre de Rensphere (op 5) ; taux des régions taxées (AgpmTax op 4).
+    archlord::on_enter(ctx, st, sid);
+    tax::on_enter(ctx, st, sid);
     reconnect::on_enter(st, sid);
 }
 
@@ -947,6 +1006,7 @@ pub async fn teleport(ctx: &WorldCtx, st: &mut WorldState, sid: u32, x: f64, y: 
     // Ses invocations de combat disparaissent ; son familier le suit (summons.rs, après le déplacement).
     summons::on_owner_teleport(st, sid);
     let Some(p) = st.players.get_mut(&sid) else { anyhow::bail!("joueur absent") };
+    let before = ctx.map.region(p.ch.pos_x, p.ch.pos_z);
     // Sans altitude donnée : la hauteur du sol (map_height), sinon l'altitude actuelle.
     let y = y.or_else(|| ctx.map.height(x, z).map(f64::from)).unwrap_or(p.ch.pos_y);
     let pos = Vec3::new(x as f32, y as f32, z as f32);
@@ -960,6 +1020,8 @@ pub async fn teleport(ctx: &WorldCtx, st: &mut WorldState, sid: u32, x: f64, y: 
     let sent = send_nearby_npcs(ctx, st, sid, pos);
     presence::refresh(st, sid);
     summons::follow_teleport(ctx, st, sid);
+    // Arrivée dans la Battle Square : messages d'entrée.
+    battlesquare::on_arrival(st, sid, before, ctx.map.region(x, z));
     ctx.db.characters.exec("UPDATE characters SET pos_x = ?, pos_y = ?, pos_z = ? WHERE id = ?", (pos.x as f64, pos.y as f64, pos.z as f64, id)).await?;
     info!("[mj] {name} téléporté en {}, {}, {} ({sent} PNJ envoyé(s))", pos.x, pos.y, pos.z);
     Ok(pos)

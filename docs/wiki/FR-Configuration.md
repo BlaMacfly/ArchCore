@@ -62,6 +62,19 @@ défaut, avec un avertissement dans le journal ; une clé inconnue (faute de fra
 | `Chat.ShoutRange` | `0` | Portée du cri local « /s » ; 0 : deux fois `World.ViewRadius` (choix d'ArchCore) |
 | `Wanted.ExpireDays` | `7` | Durée d'un avis de recherche, en jours depuis la dernière mise à prix (choix d'ArchCore) |
 | `Wanted.ExpLossPercent` | `5` | Part de l'expérience du niveau perdue par un criminel recherché tué par un chasseur, sans perte de niveau (choix d'ArchCore) |
+| `Shrine.Enabled` | `1` | Combats de Shrine selon l'horaire de la table `shrine` ; `0` : seulement par `/shrine open` |
+| `BattleSquare.SupervisorTeleport` | `1` | Parler à un superviseur de la Battle Square (PNJ 551 à 554) envoie à l'étage de son niveau (choix d'ArchCore) |
+| `BattleSquare.SkullTids` | `500,981,982` | TID des crânes de niveau 1, 2 et 3 lâchés dans la Battle Square (choix d'ArchCore) |
+| `Battleground.Schedule` | vide | Plages « HH:MM-HH:MM » (séparées par « ; ») dont début et fin sont annoncés à tous (paquet 0x58) ; vide : aucune annonce |
+| `Siege.Enabled` | `1` | Calendrier automatique des guerres de siège (date d'office, clôture des candidatures, début, fin) ; `0` : seulement les commandes `/siege` |
+| `Siege.MinGuildMembers`, `Siege.MinGuildAgeDays` | `30`, `14` | Membres et âge (jours) d'une guilde candidate à un siège (valeurs du client ; à abaisser pour un jeu local) |
+| `Siege.DurationMinutes` | `0` | Durée du combat de siège ; `0` : SWPlayingTime de `SiegeWar.txt` (60 min), à défaut 120 |
+| `Siege.CarveSeconds` | `0` | Durée du carving du trône ; `0` : StampingTime de `SiegeWar.txt` |
+| `Siege.CatapultDamagePercent` | `5` | Dégâts d'un tir de catapulte, en pour cent des PV de la porte extérieure ou de la tour visée (choix d'ArchCore) |
+| `Archlord.MaxGuards` | `10` | Gardes royaux que l'ArchLord peut appeler à la fois (`/guardactivate`, Call Royal Knight) |
+| `Archlord.PortalMinutes` | `10` | Guerre de Rensphere : durée de l'étape « portail » avant l'étape « combat » |
+| `Archlord.SkyMinutes` | `5` | Durée du décalage de 12 h de l'horloge par Day and Night |
+| `Tax.PayoutDay`, `Tax.PayoutHour` | `1`, `0` | Versement hebdomadaire des taxes des régions : jour (1 lundi à 7 dimanche) et heure (fuseau `World.TimeZone`) |
 | `World.TimeZone` | `local` | Fuseau de l'horloge envoyée au client (paquet AGPMTIMER) : `local` = heure de la machine (jour/nuit, musique et ambiance suivent l'heure locale du serveur), `utc` = époque Unix brute. Voir [[Protocole réseau|FR-Protocole-reseau]] |
 | `World.ExitOnRestart` | `0` | `1` : arrête le serveur à la fin du compte à rebours de `/announce_restart` |
 | `StartPosition.<race>.Village` / `.X` / `.Y` / `.Z` | voir le modèle | Position d'apparition par race : 1 Humain, 2 Orc, 3 Elfe de lune, 4 Scion |

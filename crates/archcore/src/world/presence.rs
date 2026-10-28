@@ -230,7 +230,8 @@ pub(super) fn set_visible(st: &mut WorldState, viewer: u32, target: u32, visible
     let tid = t.ch.id;
     let add = character_add_packet(t);
     let gear = super::equipment::view_packets(t);
-    let ride = super::ride::view_packet(t);
+    // Monture portée, ou Alcadia de l'ArchLord (op 6, archlord.rs).
+    let ride = super::ride::view_packet(t).or_else(|| super::archlord::dragon_view(st, tid));
     let link = super::guild::view_packet(st, tid);
     let has_dest = t.dest.is_some();
     let mv = if has_dest { Some(move_fields(st, target)) } else { None };

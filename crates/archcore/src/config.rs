@@ -93,6 +93,38 @@ pub struct WorldConfig {
     /// cent (`Wanted.ExpLossPercent`, 5). Choix d'ArchCore : le client n'en dit rien.
     pub wanted_expire_days: i64,
     pub wanted_exp_loss_percent: f64,
+    /// Combats de Shrine (`world/shrine.rs`) : ouverture selon l'horaire de la table `shrine` (`Shrine.Enabled`, 1 ;
+    /// 0 : seulement par la commande MJ `/shrine open`).
+    pub shrine_enabled: bool,
+    /// Battle Square (`world/battlesquare.rs`) : un superviseur (PNJ 551 à 554) envoie à l'étage du niveau du joueur
+    /// quand il lui parle (`BattleSquare.SupervisorTeleport`, 1 ; choix d'ArchCore, aucun portail n'y mène) ; TID des
+    /// crânes de niveau 1, 2 et 3 (`BattleSquare.SkullTids`, « 500,981,982 » : Skull of Spite, of Hatred, of Blood).
+    pub battle_square_supervisor_teleport: bool,
+    pub battle_square_skull_tids: Vec<u32>,
+    /// Battleground (`world/battlesquare.rs`) : toujours ouvert ; avec un horaire « HH:MM-HH:MM » (plusieurs séparés par
+    /// des « ; »), début et fin annoncés par le paquet 0x58 (`Battleground.Schedule`, vide : aucune annonce).
+    pub battleground_schedule: String,
+    /// Guerres de siège (`world/siege/`) : calendrier automatique (`Siege.Enabled`, 1 ; 0 : seulement les commandes MJ
+    /// `/siege`) ; conditions d'une guilde candidate, membres et âge en jours (`Siege.MinGuildMembers`, 30, et
+    /// `Siege.MinGuildAgeDays`, 14, les valeurs du client) ; durée du combat en minutes (`Siege.DurationMinutes`, 0 : celle
+    /// de SiegeWar.txt, à défaut 120) et du carving en secondes (`Siege.CarveSeconds`, 0 : StampingTime de SiegeWar.txt) ;
+    /// dégâts d'un tir de catapulte en pour cent des PV de la cible (`Siege.CatapultDamagePercent`, 5 ; choix d'ArchCore).
+    pub siege_enabled: bool,
+    pub siege_min_guild_members: usize,
+    pub siege_min_guild_age_days: i64,
+    pub siege_duration_minutes: i64,
+    pub siege_carve_seconds: i64,
+    pub siege_catapult_damage_percent: f64,
+    /// Titre d'ArchLord (`world/archlord.rs`) : gardes royaux au plus (`Archlord.MaxGuards`, 10) ; durée de l'étape
+    /// « portail » de la guerre de Rensphere avant le combat, en minutes (`Archlord.PortalMinutes`, 10) ; durée du
+    /// décalage de 12 h de l'horloge de « Day and Night », en minutes (`Archlord.SkyMinutes`, 5). Choix d'ArchCore.
+    pub archlord_max_guards: usize,
+    pub archlord_portal_minutes: i64,
+    pub archlord_sky_minutes: i64,
+    /// Taxes des régions (`world/tax.rs`) : versement hebdomadaire des recettes, jour (`Tax.PayoutDay`, 1 lundi à 7
+    /// dimanche) et heure (`Tax.PayoutHour`, 0) dans le fuseau `World.TimeZone`. Choix d'ArchCore.
+    pub tax_payout_day: u32,
+    pub tax_payout_hour: u32,
 }
 
 /// Fuseau de l'horloge envoyée au client (`World.TimeZone`). Le client calcule l'heure du ciel par
@@ -205,6 +237,21 @@ impl Default for WorldConfig {
             chat_shout_range: 0.0,
             wanted_expire_days: 7,
             wanted_exp_loss_percent: 5.0,
+            shrine_enabled: true,
+            battle_square_supervisor_teleport: true,
+            battle_square_skull_tids: vec![500, 981, 982],
+            battleground_schedule: String::new(),
+            siege_enabled: true,
+            siege_min_guild_members: 30,
+            siege_min_guild_age_days: 14,
+            siege_duration_minutes: 0,
+            siege_carve_seconds: 0,
+            siege_catapult_damage_percent: 5.0,
+            archlord_max_guards: 10,
+            archlord_portal_minutes: 10,
+            archlord_sky_minutes: 5,
+            tax_payout_day: 1,
+            tax_payout_hour: 0,
         }
     }
 }
@@ -448,6 +495,25 @@ fn read_world(s: &Settings, cfg: &mut Config) {
         chat_shout_range: s.parse("Chat.ShoutRange", d.chat_shout_range).max(0.0),
         wanted_expire_days: s.parse("Wanted.ExpireDays", d.wanted_expire_days).max(1),
         wanted_exp_loss_percent: s.parse("Wanted.ExpLossPercent", d.wanted_exp_loss_percent).clamp(0.0, 100.0),
+        shrine_enabled: s.flag("Shrine.Enabled", d.shrine_enabled),
+        battle_square_supervisor_teleport: s.flag("BattleSquare.SupervisorTeleport", d.battle_square_supervisor_teleport),
+        battle_square_skull_tids: s
+            .string("BattleSquare.SkullTids", "500,981,982")
+            .split(',')
+            .filter_map(|t| t.trim().parse().ok())
+            .collect(),
+        battleground_schedule: s.string("Battleground.Schedule", &d.battleground_schedule),
+        siege_enabled: s.flag("Siege.Enabled", d.siege_enabled),
+        siege_min_guild_members: s.parse("Siege.MinGuildMembers", d.siege_min_guild_members),
+        siege_min_guild_age_days: s.parse("Siege.MinGuildAgeDays", d.siege_min_guild_age_days).max(0),
+        siege_duration_minutes: s.parse("Siege.DurationMinutes", d.siege_duration_minutes).max(0),
+        siege_carve_seconds: s.parse("Siege.CarveSeconds", d.siege_carve_seconds).max(0),
+        siege_catapult_damage_percent: s.parse("Siege.CatapultDamagePercent", d.siege_catapult_damage_percent).clamp(0.0, 100.0),
+        archlord_max_guards: s.parse("Archlord.MaxGuards", d.archlord_max_guards).min(50),
+        archlord_portal_minutes: s.parse("Archlord.PortalMinutes", d.archlord_portal_minutes).max(0),
+        archlord_sky_minutes: s.parse("Archlord.SkyMinutes", d.archlord_sky_minutes).max(1),
+        tax_payout_day: s.parse("Tax.PayoutDay", d.tax_payout_day).clamp(1, 7),
+        tax_payout_hour: s.parse("Tax.PayoutHour", d.tax_payout_hour).min(23),
         language: s.string("World.Language", &d.language),
         rates,
         gm_command_levels,
@@ -589,6 +655,21 @@ pub fn to_values(cfg: &Config, which: Which) -> Vec<(String, String)> {
             put("Chat.ShoutRange", fmt_num(w.chat_shout_range));
             put("Wanted.ExpireDays", w.wanted_expire_days.to_string());
             put("Wanted.ExpLossPercent", fmt_num(w.wanted_exp_loss_percent));
+            put("Shrine.Enabled", (w.shrine_enabled as i64).to_string());
+            put("BattleSquare.SupervisorTeleport", (w.battle_square_supervisor_teleport as i64).to_string());
+            put("BattleSquare.SkullTids", w.battle_square_skull_tids.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(","));
+            put("Battleground.Schedule", w.battleground_schedule.clone());
+            put("Siege.Enabled", (w.siege_enabled as i64).to_string());
+            put("Siege.MinGuildMembers", w.siege_min_guild_members.to_string());
+            put("Siege.MinGuildAgeDays", w.siege_min_guild_age_days.to_string());
+            put("Siege.DurationMinutes", w.siege_duration_minutes.to_string());
+            put("Siege.CarveSeconds", w.siege_carve_seconds.to_string());
+            put("Siege.CatapultDamagePercent", fmt_num(w.siege_catapult_damage_percent));
+            put("Archlord.MaxGuards", w.archlord_max_guards.to_string());
+            put("Archlord.PortalMinutes", w.archlord_portal_minutes.to_string());
+            put("Archlord.SkyMinutes", w.archlord_sky_minutes.to_string());
+            put("Tax.PayoutDay", w.tax_payout_day.to_string());
+            put("Tax.PayoutHour", w.tax_payout_hour.to_string());
             put("World.ExitOnRestart", (w.exit_on_restart as i64).to_string());
             put("Client.DataDir", cfg.client.data_dir.clone());
             let mut races: Vec<&String> = w.start_positions.keys().collect();

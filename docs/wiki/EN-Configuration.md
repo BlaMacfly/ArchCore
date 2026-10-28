@@ -62,6 +62,19 @@ unknown key (typo) is reported.
 | `Chat.ShoutRange` | `0` | Range of the local "/s" shout; 0: twice `World.ViewRadius` (ArchCore's choice) |
 | `Wanted.ExpireDays` | `7` | Lifetime of a wanted poster, in days since the last bounty (ArchCore's choice) |
 | `Wanted.ExpLossPercent` | `5` | Share of the level's experience lost by a wanted criminal killed by a hunter, never a level (ArchCore's choice) |
+| `Shrine.Enabled` | `1` | Shrine battles on the `shrine` table's schedule; `0`: only through `/shrine open` |
+| `BattleSquare.SupervisorTeleport` | `1` | Talking to a Battle Square supervisor (NPCs 551 to 554) sends the player to their level's floor (ArchCore's choice) |
+| `BattleSquare.SkullTids` | `500,981,982` | TIDs of the level 1, 2 and 3 skulls dropped in the Battle Square (ArchCore's choice) |
+| `Battleground.Schedule` | empty | "HH:MM-HH:MM" ranges (separated by ";") whose start and end are announced to everyone (0x58 packet); empty: no announcement |
+| `Siege.Enabled` | `1` | Automatic siege war calendar (automatic date, closing of applications, start, end); `0`: only the `/siege` commands |
+| `Siege.MinGuildMembers`, `Siege.MinGuildAgeDays` | `30`, `14` | Members and age (days) of a guild applying to a siege (client values; lower them for a local game) |
+| `Siege.DurationMinutes` | `0` | Length of the siege battle; `0`: SWPlayingTime of `SiegeWar.txt` (60 min), otherwise 120 |
+| `Siege.CarveSeconds` | `0` | Length of the throne carving; `0`: StampingTime of `SiegeWar.txt` |
+| `Siege.CatapultDamagePercent` | `5` | Damage of a catapult shot, in percent of the targeted outer gate's or tower's HP (ArchCore's choice) |
+| `Archlord.MaxGuards` | `10` | Royal guards the ArchLord can call at once (`/guardactivate`, Call Royal Knight) |
+| `Archlord.PortalMinutes` | `10` | Rensphere war: length of the "portal" step before the "fight" step |
+| `Archlord.SkyMinutes` | `5` | Length of the 12-hour clock shift of Day and Night |
+| `Tax.PayoutDay`, `Tax.PayoutHour` | `1`, `0` | Weekly payout of the region taxes: day (1 Monday to 7 Sunday) and hour (`World.TimeZone`) |
 | `World.TimeZone` | `local` | Time zone of the clock sent to the client (AGPMTIMER packet): `local` = the machine's time (day/night cycle, music and ambience follow the server's local time), `utc` = raw Unix epoch. See [[Network protocol|EN-Network-protocol]] |
 | `World.ExitOnRestart` | `0` | `1`: stops the server at the end of the `/announce_restart` countdown |
 | `StartPosition.<race>.Village` / `.X` / `.Y` / `.Z` | see the template | Spawn position per race: 1 Human, 2 Orc, 3 Moon Elf, 4 Scion |

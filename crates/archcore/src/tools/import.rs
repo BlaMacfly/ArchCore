@@ -232,6 +232,14 @@ impl Source {
         let bytes = std::fs::read(self.0.join(name)).map_err(|e| anyhow::anyhow!("{name} : {e}"))?;
         Ok(encoding_rs::EUC_KR.decode(&bytes).0.into_owned())
     }
+    /// Comme `read`, mais un fichier déjà en UTF-8 (SiegeWar.txt d'Archonia) est gardé tel quel.
+    fn read_utf8_or_korean(&self, name: &str) -> anyhow::Result<String> {
+        let bytes = std::fs::read(self.0.join(name)).map_err(|e| anyhow::anyhow!("{name} : {e}"))?;
+        Ok(match String::from_utf8(bytes) {
+            Ok(text) => text.trim_start_matches('\u{feff}').to_string(),
+            Err(e) => encoding_rs::EUC_KR.decode(e.as_bytes()).0.into_owned(),
+        })
+    }
     fn exists(&self, name: &str) -> bool {
         self.0.join(name).exists()
     }
@@ -284,8 +292,9 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
     let (n, sum) = fingerprint(&dir, |_| true);
     let run = begin_run(&db, "client", &dir, n, &sum).await?;
     import_all(&db, &src).await?;
-    finish_run(&db, run).await?;
     let game = cfg.root.join(&cfg.client.data_dir);
+    import_region_glossary(&db, &src, &game).await?;
+    finish_run(&db, run).await?;
     let (n, sum) = fingerprint(&game.join("world"), |f| f.starts_with('b') && f.ends_with("x.ma2"));
     let run = begin_run(&db, "relief", &game.join("world"), n, &sum).await?;
     import_terrain(&db, &game).await?;
@@ -440,6 +449,60 @@ async fn import_terrain(db: &Databases, game_dir: &std::path::Path) -> anyhow::R
     Ok(())
 }
 
+/// RegionGlossary.txt (une ligne par région, « nom coréen<TAB>nom affiché ») : clé décodée en EUC-KR, nom dans la page de
+/// code du dossier de langue (`encoding`), comme le client qui lit chaque colonne ainsi.
+pub fn parse_region_glossary(plain: &[u8], encoding: &'static encoding_rs::Encoding) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = Vec::new();
+    for line in plain.split(|b| *b == b'\n') {
+        let line = line.strip_suffix(b"\r").unwrap_or(line);
+        let Some(tab) = line.iter().position(|b| *b == b'\t') else { continue };
+        let key = encoding_rs::EUC_KR.decode(&line[..tab]).0.trim().to_string();
+        let name = encoding.decode(&line[tab + 1..]).0.trim().to_string();
+        if !key.is_empty() && !name.is_empty() && !out.iter().any(|(k, _)| *k == key) {
+            out.push((key, name));
+        }
+    }
+    out
+}
+
+/// Dossier et page de code du glossaire d'une langue : `client_folder` de la table `language`, sinon `ini_<langue de
+/// base>` (`ini` pour l'anglais).
+pub fn glossary_folder(code: &str, client_folder: Option<&str>) -> (String, &'static encoding_rs::Encoding) {
+    let base = archcore_net::ext_text::base_language(code).to_lowercase();
+    let folder = client_folder.map(str::to_string).unwrap_or_else(|| if base == "en" { "ini".into() } else { format!("ini_{base}") });
+    let encoding = match base.as_str() {
+        "ko" => encoding_rs::EUC_KR,
+        "ja" => encoding_rs::SHIFT_JIS,
+        "zh" => encoding_rs::GBK,
+        _ => encoding_rs::WINDOWS_1252,
+    };
+    (folder, encoding)
+}
+
+/// Glossaire des régions (`region_glossary`) : RegionGlossary.txt du dossier de chaque langue de la table `language`
+/// dans le dossier Game du client (chiffré ou non), et, pour l'anglais, celui des tables importées à défaut.
+async fn import_region_glossary(db: &Databases, src: &Source, game: &std::path::Path) -> anyhow::Result<()> {
+    let langs = db.world.rows("SELECT code, client_folder FROM language", ()).await.unwrap_or_default();
+    let mut out: Vec<Vec<Value>> = Vec::new();
+    let mut found = Vec::new();
+    for r in &langs {
+        let code: String = crate::db::col(r, "code");
+        let (folder, encoding) = glossary_folder(&code, crate::db::col::<Option<String>>(r, "client_folder").as_deref());
+        let path = ["regionglossary.txt", "RegionGlossary.txt"].iter().map(|f| game.join(&folder).join(f)).find(|p| p.is_file());
+        let plain = match path {
+            Some(p) => super::load_ini(&p)?.1,
+            None if code == "en" && src.exists("regionglossary.txt") => super::load_ini(&src.0.join("regionglossary.txt"))?.1,
+            None => continue,
+        };
+        let rows = parse_region_glossary(&plain, encoding);
+        found.push(format!("{code} {}", rows.len()));
+        out.extend(rows.into_iter().map(|(k, n)| vec![v(code.clone()), v(k), v(n)]));
+    }
+    let n = replace(db, "region_glossary", "INSERT INTO region_glossary (lang,korean_name,name) VALUES (?,?,?)", out).await?;
+    println!("✓ region_glossary : {n} ({})", if found.is_empty() { "aucun dossier de langue trouvé".to_string() } else { found.join(", ") });
+    Ok(())
+}
+
 /// Régions de RegionTemplate.ini : (numéro, nom, région parente, champ Type).
 pub fn parse_regions(text: &str) -> Vec<(u32, String, i64, i64)> {
     parse_ini(text)
@@ -447,6 +510,128 @@ pub fn parse_regions(text: &str) -> Vec<(u32, String, i64, i64)> {
         .filter(|s| is_uint(&s.id))
         .map(|s| (s.id.parse().unwrap(), s.first("Name").unwrap_or("").to_string(), js_number(s.first("ParentIndex").unwrap_or("-1"), -1.0) as i64, num(s.first("Type")) as i64))
         .collect()
+}
+
+/// Un château de SiegeWar.txt.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SiegeWarRow {
+    pub id: u32,
+    pub name: String,
+    /// Noms des régions du château et de ses abords (colonne Region, « château/abords »).
+    pub regions: (String, String),
+    pub playing_ms: i64,
+    pub eye_open_ms: i64,
+    pub stamping_ms: i64,
+    pub declare_hours: i64,
+    pub select_hours: i64,
+    pub interval_days: i64,
+    pub begin_hour: i64,
+    pub stamp_skill_tid: i64,
+    pub stamp_skill_level: i64,
+    pub disabled: bool,
+}
+
+/// SiegeWar.txt : un château par ligne (colonnes cherchées par leur nom ; StartDay et IsDisabled, lues par le client
+/// d'Archonia, manquent au fichier livré). Une heure de début au-delà de 24 est ramenée à 21, comme le lecteur du client.
+pub fn parse_siege_war(text: &str) -> Vec<SiegeWarRow> {
+    let (header, rows) = parse_tsv(text);
+    let col = |name: &str| header.iter().position(|h| h.eq_ignore_ascii_case(name));
+    let get = |r: &[String], name: &str| col(name).and_then(|i| r.get(i)).map(|s| s.trim().to_string()).unwrap_or_default();
+    let n = |r: &[String], name: &str| js_number(&get(r, name), 0.0) as i64;
+    rows.iter()
+        .filter(|r| is_uint(&get(r, "Index")))
+        .map(|r| {
+            let region = get(r, "Region");
+            let (castle, outskirts) = region.split_once('/').map(|(a, b)| (a.trim().to_string(), b.trim().to_string())).unwrap_or((region.clone(), String::new()));
+            let hour = n(r, "SWBeginTime");
+            SiegeWarRow {
+                id: get(r, "Index").parse().unwrap_or(0),
+                name: get(r, "Castle"),
+                regions: (castle, outskirts),
+                playing_ms: n(r, "SWPlayingTime"),
+                eye_open_ms: n(r, "ArchonEyeOpenTime"),
+                stamping_ms: n(r, "StampingTime"),
+                declare_hours: n(r, "NextSWDeclaring(Hours)"),
+                select_hours: n(r, "SelectGuildForSW(Hours)"),
+                interval_days: n(r, "Duration4nextSW(Days)"),
+                begin_hour: if hour > 24 { 21 } else { hour },
+                stamp_skill_tid: n(r, "StampSkillTID"),
+                stamp_skill_level: n(r, "StampSkillLevel"),
+                disabled: n(r, "IsDisabled") != 0,
+            }
+        })
+        .collect()
+}
+
+/// SiegeWarObject.txt : (type, description, réparations, coût, durée en minutes, objets requis [TID, nombre]) ; colonnes
+/// par position (en-têtes en coréen), jusqu'à huit paires d'objets.
+pub fn parse_siege_war_objects(text: &str) -> Vec<(u32, String, i64, i64, i64, Vec<(i64, i64)>)> {
+    let (_, rows) = parse_tsv(text);
+    rows.iter()
+        .filter(|r| r.first().is_some_and(|t| is_uint(t.trim())))
+        .map(|r| {
+            let n = |i: usize| r.get(i).map(|s| js_number(s.trim(), 0.0) as i64).unwrap_or(0);
+            let items = (0..8).map(|k| (n(5 + 2 * k), n(6 + 2 * k))).filter(|(tid, count)| *tid > 0 && *count > 0).collect();
+            (n(0) as u32, r.get(1).map(|s| s.trim().to_string()).unwrap_or_default(), n(2), n(3), n(4), items)
+        })
+        .collect()
+}
+
+/// Niveaux d'entrée de RegionTemplate.ini : (numéro, LevelMin, LevelLimit), pour les régions qui en ont.
+pub fn parse_region_levels(text: &str) -> Vec<(u32, i64, i64)> {
+    parse_ini(text)
+        .iter()
+        .filter(|s| is_uint(&s.id))
+        .map(|s| (s.id.parse().unwrap(), num(s.first("LevelMin")) as i64, num(s.first("LevelLimit")) as i64))
+        .filter(|(_, min, limit)| *min > 0 || *limit > 0)
+        .collect()
+}
+
+/// Boss de la fenêtre des boss d'Archonia (UIBoss.xml) : (TID, catégorie 1 à 7 ou 0, nom affiché), dans l'ordre du
+/// fichier.
+pub fn parse_boss_window(xml: &str) -> Vec<(u32, u8, String)> {
+    let attr = |s: &str, name: &str| -> Option<String> {
+        let at = s.find(&format!("{name}=\""))? + name.len() + 2;
+        Some(s[at..].split('"').next()?.to_string())
+    };
+    let category = |c: &str| match c.trim().to_ascii_lowercase().as_str() {
+        "chaoticfrontier" => 1,
+        "asylum" => 2,
+        "battlesquare" => 3,
+        "shinewood" => 4,
+        "heavenshell" => 5,
+        "firmament" => 6,
+        "purgatory" => 7,
+        _ => 0,
+    };
+    let mut out = Vec::new();
+    for boss in xml.split("<Boss ").skip(1) {
+        let boss = boss.split("</Boss>").next().unwrap_or("");
+        let Some(tid) = attr(boss, "TID").and_then(|t| t.trim().parse::<u32>().ok()) else { continue };
+        let name = boss.find("<Name").and_then(|i| attr(&boss[i..], "Text")).unwrap_or_default();
+        out.push((tid, category(&attr(boss, "Category").unwrap_or_default()), name.trim().chars().take(96).collect()));
+    }
+    out
+}
+
+/// pvpskulldroptable.txt : (écart de niveau tueur − victime, chance en pour cent) et (niveau de la victime de, à, niveau
+/// du crâne) pour les lignes « 1:40 ».
+pub fn parse_skull_table(text: &str) -> (Vec<(i64, f64)>, Vec<(i64, i64, i64)>) {
+    let (mut chances, mut levels) = (Vec::new(), Vec::new());
+    // La première ligne est l'en-tête.
+    for line in text.lines().skip(1) {
+        let cells: Vec<&str> = line.split('\t').map(str::trim).collect();
+        let (Some(first), Some(second), Some(third)) = (cells.first(), cells.get(1), cells.get(2)) else { continue };
+        if let Some((a, b)) = first.split_once(':') {
+            if let (Ok(a), Ok(b), Ok(l)) = (a.trim().parse::<i64>(), b.trim().parse::<i64>(), second.parse::<i64>()) {
+                levels.push((a, b, l));
+            }
+        } else if let (Ok(gap), Ok(chance)) = (first.parse::<i64>(), third.parse::<f64>()) {
+            chances.retain(|(g, _)| *g != gap);
+            chances.push((gap, chance.max(0.0)));
+        }
+    }
+    (chances, levels)
 }
 
 /// Événement « binding » (fonction 19) d'un objet d'obj*.ini.
@@ -1309,6 +1494,7 @@ async fn import_all(db: &Databases, src: &Source) -> anyhow::Result<()> {
         let regions = parse_regions(&src.read("RegionTemplate.ini")?);
         let by_name: std::collections::HashMap<&str, u32> = regions.iter().map(|r| (r.1.as_str(), r.0)).collect();
         let mut points = Vec::new();
+        let mut siege_points = Vec::new();
         let mut files: Vec<PathBuf> = std::fs::read_dir(&src.0)?
             .filter_map(|e| e.ok().map(|e| e.path()))
             .filter(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("obj") && n.ends_with(".ini")))
@@ -1327,16 +1513,90 @@ async fn import_all(db: &Databases, src: &Source) -> anyhow::Result<()> {
                     points.push((region, key, b));
                 }
             }
+            // Points des sièges (types 3 à 7), à part : ils ne servent qu'aux résurrections de siège (world/siege).
+            let mut siege_ranks: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+            for b in parse_bindings(&text).into_iter().filter(|b| (3..=7).contains(&b.binding_type)) {
+                let rank = siege_ranks.entry(b.object.clone()).or_insert(0);
+                *rank += 1;
+                let key = format!("{file}#{}#s{rank}", b.object);
+                if let Some(&region) = by_name.get(b.town.as_str()) {
+                    siege_points.push((region, key, b));
+                }
+            }
         }
-        let out: Vec<Vec<Value>> = regions.iter().map(|r| vec![v(r.0), v(r.1.clone()), v(r.2), v(r.3), v((r.3 >> 2) & 3)]).collect();
-        let n = replace(db, "region_template", "INSERT INTO region_template (id,name,parent_id,type_bits,safety) VALUES (?,?,?,?,?)", out).await?;
+        let out: Vec<Vec<Value>> = siege_points
+            .iter()
+            .enumerate()
+            .map(|(i, (region, key, b))| vec![v(i as u32 + 1), v(key.clone()), v(*region), v(b.name.clone()), v(b.binding_type), v(b.pos[0]), v(b.pos[1]), v(b.pos[2])])
+            .collect();
+        let k = replace(db, "siege_binding", "INSERT INTO siege_binding (id,stable_key,region_id,name,binding_type,pos_x,pos_y,pos_z) VALUES (?,?,?,?,?,?,?,?)", out).await?;
+        println!("✓ siege_binding : {k}");
+        // ------------------------------------------------------------ SiegeWar.txt, SiegeWarObject.txt (guerres de siège)
+        if src.exists("SiegeWar.txt") {
+            let rows = parse_siege_war(&src.read_utf8_or_korean("SiegeWar.txt")?);
+            let region = |name: &str| by_name.get(name).copied().unwrap_or(0);
+            let out: Vec<Vec<Value>> = rows
+                .iter()
+                .map(|r| {
+                    vec![
+                        v(r.id), v(r.name.clone()), v(region(&r.regions.0)), v(region(&r.regions.1)), v(r.playing_ms), v(r.eye_open_ms), v(r.stamping_ms),
+                        v(r.declare_hours), v(r.select_hours), v(r.interval_days), v(r.begin_hour), v(r.stamp_skill_tid), v(r.stamp_skill_level), v(r.disabled as u8),
+                    ]
+                })
+                .collect();
+            let unknown = rows.iter().filter(|r| region(&r.regions.0) == 0).count();
+            let n = replace(
+                db,
+                "siege_war",
+                "INSERT INTO siege_war (id,name,castle_region,outskirts_region,playing_ms,eye_open_ms,stamping_ms,declare_hours,select_hours,interval_days,begin_hour,stamp_skill_tid,stamp_skill_level,disabled) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                out,
+            )
+            .await?;
+            println!("✓ siege_war : {n} ({unknown} sans région connue)");
+        }
+        let objects = ["siegewarobject.txt", "SiegeWarObject.txt"].into_iter().find(|f| src.exists(f));
+        if let Some(file) = objects {
+            let out: Vec<Vec<Value>> = parse_siege_war_objects(&src.read(file)?)
+                .into_iter()
+                .map(|(t, d, count, cost, minutes, items)| vec![v(t), v(d), v(count), v(cost), v(minutes), v(serde_json::to_string(&items.iter().map(|(a, b)| [*a, *b]).collect::<Vec<_>>()).unwrap())])
+                .collect();
+            let n = replace(db, "siege_war_object", "INSERT INTO siege_war_object (type,description,repair_count,repair_cost,repair_minutes,items) VALUES (?,?,?,?,?,?)", out).await?;
+            println!("✓ siege_war_object : {n}");
+        }
+        // Niveaux d'entrée (étages de la Battle Square).
+        let levels: std::collections::HashMap<u32, (i64, i64)> = parse_region_levels(&src.read("RegionTemplate.ini")?).into_iter().map(|(r, a, b)| (r, (a, b))).collect();
+        let out: Vec<Vec<Value>> = regions
+            .iter()
+            .map(|r| {
+                let (min, limit) = levels.get(&r.0).copied().unwrap_or((0, 0));
+                vec![v(r.0), v(r.1.clone()), v(r.2), v(r.3), v((r.3 >> 2) & 3), v(min), v(limit)]
+            })
+            .collect();
+        let n = replace(db, "region_template", "INSERT INTO region_template (id,name,parent_id,type_bits,safety,level_min,level_limit) VALUES (?,?,?,?,?,?,?)", out).await?;
         let out: Vec<Vec<Value>> = points
             .iter()
             .enumerate()
             .map(|(i, (region, key, b))| vec![v(i as u32 + 1), v(key.clone()), v(*region), v(b.name.clone()), v(b.pos[0]), v(b.pos[1]), v(b.pos[2]), v(b.race), v(b.class)])
             .collect();
         let m = replace(db, "resurrection_point", "INSERT INTO resurrection_point (id,stable_key,region_id,name,pos_x,pos_y,pos_z,race,class) VALUES (?,?,?,?,?,?,?,?,?)", out).await?;
-        println!("✓ region_template : {n} ; resurrection_point : {m} (sur {} fichier(s) obj*.ini)", files.len());
+        println!("✓ region_template : {n} ({} avec un niveau d'entrée) ; resurrection_point : {m} (sur {} fichier(s) obj*.ini)", levels.len(), files.len());
+    }
+
+    // ---------------------------------------------------------------- UIBoss.xml (fenêtre des boss d'Archonia)
+    if src.exists("UIBoss.xml") {
+        let out: Vec<Vec<Value>> =
+            parse_boss_window(&src.read("UIBoss.xml")?).into_iter().enumerate().map(|(i, (tid, category, name))| vec![v(tid), v(i as u32), v(category), v(name)]).collect();
+        let n = replace(db, "boss_window", "INSERT INTO boss_window (tid,row_order,category,name) VALUES (?,?,?,?)", out).await?;
+        println!("✓ boss_window : {n}");
+    }
+
+    // ---------------------------------------------------------------- pvpskulldroptable.txt (crânes de la Battle Square)
+    if src.exists("pvpskulldroptable.txt") {
+        let (chances, levels) = parse_skull_table(&src.read("pvpskulldroptable.txt")?);
+        let n = replace(db, "pvp_skull_chance", "INSERT INTO pvp_skull_chance (level_gap,chance) VALUES (?,?)", chances.iter().map(|(g, c)| vec![v(*g), v(*c)]).collect()).await?;
+        let out = levels.iter().map(|(a, b, l)| vec![v(*a), v(*b), v(*l)]).collect();
+        let m = replace(db, "pvp_skull_level", "INSERT INTO pvp_skull_level (victim_level_min,victim_level_max,skull_level) VALUES (?,?,?)", out).await?;
+        println!("✓ pvp_skull_chance : {n} ; pvp_skull_level : {m}");
     }
 
     // ---------------------------------------------------------------- TeleportPoint.ini, obj*.ini, TeleportFee.txt (portails)
@@ -1633,6 +1893,44 @@ mod tests {
                    \t<Boss TID=\"5794\" Category=\"Firmament\" Icon=\"1\">\n\t\t<SpawnPeriod Text=\"Event-based spawn\"/>\n\t</Boss>\n\
                    \t<Boss TID=\"5799\" Category=\"Firmament\" Icon=\"2\">\n\t\t<SpawnPeriod Text=\"25-35 minutes\"/> \n\t</Boss>\n</UIBoss>";
         assert_eq!(parse_boss_periods(xml), vec![(2073, 1800, 2700), (5799, 1500, 2100)]);
+        assert_eq!(parse_boss_window(xml), vec![(2073, 3, "Basilis (Lv.30)".to_string()), (5794, 6, String::new()), (5799, 6, String::new())]);
+    }
+
+    #[test]
+    fn niveaux_des_regions_et_cranes() {
+        let r = parse_region_levels("[198]\nName=BS\nLevelLimit=30\nLevelMin=20\n[9]\nName=Anchorville\n");
+        assert_eq!(r, vec![(198, 20, 30)]);
+        let (chances, levels) = parse_skull_table("PC\tniveau\tchance\t\r\n40\t1\t0\t\r\n5\t1\t10\t\r\n-35\t1\t1\t\r\n1:40\t1\t-1\t\r\n41:70\t2\t-1\r\n");
+        assert_eq!(chances, vec![(40, 0.0), (5, 10.0), (-35, 1.0)]);
+        assert_eq!(levels, vec![(1, 40, 1), (41, 70, 2)]);
+    }
+
+    #[test]
+    fn glossaire_des_regions() {
+        // Clé en EUC-KR, nom en Windows-1252 (dossier ini_fr) ; ligne sans tabulation ignorée, doublon gardé une fois.
+        let mut plain = encoding_rs::EUC_KR.encode("인플레임 성 인근").0.into_owned();
+        plain.extend(b"\tCh\xe2teau d'Inflame \r\nsans tabulation\r\n");
+        plain.extend(encoding_rs::EUC_KR.encode("인플레임 성 인근\tdoublon\r\n").0.iter());
+        let rows = parse_region_glossary(&plain, encoding_rs::WINDOWS_1252);
+        assert_eq!(rows, vec![("인플레임 성 인근".to_string(), "Château d'Inflame".to_string())]);
+        assert_eq!(glossary_folder("en", None).0, "ini");
+        assert_eq!(glossary_folder("fr", Some("ini_fr")).0, "ini_fr");
+        assert_eq!(glossary_folder("zh-CN", None), ("ini_zh".to_string(), encoding_rs::GBK));
+        assert_eq!(glossary_folder("ko", None).1, encoding_rs::EUC_KR);
+    }
+
+    #[test]
+    fn chateaux_et_objets_de_siege() {
+        let text = "Index\tCastle\tRegion\tSWPlayingTime\tArchonEyeOpenTime\tStampingTime\tNextSWDeclaring(Hours)\tSelectGuildForSW(Hours)\tDuration4nextSW(Days)\tSWBeginTime\tStampSkillTID\tStampSkillLevel\r\n\
+                    0\tRensphere\t렌스피어 성/렌스피어 성 인근\t3600000\t0\t300000\t0\t0\t30\t20\t930\t1\r\n\
+                    4\tDrayger\t드래이거 성/드래이거 성 인근\t3600000\t300000\t180000\t144\t143\t7\t30\t\t\r\n";
+        let rows = parse_siege_war(text);
+        assert_eq!(rows.len(), 2);
+        assert_eq!((rows[0].id, rows[0].name.as_str(), rows[0].regions.1.as_str(), rows[0].stamp_skill_tid, rows[0].interval_days), (0, "Rensphere", "렌스피어 성 인근", 930, 30));
+        assert_eq!((rows[1].regions.0.as_str(), rows[1].eye_open_ms, rows[1].declare_hours, rows[1].begin_hour, rows[1].disabled), ("드래이거 성", 300_000, 144, 21, false));
+        let objects = parse_siege_war_objects("타입\t타입설명\t수리횟수\t수리비용\t수리시간(분)\t필요아이템(TID)\t필요아이템(개수)\r\n10\t투석기\t5\t500000\t5\t4553\t1\r\n9\t공성부활탑\t5\t500000\t5\t4554\t1\r\n");
+        assert_eq!(objects[0], (10, "투석기".to_string(), 5, 500_000, 5, vec![(4553, 1)]));
+        assert_eq!((objects[1].0, objects[1].5.clone()), (9, vec![(4554, 1)]));
     }
 
     #[test]

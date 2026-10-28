@@ -567,6 +567,12 @@ pub fn on_cast(ctx: &WorldCtx, st: &mut WorldState, sid: u32, t: &SkillTemplate,
     }
 }
 
+/// Invocation de combat (type 1) « forcée », hors de la limite du maître, comme celle d'un parchemin : gardes royaux de
+/// l'ArchLord (`archlord.rs`). Rend son CID.
+pub fn spawn_forced(ctx: &WorldCtx, st: &mut WorldState, sid: u32, tid: u32, skill_tid: u32, duration_ms: Option<u64>, now: Instant) -> Option<u32> {
+    spawn(ctx, st, sid, &Spawn { tid, skill_kind: skill_kind::SCROLL, skill_tid, duration_ms, item: None }, now)
+}
+
 /// Fait la place pour `count` nouvelles créatures : invocations ordinaires (limite du maître, relevée au besoin jusqu'au
 /// nombre invoqué), créatures fixes (`limit_quantity` de la compétence), parchemin (un par compétence), familier (un).
 fn make_room(st: &mut WorldState, owner: u32, skill: i64, skill_tid: u32, lv: &SkillLevel, count: usize, now: Instant) {
@@ -764,7 +770,7 @@ fn choose(ctx: &WorldCtx, st: &WorldState, s: &Summon, m: &Monster, osid: u32) -
     // Cible du maître : monstre vivant et attaquable (pas l'une de ses invocations), ou joueur qu'il peut attaquer.
     let master = p.attack.and_then(|a| {
         if let Some(t) = st.monsters.get(a.target).filter(|t| t.is_alive() && combat::dist2d(t.pos, at) <= ASSIST_RANGE) {
-            let ok = st.monsters.stats_for(t).is_attackable() && may_attack(ctx, st, osid, t.cid, a.forced).is_ok();
+            let ok = st.monsters.stats_for(t).is_attackable() && may_attack(ctx, st, osid, t.cid, a.forced).is_ok() && super::siege::war::may_hit(ctx, st, osid, t.cid);
             return ok.then_some(a.target);
         }
         st.by_cid.get(&a.target).filter(|t| super::pvp::check(ctx, st, osid, **t, a.forced).is_ok()).map(|_| a.target)
@@ -800,7 +806,7 @@ fn trap_target(st: &WorldState, s: &Summon, m: &Monster) -> Option<u32> {
     }
     st.monsters
         .near(m.pos, range + 500.0)
-        .filter(|t| t.is_alive() && t.owner.is_none() && st.monsters.stats_of(t.tid).is_attackable())
+        .filter(|t| t.is_alive() && t.owner.is_none() && st.monsters.stats_of(t.tid).is_attackable() && super::siege::war::may_hit_auto(st, t.cid))
         .filter(|t| combat::dist2d(t.pos, m.pos) <= range + st.monsters.stats_of(t.tid).hit_range as f64 + REACH_TOLERANCE)
         .min_by(|a, b| (a.target != Some(s.owner)).cmp(&(b.target != Some(s.owner))).then(combat::dist2d(a.pos, m.pos).total_cmp(&combat::dist2d(b.pos, m.pos))))
         .map(|t| t.cid)

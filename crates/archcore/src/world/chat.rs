@@ -193,6 +193,10 @@ pub async fn on_chatting(world: &Arc<World>, st: &mut WorldState, sid: u32, p: &
     // Préfixes d'Archonia (groupe, guilde, cris) avant les commandes MJ ; jamais dans un chuchotement.
     let prefix = if kind == chat_type::WHISPER { None } else { split_prefix(&full) };
     let text = prefix.map(|(_, rest)| rest.to_string()).unwrap_or_else(|| full.clone());
+    // Commandes de l'ArchLord (/archlord, /guardactivate…) avant les commandes MJ (archlord.rs).
+    if prefix.is_none() && text.starts_with('/') && super::archlord::chat_command(&world.ctx, st, sid, &text).await? {
+        return Ok(());
+    }
     if prefix.is_none() && text.starts_with('/') && gm::execute(world, st, sid, &text).await? {
         return Ok(());
     }

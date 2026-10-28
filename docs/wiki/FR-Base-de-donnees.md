@@ -36,6 +36,11 @@ Toutes sont en `utf8mb4`.
 | `character_item_set` | Commutateur d'équipement : emplacement (0 à 99) et ses objets (« E,partie,identifiant » séparés par « : ») ; l'emplacement porté est `characters.item_set_active` (-1 aucun) |
 | `wanted_criminal` | Avis de recherche : criminel, prime cumulée, première et dernière mise à prix, échéance (`Wanted.ExpireDays` après la dernière) ; effacé à la capture |
 | `wanted_bounty` | Historique des mises à prix : criminel, poseur, montant, date ; chasseur qui a touché la prime et date de la capture |
+| `shrine_score`, `shrine_race_score` | Combats de Shrine : victoires et défaites de chaque personnage et de chaque race présents à la fin d'un combat gagné (AgpmShrineBattle op 11 et 12) |
+| `character_boss_kill` | Fenêtre des boss : victoires de chaque personnage sur chaque boss de `UIBoss.xml` (une par combattant au combat où il meurt), date de la dernière |
+| `castle`, `castle_application` | Guerres de siège : propriétaire de chaque château, statut (0 à 2 ; un siège en cours au redémarrage est clos sans changement), dates du dernier et du prochain siège, fins des candidatures et du délai de déclaration, guilde du dernier carving ; candidatures (camp 1 attaque, 2 défense, retenue ou non) |
+| `archlord` | Titre d'ArchLord : une ligne (id 1), personnage en titre (`NULL` : aucun), nom, depuis quand |
+| `castle_tax`, `castle_tax_region` | Taxes des régions : par château, recette totale versée, dernier versement, dernière modification des taux, début de la période ; par région (château et abords), château, taux (0 à 50 %) et recette depuis le dernier versement |
 | `character_ui_status` | Statut d'interface : potions de vie et de mana de la barre, seuils de leur prise automatique (%), affichage du casque |
 
 ## `archcore_world` — données du jeu (`sql/003_world.sql`)
@@ -66,8 +71,14 @@ Remplie par `archcore import` à partir des tables du client.
 | `drop_group` | `groupdroprate.txt` du serveur d'origine | 28 groupes de butin ; les objets de chaque groupe viennent d'`item_data` (GroupID, DropRank, DropRate) |
 | `drop_rank_rate` | `droprankrate.txt` du serveur d'origine | Rangs d'objets (pour cent) selon le rang de butin du monstre |
 | `monster_ai` | `aidatatable.txt` du serveur d'origine | 7 674 IA (3 289 avec des compétences), désignées par `monster_spawn.ai_tid` : colonnes non vides en JSON, les colonnes répétées numérotées (`Skill1`, `SkillCondition1`, `SkillCount1`…) |
-| `region_template` | `RegionTemplate.ini` | 331 régions : nom, région parente, champ Type, sûreté (33 sûres) |
+| `region_template` | `RegionTemplate.ini` | 331 régions : nom, région parente, champ Type, sûreté (33 sûres), niveaux d'entrée `level_min` et `level_limit` (LevelMin, LevelLimit : étages de la Battle Square) |
+| `region_glossary` | `RegionGlossary.txt` de chaque dossier de langue du client (`ini`, `ini_fr`…) | Nom affiché de chaque région par langue (clé : nom coréen de `RegionTemplate.ini`) : nom des régions taxées envoyé au client (AgpmTax) |
+| `boss_window` | `UIBoss.xml` | 25 boss de la fenêtre des boss d'Archonia : TID, ordre, catégorie (1 à 7), nom affiché |
+| `pvp_skull_chance`, `pvp_skull_level` | `pvpskulldroptable.txt` | Crânes de la Battle Square : chance (%) selon l'écart de niveau tueur − victime, niveau du crâne selon le niveau de la victime |
 | `resurrection_point` | `obj*.ini` (événement 19, type 1) | 62 points de résurrection : région, position, race et classe admises |
+| `siege_binding` | `obj*.ini` (événement 19, types 3 à 7) | 27 points de résurrection des sièges : région, type (3 assaillants, 4 défense intérieure, 7 défense extérieure, 5 et 6 Archlord), position |
+| `siege_war` | `SiegeWar.txt` | 5 châteaux (0 Rensphere à 4 Drayger) : régions du château et des abords, durées du combat, des Yeux d'Archon et du carving, délais de déclaration et de candidature, écart entre deux sièges, heure de début, compétence du carving |
+| `siege_war_object` | `SiegeWarObject.txt` | 2 objets d'assaut (9 camp, 10 catapulte) : réparations, coût, durée, objets requis (JSON) |
 | `teleport_point` | `TeleportPoint.ini` | 301 points de téléportation : rayon d'arrivée, races admises, groupes (arrivée, destinations) |
 | `teleport_object` | `obj*.ini` (événement 8) | 291 portails : objet, point porté, position |
 | `teleport_fee` | `TeleportFee.txt` | 227 prix de trajet (départ, arrivée) |
@@ -100,6 +111,11 @@ contenu propre à ArchCore (corrections, apparitions ajoutées, PNJ créés avec
 **`content/`** du dépôt, en fichiers `<AAAAMMJJHHMM>_<sujet>.sql` : `archcore import` les applique à la fin, et
 `archcore content` les réapplique seuls. Chaque fichier passe dans une transaction (tout ou rien), doit pouvoir
 être rejoué et ne contient que des données, ciblées par TID ou par `stable_key` (voir `content/README.md`).
+
+Les tables **`shrine`** (Shrines : région centrale, jours, heure, durée, gravure, occupation, niveaux, effectif par
+race) et **`shrine_reward`** (récompenses `Carving`, `WinRace`, `Common` : objet, quantité, charisme), créées par une
+migration, ne viennent d'aucun fichier du client (les tables d'origine ne sont pas livrées) : elles sont remplies par
+`content/202610281700_shrines.sql` (valeurs choisies par ArchCore, à régler à volonté).
 
 La table **`import_run`** note chaque source lue (`client`, `relief`, `serveur`, `contenu`) : dossier, nombre de
 fichiers, empreinte SHA-256 (noms et tailles ; textes pour le contenu), version d'ArchCore, début et fin. Une fin
@@ -163,6 +179,9 @@ fait de même au démarrage :
 | pièce jointe de courrier introuvable (`mail.item_id` sans objet au statut 4 chez le destinataire) | avertissement |
 | objet en vente introuvable (`auction_sale` en vente sans objet au statut 5 chez le vendeur) | avertissement |
 | coiffure ou visage absent de `character_customize` pour le modèle du personnage (table importée) | avertissement |
+| victoires sur un boss absent de `boss_window` (`character_boss_kill.boss_tid`) | avertissement |
+| châteaux absents de `siege_war` (`castle.id`) | avertissement |
+| taxes d'un château absent de `siege_war` (`castle_tax.castle_id`), région taxée absente de `region_template` (`castle_tax_region.region_id`) | avertissement |
 | banque sans compte, langue de compte inconnue | avertissement |
 | identifiant de personnage dans la plage des PNJ (≥ 0x40000000), d'objet dans celle des boutiques (≥ 0x20000000) | grave |
 

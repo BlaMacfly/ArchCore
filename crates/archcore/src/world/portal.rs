@@ -14,8 +14,8 @@
 //! d'arrivée (`Group`), et si la race du joueur est admise aux deux bouts (`UseType`, 0 : toutes). L'arrivée
 //! est l'objet qui porte le point d'arrivée : on se pose sur un cercle de rayon `RadiusMin`..`RadiusMax`
 //! autour de lui, au premier des huit points espacés de 45° (à partir d'un angle tiré au hasard) qui n'est
-//! pas sur un sol infranchissable. Le prix du trajet (TeleportFee.txt, que le client affiche aussi) est pris
-//! sur l'argent porté.
+//! pas sur un sol infranchissable. Le prix du trajet (TeleportFee.txt, que le client affiche aussi), plus la
+//! taxe de la région du départ (`tax.rs`), est pris sur l'argent porté.
 //!
 //! Zones de combat entre joueurs (`RegionType=1`, toujours avec `SpecialType=1` dans TeleportPoint.ini) :
 //! comme dans le module AgpmEventTeleport d'Archonia (FUN_1402e8780), le point de départ de chaque trajet
@@ -319,11 +319,19 @@ async fn teleport(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> 
         warn!("[portail] {} : trajet « {} » → « {target_name} » refusé", player.ch.name, portal.point);
         return Ok(());
     }
+    // Trajets des châteaux (SpecialType 2 à 4) : selon le propriétaire et le siège (siege/war.rs).
+    if let Err(why) = super::siege::war::portal_check(ctx, st, sid, (src.special_type, portal.pos), (dst.special_type, dst.at)) {
+        info!("[portail] {} : trajet « {} » → « {target_name} » refusé ({why})", player.ch.name, portal.point);
+        send_system(st, sid, &why);
+        return Ok(());
+    }
     let Some(center) = dst.at else {
         warn!("[portail] « {target_name} » n'a pas d'objet d'arrivée");
         return Ok(());
     };
-    let fee = ctx.portals.fee(&portal.point, &target_name);
+    // Prix du trajet taxé dans la région du départ (tax.rs).
+    let taxed = super::tax::quote(ctx, st, sid, ctx.portals.fee(&portal.point, &target_name));
+    let fee = taxed.total;
     let money = player.ch.money as i64;
     if fee > money {
         send_system(st, sid, &format!("Il faut {fee} pièce(s) d'or pour ce trajet."));
@@ -336,6 +344,7 @@ async fn teleport(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> 
     let name = player.ch.name.clone();
     if fee > 0 {
         super::set_money(ctx, st, sid, money - fee).await?;
+        super::tax::collect(ctx, st, &taxed).await?;
     }
     // Point de départ noté, pour un « Retour » depuis l'arrivée (module d'Archonia, op 0 réussie).
     st.players.get_mut(&sid).unwrap().trip_from = Some(portal.point.clone());

@@ -185,6 +185,26 @@ impl LootTables {
         out
     }
 
+    /// Objets que ce monstre peut donner, pour la fenêtre des boss : (TID, taux sur 100 000 ou poids, quantité
+    /// maximale), ses objets propres d'abord, puis ceux des groupes (rangs les plus rares d'abord), `limit` au plus.
+    pub fn possible(&self, m: &Source, limit: usize) -> Vec<(u32, i64, i64)> {
+        let mut out: Vec<(u32, i64, i64)> = self.per_monster.get(&m.tid).map(Vec::as_slice).unwrap_or(&[]).iter().map(|d| (d.tid, d.rate, d.max.max(d.min).max(1))).collect();
+        if let Some(ranks) = self.rank_rates.get(&m.drop_rank) {
+            let mut items: Vec<&GroupItem> = self
+                .groups
+                .iter()
+                .flat_map(|g| g.items.iter())
+                .filter(|i| (i.level_max <= 1 || (i.level_min..=i.level_max).contains(&m.level)) && ranks[i.rank - 1] > 0)
+                .collect();
+            items.sort_by(|a, b| b.rank.cmp(&a.rank).then(a.tid.cmp(&b.tid)));
+            out.extend(items.iter().map(|i| (i.tid, i.rate, 1)));
+        }
+        let mut seen = std::collections::HashSet::new();
+        out.retain(|x| seen.insert(x.0));
+        out.truncate(limit);
+        out
+    }
+
     fn roll_group(&self, rng: &mut impl Rng, g: &DropGroup, ranks: &[i64; 10], m: &Source, killer_level: i32, rates: Rates) -> Option<u32> {
         let mut rate = g.rate as f64 * rates.drop;
         if g.meditation {

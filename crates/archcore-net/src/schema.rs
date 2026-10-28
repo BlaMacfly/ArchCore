@@ -77,6 +77,22 @@ pub mod ptype {
     pub const AREA_CHATTING: u8 = 0x4c;
     pub const EVENT_CHAR_CUSTOMIZE: u8 = 0x43;
     pub const WANTED_CRIMINAL: u8 = 0x46;
+    /// AgcmBattleGround (0x58) : annonces du Battleground, structure brute du serveur au client.
+    pub const BATTLEGROUND: u8 = 0x58;
+    /// AgpmShrineBattle (0x62) : combats de Shrine de l'épisode 8, structure brute.
+    pub const SHRINE_BATTLE: u8 = 0x62;
+    /// AgpmBoss (0x64) : fenêtre des boss d'Archonia.
+    pub const BOSS: u8 = 0x64;
+    /// AgpmSiegeWar (0x49) : guerres de siège des châteaux.
+    pub const SIEGE_WAR: u8 = 0x49;
+    /// AgpmEventSiegeWarNPC (0x50) : commandants de siège (fonction de PNJ 33).
+    pub const EVENT_SIEGE_WAR_NPC: u8 = 0x50;
+    /// AgpmWarInfo (0x61) : tableau d'information des guerres (siège, Battleground, Shrine, Archlord), serveur → client.
+    pub const WAR_INFO: u8 = 0x61;
+    /// AgpmTax (0x53) : taxes des régions des châteaux (intendants, fonction de PNJ 34).
+    pub const TAX: u8 = 0x53;
+    /// AgpmArchlord (0x55) : titre d'ArchLord, gardes, étapes de la guerre de Rensphere.
+    pub const ARCHLORD: u8 = 0x55;
     /// Extensions ArchRust ↔ ArchCore. Hors de la plage 0x01-0x77 acceptée par le répartiteur du
     /// client d'origine, qui l'ignore donc sans erreur.
     pub const ARCHCORE_EXT: u8 = 0xac;
@@ -847,13 +863,104 @@ pub static WANTED_CRIMINAL: Schema = Schema {
     ],
 };
 
+/// AgpmShrineBattle (0x62) — structure brute (constructeur 0x140272040 d'Archonia, réception 0x140272980) : l'octet 0x13
+/// vaut 1 et l'opération (U16) suit en 0x14, ce qui se lit comme un paquet à drapeaux 1 dont le seul champ est
+/// l'opération ; le corps (bourrage en 0x16, puis données en 0x18) est brut (`world/shrine.rs`), ops `shrine_op`.
+pub static SHRINE_BATTLE: Schema = Schema { name: "AGPMSHRINEBATTLE", id: ptype::SHRINE_BATTLE, flag_len: 1, fields: &[f(U16)] };
+
+/// AgpmBoss (0x64) — drapeaux 1 (constructeur FUN_1402ed3e0 d'Archonia, réception FUN_1402eda60) : fenêtre des boss,
+/// ajout d'Archonia sans effet sur le jeu (`world/boss.rs`), ops `boss_op`.
+pub static BOSS: Schema = Schema {
+    name: "AGPMBOSS",
+    id: ptype::BOSS,
+    flag_len: 1,
+    fields: &[
+        f(U8),          // 0 opération
+        f(I8),          // 1 octet recopié par le client à l'op 1, sans lecteur connu (0)
+        fs(Packet, 32), // 2 liste des boss (mini BOSS_SPAWN)
+        f(Packet),      // 3 butin d'un boss (mini BOSS_DROP)
+        f(I32),         // 4 TID du boss
+        f(Packet),      // 5 classement (mini BOSS_RANK)
+        f(Packet),      // 6 compteur de dégâts (mini BOSS_DAMAGE)
+    ],
+};
+
+/// AgpmSiegeWar (0x49) — drapeaux 2 (constructeur FUN_14020fe90 d'Archonia, réception FUN_140213fc0) : guerres de siège,
+/// ops `siege_op` (`world/siege/`). Mini-paquets `SIEGE_CASTLE`, `SIEGE_GUILD_PAGE`, `SIEGE_OBJECT_INFO`,
+/// `SIEGE_STATUS_MSG`, `SIEGE_TIME`.
+pub static SIEGE_WAR: Schema = Schema {
+    name: "AGPMSIEGEWAR",
+    id: ptype::SIEGE_WAR,
+    flag_len: 2,
+    fields: &[
+        f(I8),     // 0 opération
+        f(I8),     // 1 résultat (op 2), drapeau (ops 0x11, 0x13, 0x15)
+        f(Packet), // 2 château (mini SIEGE_CASTLE)
+        f(I32),    // 3 CID du personnage
+        f(Packet), // 4 page de guildes (mini SIEGE_GUILD_PAGE)
+        f(I32),    // 5 CID de l'objet de siège visé
+        f(Packet), // 6 fiche d'un objet de siège (mini SIEGE_OBJECT_INFO)
+        f(I32),    // 7 IID d'un objet d'inventaire
+        f(Packet), // 8 message de siège (mini SIEGE_STATUS_MSG)
+        f(U64),    // 9 jamais lu ni écrit par le client
+        f(Packet), // 10 compte à rebours (mini SIEGE_TIME)
+    ],
+};
+
+/// AgpmEventSiegeWarNPC (0x50) — drapeaux 1 (constructeur FUN_140284d60, réception FUN_140285090) : op 1 du client
+/// (EVENT_BASE du PNJ de fonction 33), op 2 du serveur (accord : fenêtre UI_SiegeWarMain).
+pub static EVENT_SIEGE_WAR_NPC: Schema =
+    Schema { name: "AGPMEVENTSIEGEWARNPC", id: ptype::EVENT_SIEGE_WAR_NPC, flag_len: 1, fields: &[f(I8), f(Packet), f(I32)] };
+
+/// AgpmWarInfo (0x61) — drapeaux 1 (constructeur FUN_140309760, réception FUN_1403098d0) : quatre INT8 (op, type de
+/// guerre, étape, paramètre), relus bruts en 0x14 à 0x17 ; certaines ops ajoutent des données brutes après
+/// (`world/warinfo.rs`), ops `war_info_op`.
+pub static WAR_INFO: Schema = Schema { name: "AGPMWARINFO", id: ptype::WAR_INFO, flag_len: 1, fields: &[f(I8), f(I8), f(I8), f(I8)] };
+
+/// AgpmArchlord (0x55) — drapeaux 2 (constructeur 0x140293b50 d'Archonia, réception 0x140293eb0, refusée sous 0x13
+/// octets) : ops `archlord_op` (`world/archlord.rs`). Le client n'envoie que l'op 7, réduite à son opération.
+pub static ARCHLORD: Schema = Schema {
+    name: "AGPMARCHLORD",
+    id: ptype::ARCHLORD,
+    flag_len: 2,
+    fields: &[
+        f(I8),        // 0 opération
+        fs(Char, 32), // 1 nom de l'ArchLord
+        fs(Char, 32), // 2 nom du garde (vide : échec)
+        f(I8),        // 3 résultat (lu, non affiché)
+        f(I32),       // 4 étape de la guerre de Rensphere (`archlord_step`)
+        f(I32),       // 5 gardes actifs
+        f(I32),       // 6 gardes au plus
+        f(I32),       // 7 message (`archlord_msg`)
+    ],
+};
+
+/// AgpmTax (0x53) — drapeaux 2 (constructeur 0x14026c110 d'Archonia, réception 0x14026c7b0) : ops `tax_op`
+/// (`world/tax.rs`). Champ 3 : EVENT_BASE (ops 0 et 1) ou mini TAX_CASTLE (ops 2 et 3) ; champs 4 à 7 : mini TAX_REGION
+/// (op 4 : le champ 4 seul).
+pub static TAX: Schema = Schema {
+    name: "AGPMTAX",
+    id: ptype::TAX,
+    flag_len: 2,
+    fields: &[
+        f(I8),     // 0 opération
+        f(I32),    // 1 CID du personnage concerné (connu du client, sinon le paquet est ignoré)
+        f(I32),    // 2 résultat (`tax_result`)
+        f(Packet), // 3 EVENT_BASE ou château
+        f(Packet), // 4 région 1
+        f(Packet), // 5 région 2
+        f(Packet), // 6 région 3
+        f(Packet), // 7 région 4
+    ],
+};
+
 /// Tous les schémas principaux, pour l'aiguillage par type.
 pub static MAIN: &[&Schema] = &[
     &CONFIG, &CHARACTER, &CHAR_MANAGER, &LOGIN, &TIMER, &WORLD, &CHATTING, &ADMIN, &ITEM, &EVENT_NPC_TRADE,
     &EVENT_NPC_DIALOG, &EVENT_MANAGER, &SKILL, &EVENT_SKILL_MASTER, &EVENT_TELEPORT, &EVENT_BANK, &ITEM_CONVERT, &EVENT_ITEM_CONVERT, &REFINERY, &EVENT_REFINERY, &GUILD, &EVENT_GUILD, &GUILD_WAREHOUSE, &PRIVATE_TRADE, &PARTY, &PARTY_MANAGEMENT, &QUEST, &EVENT_QUEST, &UI_STATUS, &SYSTEM_MESSAGE, &RETURN_TO_LOGIN, &OPT_CHAR_MOVE, &OPT_CHAR_ACTION, &OPT_VIEW,
     &STARTUP_ENCRYPTION, &ARCHCORE_EXT, &RECONNECT, &PVP, &REMISSION, &PRODUCT, &EVENT_PRODUCT, &BUDDY, &MAILBOX,
     &EVENT_ITEM_REPAIR, &RIDE, &AUCTION, &EVENT_NATURE, &NATURE_EFFECT, &ITEM_SET, &SUMMONS, &CHANNEL, &AREA_CHATTING,
-    &EVENT_CHAR_CUSTOMIZE, &WANTED_CRIMINAL,
+    &EVENT_CHAR_CUSTOMIZE, &WANTED_CRIMINAL, &SHRINE_BATTLE, &BOSS, &SIEGE_WAR, &EVENT_SIEGE_WAR_NPC, &WAR_INFO, &ARCHLORD, &TAX,
 ];
 
 pub fn main_by_id(id: u8) -> Option<&'static Schema> {
@@ -1109,6 +1216,69 @@ pub mod mini {
     pub static WANTED_CRIMINAL: Schema =
         Schema { name: "AGPMWANTEDCRIMINAL_MINI", id: 167, flag_len: 2, fields: &[fs(Char, 33), f(I64), f(I32), f(I32), f(I32)] };
 
+    /// Fenêtre des boss (AgpmBoss) : apparition d'un boss, structure brute `stAgpmBossSpawnData` de 48 octets (+0x00 TID,
+    /// +0x18 U64 prochaine apparition en secondes Unix, +0x20 heure, +0x21 minute, +0x28 vivant) — drapeaux 1.
+    pub static BOSS_SPAWN: Schema = Schema { name: "AGPMBOSS_SPAWN", id: 168, flag_len: 1, fields: &[fs(Char, 48)] };
+    /// Butin d'un boss, structure brute de 196 octets (+0x00 TID, +0x04 16 TID d'objet, +0x44 16 taux, +0x84 16
+    /// quantités) — drapeaux 1.
+    pub static BOSS_DROP: Schema = Schema { name: "AGPMBOSS_DROP", id: 169, flag_len: 1, fields: &[fs(Char, 196)] };
+    /// Classement — drapeaux 1 : page, nombre de pages, rang du joueur, son nom, ses boss tués, 16 lignes (BOSS_RANK_ROW).
+    pub static BOSS_RANK: Schema =
+        Schema { name: "AGPMBOSS_RANK", id: 170, flag_len: 1, fields: &[f(I8), f(I8), f(I8), fs(Char, 49), f(I32), fs(Packet, 16)] };
+    /// Ligne du classement — drapeaux 1 : rang, nom, victoires sur le boss.
+    pub static BOSS_RANK_ROW: Schema = Schema { name: "AGPMBOSS_RANK_ROW", id: 171, flag_len: 1, fields: &[f(I8), fs(Char, 49), f(I32)] };
+    /// Compteur de dégâts — drapeaux 1 : TID du boss, nombre de lignes (20 au plus), lignes (BOSS_DAMAGE_ROW).
+    pub static BOSS_DAMAGE: Schema = Schema { name: "AGPMBOSS_DAMAGE", id: 172, flag_len: 1, fields: &[f(I32), f(I8), fs(Packet, 20)] };
+    /// Ligne du compteur — drapeaux 1 : nom, TID du modèle (icône de classe), niveau, guilde, marque de guilde (0 : pas
+    /// d'icône), inconnu (0), dégâts.
+    pub static BOSS_DAMAGE_ROW: Schema = Schema {
+        name: "AGPMBOSS_DAMAGE_ROW",
+        id: 173,
+        flag_len: 1,
+        fields: &[fs(Char, 49), f(I32), f(I32), fs(Char, 33), f(I32), f(I32), f(I64)],
+    };
+
+    /// Château (AgpmSiegeWar champ 2) — drapeaux 2 : 0 nom (clé de tous les paquets), 1 propriétaire (chef de la guilde,
+    /// ≤ 0x30), 2 guilde propriétaire (≤ 0x20), 3 membres de cette guilde, 4 dernier siège et 5 prochain siège (FILETIME
+    /// en heure locale), 6 statut, 7 résurrection des assaillants, 8 résurrection des défenseurs, 9 drapeau sans lecteur
+    /// connu (0/1 pris, 2 « absent »), 10 guilde du dernier carving réussi.
+    pub static SIEGE_CASTLE: Schema = Schema {
+        name: "AGPMSIEGEWAR_CASTLE",
+        id: 174,
+        flag_len: 2,
+        fields: &[f(MemBlock), f(MemBlock), f(MemBlock), f(U8), f(U64), f(U64), f(U8), f(U8), f(U8), f(U8), f(MemBlock)],
+    };
+    /// Page de guildes (champ 4) — drapeaux 1 : page (1 et plus), nombre de pages, 15 entrées SIEGE_GUILD_ENTRY.
+    pub static SIEGE_GUILD_PAGE: Schema = Schema { name: "AGPMSIEGEWAR_GUILD_PAGE", id: 175, flag_len: 1, fields: &[f(I16), f(I16), fs(Packet, 15)] };
+    /// Guilde d'une page — drapeaux 1 : nom (≤ 0x20), chef, points de guilde.
+    pub static SIEGE_GUILD_ENTRY: Schema = Schema { name: "AGPMSIEGEWAR_GUILD_ENTRY", id: 176, flag_len: 1, fields: &[f(MemBlock), f(MemBlock), f(U32)] };
+    /// Fiche d'un objet de siège (champ 6) — drapeaux 2 : 0 réparations restantes, 1 coût d'une réparation, 2 durée d'une
+    /// réparation (min), 3 sans lecteur connu, 4 à 11 TID des objets chargés (-1 : case vide), 12 secondes écoulées de la
+    /// réparation en cours, 13 nom de l'utilisateur ou du réparateur (≤ 0x30).
+    pub static SIEGE_OBJECT_INFO: Schema = Schema {
+        name: "AGPMSIEGEWAR_OBJECT_INFO",
+        id: 177,
+        flag_len: 2,
+        fields: &[f(U8), f(I32), f(U8), f(U8), f(I32), f(I32), f(I32), f(I32), f(I32), f(I32), f(I32), f(I32), f(U8), f(MemBlock)],
+    };
+    /// Message de siège (champ 8) — drapeaux 1 : code (`siege_msg`), château, guilde (≤ 0x20), deuxième nom (chef), type
+    /// d'objet, nombre sans lecteur connu, côté (0 ouest ou gauche, 1 est ou droite).
+    pub static SIEGE_STATUS_MSG: Schema = Schema {
+        name: "AGPMSIEGEWAR_STATUS_MSG",
+        id: 178,
+        flag_len: 1,
+        fields: &[f(U8), f(MemBlock), f(MemBlock), f(MemBlock), f(U8), f(U32), f(U8)],
+    };
+    /// Compte à rebours (champ 10) — drapeaux 1 : genre (1 avant le début, 2 avant la fin), secondes.
+    pub static SIEGE_TIME: Schema = Schema { name: "AGPMSIEGEWAR_TIME", id: 179, flag_len: 1, fields: &[f(U8), f(U16)] };
+
+    /// Château des taxes (AgpmTax champ 3, ops 2 et 3) — drapeaux 2 : nom (celui de SiegeWar.txt), recette totale versée,
+    /// date du dernier versement et de la dernière modification des taux (secondes Unix, 0 : jamais).
+    pub static TAX_CASTLE: Schema = Schema { name: "AGPMTAX_CASTLE", id: 180, flag_len: 2, fields: &[fs(Char, 128), f(I64), f(U64), f(U64)] };
+    /// Région taxée (AgpmTax champs 4 à 7) — drapeaux 2 : nom traduit par le RegionGlossary.txt de la langue du joueur
+    /// (clé de la table du client), recette depuis le dernier versement, taux (%).
+    pub static TAX_REGION: Schema = Schema { name: "AGPMTAX_REGION", id: 181, flag_len: 2, fields: &[fs(Char, 33), f(I64), f(I32)] };
+
     /// Données d'un maître des compétences (race, classe enseignées) — drapeaux 1.
     pub static SKILL_MASTER_DATA: Schema = Schema { name: "AGPMEVENTSKILLMASTER_DATA", id: 153, flag_len: 1, fields: &[f(I8), f(I8)] };
 
@@ -1262,6 +1432,241 @@ pub mod customize_op {
     pub const GRANT: i64 = 1;
     /// Client : achat du visage (champ 3) et de la coiffure (champ 4), -1 pour ce qui ne change pas.
     pub const BUY: i64 = 2;
+}
+
+/// Opérations d'AgpmShrineBattle (U16 en 0x14) ; « C » : du client, « S » : du serveur.
+pub mod shrine_op {
+    /// C : liste des Shrines (`{0x18 0, 0x1C CID}`), à l'ouverture de `UI_Shrine_info`.
+    pub const LIST_REQUEST: i64 = 0;
+    /// S : changement d'état d'un Shrine (0x18 Id, 0x20 Shrine), jauge et effets sur le graveur.
+    pub const STATE: i64 = 1;
+    /// S : liste complète (10 entrées de 0xF0 dès 0x20, Shrine en +0x20 de chacune).
+    pub const LIST: i64 = 2;
+    /// S : jauge de gravure (0x18 Id, 0x1C valeur ; 0 la masque).
+    pub const GAUGE: i64 = 3;
+    /// S : mise à jour d'une entrée (0x20 Shrine).
+    pub const UPDATE: i64 = 4;
+    /// S : état d'un joueur (0x18 Id, 0x1C CID, 0x20 drapeau, 0x24 état 1-5, 0x28 valeur).
+    pub const PLAYER_STATE: i64 = 6;
+    /// S : message de `shrinemessage.xml` (0x18 Id, 0x1C MessageTid, 0x20 race, 0x24 nom).
+    pub const MESSAGE: i64 = 7;
+    /// C : sens inconnu (absent du client) ; journalisé.
+    pub const UNKNOWN_8: i64 = 8;
+    /// C : entrer dans un Shrine (0x18 Id, 0x1C CID).
+    pub const JOIN: i64 = 9;
+    /// S : ouverture dans N minutes (0x18 Id, 0x1C minutes) et proposition d'entrer.
+    pub const OPENS_IN: i64 = 10;
+    /// S : score personnel (0x1C victoires, 0x20 défaites).
+    pub const MY_SCORE: i64 = 11;
+    /// S : score de la race (0x1C victoires, 0x20 défaites).
+    pub const RACE_SCORE: i64 = 12;
+}
+
+/// Opérations d'AgpmBoss (champ 0) ; « C » : du client, « S » : du serveur.
+pub mod boss_op {
+    /// S : liste des boss suivis (champ 2).
+    pub const LIST: i64 = 1;
+    /// S : butin d'un boss (champ 3).
+    pub const DROPS: i64 = 3;
+    /// C : boss choisi dans la liste (champ 4).
+    pub const SELECT: i64 = 4;
+    /// S : classement (champ 5).
+    pub const RANKING: i64 = 5;
+    /// C : page du classement (champ 4 TID, champ 5 mini dont le champ 0 est la page).
+    pub const RANKING_PAGE: i64 = 6;
+    /// S : compteur de dégâts (champ 6).
+    pub const DAMAGE: i64 = 7;
+}
+
+/// Opérations d'AgpmSiegeWar (champ 0) ; « C » : du client, « S » : du serveur. Le serveur refuse du client les ops
+/// 0, 2, 9, 10, 0xE, 0xF, 0x1A, 0x1C et 0x1D.
+pub mod siege_op {
+    /// S : château (complet, ou partiel : dates et statut, carve guild).
+    pub const CASTLE: i64 = 0;
+    /// C : déclarer le prochain siège (château : nom, champ 5 = date FILETIME locale).
+    pub const DECLARE: i64 = 1;
+    /// S : code de résultat (champ 1, `siege_result`).
+    pub const RESULT: i64 = 2;
+    pub const APPLY_DEFENSE: i64 = 3;
+    pub const CANCEL_DEFENSE: i64 = 4;
+    pub const APPLY_ATTACK: i64 = 5;
+    pub const CANCEL_ATTACK: i64 = 6;
+    /// C : page de la liste des candidats à l'attaque (champ 4 : page) ; S : op 9.
+    pub const ATTACK_PAGE_REQUEST: i64 = 7;
+    /// C : page des candidats à la défense ; S : op 10.
+    pub const DEFENSE_PAGE_REQUEST: i64 = 8;
+    pub const ATTACK_PAGE: i64 = 9;
+    pub const DEFENSE_PAGE: i64 = 10;
+    /// C : le propriétaire retient un défenseur (château champ 2 : guilde choisie).
+    pub const SELECT_DEFENSE: i64 = 0x0b;
+    /// C : listes des assaillants (0xC) et des défenseurs (0xD) retenus ; S : ops 0xE et 0xF.
+    pub const ATTACKERS_REQUEST: i64 = 0x0c;
+    pub const DEFENDERS_REQUEST: i64 = 0x0d;
+    pub const ATTACKERS: i64 = 0x0e;
+    pub const DEFENDERS: i64 = 0x0f;
+    /// C : ouvrir un objet d'assaut (camp, catapulte) ; S : 0x11, 0x13 (0x0E : ouvrir la fenêtre), 0x15.
+    pub const OBJECT_OPEN: i64 = 0x10;
+    pub const OBJECT_ANSWER_11: i64 = 0x11;
+    pub const OBJECT_ACTIVATE: i64 = 0x12;
+    pub const OBJECT_ANSWER: i64 = 0x13;
+    pub const OBJECT_REPAIR: i64 = 0x14;
+    pub const OBJECT_ANSWER_15: i64 = 0x15;
+    /// C : charger (0x16) ou retirer (0x17) un objet d'inventaire (champ 7) ; S : 0x18 objet chargé.
+    pub const OBJECT_LOAD: i64 = 0x16;
+    pub const OBJECT_UNLOAD: i64 = 0x17;
+    pub const OBJECT_LOADED: i64 = 0x18;
+    /// S : fiche d'un objet (champ 6).
+    pub const OBJECT_INFO: i64 = 0x1a;
+    /// C : carving du trône (champ 5 : trône).
+    pub const CARVE: i64 = 0x1b;
+    /// S : message de siège (champ 8).
+    pub const STATUS_MSG: i64 = 0x1c;
+    /// S : compte à rebours (champ 10).
+    pub const TIME: i64 = 0x1d;
+}
+
+/// Codes de résultat d'AgpmSiegeWar (op 2, champ 1), textes d'uimessage.txt.
+pub mod siege_result {
+    pub const OK: i64 = 0;
+    pub const FAILED: i64 = 1;
+    pub const OUT_OF_TIME: i64 = 2;
+    /// « Time can only be set by the castle holder ».
+    pub const NOT_OWNER: i64 = 3;
+    /// « Application can only be made by the guild master ».
+    pub const NOT_MASTER: i64 = 4;
+    /// « Only a guild with 30+ members that has existed for 14 days can apply ».
+    pub const GUILD_CONDITION: i64 = 5;
+    /// « Currently unable to apply » (déjà inscrite).
+    pub const UNABLE: i64 = 6;
+    pub const DEFENSE_APPLIED: i64 = 8;
+    pub const ATTACK_APPLIED: i64 = 9;
+    pub const DEFENSE_SELECTED: i64 = 10;
+    pub const DATE_SET: i64 = 0x0b;
+    pub const OBJECT_IN_USE: i64 = 0x0c;
+    pub const ALREADY_REPAIRING: i64 = 0x0d;
+    /// Résultat de l'op 0x13 : le client ouvre la fenêtre de l'objet.
+    pub const OPEN_OBJECT: i64 = 0x0e;
+    pub const NOT_ENOUGH_GOLD: i64 = 0x0f;
+    pub const CARVE_START: i64 = 0x10;
+    pub const CARVE_CANCEL: i64 = 0x11;
+    pub const CARVE_DONE: i64 = 0x12;
+    pub const ALREADY_ACTIVE: i64 = 0x13;
+    pub const NO_MORE_REPAIR: i64 = 0x14;
+    /// « The number of Siege applicants is reached the limitation ».
+    pub const FULL: i64 = 0x15;
+}
+
+/// Codes des messages de siège (op 0x1C, mini SIEGE_STATUS_MSG champ 0).
+pub mod siege_msg {
+    pub const START: i64 = 1;
+    pub const OBJECT_DESTROYED: i64 = 4;
+    pub const THRONE_RELEASED: i64 = 5;
+    pub const EYE_OPENED: i64 = 6;
+    pub const EYE_CLOSED: i64 = 7;
+    pub const CARVE_START: i64 = 8;
+    pub const CARVE_CANCEL: i64 = 9;
+    pub const CARVE_DONE: i64 = 10;
+    pub const END: i64 = 11;
+    /// Camp gauche (12) ou droit (13) activé, désactivé (14, 15), réparation (16, 17).
+    pub const CAMP_ACTIVE_LEFT: i64 = 12;
+    pub const CAMP_INACTIVE_LEFT: i64 = 14;
+    pub const REPAIR_LEFT: i64 = 16;
+}
+
+/// Opérations d'AgpmEventSiegeWarNPC (champ 0).
+pub mod siege_npc_op {
+    /// C : demande, après un clic sur un commandant de siège (fonction 33).
+    pub const REQUEST: i64 = 1;
+    /// S : accord, le client ouvre UI_SiegeWarMain pour le château du PNJ.
+    pub const GRANT: i64 = 2;
+}
+
+/// Opérations d'AgpmWarInfo (octet 0x14) et types de guerre (octet 0x15).
+pub mod war_info_op {
+    /// Étape (0x16) : textes STEP MESSAGE et CENTER MESSAGE de warinfodata.txt.
+    pub const STEP: i64 = 0;
+    /// Compteur affiché (0x16).
+    pub const COUNTER: i64 = 2;
+    /// Message central numéro 0x16.
+    pub const CENTER_MESSAGE: i64 = 3;
+    /// Deux INT32 en 0x18 et 0x1C.
+    pub const VALUES_4: i64 = 4;
+    pub const VALUES_5: i64 = 5;
+    /// Effacer le tableau.
+    pub const CLEAR: i64 = 6;
+    /// Trois chaînes de 0x21 octets en 0x16, 0x37, 0x58 (arguments « %s »).
+    pub const ARGS: i64 = 7;
+    pub const SIEGE_WAR: i64 = 0;
+    pub const BATTLE_GROUND: i64 = 1;
+    pub const SHRINE_BATTLE: i64 = 2;
+    pub const ARCHLORD_BATTLE: i64 = 3;
+}
+
+/// Opérations d'AgpmArchlord (champ 0) ; « C » : du client, « S » : du serveur. Le client ne traite que les ops 0 à 6.
+pub mod archlord_op {
+    /// S : ArchLord désigné (champ 1) : sysstr 630 « [%s] is the Archlord. » au centre de l'écran.
+    pub const SET: i64 = 0;
+    /// S : fin de règne (champ 1) : sysstr 631.
+    pub const CANCEL: i64 = 1;
+    /// S : résultat de l'activation (2) ou du retrait (3) d'un garde : nom du garde (champ 2), vide si refusé.
+    pub const GUARD_ADD: i64 = 2;
+    pub const GUARD_REMOVE: i64 = 3;
+    /// S : gardes actifs et au plus (champs 5 et 6) : sysstr 650.
+    pub const GUARD_INFO: i64 = 4;
+    /// S : étape de la guerre de Rensphere (champ 4, `archlord_step`).
+    pub const STEP: i64 = 5;
+    /// S : message (champ 7, `archlord_msg`).
+    pub const MESSAGE: i64 = 6;
+    /// C : clic sur un événement de fonction 36 (aucun objet du client n'en porte) ; le paquet ne contient que l'op.
+    pub const EVENT_REQUEST: i64 = 7;
+}
+
+/// Étapes de la guerre de Rensphere (AgpmArchlord op 5, sysstr 642 à 645).
+pub mod archlord_step {
+    pub const NONE: i64 = 0;
+    /// « Activation of Rensphere Portal ».
+    pub const PORTAL: i64 = 1;
+    /// « Start Rensphere Fight ».
+    pub const FIGHT: i64 = 2;
+    /// « Begin the Archlord Battle ».
+    pub const BATTLE: i64 = 3;
+    /// « End the Archlord Battle ».
+    pub const END: i64 = 4;
+}
+
+/// Messages d'AgpmArchlord (op 6, champ 7) : sysstr 646 à 649 et 656.
+pub mod archlord_msg {
+    pub const INVENTORY_FULL: i64 = 0;
+    pub const GUARD_ADD_UNAVAILABLE: i64 = 1;
+    pub const GUARD_REMOVE_UNAVAILABLE: i64 = 2;
+    pub const NEED_ARCHON_ITEM: i64 = 3;
+    pub const GUILD_MASTER_ONLY: i64 = 4;
+}
+
+/// Opérations d'AgpmTax (champ 0) ; « C » : du client, « S » : du serveur.
+pub mod tax_op {
+    /// C : ouverture chez un intendant (EVENT_BASE de la fonction 34).
+    pub const REQUEST: i64 = 0;
+    /// S : accord ; le client n'ouvre UI_TaxSteward que pour le maître du château où il se trouve.
+    pub const GRANT: i64 = 1;
+    /// C : nouveaux taux ; S : résultat (`tax_result`), château et régions.
+    pub const MODIFY: i64 = 2;
+    /// C : taxes du château ; S : château et régions (UI_TaxModify ou UI_TaxView).
+    pub const VIEW: i64 = 3;
+    /// S : taux d'une région (champ 4), table des prix du client.
+    pub const REGION_RATIO: i64 = 4;
+}
+
+/// Résultats d'AgpmTax (op 2, champ 2), clés d'uimessage.txt.
+pub mod tax_result {
+    /// « TAX_MODIFY_SUCCESS ».
+    pub const SUCCESS: i64 = 0;
+    /// TAX_MODIFY_F_NOT_OWNER, absente d'uimessage.txt : rien d'affiché.
+    pub const NOT_OWNER: i64 = 1;
+    /// « TAX_MODIFY_F_NOT_TIME » : taux déjà changés cette semaine.
+    pub const NOT_TIME: i64 = 2;
+    /// « TAX_MODIFY_F_EX_RANGE » : hors de 0 à 50 %.
+    pub const OUT_OF_RANGE: i64 = 3;
 }
 
 /// Opérations d'AgpmWantedCriminal (champ 0) ; « C » : du client, « S » : du serveur.

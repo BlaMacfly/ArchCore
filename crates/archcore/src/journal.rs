@@ -68,6 +68,17 @@ pub fn bank_money(db: &Databases, account_id: u32, character: (u32, &str), amoun
     );
 }
 
+/// Or versé par le serveur à la banque d'un compte : recettes des taxes d'un château (`taxe`) ou tribut à l'ArchLord
+/// (`tribut`) ; `count` porte le numéro du château.
+pub fn bank_credit(db: &Databases, account_id: u32, character: (u32, &str), action: &'static str, castle: u8, money: i64) {
+    write(
+        &db.logs,
+        "de banque",
+        "INSERT INTO log_bank (account_id, character_id, name, action, count, money) VALUES (?,?,?,?,?,?)",
+        (account_id, character.0, cut(character.1, 48), action, castle, money).into(),
+    );
+}
+
 /// Page de banque achetée (`page` : 2 pour la deuxième), au prix `price`.
 pub fn bank_page(db: &Databases, account_id: u32, character: (u32, &str), page: i64, price: i64) {
     write(

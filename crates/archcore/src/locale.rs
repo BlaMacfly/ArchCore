@@ -85,6 +85,9 @@ pub struct Catalog {
     originals: HashMap<String, HashMap<u32, String>>,
     /// Traduction des titres de PNJ par langue de base.
     translators: HashMap<String, Translator>,
+    /// Glossaire des régions du client par langue (table `region_glossary`) : nom coréen de RegionTemplate.ini → nom
+    /// affiché.
+    glossary: HashMap<String, HashMap<String, String>>,
 }
 
 impl Catalog {
@@ -141,6 +144,14 @@ impl Catalog {
                 Err(e) => warn!("textes d'origine {k} non chargés ({e:#})"),
             }
         }
+        match db.world.rows("SELECT lang, korean_name, name FROM region_glossary", ()).await {
+            Ok(rows) => {
+                for r in rows {
+                    c.add_glossary(&col::<String>(&r, "lang"), &col::<String>(&r, "korean_name"), col::<String>(&r, "name"));
+                }
+            }
+            Err(e) => warn!("glossaire des régions non chargé ({e:#}) : lancer `archcore db-init` puis `archcore import`"),
+        }
         // Titres de PNJ traduits : un fichier par langue de base.
         for lang in c.languages.iter().map(|l| base_language(&l.code).to_string()).collect::<Vec<_>>() {
             if lang != ORIGINAL_LANGUAGE && root.join("data").join("i18n").join(format!("npc-titles-{lang}.json")).exists() {
@@ -173,6 +184,24 @@ impl Catalog {
 
     pub fn add_original(&mut self, kind: &str, id: u32, text: String) {
         self.originals.entry(kind.to_string()).or_default().insert(id, text);
+    }
+
+    pub fn add_glossary(&mut self, lang: &str, korean: &str, name: String) {
+        if let Some(lang) = normalize_language(lang) {
+            self.glossary.entry(lang).or_default().insert(korean.trim().to_string(), name);
+        }
+    }
+
+    /// Nom d'une région tel que le client de langue `lang` le compose (`FUN_14048d970` d'Archonia) : nom coréen de
+    /// RegionTemplate.ini traduit par le glossaire de cette langue, sinon de sa langue de base, sinon de l'anglais ; à
+    /// défaut le nom coréen. C'est la clé de la table des taxes du client (AgpmTax).
+    pub fn region_name(&self, region: u16, lang: &str) -> String {
+        let korean = self.original(kind::REGION_NAME, region as u32).unwrap_or_default().trim().to_string();
+        [lang, base_language(lang), ORIGINAL_LANGUAGE]
+            .iter()
+            .find_map(|l| self.glossary.get(*l).and_then(|g| g.get(&korean)))
+            .cloned()
+            .unwrap_or(korean)
     }
 
     #[cfg(test)]
@@ -299,5 +328,22 @@ pub mod tests {
         // Inconnu partout : repli de l'appelant.
         assert_eq!(c.text(kind::SKILL_NAME, 1, "fr"), None);
         assert_eq!(c.resolve(kind::SKILL_NAME, 1, "fr", "Normal Attack"), "Normal Attack");
+    }
+
+    #[test]
+    fn noms_des_regions_par_le_glossaire() {
+        let mut c = catalog();
+        c.add_original(kind::REGION_NAME, 76, "인플레임 성 인근".into());
+        c.add_original(kind::REGION_NAME, 80, "인플레임 성".into());
+        c.add_original(kind::REGION_NAME, 9, "앵커빌".into());
+        c.add_glossary("en", "인플레임 성 인근", "Inflame Castle Outskirts".into());
+        c.add_glossary("en", "인플레임 성", "Inflame Castle".into());
+        c.add_glossary("fr", "인플레임 성 ", "Château d'Inflame".into());
+        assert_eq!(c.region_name(80, "fr"), "Château d'Inflame", "glossaire de la langue (clé sans espaces)");
+        assert_eq!(c.region_name(80, "fr-CA"), "Château d'Inflame", "langue de base");
+        assert_eq!(c.region_name(76, "fr"), "Inflame Castle Outskirts", "repli sur l'anglais");
+        assert_eq!(c.region_name(76, "de"), "Inflame Castle Outskirts");
+        assert_eq!(c.region_name(9, "fr"), "앵커빌", "absente du glossaire : nom coréen");
+        assert_eq!(c.region_name(500, "fr"), "", "région inconnue");
     }
 }

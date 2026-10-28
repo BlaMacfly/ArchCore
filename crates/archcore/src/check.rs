@@ -125,6 +125,33 @@ fn checks(n: &Names) -> Vec<Check> {
             sample: "CONCAT(x.name, ' (modèle ', x.template_id, ', coiffure ', x.hair, ', visage ', x.face, ')')",
         },
         Check {
+            label: "victoires sur un boss absent de boss_window",
+            severity: Severity::Warning,
+            rows: format!(
+                "`{c}`.character_boss_kill x LEFT JOIN `{w}`.boss_window r ON r.tid = x.boss_tid \
+                 LEFT JOIN `{c}`.characters p ON p.id = x.character_id WHERE r.tid IS NULL"
+            ),
+            sample: "CONCAT('boss ', x.boss_tid, ' de ', COALESCE(p.name, CONCAT('personnage ', x.character_id)))",
+        },
+        Check {
+            label: "châteaux absents de siege_war",
+            severity: Severity::Warning,
+            rows: format!("`{c}`.castle x LEFT JOIN `{w}`.siege_war r ON r.id = x.id WHERE r.id IS NULL"),
+            sample: "CONCAT('château ', x.id)",
+        },
+        Check {
+            label: "taxes d'un château absent de siege_war",
+            severity: Severity::Warning,
+            rows: format!("`{c}`.castle_tax x LEFT JOIN `{w}`.siege_war r ON r.id = x.castle_id WHERE r.id IS NULL"),
+            sample: "CONCAT('château ', x.castle_id)",
+        },
+        Check {
+            label: "régions taxées absentes de region_template",
+            severity: Severity::Warning,
+            rows: format!("`{c}`.castle_tax_region x LEFT JOIN `{w}`.region_template r ON r.id = x.region_id WHERE r.id IS NULL"),
+            sample: "CONCAT('région ', x.region_id, ' (château ', x.castle_id, ')')",
+        },
+        Check {
             label: "banques sans compte",
             severity: Severity::Warning,
             rows: format!("`{c}`.account_bank x LEFT JOIN `{a}`.account r ON r.id = x.account_id WHERE r.id IS NULL"),
@@ -222,7 +249,7 @@ mod tests {
     fn requetes_des_controles() {
         let n = Names { auth: "a_auth", characters: "a_chars", world: "a_world" };
         let all = checks(&n);
-        assert_eq!(all.len(), 14);
+        assert_eq!(all.len(), 18);
         // Chaque contrôle nomme ses bases : il passe par le pool des personnages.
         for k in &all {
             assert!(k.rows.contains("`a_chars`.") || k.rows.contains("`a_auth`.") || k.rows.contains("`a_world`.import_run"), "{}", k.label);

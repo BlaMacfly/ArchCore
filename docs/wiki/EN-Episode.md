@@ -5,8 +5,8 @@ separating two things: the **world** loaded (game data) and the **systems** alre
 
 > **Marker.** ArchCore loads the world of **Episode 8, "The Dark Revelation"** (Webzen,
 > 26 September 2012), plus the extensions of the Archonia server, whose 64-bit client is the base. The
-> gameplay systems programmed so far cover the core of the original release; those of later episodes are
-> still to catch up (see below).
+> original gameplay systems this client knows are programmed, up to sieges, the ArchLord and Shrines; they
+> remain to be confirmed in game (see below).
 
 ## ArchLord episodes
 
@@ -64,18 +64,21 @@ Check of 25 October 2026, Archonia client data and `Archonia.exe`:
 | Original | Combat, monsters, loot, equipment, potions, scrolls, skills | 🟡 verified with the simulator |
 | Original | Quests, parties, bank, trading, shops, teleport portals | 🟡 verified with the simulator |
 | Original | Guilds (creation, members, leaving, kicking, disbanding, notice, chat), party chat | 🟡 verified with the simulator |
-| Original | Guild battles, alliances, guild marks, guild warehouse | ⏳ to do |
-| Original | Battle Square | ⏳ to do |
-| 2 | Castle sieges | ⏳ to do |
-| 3 | ArchLord powers | ⏳ to do |
+| Original | Guild battles, alliances, guild marks, guild warehouse | 🟡 verified with the simulator |
+| Original | Friends and ignore list, mail, chat rooms and area shouts, player versus player, wanted criminals, production, wear and repair, mounts, auction house, stylists, summons, world time and weather | 🟡 verified with the simulator (28 October 2026) |
+| Original | Battle Square and Battleground | 🟡 verified with the simulator |
+| 2 | Castle sieges, region taxes | 🟡 verified with the simulator |
+| 3 | ArchLord powers, Rensphere war | 🟡 verified with the simulator |
 | 4 | Chaotic Frontier dungeons | 🟡 zones and monsters loaded; dungeon rules to check |
 | 6 | Playable Dragon Scion | 🟡 data and skills present; creation to confirm in game |
-| 7 | Level 120, Heaven's Hell | 🟡 table and monsters loaded; renewed sieges to do |
-| 8 | Shrines and Shrine coins | ⏳ to do |
-| — | Masteries (high and heroic skill trees), monster and party skills | 🟡 validated with the simulator; heroic and charisma points to do |
+| 7 | Level 120, Heaven's Hell | 🟡 table and monsters loaded; renewed sieges following the client's rules |
+| 8 | Shrines and Shrine coins | 🟡 verified with the simulator; schedules and rewards chosen by ArchCore (original tables absent from the client) |
+| — | Masteries (high and heroic skill trees), monster and party skills | 🟡 validated with the simulator |
 
-The catch-up order follows the [[roadmap|EN-Roadmap]]: guilds, then sieges, then ArchLord powers and
-Shrines.
+Every original system present in the Archonia client is now programmed and verified with the simulator;
+they remain to be confirmed in game (see the [[roadmap|EN-Roadmap]]). Archonia's own additions (race war,
+party board, arena, tournaments, rifts, battle pass) stay out of the core, except the boss window and the
+equipment switcher, which do not change gameplay.
 
 ## Sources
 

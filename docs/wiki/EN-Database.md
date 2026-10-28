@@ -35,6 +35,11 @@ ArchCore uses three main MariaDB databases, plus a log database, created and upd
 | `character_item_set` | Equipment switch: slot (0 to 99) and its items ("E,part,id" separated by ":"); the worn slot is `characters.item_set_active` (-1 none) |
 | `wanted_criminal` | Wanted posters: criminal, total bounty, first and last bounty, expiry (`Wanted.ExpireDays` after the last one); deleted on capture |
 | `wanted_bounty` | Bounty history: criminal, poster, amount, date; hunter who got the bounty and capture date |
+| `shrine_score`, `shrine_race_score` | Shrine battles: wins and losses of every character and race present at the end of a won battle (AgpmShrineBattle ops 11 and 12) |
+| `character_boss_kill` | Boss window: wins of each character over each `UIBoss.xml` boss (one per fighter of the fight in which it dies), date of the last one |
+| `castle`, `castle_application` | Siege wars: owner of each castle, status (0 to 2; a siege running at a restart is closed without change), dates of the last and next siege, ends of the applications and of the declaration delay, guild of the last carving; applications (side 1 attack, 2 defense, chosen or not) |
+| `archlord` | ArchLord title: one row (id 1), character holding the title (`NULL`: none), name, since when |
+| `castle_tax`, `castle_tax_region` | Region taxes: per castle, total income paid, last payout, last rate change, start of the period; per region (castle and outskirts), castle, rate (0 to 50 %) and income since the last payout |
 | `character_ui_status` | Interface status: the bar's life and mana potions, their automatic use thresholds (%), helmet display |
 
 ## `archcore_world` — game data (`sql/003_world.sql`)
@@ -65,8 +70,14 @@ Filled by `archcore import` from the client tables.
 | `monster_ai` | original server `aidatatable.txt` | 7,674 AIs (3,289 with skills), named by `monster_spawn.ai_tid`: non-empty columns as JSON, repeated columns numbered (`Skill1`, `SkillCondition1`, `SkillCount1`…) |
 | `drop_group` | original server `groupdroprate.txt` | 28 drop groups; each group's items come from `item_data` (GroupID, DropRank, DropRate) |
 | `drop_rank_rate` | original server `droprankrate.txt` | Item ranks (percent) by the monster's drop rank |
-| `region_template` | `RegionTemplate.ini` | 331 regions: name, parent region, Type field, safety (33 safe) |
+| `region_template` | `RegionTemplate.ini` | 331 regions: name, parent region, Type field, safety (33 safe), entry levels `level_min` and `level_limit` (LevelMin, LevelLimit: Battle Square floors) |
+| `region_glossary` | `RegionGlossary.txt` of every client language folder (`ini`, `ini_fr`…) | Displayed name of each region per language (key: `RegionTemplate.ini` Korean name): name of the taxed regions sent to the client (AgpmTax) |
+| `boss_window` | `UIBoss.xml` | 25 bosses of Archonia's boss window: TID, order, category (1 to 7), displayed name |
+| `pvp_skull_chance`, `pvp_skull_level` | `pvpskulldroptable.txt` | Battle Square skulls: chance (%) by killer − victim level gap, skull level by the victim's level |
 | `resurrection_point` | `obj*.ini` (event 19, type 1) | 62 resurrection points: region, position, allowed race and class |
+| `siege_binding` | `obj*.ini` (event 19, types 3 to 7) | 27 siege resurrection points: region, type (3 attackers, 4 inner defense, 7 outer defense, 5 and 6 Archlord), position |
+| `siege_war` | `SiegeWar.txt` | 5 castles (0 Rensphere to 4 Drayger): castle and outskirts regions, lengths of the battle, the Archon's Eyes and the carving, declaration and application delays, gap between two sieges, start hour, carving skill |
+| `siege_war_object` | `SiegeWarObject.txt` | 2 assault objects (9 camp, 10 catapult): repairs, cost, duration, required items (JSON) |
 | `teleport_point` | `TeleportPoint.ini` | 301 teleport points: landing radius, allowed races, groups (arrival, destinations) |
 | `teleport_object` | `obj*.ini` (event 8) | 291 portals: object, point carried, position |
 | `teleport_fee` | `TeleportFee.txt` | 227 trip fees (departure, arrival) |
@@ -159,6 +170,9 @@ start-up:
 | mail attachment not found (`mail.item_id` without an item with status 4 owned by the recipient) | warning |
 | item on sale not found (`auction_sale` on sale without an item with status 5 owned by the seller) | warning |
 | hair style or face missing from `character_customize` for the character's model (table imported) | warning |
+| wins over a boss missing from `boss_window` (`character_boss_kill.boss_tid`) | warning |
+| castles missing from `siege_war` (`castle.id`) | warning |
+| taxes of a castle missing from `siege_war` (`castle_tax.castle_id`), taxed region missing from `region_template` (`castle_tax_region.region_id`) | warning |
 | bank without an account, unknown account language | warning |
 | character id in the NPC range (≥ 0x40000000), item id in the shop range (≥ 0x20000000) | serious |
 

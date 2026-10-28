@@ -15,8 +15,9 @@
 //!
 //! Réparation, AgpmEventItemRepair (0x34) : op 3 demande d'ouverture (PNJ à portée, fonction 17, pas meurtrier de
 //! palier 2) → op 4 ; op 0 demande de réparation des objets de la grille (inventaire seulement), avec le coût que
-//! le client a calculé → op 1 et son code (`repair_result`). Le prix est celui du client (`repair_cost`), sans
-//! taxe ; un écart avec le coût envoyé donne le code 4.
+//! le client a calculé → op 1 et son code (`repair_result`). Le prix est celui du client (`repair_cost`), plus la taxe de
+//! la région du joueur sur chaque objet (`tax.rs`, versée à la recette de la région) ; un écart avec le coût envoyé donne
+//! le code 4.
 
 use super::items::{item_durability, DURABILITY_FULL};
 use super::npc_events::{npc_distance, resolve, MAX_NPC_DISTANCE};
@@ -74,7 +75,7 @@ pub fn hit_taken(st: &mut WorldState, sid: u32) {
 }
 
 /// Prix de réparation d'un objet, comme le client (`FUN_1402b43a0`) : prix au PNJ divisé par la durabilité
-/// maximale, multiplié par les points perdus et par 0,5, calcul en flottant puis tronqué ; taxe de région nulle.
+/// maximale, multiplié par les points perdus et par 0,5, calcul en flottant puis tronqué, sans la taxe (ajoutée par `quote`).
 pub fn repair_cost(npc_price: i64, max: i32, current: i32) -> i64 {
     if max <= 0 || current >= max {
         return 0;
@@ -255,8 +256,9 @@ pub async fn on_packet(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet
     Ok(())
 }
 
-/// Ce que vaut une demande : objets à réparer (IID, durabilité maximale, coût) ou code de refus.
-pub fn quote(items: &[(u32, Option<(i64, i32, i32, bool)>)]) -> Result<Vec<(u32, i32, i64)>, i64> {
+/// Ce que vaut une demande au taux de taxe `ratio` : objets à réparer (IID, durabilité maximale, coût taxe comprise, taxe)
+/// ou code de refus. Comme le client, la taxe se calcule objet par objet.
+pub fn quote(items: &[(u32, Option<(i64, i32, i32, bool)>)], ratio: i32) -> Result<Vec<(u32, i32, i64, i64)>, i64> {
     use repair_result::*;
     if items.is_empty() {
         return Err(FAILED);
@@ -273,7 +275,9 @@ pub fn quote(items: &[(u32, Option<(i64, i32, i32, bool)>)]) -> Result<Vec<(u32,
             full += 1;
             continue;
         }
-        out.push((*iid, max, repair_cost(price, max, current)));
+        let cost = repair_cost(price, max, current);
+        let tax = super::tax::tax_of(cost, ratio);
+        out.push((*iid, max, cost + tax, tax));
     }
     if out.is_empty() && full > 0 {
         return Err(ALREADY_MAX);
@@ -300,14 +304,16 @@ async fn repair(ctx: &WorldCtx, st: &mut WorldState, sid: u32, iids: &[u32], ask
             (*iid, found)
         })
         .collect();
-    let plan = match quote(&items) {
+    let ratio = super::tax::ratio_of(ctx, st, sid);
+    let plan = match quote(&items, ratio) {
         Ok(plan) => plan,
         Err(code) => {
             debug!("[réparation] {} : refus {code} ({} objet(s))", p.ch.name, items.len());
             return Ok(code);
         }
     };
-    let cost: i64 = plan.iter().map(|(_, _, c)| c).sum();
+    let cost: i64 = plan.iter().map(|(_, _, c, _)| c).sum();
+    let tax: i64 = plan.iter().map(|(_, _, _, t)| t).sum();
     if cost != asked {
         warn!("[réparation] {} : coût annoncé {asked}, calculé {cost}", p.ch.name);
         return Ok(repair_result::FAILED);
@@ -319,7 +325,7 @@ async fn repair(ctx: &WorldCtx, st: &mut WorldState, sid: u32, iids: &[u32], ask
     set_money(ctx, st, sid, money).await?;
     let p = st.players.get_mut(&sid).unwrap();
     let (cid, name) = (p.ch.id, p.ch.name.clone());
-    for (iid, max, price) in &plan {
+    for (iid, max, price, _) in &plan {
         let Some(item) = p.inventory.items.get_mut(iid) else { continue };
         item.durability = DURABILITY_FULL;
         let tid = item.tid;
@@ -327,7 +333,9 @@ async fn repair(ctx: &WorldCtx, st: &mut WorldState, sid: u32, iids: &[u32], ask
         p.send_raw(item_durability(*iid, tid, cid, *max));
         crate::journal::shop(&ctx.db, (cid, &name), npc_name, "repair", tid, *iid, 1, *price);
     }
-    info!("[réparation] {name} fait réparer {} objet(s) chez {npc_name} pour {cost} pièce(s)", plan.len());
+    info!("[réparation] {name} fait réparer {} objet(s) chez {npc_name} pour {cost} pièce(s) (taxe {tax})", plan.len());
+    let taxed = super::tax::Taxed { total: cost, tax, region: super::tax::taxed_region(ctx, st, sid) };
+    super::tax::collect(ctx, st, &taxed).await?;
     Ok(repair_result::SUCCESS)
 }
 
@@ -352,11 +360,13 @@ mod tests {
         let worn = (1u32, Some((100i64, 88, 80, true)));
         let full = (2u32, Some((30i64, 63, 63, true)));
         let potion = (3u32, Some((10i64, 0, 0, false)));
-        assert_eq!(quote(&[worn, full]), Ok(vec![(1, 88, 4)]), "l'objet plein est ignoré");
-        assert_eq!(quote(&[full]), Err(ALREADY_MAX));
-        assert_eq!(quote(&[worn, potion]), Err(CANNOT_REPAIR));
-        assert_eq!(quote(&[(4, None)]), Err(FAILED), "objet absent de l'inventaire");
-        assert_eq!(quote(&[]), Err(FAILED));
+        assert_eq!(quote(&[worn, full], 0), Ok(vec![(1, 88, 4, 0)]), "l'objet plein est ignoré");
+        // Taxe de 10 % objet par objet : 5934 + 593.
+        assert_eq!(quote(&[(5, Some((21000, 69, 30, true))), worn], 10), Ok(vec![(5, 69, 6527, 593), (1, 88, 4, 0)]));
+        assert_eq!(quote(&[full], 0), Err(ALREADY_MAX));
+        assert_eq!(quote(&[worn, potion], 0), Err(CANNOT_REPAIR));
+        assert_eq!(quote(&[(4, None)], 0), Err(FAILED), "objet absent de l'inventaire");
+        assert_eq!(quote(&[], 0), Err(FAILED));
     }
 
     #[test]

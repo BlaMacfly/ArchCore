@@ -75,8 +75,9 @@ Entre la position de chargement (op 8) et l'entrée en jeu, le serveur envoie un
 champ 0 la **vitesse du temps** (u8, ce n'est pas une opération ; ignorée si 0), au champ 1 le temps du jeu en
 **millisecondes** (u64 ; ignoré si 0). Le client avance ce temps de `vitesse` ms par ms réelle et en tire l'heure par
 `(ms / 3 600 000) % 24`, **sans correction de fuseau** : elle pilote le cycle jour/nuit, la musique et l'ambiance de
-zone (`skyset.ini`). Archonia part de 12 h et de la vitesse 6 tant qu'il n'a rien reçu. Les champs 2 et 3 (u32) n'ont
-pas de lecteur connu.
+zone (`skyset.ini`). Archonia part de 12 h et de la vitesse 6 tant qu'il n'a rien reçu. Les champs 2 (heure du serveur,
+secondes Unix, UTC) et 3 (décalage du fuseau, secondes) sont lus par la fenêtre des boss d'Archonia (« Server Time »,
+comptes à rebours) : ArchCore les remplit d'après `World.TimeZone` (décalage 0 en `utc`).
 
 ArchCore tient une horloge **globale** (choix d'ArchCore) : vitesse `World.TimeSpeed` (6 par défaut, une journée en
 4 h réelles) ; avec `World.TimeStart` = h (0 à 23), le temps vaut h heures au démarrage du serveur ; avec -1 (défaut),
@@ -502,7 +503,8 @@ l'inventaire.
   - **op 0 → op 1** : ouverture de `UI_PDSkillBuy` (PNJ à 1 600 unités au plus).
   - **op 2 → op 3** : apprendre la compétence `a` ; AGPMSKILL op 0 (niveau 1, expérience 0) puis b = 0 réussite,
     2 déjà apprise, 3 or insuffisant, 4 niveau trop bas, 1 autre refus. Niveau et prix : niveau 1 de SKILL_CONST
-    (7 / 10 / 15, 300 / 500 / 1 000 or), sans point de compétence ni taxe.
+    (7 / 10 / 15, 300 / 500 / 1 000 or), sans point de compétence ; prix taxé dans la région du joueur (voir les taxes des
+    régions).
   - **op 4 → op 5** : acheter la recette `a` ; b = 0 achetée (le client l'ajoute à sa liste), 2 déjà connue,
     3 or insuffisant (`MakingPrice`), 4 compétence sous `ItemLv`, 5 compétence de la catégorie absente, 1 autre.
 - **AGPMPRODUCT** (drapeaux 2) : 0 op, 1 CID, 2 identifiant de la compétence, 3 recette / cadavre / TID obtenu,
@@ -1079,13 +1081,15 @@ nouvelle entrée par le serveur de connexion le remplace aussitôt.
 défaites, op 2 / 4 ennemi ajouté / retiré, op 6 liste vidée, op 18 message système (textes `PvP_Msg_*`
 d'uimessage.txt : 3 « en combat », 4 « fin du combat », 5 défaite, 12 victoire, 17 cible invincible, 20 ami,
 24 charisme gagné, 25 niveau insuffisant…). Les codes 0 à 2 (entrée en zone sûre, libre, de combat) sont produits
-par le client lui-même au changement de région.
+par le client lui-même au changement de région ; ArchCore envoie le code 2 puis le 13 (« You moved to a Battle
+Square ») à l'arrivée dans la Battle Square, et le 18 (niveau insuffisant) au refus d'un superviseur.
 
 Règles d'ArchCore, reprises du client (`FUN_1402d8e80`) : la sûreté d'une zone vient des bits 2-3 du `Type` de
 RegionTemplate.ini ; jamais d'attaque en zone sûre ; ailleurs, ennemi déclaré ou attaque forcée (Ctrl, champ 6 de
 l'action 0x41), niveau 20 des deux côtés, pas son groupe en zone libre, pas un ami (même guilde, guilde alliée) en
 zone de combat ; guildes hostiles et combat de guildes : ennemies d'office ; Battlegrounds (régions 110-114,
-123-125, 175, 176) : races différentes seulement. Une attaque forcée rend les deux joueurs ennemis pour 5 minutes
+123-125, 175, 176) et Shrines en combat : races différentes seulement, sans Ctrl ; Battleground, Battle Square et Shrine
+en combat : ni points de meurtrier, ni premier attaquant, ni mise à prix (voir plus bas). Une attaque forcée rend les deux joueurs ennemis pour 5 minutes
 prolongées à chaque coup ; en zone libre contre un innocent, l'agresseur devient premier attaquant 20 minutes
 (champ 12 du personnage = 1, champ 25 = secondes restantes, nom violet). Tuer un innocent de plus de 4 niveaux en
 dessous après l'avoir attaqué en premier donne des points de meurtrier (facteur de statut 11,
@@ -1192,7 +1196,7 @@ banque.
 | 0 | client | Réparation des objets de la grille (objets de l'inventaire seulement : un objet porté doit être retiré) |
 | 1 | serveur | Résultat : 1 réussi (fenêtre fermée), 2 pas assez d'or, 3 déjà plein, 4 échec, 5 objet qui ne se répare pas |
 
-Prix, comme le client : `tronc((prix au PNJ / DUR) × (DUR − actuelle) × 0,5)` par objet, sans taxe de région ; un
+Prix, comme le client : `tronc((prix au PNJ / DUR) × (DUR − actuelle) × 0,5)` par objet, plus la taxe de la région du joueur sur chaque objet ; un
 écart avec le coût envoyé donne le code 4. Réussite : argent débité (AGPMCHARACTER champ 8), chaque objet remis
 plein (op 2, champ 10), puis code 1 ; noté dans `log_shop` (action `repair`). Refus : PNJ hors de portée ou sans
 fonction 17 (code 4), objet sans `DUR` ou inusable (code 5), objets tous pleins (code 3). Un meurtrier de palier 2 ou
@@ -1296,8 +1300,8 @@ connu. Le client ne réagit qu'à 0 (fin de l'effet en fondu, 5 s), 3 (pluie : e
 (-1 : arrêt) ; ArchCore ne s'en sert pas, la météo suffit. Choix d'ArchCore : une météo commune à tous, fixée par
 `/weather clear|rain|snow` ([[Administration|FR-Administration]]) ou tirée toutes les `World.WeatherMinutes` minutes
 si `World.WeatherAuto` vaut 1 ; envoyée à tous les joueurs en jeu à chaque changement et à l'entrée en jeu ; non
-enregistrée (temps clair au démarrage). Les compétences de l'Archlord sur le ciel (478 « Day and Night », 522, 523)
-attendent le système de l'Archlord.
+enregistrée (temps clair au démarrage). Les compétences de l'ArchLord sur le ciel (478 « Day and Night », 522, 523)
+sont décrites avec le titre d'ArchLord.
 
 ## Invocations (type 0x4F, AgpmSummons)
 
@@ -1355,7 +1359,7 @@ Drapeaux sur 1 octet : 0 op, 1 événement (`EVENT_BASE`, fonction 29), 2 CID du
 Table `character_customize` (charactercustomizelist.txt) : genre (coiffure, visage), numéro (celui des champs 20 et 21
 d'AGPMCHARACTER), nom, `Case` (0 création et coiffeur, 1 coiffeur, 2 création), modèle, niveau exigé, prix (or, ou
 objets si `Price(Skull)` n'est pas nul : jamais dans les données). Achat, comme la logique partagée du client : prix =
-somme des prix (taxe de région nulle), niveau exigé = celui du visage s'il est choisi (aucun pour une coiffure seule),
+somme des prix, chacun avec la taxe de la région du joueur, niveau exigé = celui du visage s'il est choisi (aucun pour une coiffure seule),
 `Case` non vérifié. ArchCore refuse en plus, par un message système : joueur monté, valeur absente pour son modèle ou
 identique à l'actuelle, prix en objets, niveau ou or insuffisant. Accepté : or débité, apparence enregistrée,
 AGPMCHARACTER op 1 (champs 20 et 21 changés) au joueur et à ceux qui le voient. À la création d'un personnage, visage
@@ -1388,6 +1392,213 @@ cumulée ; le criminel perd `Wanted.ExpLossPercent` de l'expérience de son nive
 disparaît. Un criminel recherché n'est pas innocent : le tuer ne donne ni points de meurtrier ni statut de premier
 attaquant.
 
+## Combats de Shrine (type 0x62, AgpmShrineBattle)
+
+Module de l'épisode 8 en **structure brute** dans les deux sens (pas de champs AuPacket) : en-tête standard, octet
+0x13 = 1, opération U16 en 0x14 (ArchCore le lit comme un paquet à drapeaux 1 dont le seul champ est l'opération),
+bourrage en 0x16, données dès 0x18, pied 0x6B. Structure d'un Shrine (0xD0) : 0x00 Id, 0x04 nom (30), 0x22 nom du
+graveur (49), 0x80 état (0 fermé, 1 ouvert, 2 gravure, 4 occupation, 6 fin), 0x84 race occupante (1 à 4), 0xB8 CID
+du graveur ; ArchCore laisse à zéro les champs de temps (0x58-0x78, 0x90-0xB0), de sens inconnu.
+
+| Op | Sens | Taille | Contenu |
+|---|---|---|---|
+| 0 | client → serveur | 0x20 | Liste demandée (fenêtre `UI_Shrine_info`) ; réponse op 2, 11, 12 |
+| 1 | serveur | 0xF0 | 0x18 Id, 0x20 Shrine : changement d'état (jauge, effets sur le graveur), à tous |
+| 2 | serveur | 0x980 | 10 entrées de 0xF0 dès 0x20, Shrine en +0x20 de chacune ; aussi à l'entrée en jeu (le client n'a pas `ShrineTable.txt` : sa table vient de là) |
+| 3 | serveur | 0x20 | 0x18 Id, 0x1C jauge de gravure en pour cent (0 la masque) |
+| 6 | serveur | 0x2C | 0x18 Id, 0x1C CID, 0x20 drapeau, 0x24 état, 0x28 valeur : drapeau 0 état 2 = gravure annulée |
+| 7 | serveur | 0x58 | 0x18 Id, 0x1C message de `shrinemessage.xml`, 0x20 race (ou nombre des messages en « %d »), 0x24 nom |
+| 8 | client → serveur | | Sens inconnu (absent du client) : journalisé |
+| 9 | client → serveur | 0x20 | 0x18 Id, 0x1C CID : entrer |
+| 10 | serveur | 0x20 | 0x18 Id, 0x1C minutes : ouverture prochaine, proposition d'entrer |
+| 11 / 12 | serveur | 0x24 | 0x1C victoires, 0x20 défaites : du joueur / de sa race |
+
+Règles d'ArchCore (le client d'Archonia ne contient rien du serveur ; tables `shrine` et `shrine_reward` remplies par
+la couche de contenu) : huit Shrines (régions centrales 236 à 243, zones de race 244 à 275, extérieurs 276 à 283)
+ouvrent tous les jours à 20 h, 21 h ou 22 h pour 30 minutes (`Shrine.Enabled`, commande MJ `/shrine open|close <n>`).
+Annonces à 10, 5 et 1 minute (messages 1, 2, 4 ; message 3 et op 10 aux joueurs du niveau voulu), entrée possible
+5 minutes avant. Entrée (op 9) : niveau 50 au moins (sinon AgpmSystemMessage code 47), 50 joueurs par race au plus
+(code 48), téléportation au point de résurrection de sa race dans la zone du Shrine. Un joueur immobile dans la région
+centrale grave le sceau (60 s, jauge op 3 ; annulée s'il meurt, bouge ou sort : message 10) ; sa race occupe alors le
+Shrine, qu'il doit garder 5 minutes en vie et sans en sortir (sinon message 16, retour à l'état 1). Victoire : messages
+17 et 22 à tous ; récompenses aux présents (pièces 53000 et charisme : gravure au graveur, race victorieuse, commune ;
+messages 18, 19, 23), scores (tables `shrine_score`, `shrine_race_score`). Sans vainqueur à la fin du temps :
+messages 20 et 21. Quinze secondes après la fin, message 27 et retour en ville des présents, op 1 état 0. Pendant le
+combat (états 1 à 4), dans les régions du Shrine : races différentes ennemies sans Ctrl, même race jamais, ni points
+de meurtrier, ni statut de premier attaquant, ni droit de mise à prix ; un mort ressuscite au point de sa race.
+
+## Battle Square et Battleground (types 0x4A et 0x58)
+
+**Battle Square** (régions 189 à 234, six étages ; racines 198, 208, 209, 215, 223, 229, LevelMin 20 à 70 de
+RegionTemplate.ini importé dans `region_template.level_min`) : zone de combat sans restriction de race ; un meurtre
+n'y donne ni points de meurtrier ni mise à prix. La victime peut lâcher un crâne au sol (`pvpskulldroptable.txt`,
+tables `pvp_skull_chance` et `pvp_skull_level` : chance selon l'écart de niveau tueur − victime, multipliée par
+`Rate.Drop`, niveau du crâne selon la victime, objets `BattleSquare.SkullTids`). Chaque étage est une île du relief
+serveur et aucun portail n'y mène : parler à un superviseur (PNJ 551 à 554) envoie à la porte de l'étage le plus haut
+que permet le niveau (`BattleSquare.SupervisorTeleport`, choix d'ArchCore) ; sous le niveau 20, AgpmPvP op 18 code 18.
+À l'arrivée de l'extérieur, codes 2 puis 13.
+
+**Battleground** (régions 110 à 114, 123 à 125, 175, 176) : toujours ouvert ; un mort ressuscite au point de sa race
+dans le fort de sa race (111 humain, 112 orc, 113 elfe de lune, 176 Dragon Scion). Avec `Battleground.Schedule`
+(« HH:MM-HH:MM », vide par défaut), début et fin annoncés par le paquet brut **0x58** : 0x13 op 1, 0x14 texte
+(1024), 0x414 couleur ARGB, 0x418 type (2 début, 4 fin ; le client affiche alors ses textes 780 et 781), 0x41C
+variante (0 combat des races).
+
+## Fenêtre des boss (type 0x64, AgpmBoss)
+
+Ajout d'Archonia sans effet sur le jeu. Drapeaux 1 : 0 op, 1 octet (0), 2 PACKET[32] apparitions (mini brut de
+48 octets : 0x00 TID, 0x18 U64 prochaine apparition en secondes Unix, 0x20 heure, 0x21 minute, 0x28 vivant), 3 butin
+(mini brut de 196 octets : TID, 16 TID d'objet, 16 taux, 16 quantités), 4 TID, 5 classement (page, pages, rang du
+joueur, son nom, ses victoires, PACKET[16] lignes {rang, nom, victoires}), 6 compteur de dégâts (TID, nombre,
+PACKET[20] lignes {nom, TID du modèle, niveau, guilde, marque, 0, dégâts I64}).
+
+| Op | Sens | Effet |
+|---|---|---|
+| 1 | serveur | Boss de `UIBoss.xml` (table `boss_window`) présents dans le monde, à l'entrée en jeu et à chaque mort, tirage du délai ou réapparition |
+| 4 → 3, 5 | client → serveur | Boss choisi (champ 4) : objets possibles (`monster_drop` puis groupes de butin, 16 au plus) et page 0 du classement |
+| 6 → 5 | client → serveur | Page du classement (champ 5, mini dont le champ 0 est la page) |
+| 7 | serveur | Compteur de dégâts aux joueurs qui blessent un boss suivi, toutes les 2 s au plus (le client l'efface 10 s après le dernier) |
+
+Choix d'ArchCore : le classement est celui du dernier combat contre ce boss, trié par dégâts ; la valeur de chaque
+ligne compte les victoires du joueur sur ce boss (table `character_boss_kill`, une par combattant au combat où il
+meurt). L'heure du serveur vient d'AgpmTimer champs 2 et 3.
+
+## Guerres de siège (types 0x49, 0x50 et 0x61)
+
+**AgpmSiegeWar (0x49)**, drapeaux 2 : 0 op, 1 résultat (op 2) ou drapeau, 2 château (mini), 3 CID (refusé s'il n'est
+pas celui de la session), 4 page de guildes, 5 CID d'un objet de siège, 6 fiche d'objet, 7 IID d'un objet
+d'inventaire, 8 message de siège, 9 U64 jamais lu, 10 compte à rebours. Mini château (drapeaux 2) : 0 nom (bloc
+mémoire, clé de tous les paquets), 1 chef de la guilde propriétaire, 2 guilde propriétaire, 3 U8 membres, 4 et 5 U64
+dernier et prochain siège (FILETIME en heure locale de `World.TimeZone`), 6 U8 statut, 7 et 8 U8 résurrection des
+assaillants et des défenseurs, 9 U8 (0), 10 guilde du dernier carving. Les textes partent avec leur zéro final (un texte
+vide efface l'ancienne valeur). Page de guildes : I16 page, I16 nombre de pages (n / 15 + 1), PACKET[15] {nom, chef,
+U32 points}. Message de siège : U8 code, château, guilde, deuxième nom, U8 type d'objet, U32 (0), U8 côté (0 ouest,
+1 est). Compte à rebours : U8 genre (1 avant le début, 2 avant la fin), U16 secondes.
+
+| Op | Sens | Effet |
+|---|---|---|
+| 0 | serveur | Château complet : à l'entrée en jeu (les 5), à chaque changement, chez un commandant |
+| 1 → 2 | client → serveur | Déclaration (château champ 5 : date) : 0x0B fixée, 1 statut ≠ 0, 2 hors du créneau, 3 pas le propriétaire |
+| 3, 5 → 2 | client → serveur | Candidature de défense (8), d'attaque (9) ; 2 hors candidatures, 4 pas le chef, 5 guilde trop petite ou trop jeune, 6 déjà inscrite, 0x15 liste pleine, 1 pas sur place |
+| 4, 6 → 2 | client → serveur | Retrait (0) |
+| 7 → 9, 8 → 10 | client → serveur | Page des candidats à l'attaque (retenus dès le statut 2), à la défense |
+| 0xB → 2 | client → serveur | Le propriétaire retient un défenseur (château champ 2) : 10, ops 0xE et 0xF à tous |
+| 0xC → 0xE, 0xD → 0xF | client → serveur | Assaillants retenus ; défenseurs (propriétaire d'abord) ; aussi à tous à la clôture et au début |
+| 0x10 → 0x13 | client → serveur | Ouvrir un camp ou une catapulte (champ 5) : résultat 0x0E et fiche (champ 6) |
+| 0x16 → 0x18, 0x1A ; 0x17 → 0x1A | client → serveur | Charger, retirer un objet d'inventaire (champ 7) |
+| 0x12, 0x14 → 2 | client → serveur | Activer (0x13 déjà actif, 1 objets manquants), réparer (0x0D, 0x0F, 0x14) |
+| 0x1B → 2 | client → serveur | Carving du trône (champ 5) : 0x10 début, 0x11 annulé (bouger, mourir), 0x12 fini, 1 refus |
+| 0x1C | serveur | Message (à tous) : 1 début, 4 objet détruit, 5 sceau levé, 6 et 7 Œil ouvert, refermé, 8 à 10 carving, 11 fin, 12 à 17 camps |
+| 0x1D | serveur | Compte à rebours, chaque minute du combat |
+
+**AgpmEventSiegeWarNPC (0x50)**, drapeaux 1 : 0 op, 1 EVENT_BASE, 2 CID. Op 1 du client (commandant de siège, fonction
+de PNJ 33 sans données) → op 0 du château de la région du PNJ, puis op 2 (fenêtre UI_SiegeWarMain).
+
+**AgpmWarInfo (0x61)**, drapeaux 1 : quatre INT8 lus bruts en 0x14 (op), 0x15 (type : 0 siège, 1 Battleground,
+2 Shrine, 3 Archlord), 0x16 (étape), 0x17 (paramètre), suivis des données de l'op : 0 étape (warinfodata.txt), 2
+compteur, 4 et 5 deux INT32 en 0x18 et 0x1C, 6 effacer, 7 trois textes de 0x21 octets en 0x16, 0x37, 0x58 (arguments
+« %s »). Sièges : étapes 1 début, 2 et 3 portes extérieure et intérieure, 4 sceau, 5 et 6 Yeux, 7 carving, 8 carving
+fini (op 7 : guilde, chef, château), 9 fin (op 7 : guilde, chef, château) ; choix d'ArchCore à vérifier à l'écran : op 2
+= minutes restantes (chaque minute), op 4 = (0, durée en secondes) au début, op 5 = (objets détruits, total) ; op 6
+30 s après la fin. Envoyé aux joueurs des régions du château et aux membres des guildes du siège.
+
+**AgpmCharacter (0x02) ops 0x13 et 0x14** (champ 1 : CID) : résurrection de siège au point « binding » de son camp le
+plus proche (assaillants : type 3, si un camp activé tient ; défenseurs : 4 intérieur ou 7 extérieur, si la tour de
+résurrection tient ; Rensphere : 3 et 6, 4 et 5).
+
+Règles du client appliquées : statuts 0 à 6 dans l'ordre (0 aucun siège, 1 candidatures, 2 closes, 3 combat, 4 sceau du
+trône levé, 5 Yeux ouverts, 6 fin) ; déclaration par le chef de la guilde propriétaire (un MJ pour un château sans
+propriétaire) entre le jour de base à 20 h et 26 h plus tard (dernier siège + Duration4nextSW jours, reculé d'un jour un
+dimanche ; toute date à venir s'il n'y en a jamais eu) ; candidatures du chef sur place (régions du château et de ses
+abords) au statut 1 ; une guilde ne figure qu'une fois (Rensphere à part) ; ordre d'attaque des objets (tours de garde
+et porte extérieure, puis porte intérieure et tour de résurrection, puis Tour de vie, Yeux et trône ; un défenseur ne
+frappe que camps et catapultes) ; carving par le chef d'une guilde assaillante (puis par toute guilde du siège autre que
+la dernière graveuse), au statut 5, trône détruit, sans bouger pendant StampingTime (`Siege.CarveSeconds`).
+
+Choix d'ArchCore : voir `world/siege/` et [[Configuration|FR-Configuration]] (`Siege.*`) — château sans propriétaire au
+départ ; date fixée d'office au premier créneau (jour de base ou lendemain, 20 h) si le propriétaire n'a pas déclaré
+dans les NextSWDeclaring heures ou s'il n'y en a pas ; candidatures ouvertes SelectGuildForSW heures ; tous les
+candidats attaquants retenus (15 au plus, par points) ; sans assaillant, siège annulé et date suivante ; la guilde du
+dernier carving prend le château à la fin, sinon le propriétaire le garde ; guildes vaincues présentes renvoyées en
+ville. Objets (`monster_spawn.siege_war` 1) et gardes (2) cachés hors du combat, rattachés à leur château par la région
+de leur point ; un objet détruit passe 20 s en variante « en destruction » puis reste en ruine jusqu'à la fin, sans
+expérience ni butin ; un Œil d'Archon réduit à 0 PV s'ouvre (Œil éveillé), et se referme seul au bout
+d'ArchonEyeOpenTime si l'autre ne l'est pas. Pendant le combat, dans les régions du château : guildes de camps opposés
+ennemies sans Ctrl, même camp ou alliées jamais, ni points de meurtrier ni mise à prix. Catapulte : un tir retire
+`Siege.CatapultDamagePercent` des PV de la porte extérieure ou de la tour de garde la plus proche ; camp : activé, il
+ouvre la résurrection des assaillants ; objets requis de `SiegeWarObject.txt`, réparations payantes à durée. Portails
+`SpecialType` 2 (trajets du château) : guilde propriétaire hors siège (libres sans propriétaire), guildes du siège
+pendant le combat ; 3 (terrain de chasse du seigneur) : guilde propriétaire ; 4 (entrée de Rensphere) : guildes
+propriétaires d'un château pendant la guerre de Rensphere. La guerre de Rensphere est conduite par le titre
+d'ArchLord (ci-dessous). Tours de garde et gardes n'attaquent d'eux-mêmes que les assaillants et ne visent jamais un
+défenseur.
+
+## Titre d'ArchLord (type 0x55)
+
+**AgpmArchlord (0x55)**, drapeaux 2 : 0 op, 1 CHAR[32] nom de l'ArchLord, 2 CHAR[32] nom du garde, 3 INT8 résultat,
+4 INT32 étape, 5 INT32 gardes actifs, 6 INT32 gardes au plus, 7 INT32 message. Le client ne traite que les ops 0 à 6 et
+n'envoie que l'op 7, réduite à l'opération.
+
+| Op | Sens | Rôle |
+|---|---|---|
+| 0 | serveur | ArchLord désigné (champ 1) : à tous à chaque changement, à l'entrée en jeu (sysstr 630) |
+| 1 | serveur | Fin de règne (champ 1), à tous, avant l'op 0 du suivant (631) |
+| 2 / 3 | serveur | Garde appelé / renvoyé : nom du garde (champ 2), vide si refusé (638 à 641) |
+| 4 | serveur | Gardes actifs et au plus (champs 5 et 6 ; 650) |
+| 5 | serveur | Étape de la guerre de Rensphere (champ 4) : 1 portail, 2 combat, 3 bataille de l'ArchLord, 4 fin (642 à 645) ; à tous, et à l'entrée en jeu pendant la guerre |
+| 6 | serveur | Message (champ 7) : 1 activation de garde impossible, 2 retrait impossible (647, 648) |
+| 7 | client → serveur | Événement de fonction 36 : journalisé (aucun objet du client n'en porte) |
+
+Commandes de discussion lues par le serveur : `/guardactivate`, `/guarddeactivate`, `/guardinformation` (ops 2, 3 et 4 ;
+op 6 à qui n'est pas l'ArchLord), `/archlord <message>` (message de l'ArchLord à tous, « [ArchLord] nom : message ») et,
+pour les MJ, `/archlord set <nom>|clear`, `/archlordbegin`, `/archlordend`, `/nextstep`, `/archlordactivate <nom>`,
+`/archlorddeactivate`, `/castleowner <château> <guilde>`, `/deletecastleowner <château>`.
+
+Guerre de Rensphere (château 0 de SiegeWar.txt) : tous les Duration4nextSW jours (30) à SWBeginTime (20 h) si
+`Siege.Enabled` vaut 1, ou par `/siege start Rensphere`. Choix d'ArchCore : assaillants = guildes propriétaires d'un
+autre château (portail `SpecialType` 4 ouvert), défenseurs = guilde qui tient Rensphere ; étape 1 au début, étape 2
+`Archlord.PortalMinutes` plus tard ; carving permis dès le début (fontaine d'Archon, type 6, par le chef d'une guilde
+assaillante) ; sceau gravé : statut 7 pour la moitié de SWPlayingTime au plus (pas de résurrection à Rensphere),
+compétence de sceau de SiegeWar.txt (930) au graveur, étape 3 ; à la fin (étape 4), le chef de la guilde du sceau devient
+ArchLord jusqu'à la guerre suivante (table `archlord`), sinon l'ArchLord en place le reste. Sans assaillant à la date, la
+guerre est remise d'une période.
+
+Compétences de l'ArchLord (`skill_type` 9 de SKILL_CONST) : données en mémoire à l'ArchLord (AGPMSKILL op 0, à l'entrée
+en jeu aussi), refusées à tout autre joueur (op 7 de refus et message système). Call Dragon (474, `ride`) : AgpmRide op 6
+(champ 2 = 1295 Alcadia) à lui et autour, op 4 au lancer suivant, à la mort ou à la fin du règne ; Call Royal Knight (475)
+et `/guardactivate` : invocations de combat forcées (AgpmSummons type 1, champ 8 = 1) du Royal Knight (1277, 600 s),
+`Archlord.MaxGuards` au plus ; Rain Control (522) et Snow Control (523) : AgpmEventNature 3 ou 5 à tous pendant la durée
+de la compétence (5 min), puis la météo d'avant ; Day and Night (478) : AGPMTIMER à tous avec le temps du jeu décalé de
+12 h pendant `Archlord.SkyMinutes`, puis rétabli ; les autres (472, 473, 476, 711 à 719) passent par le moteur de
+compétences ordinaire.
+
+## Taxes des régions (type 0x53)
+
+**AgpmTax (0x53)**, drapeaux 2 : 0 op, 1 CID (le client ignore un CID inconnu), 2 résultat, 3 EVENT_BASE (ops 0 et 1) ou
+château, 4 à 7 régions. Mini château (drapeaux 2) : CHAR[128] nom (celui de SiegeWar.txt), INT64 recette totale versée,
+UINT64 dernier versement, UINT64 dernière modification des taux (secondes Unix). Mini région (drapeaux 2) : CHAR[33] nom,
+INT64 recette depuis le dernier versement, INT32 taux.
+
+| Op | Sens | Rôle |
+|---|---|---|
+| 0 → 1 | client → serveur | Intendant (fonction de PNJ 34, à portée) : op 1 avec l'EVENT_BASE ; le client n'ouvre UI_TaxSteward qu'au maître du château |
+| 3 → 3 | client → serveur | Taxes du château (champ 3 : nom) : résultat 0, château et régions au propriétaire ; 1 sinon |
+| 2 → 2 | client → serveur | Nouveaux taux (régions : nom, taux) : 0 fait, 1 pas le propriétaire, 3 hors de 0 à 50, 2 déjà changés cette semaine (lundi à dimanche, `World.TimeZone`) ; château et régions renvoyés |
+| 4 | serveur | Taux d'une région (champ 4) : toutes à l'entrée en jeu, à tous à chaque changement |
+
+Le nom d'une région est celui que compose le client : nom de RegionTemplate.ini traduit par le `RegionGlossary.txt` de
+la langue du joueur (table `region_glossary` ; à défaut l'anglais, puis le coréen) : c'est la clé de sa table des prix.
+Régions taxées : celles du château et de ses abords (`siege_war`).
+
+Taxe = prix × taux / 100 (division entière), ajoutée aux achats chez les PNJ, à la réparation (objet par objet), au
+coiffeur (ligne par ligne), aux portails (région du départ), au maître des compétences, à la production (compétence,
+recette) et à la création de guilde ; ni la vente aux PNJ ni les échanges et ventes entre joueurs. Choix d'ArchCore : la
+taxe va à la recette de la région où se tient le joueur ; un château sans propriétaire ne taxe pas ; un nouveau
+propriétaire repart de taux à 0 ; chaque `Tax.PayoutDay` à `Tax.PayoutHour` (lundi 0 h), les recettes vont à la banque
+du compte du chef de la guilde propriétaire, moins 20 % de tribut à la banque de l'ArchLord (sauf à Rensphere ; sans
+ArchLord, le propriétaire garde tout), inscrits dans `log_bank` (`taxe`, `tribut`, `count` = château) ; `/tax pay` verse
+aussitôt.
+
 ## Types connus
 
 | Type | Module | Type | Module |
@@ -1418,6 +1629,10 @@ attaquant.
 | 0x30 | Météo (AgpmEventNature) | 0x47 | Effets de nature |
 | 0x4F | Invocations (AgpmSummons) | 0x4C | Cris de zone (AgpmAreaChatting) |
 | 0x2C | Salons de discussion (AgpmChannel) | 0x43 | Coiffeurs (AgpmEventCharCustomize) |
-| 0x46 | Avis de recherche (AgpmWantedCriminal) | | |
+| 0x46 | Avis de recherche (AgpmWantedCriminal) | 0x58 | Annonces du Battleground (AgcmBattleGround, brut) |
+| 0x62 | Combats de Shrine (AgpmShrineBattle, brut) | 0x64 | Fenêtre des boss (AgpmBoss) |
+| 0x49 | Guerres de siège (AgpmSiegeWar) | 0x50 | Commandants de siège (AgpmEventSiegeWarNPC) |
+| 0x61 | Information des guerres (AgpmWarInfo) | 0x55 | Titre d'ArchLord (AgpmArchlord) |
+| 0x53 | Taxes des régions (AgpmTax) | | |
 
 Les schémas complets des 86 modules sont dans `data/re/packet-schemas.json`.

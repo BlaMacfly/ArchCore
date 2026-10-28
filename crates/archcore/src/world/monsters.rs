@@ -263,6 +263,9 @@ pub struct MonsterRegistry {
     pub fixed_status: HashMap<u32, u64>,
     /// Nom de chaque modèle (« Name » de CharacterDataTable.txt), pour les créatures sans point d'apparition.
     pub names: HashMap<u32, String>,
+    /// Points d'apparition des guerres de siège (`monster_spawn.siege_war` 1 : objets, 2 : gardes) : leurs monstres ne
+    /// sont pas montrés hors du combat de siège de leur château (`siege/`).
+    pub siege_spawns: HashMap<u32, u8>,
     by_cid: HashMap<u32, usize>,
     grid: HashMap<(i64, i64), Vec<usize>>,
 }
@@ -336,7 +339,7 @@ impl MonsterRegistry {
         // pas eu les tables du serveur.
         let rows = match db
             .world
-            .rows("SELECT id, tid, display_name, level, count, respawn_sec, respawn_max_sec, ai_tid, pos_x, pos_y, pos_z, degree_x, radius FROM monster_spawn WHERE count > 0 ORDER BY id", ())
+            .rows("SELECT id, tid, display_name, level, count, respawn_sec, respawn_max_sec, ai_tid, siege_war, pos_x, pos_y, pos_z, degree_x, radius FROM monster_spawn WHERE count > 0 ORDER BY id", ())
             .await
         {
             Ok(rows) => rows,
@@ -383,6 +386,20 @@ impl MonsterRegistry {
         let mut reg = Self::from_points(&points, &|x, z| map.is_blocked(x, z));
         reg.stats = stats;
         reg.names = names;
+        // Objets et gardes des sièges : chargés comme les autres monstres, mais retirés du monde jusqu'au combat de siège de
+        // leur château (`siege::Sieges::load` les rattache à leur château).
+        let siege_spawns: HashMap<u32, u8> = rows
+            .iter()
+            .filter_map(|r| {
+                let kind: i64 = col(r, "siege_war");
+                matches!(kind, 1 | 2).then(|| (col::<u32>(r, "id"), kind as u8))
+            })
+            .collect();
+        let hidden = Instant::now() + super::siege::NEVER;
+        for m in reg.monsters.iter_mut().filter(|m| siege_spawns.contains_key(&m.spawn_id)) {
+            m.life = Life::Gone { respawn_at: hidden };
+        }
+        reg.siege_spawns = siege_spawns;
         // IA des points (aidatatable.txt) ; la table manque tant que `archcore import --server` ne l'a pas remplie.
         match db.world.rows("SELECT tid, data FROM monster_ai", ()).await {
             Ok(rows) => {

@@ -85,7 +85,7 @@
   renvoyée toutes les 10 min) et météo (type 0x30 : `/weather`, météo automatique `World.WeatherAuto`). Règles
   d'ArchCore décrites dans [[Protocole réseau|FR-Protocole-reseau]]. Validé au simulateur le 28 octobre 2026
   (scénarios `auction`, `itemset` et `nature`), à confirmer en jeu ; fenêtres d'ArchRust en cours. Les compétences de
-  l'Archlord sur le ciel (478, 522, 523) attendent le système de l'Archlord.
+  l'ArchLord sur le ciel (478, 522, 523) agissent sur cette horloge et cette météo (voir le titre d'ArchLord).
 - Invocations (type 0x4F) : esprits de l'Élémentaliste, Sacred One, Legion of the Dead et autres invocations des
   compétences (créature au niveau du maître, `Summons.StatScale`), créatures fixes (pièges), Increase Gate (limite
   relevée), parchemins d'invocation et familiers des objets ; vue, état spécial puis op 0 dans l'ordre exigé par le
@@ -105,6 +105,50 @@
   (`Wanted.ExpLossPercent`). Règles d'ArchCore décrites dans [[Protocole réseau|FR-Protocole-reseau]]. Validé au
   simulateur le 28 octobre 2026 (scénarios `chat`, `channel`, `customize` et `wanted`), à confirmer en jeu ;
   fenêtres d'ArchRust en cours. La règle de région `<Chat>No</Chat>` n'est pas appliquée (aucune dans les données).
+- Combats de l'épisode 8 et zones de combat d'origine : Shrines (type 0x62, structure brute ; tables `shrine` et
+  `shrine_reward` de la couche de contenu, les tables d'origine n'étant pas livrées) : huit Shrines ouverts chaque soir
+  (`Shrine.Enabled`, `/shrine open|close`), entrée par niveau et effectif (codes 47 et 48), gravure au centre,
+  occupation, victoire de la race, pièces 53000 et charisme, scores, messages de `shrinemessage.xml` ; règles de combat
+  dans le Shrine (races ennemies sans Ctrl, ni points de meurtrier ni mise à prix, résurrection dans la zone de sa
+  race). Battle Square : niveaux des étages importés, voyage par les superviseurs (`BattleSquare.SupervisorTeleport`,
+  aucun portail n'y mène), codes 2, 13 et 18, meurtre sans pénalité, crânes de `pvpskulldroptable.txt`. Battleground :
+  résurrection dans le fort de sa race, annonces 0x58 sur horaire (`Battleground.Schedule`). Fenêtre des boss
+  d'Archonia (type 0x64) : état des boss de `UIBoss.xml`, butin possible, classement du dernier combat, compteur de
+  dégâts ; heure du serveur dans AgpmTimer (champs 2 et 3). Règles d'ArchCore décrites dans [[Protocole
+  réseau|FR-Protocole-reseau]]. Validé au simulateur le 28 octobre 2026 (scénarios `shrine`, `battlesquare` et
+  `boss`), à confirmer en jeu ; l'op 8 des Shrines (sens inconnu) n'est que journalisée, la guerre des races
+  d'Archonia (type 0x33) n'est pas faite, fenêtres d'ArchRust en cours.
+- Guerres de siège des châteaux (types 0x49, 0x50 et 0x61) : châteaux de `SiegeWar.txt`, objets d'assaut de
+  `SiegeWarObject.txt` et points de résurrection des sièges importés (tables `siege_war`, `siege_war_object`,
+  `siege_binding`) ; propriétaire, calendrier et candidatures en base (`castle`, `castle_application`). Règles du
+  client : déclaration par le propriétaire dans son créneau (jour de base, 20 à 22 h), candidatures du chef de guilde
+  sur place (15 attaquants, 3 défenseurs dont 2 retenus, une guilde par château), commandants de siège (fonction 33),
+  ordre d'attaque des objets, trône, Yeux d'Archon, carving du chef (le dernier gagne). Choix d'ArchCore : château sans
+  propriétaire au départ, date fixée d'office faute de déclaration, tous les candidats attaquants retenus, siège annulé
+  sans assaillant, l'ancien propriétaire garde le château sans carving réussi, seuils `Siege.MinGuildMembers` et
+  `Siege.MinGuildAgeDays`, durée `Siege.DurationMinutes`, calendrier `Siege.Enabled`. Objets et gardes des sièges
+  montrés seulement pendant le combat, variantes « en destruction » puis ruines ; combat sans Ctrl entre camps, ni
+  points de meurtrier ni mise à prix ; résurrection de siège (AgpmCharacter 0x13 et 0x14) ; trajets des châteaux
+  (`SpecialType` 2 à 4) ; catapultes et camps de résurrection ; tableau WarInfo ; commandes `/siege start|end|owner|hp`.
+  Validé au simulateur le 28 octobre 2026 (scénario `siege`), à confirmer en jeu ; tours de garde et gardes ne visent
+  plus que les assaillants ; terrain de chasse du seigneur à remplir et effet exact de la catapulte à établir.
+- Titre d'ArchLord (type 0x55) : guerre de Rensphere tous les 30 jours à 20 h (`Siege.Enabled`) ou par `/siege start
+  Rensphere`, guildes propriétaires d'un château en assaillantes, étapes 1 à 4 (portail, combat, bataille de l'ArchLord
+  au statut 7, fin), sceau gravé par le chef (compétence 930) ; son chef devient ArchLord jusqu'à la guerre suivante
+  (table `archlord`), annoncé à tous (ops 0 et 1) et à l'entrée en jeu. Compétences de `skill_type` 9 données à
+  l'ArchLord et refusées aux autres : Call Dragon (Alcadia, AgpmRide op 6), Call Royal Knight et `/guardactivate`,
+  `/guarddeactivate`, `/guardinformation` (gardes royaux, `Archlord.MaxGuards`), Rain et Snow Control (pluie ou neige
+  5 min pour tous), Day and Night (horloge décalée de 12 h, `Archlord.SkyMinutes`), `/archlord <message>` à tout le
+  serveur ; commandes d'essai `/archlord set|clear`, `/archlordbegin`, `/archlordend`, `/nextstep`…
+- Taxes des régions (type 0x53) : intendants « Grand Advisor » (fonction 34), taux de 0 à 50 % des régions du château et
+  de ses abords fixés par le propriétaire une fois par semaine (codes 0 à 3), op 4 à tous avec le nom de région traduit
+  par le `RegionGlossary.txt` de la langue du joueur (table `region_glossary`, importée) ; prix + prix × taux / 100 aux
+  achats chez les PNJ, réparation, coiffeur, portails, maître des compétences, production et création de guilde (ni
+  ventes aux PNJ ni ventes entre joueurs) ; recettes par région (`castle_tax`, `castle_tax_region`), versées chaque
+  lundi à 0 h (`Tax.PayoutDay`, `Tax.PayoutHour`) à la banque du chef de la guilde propriétaire, moins le tribut de
+  20 % à l'ArchLord ; `/tax` et `/tax pay`. Validé au simulateur le 28 octobre 2026 (scénarios `archlord` et `tax`),
+  à confirmer en jeu ; la compétence 472 Evil Light (invocation de nature 7) et l'objet d'Archon des gardes restent à
+  établir, les compétences retirées ne disparaissent de la barre du client qu'à la reconnexion.
 - Client ArchRust (branche `client`) : combat (attaque, coups, mort, résurrection, butin), groupes, autres
   joueurs, inventaire et équipement, PNJ (dialogue, boutique, banque et achat de pages, quêtes), compétences
   (instructeurs, lancement, barre de raccourcis), portails de téléportation (fenêtre et chargement d'origine, confirmation des zones de combat entre joueurs,
@@ -130,8 +174,8 @@
 1. Création complète d'un personnage et visibilité entre deux joueurs : vérifiées le 25 octobre 2026 avec
    deux clients ArchRust sur le serveur de test (création, entrée à Golundo, refus d'un nom déjà pris,
    joueurs visibles l'un de l'autre). Reste à les confirmer avec le client Archonia.
-3. Fonctions des PNJ : quêtes à objets d'interaction. Portails : points désactivés (champ 5 de l'op 5) et
-   trajets des guerres de siège ; refus des métamorphosés à vérifier quand la métamorphose existera.
+3. Fonctions des PNJ : quêtes à objets d'interaction. Portails : points désactivés (champ 5 de l'op 5) ; refus des
+   métamorphosés à vérifier quand la métamorphose existera.
 4. Compétences : renvoi de dégâts (contre-attaque), compétences des monstres, compétences de groupe et maîtrises
    validés au simulateur le 25 octobre 2026 ; partage des dégâts (Divine Protection, Martyr's Mark), purges
    (Antimagic, Cure, Disentangle…), défense ignorée (Lethal Attack, Stunner), points héroïques gagnés au niveau et

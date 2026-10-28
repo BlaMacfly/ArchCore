@@ -79,6 +79,11 @@ la discussion comme messages système.
 | `/create "nom" <TID> <quantité> <0\|1>` | 3 | Ajoute l'objet dans `character_items`, dans la première case libre de l'inventaire. Un joueur connecté le reçoit tout de suite ; le personnage peut aussi être hors ligne |
 | `/additem <TID> [quantité]` | 3 | Raccourci de `/create` sur soi : ajoute l'objet (1 par défaut, jusqu'à 9999) dans l'inventaire du MJ, échangeable. Commande propre à ArchCore |
 | `/weather [clear\|rain\|snow]` | 2 | Météo pour tous les joueurs en jeu (pluie, neige, temps clair) ; sans argument, la météo et l'heure du jeu. Commande propre à ArchCore |
+| `/shrine [open\| `/siege [start|end <château> | owner <château> <guilde|-> | hp <château> <PV>]` | 3 | Sans argument, l'état des châteaux ; `start` clôt les candidatures et ouvre le combat, `end` le termine (la guilde du dernier carving prend le château), `owner` donne le château à une guilde (`-` : aucune) et remet son calendrier au statut 0, `hp` ramène les PV des objets intacts d'un château en guerre (essais). Commande propre à ArchCore |
+|close <n>]` | 3 | Sans argument, l'état des Shrines ; `open` ouvre le combat du Shrine `n` sans attendre son horaire, `close` le ferme sans vainqueur. Commande propre à ArchCore |
+| ✅ `/siege [start|end|owner|hp …]` | État des châteaux, début et fin forcés d'un siège, propriétaire, PV des objets (ajout d'ArchCore, absent du panneau) |
+| `/tax [pay [château]]` | 3 | Sans argument, taux et recettes des régions de chaque château ; `pay` verse aussitôt les recettes d'un château (ou de tous) au chef de la guilde propriétaire, moins le tribut de l'ArchLord. Commande propre à ArchCore |
+| `/archlord [set <nom> \| clear]` | 3 | Désigne l'ArchLord (ops 0 et 1 à tous) ou le retire ; sans argument, le nom de l'ArchLord. `/archlord <message>` de l'ArchLord : message à tout le serveur. `/archlordbegin`, `/archlordend` (guerre de Rensphere), `/nextstep`, `/archlordactivate <nom>`, `/archlorddeactivate`, `/castleowner <château> <guilde>`, `/deletecastleowner <château>` : commandes d'Archonia (sysstr 622 à 629, 636, 657, 658) |
 | `/durability <valeur\|-1>` | 3 | Fixe la durabilité de l'équipement porté qui s'use (`-1` : pleine, 0 : cassé) ; pour essayer l'usure et la réparation. Commande propre à ArchCore |
 | `/questreset <TID>` | 3 | Efface la quête TID (en cours ou terminée) du journal du MJ ; visible à la prochaine connexion. Commande propre à ArchCore |
 | `/recast` | 3 | Remet à zéro, côté serveur, les délais de relance des compétences du MJ (le client peut encore afficher le sien). Commande propre à ArchCore |
@@ -196,6 +201,7 @@ Exemple : `/SetExp 2.0` puis `/GetExp` pour vérifier.
 | ✅ `/additem <TID> [quantité]` | Ajoute un objet à son propre inventaire (ajout d'ArchCore, absent du panneau) |
 | ✅ `/speed <1-10>` | Multiplie sa vitesse de déplacement (ajout d'ArchCore, absent du panneau) |
 | ✅ `/weather [clear\|rain\|snow]` | Météo de tout le monde, ou météo et heure du jeu (ajout d'ArchCore, absent du panneau) |
+| ✅ `/shrine [open\|close <n>]` | État des Shrines, ouverture ou fermeture forcée d'un combat (ajout d'ArchCore, absent du panneau) |
 | ✅ `/durability <valeur\|-1>` | Fixe la durabilité de son équipement porté (ajout d'ArchCore, absent du panneau) |
 | ✅ `/money <montant> ["nom"]` | Fixe l'or d'un personnage connecté (ajout d'ArchCore, absent du panneau) |
 | ✅ `/charisma <points> ["nom"]` | Donne des points de charisme à un personnage connecté (ajout d'ArchCore, absent du panneau) |

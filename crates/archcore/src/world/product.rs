@@ -36,7 +36,8 @@
 //!   code 1 sans rien consommer, avec un message système ;
 //! - expérience tirée dans [min, max] de product_exp au niveau courant, sur une réussite seulement ; niveau suivant
 //!   quand l'expérience cumulée atteint le cumul du niveau (15 au plus, expérience bornée au cumul final) ;
-//! - apprentissage d'une compétence : niveau et prix du niveau 1 de SKILL_CONST, sans point de compétence ni taxe ;
+//! - apprentissage d'une compétence : niveau et prix du niveau 1 de SKILL_CONST, sans point de compétence, prix taxé dans
+//!   la région du joueur (`tax.rs`, comme l'achat d'une recette) ;
 //!   achat d'une recette : MakingPrice, compétence de la catégorie au niveau ItemLv.
 
 use super::items::{item_add_of, item_count, item_remove, item_status};
@@ -685,21 +686,24 @@ pub async fn learn_skill(ctx: &WorldCtx, st: &mut WorldState, sid: u32, category
     if p.ch.level < lv.require_level {
         return Ok(learn_result::LOW_LEVEL);
     }
-    if (p.ch.money as i64) < lv.learn_cost {
+    // Prix taxé dans la région du joueur (tax.rs).
+    let price = super::tax::quote(ctx, st, sid, lv.learn_cost);
+    if (p.ch.money as i64) < price.total {
         return Ok(learn_result::NO_MONEY);
     }
     if p.skills.list.len() >= skills::MAX_SKILLS {
         return Ok(learn_result::FAIL);
     }
-    let money = p.ch.money as i64 - lv.learn_cost;
+    let money = p.ch.money as i64 - price.total;
     ctx.db.characters.exec("INSERT INTO character_skills (character_id, skill_tid, level, exp) VALUES (?, ?, 1, 0) ON DUPLICATE KEY UPDATE level = 1, exp = 0", (p.ch.id, tid)).await?;
     st.next_skill_id += 1;
     let owned = Owned { id: st.next_skill_id, tid, level: 1, ready_at: None, exp: 0 };
     let p = st.players.get_mut(&sid).unwrap();
     p.skills.list.push(owned);
     p.send_raw(skills::add_packet(p.ch.id, &owned));
-    info!("[production] {} apprend {} ({} or)", p.ch.name, t.name, lv.learn_cost);
+    info!("[production] {} apprend {} ({} or)", p.ch.name, t.name, price.total);
     super::set_money(ctx, st, sid, money).await?;
+    super::tax::collect(ctx, st, &price).await?;
     Ok(learn_result::SUCCESS)
 }
 
@@ -719,15 +723,17 @@ pub async fn buy_recipe(ctx: &WorldCtx, st: &mut WorldState, sid: u32, category:
     if skill.level < c.item_level {
         return Ok(learn_result::LOW_LEVEL);
     }
-    if (p.ch.money as i64) < c.price {
+    let price = super::tax::quote(ctx, st, sid, c.price);
+    if (p.ch.money as i64) < price.total {
         return Ok(learn_result::NO_MONEY);
     }
-    let money = p.ch.money as i64 - c.price;
+    let money = p.ch.money as i64 - price.total;
     ctx.db.characters.exec("INSERT IGNORE INTO character_recipes (character_id, recipe_tid) VALUES (?, ?)", (p.ch.id, recipe)).await?;
     let p = st.players.get_mut(&sid).unwrap();
     p.recipes.push(recipe);
-    info!("[production] {} achète la recette {} ({} or)", p.ch.name, c.name, c.price);
+    info!("[production] {} achète la recette {} ({} or)", p.ch.name, c.name, price.total);
     super::set_money(ctx, st, sid, money).await?;
+    super::tax::collect(ctx, st, &price).await?;
     Ok(learn_result::SUCCESS)
 }
 

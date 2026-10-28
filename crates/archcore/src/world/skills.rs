@@ -204,6 +204,8 @@ pub struct SkillLevel {
     pub summons_tid: u32,
     pub summons_count: u32,
     pub limit_quantity: u32,
+    /// `skill_type` de SKILL_CONST (9 : compétence de l'ArchLord, `archlord.rs`).
+    pub skill_type: i32,
 }
 
 /// Champs de SKILL_SPEC qui règlent les valeurs d'un niveau.
@@ -287,6 +289,7 @@ impl SkillLevel {
             summons_tid: num("summons_tid").max(0.0) as u32,
             summons_count: num("summons_count").max(0.0) as u32,
             limit_quantity: num("limit_quantity").max(0.0) as u32,
+            skill_type: num("skill_type") as i32,
         }
     }
 
@@ -409,6 +412,10 @@ pub struct SkillTemplate {
     /// Nature d'invocation (colonne `summons` de SKILL_SPEC : 1 invocation, 2 fixe, 4 limite relevée, 5 soin des
     /// invocations, 6 parchemin d'invocation, 7, 8 familier, 11 ; 0 : aucune), voir `summons.rs`.
     pub summons: i64,
+    /// Effet sur le monde (colonne `game_effect` de SKILL_SPEC : 1 jour et nuit, 2 pluie, 4 neige) et monture sans objet
+    /// (colonne `ride`) : compétences de l'ArchLord (`archlord.rs`).
+    pub game_effect: i64,
+    pub ride: bool,
     /// Niveau n à l'indice n - 1.
     pub levels: Vec<SkillLevel>,
 }
@@ -476,7 +483,14 @@ impl SkillTemplate {
     pub fn party(&self) -> bool {
         !self.offensive() && self.range_code % 1000 == 303
     }
+    /// Compétence réservée à l'ArchLord (`skill_type` 9 de SKILL_CONST).
+    pub fn archlord_only(&self) -> bool {
+        self.levels.first().is_some_and(|l| l.skill_type == ARCHLORD_SKILL_TYPE)
+    }
 }
+
+/// `skill_type` des compétences de l'ArchLord (liste « Archlord » de SKILLMASTERY.txt, `FUN_1402fa5c0` d'Archonia).
+pub const ARCHLORD_SKILL_TYPE: i32 = 9;
 
 /// Place d'une compétence dans un arbre de maîtrise (SkillMastery_High.txt, SkillMastery_Heroic.txt).
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -536,6 +550,8 @@ impl SkillCatalog {
                     auto_attack: int("auto_attack") != 0,
                     status: effects::parse_status(raw_status),
                     summons: int("summons"),
+                    game_effect: int("game_effect"),
+                    ride: int("ride") != 0,
                     levels: Vec::new(),
                 },
             );
@@ -570,6 +586,13 @@ impl SkillCatalog {
 
     pub fn get(&self, tid: u32) -> Option<&SkillTemplate> {
         self.skills.get(&tid)
+    }
+
+    /// Compétences de l'ArchLord (`skill_type` 9), par TID croissant.
+    pub fn archlord_skills(&self) -> Vec<u32> {
+        let mut v: Vec<u32> = self.skills.values().filter(|t| t.archlord_only()).map(|t| t.tid).collect();
+        v.sort_unstable();
+        v
     }
 
     /// TID d'une compétence d'après son nom (le plus petit si le nom revient).
@@ -892,11 +915,23 @@ fn request_cast(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) {
         debug!("[compétence] {name} : {} pas encore prête", t.name);
         return;
     }
+    // Compétence de l'ArchLord (`skill_type` 9) : refusée à tout autre joueur (archlord.rs).
+    if t.archlord_only() && !super::archlord::is_lord(st, sid) {
+        info!("[compétence] {name} : {} refusée (réservée à l'ArchLord)", t.name);
+        player.send_raw(refusal_packet(player.ch.id, &owned, target, super::product::cast_refusal::INVALID_TARGET));
+        send_system(st, sid, "Seul l'ArchLord peut utiliser cette compétence.");
+        return stop(st, sid);
+    }
     // Compétence de production : la récolte vise un cadavre (product.rs).
     if t.is_product() {
         return super::product::request_cast(ctx, st, sid, owned, target, now);
     }
     let alive = st.monsters.get(target).is_some_and(|m| m.is_alive() && st.monsters.stats_of(m.tid).is_attackable());
+    // Objet de siège : seulement pendant le combat, selon le camp et l'ordre d'attaque (siege/war.rs).
+    if alive && t.offensive() && !super::siege::war::may_hit(ctx, st, sid, target) {
+        debug!("[compétence] {name} : objet de siège {target:#x} pas attaquable maintenant");
+        return;
+    }
     // Invocation d'un autre joueur : règles du combat entre joueurs envers son maître (summons.rs).
     if alive && t.offensive() {
         if let Err(r) = super::summons::may_attack(ctx, st, sid, target, forced) {
@@ -1038,6 +1073,11 @@ async fn complete(ctx: &WorldCtx, st: &mut WorldState, sid: u32, cast: Cast, now
     if p.dead || t.is_product() {
         return Ok(());
     }
+    // Compétences de l'ArchLord sur le monde : monture Alcadia, gardes royaux, ciel (archlord.rs).
+    if super::archlord::on_cast(ctx, st, sid, t, lv, now) {
+        return Ok(());
+    }
+    let p = &st.players[&sid];
     // Invocation (colonne `summons` de SKILL_SPEC) : créatures, limite relevée (summons.rs).
     if t.summons != 0 {
         super::summons::on_cast(ctx, st, sid, t, lv, now);
@@ -1080,7 +1120,7 @@ async fn complete(ctx: &WorldCtx, st: &mut WorldState, sid: u32, cast: Cast, now
             .monsters
             .near(center, radius)
             // Les invocations ne sont touchées que désignées (règles du combat entre joueurs envers leur maître).
-            .filter(|m| m.is_alive() && m.owner.is_none() && !targets.contains(&m.cid) && st.monsters.stats_of(m.tid).is_attackable())
+            .filter(|m| m.is_alive() && m.owner.is_none() && !targets.contains(&m.cid) && st.monsters.stats_of(m.tid).is_attackable() && super::siege::war::may_hit(ctx, st, sid, m.cid))
             .filter(|m| in_area(t.area(), m.pos, center, me, toward, lv))
             .map(|m| (combat::dist2d(m.pos, center), m.cid))
             .collect();
@@ -1713,14 +1753,16 @@ pub async fn learn(ctx: &WorldCtx, st: &mut WorldState, sid: u32, tid: u32) -> a
         send_system(st, sid, &format!("Impossible d'apprendre {} : {why}.", t.name));
         return Ok(learn_result::FAIL);
     }
-    if let Some((code, _, why)) = missing(p, lv, lv.learn_cost) {
+    // Prix taxé dans la région du joueur (tax.rs).
+    let price = super::tax::quote(ctx, st, sid, lv.learn_cost);
+    if let Some((code, _, why)) = missing(p, lv, price.total) {
         info!("[maître] {} ne peut pas apprendre {} : {why}", p.ch.name, t.name);
         if matches!(code, learn_result::NOT_ENOUGH_HEROIC_POINTS | learn_result::NOT_ENOUGH_CHARISMA) {
             send_system(st, sid, &format!("Impossible d'apprendre {} : {why}.", t.name));
         }
         return Ok(code);
     }
-    let money = p.ch.money as i64 - lv.learn_cost;
+    let money = p.ch.money as i64 - price.total;
     let character_id = p.ch.id;
     ctx.db.characters.exec("INSERT INTO character_skills (character_id, skill_tid, level) VALUES (?, ?, 1) ON DUPLICATE KEY UPDATE level = 1", (character_id, tid)).await?;
     spend_charisma(ctx, st, sid, lv.require_charisma).await?;
@@ -1737,8 +1779,9 @@ pub async fn learn(ctx: &WorldCtx, st: &mut WorldState, sid: u32, tid: u32) -> a
         send_points(p);
     }
     let p = &st.players[&sid];
-    info!("[maître] {} apprend {} ({} or)", p.ch.name, t.name, lv.learn_cost);
+    info!("[maître] {} apprend {} ({} or)", p.ch.name, t.name, price.total);
     super::set_money(ctx, st, sid, money).await?;
+    super::tax::collect(ctx, st, &price).await?;
     Ok(learn_result::SUCCESS)
 }
 
@@ -1753,7 +1796,8 @@ pub async fn upgrade(ctx: &WorldCtx, st: &mut WorldState, sid: u32, skill_id: u3
         send_system(st, sid, &format!("{} est déjà à son niveau maximal.", t.name));
         return Ok(None);
     };
-    if let Some((_, code, why)) = missing(p, lv, lv.upgrade_cost) {
+    let price = super::tax::quote(ctx, st, sid, lv.upgrade_cost);
+    if let Some((_, code, why)) = missing(p, lv, price.total) {
         info!("[maître] {} ne peut pas améliorer {} : {why}", p.ch.name, t.name);
         // Le client affiche lui-même le refus d'un code connu.
         if code.is_none() {
@@ -1761,7 +1805,7 @@ pub async fn upgrade(ctx: &WorldCtx, st: &mut WorldState, sid: u32, skill_id: u3
         }
         return Ok(code);
     }
-    let money = p.ch.money as i64 - lv.upgrade_cost;
+    let money = p.ch.money as i64 - price.total;
     let level = owned.level + 1;
     ctx.db.characters.exec("UPDATE character_skills SET level = ? WHERE character_id = ? AND skill_tid = ?", (level, p.ch.id, owned.tid)).await?;
     spend_charisma(ctx, st, sid, lv.require_charisma).await?;
@@ -1778,8 +1822,9 @@ pub async fn upgrade(ctx: &WorldCtx, st: &mut WorldState, sid: u32, skill_id: u3
         send_points(p);
     }
     let p = &st.players[&sid];
-    info!("[maître] {} passe {} au niveau {level} ({} or)", p.ch.name, t.name, lv.upgrade_cost);
+    info!("[maître] {} passe {} au niveau {level} ({} or)", p.ch.name, t.name, price.total);
     super::set_money(ctx, st, sid, money).await?;
+    super::tax::collect(ctx, st, &price).await?;
     Ok(Some(upgrade_result::SUCCESS))
 }
 
@@ -1813,6 +1858,8 @@ pub enum CharismaSource {
     Boss,
     /// Joueur tué en combat entre joueurs (`pvp.rs`).
     Pvp,
+    /// Récompense d'un combat de Shrine (`shrine.rs`).
+    Shrine,
 }
 
 /// Bonus de charisme (pour cent) des effets d'un joueur qui portent sur un gain de cette source : Charisma Double et
@@ -1868,6 +1915,8 @@ mod tests {
             auto_attack: false,
             status: 0,
             summons: 0,
+            game_effect: 0,
+            ride: false,
             levels: vec![SkillLevel::from_consts(&consts), SkillLevel { require_level: 7, require_point: 1, upgrade_cost: 480, ..SkillLevel::from_consts(&consts) }],
         }
     }

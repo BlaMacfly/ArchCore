@@ -8,6 +8,8 @@
 //!            ← op 2, résultat 2 (réussi), 3 (pas assez d'argent), 4 (inventaire plein)…
 //!   client → op 3 : vente de l'objet d'inventaire d'IID donné ← op 3, résultat 0 (réussi), 1 (trop d'argent)
 //! ```
+//! L'achat paie en plus la taxe de la région du joueur (`tax.rs`), qui va à la recette de la région ; la vente n'est pas
+//! taxée.
 
 use super::items::{alloc_shop_iid, item_add, item_count, item_remove, item_status, SHOP_GRID};
 use super::npc_events::{npc_distance, resolve, MAX_NPC_DISTANCE};
@@ -158,7 +160,9 @@ async fn buy(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> anyho
         result(st, sid, trade_op::BUY, trade_result::NO_SELL_TO_MURDERER);
         return Ok(());
     }
-    let price = data.npc_price * count * if rogue >= 1 { 2 } else { 1 };
+    // Taxe de la région du joueur en plus (tax.rs), versée à la recette de la région.
+    let taxed = super::tax::quote(ctx, st, sid, data.npc_price * count * if rogue >= 1 { 2 } else { 1 });
+    let price = taxed.total;
     let money = st.players[&sid].ch.money as i64;
     if price > money {
         result(st, sid, trade_op::BUY, trade_result::BUY_NOT_ENOUGH_MONEY);
@@ -187,7 +191,8 @@ async fn buy(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> anyho
     let name = player.ch.name.clone();
     result(st, sid, trade_op::BUY, trade_result::BUY_SUCCEEDED);
     crate::journal::shop(&ctx.db, (cid, &name), &npc_name, "achat", data.tid, item.iid, count as i64, price as i64);
-    info!("[boutique] {name} achète {count} × {} (TID {}) pour {price} à {npc_name}", data.name, data.tid);
+    info!("[boutique] {name} achète {count} × {} (TID {}) pour {price} à {npc_name}{}", data.name, data.tid, if taxed.tax > 0 { format!(" (dont {} de taxe)", taxed.tax) } else { String::new() });
+    super::tax::collect(ctx, st, &taxed).await?;
     Ok(())
 }
 

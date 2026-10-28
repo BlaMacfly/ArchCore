@@ -38,18 +38,31 @@ pub struct Regions {
     /// Champ Type de chaque région (bits 0x10 : montures permises).
     type_bits: HashMap<u16, u32>,
     points: HashMap<u16, Vec<ResurrectionPoint>>,
+    /// Région parente (ParentIndex), quand elle en a une autre qu'elle-même.
+    parents: HashMap<u16, u16>,
+    /// Niveaux d'entrée (LevelMin, LevelLimit ; 0 : aucun) des régions qui en ont : étages de la Battle Square.
+    levels: HashMap<u16, (i32, i32)>,
 }
 
 impl Regions {
     pub async fn load(db: &Databases) -> anyhow::Result<Self> {
         let mut r = Regions::default();
-        let Ok(rows) = db.world.rows("SELECT id, safety, type_bits FROM region_template", ()).await else {
+        let Ok(rows) = db.world.rows("SELECT id, parent_id, safety, type_bits, level_min, level_limit FROM region_template", ()).await else {
             crate::warn!("régions non chargées : lancer `archcore db-init` puis `archcore import`");
             return Ok(r);
         };
         for row in &rows {
             r.safety.insert(col::<u32>(row, "id") as u16, col(row, "safety"));
-            r.type_bits.insert(col::<u32>(row, "id") as u16, col(row, "type_bits"));
+            let id = col::<u32>(row, "id") as u16;
+            r.type_bits.insert(id, col(row, "type_bits"));
+            let parent: i64 = col(row, "parent_id");
+            if parent > 0 && parent != id as i64 {
+                r.parents.insert(id, parent as u16);
+            }
+            let (min, limit): (i32, i32) = (col(row, "level_min"), col(row, "level_limit"));
+            if min > 0 || limit > 0 {
+                r.levels.insert(id, (min, limit));
+            }
         }
         for row in db.world.rows("SELECT region_id, pos_x, pos_y, pos_z, race, class FROM resurrection_point", ()).await? {
             let pos = Vec3::new(col::<f64>(&row, "pos_x") as f32, col::<f64>(&row, "pos_y") as f32, col::<f64>(&row, "pos_z") as f32);
@@ -77,9 +90,37 @@ impl Regions {
         self.safety.get(&region) == Some(&SAFE)
     }
 
+    #[cfg(test)]
+    pub fn insert_levels(&mut self, region: u16, parent: Option<u16>, levels: Option<(i32, i32)>) {
+        if let Some(p) = parent {
+            self.parents.insert(region, p);
+        }
+        if let Some(l) = levels {
+            self.levels.insert(region, l);
+        }
+    }
+
+    /// Région parente, si elle en a une autre qu'elle-même.
+    pub fn parent(&self, region: u16) -> Option<u16> {
+        self.parents.get(&region).copied()
+    }
+
+    /// Niveaux d'entrée (minimum, limite ; 0 : aucun) de la région ou, à défaut, de sa parente.
+    pub fn level_range(&self, region: u16) -> Option<(i32, i32)> {
+        self.levels.get(&region).or_else(|| self.parent(region).and_then(|p| self.levels.get(&p))).copied()
+    }
+
     /// Champ Type d'une région connue.
     pub fn type_bits(&self, region: u16) -> Option<u32> {
         self.type_bits.get(&region).copied()
+    }
+
+    /// Point de résurrection de la région le plus proche de `from`, permis à cette race, quelle que soit la classe : les
+    /// points des zones de race (forts du Battleground, zones des Shrines) portent la race aussi dans leur colonne de
+    /// classe, qui n'y désigne donc pas une classe.
+    pub fn race_point(&self, region: u16, from: Vec3, race: i64) -> Option<Vec3> {
+        let d = |p: &ResurrectionPoint| ((p.pos.x - from.x) as f64).powi(2) + ((p.pos.z - from.z) as f64).powi(2);
+        self.points.get(&region)?.iter().filter(|p| p.race == 0 || p.race == race).min_by(|a, b| d(a).total_cmp(&d(b))).map(|p| p.pos)
     }
 
     /// Point de résurrection de la région le plus proche de `from`, permis à cette race et cette classe.
@@ -104,6 +145,14 @@ mod tests {
         assert_eq!(r.resurrection(9, Vec3::new(900.0, 0.0, 0.0), 1, 1), Some(Vec3::new(0.0, 0.0, 0.0)), "le point orc est exclu");
         assert_eq!(r.resurrection(9, Vec3::new(900.0, 0.0, 0.0), 2, 1), Some(Vec3::new(1000.0, 0.0, 0.0)));
         assert_eq!(r.resurrection(40, Vec3::new(0.0, 0.0, 0.0), 1, 1), None);
+        // Zone de race : la colonne de classe répète la race.
+        r.insert(245, 2, vec![ResurrectionPoint { pos: Vec3::new(7.0, 0.0, 0.0), race: 2, class: 2 }]);
+        assert_eq!((r.resurrection(245, Vec3::default(), 2, 1), r.race_point(245, Vec3::default(), 2)), (None, Some(Vec3::new(7.0, 0.0, 0.0))));
+        assert_eq!(r.race_point(245, Vec3::default(), 1), None);
+        // Niveaux d'entrée : ceux de la région, sinon de sa parente (étages de la Battle Square).
+        r.insert_levels(198, None, Some((20, 30)));
+        r.insert_levels(195, Some(198), None);
+        assert_eq!((r.level_range(195), r.level_range(198), r.level_range(9), r.parent(195)), (Some((20, 30)), Some((20, 30)), None, Some(198)));
         assert_eq!((default_region(1), default_region(2), default_region(3)), (9, 5, 26));
     }
 }

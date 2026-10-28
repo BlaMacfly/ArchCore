@@ -270,6 +270,9 @@ pub static COMMANDS: &[CommandDef] = &[
     CommandDef { name: "charisma", level: 3, args: Some(&["int", "name?"]), usage: "/charisma <points> \"nom\"" },
     CommandDef { name: "announce_restart", level: 3, args: Some(&["int", "int?"]), usage: "/announce_restart <minutes> <secondes>" },
     CommandDef { name: "move", level: 1, args: None, usage: "/move x,z" },
+    CommandDef { name: "shrine", level: 3, args: Some(&["word?", "int?"]), usage: "/shrine [open|close <n>]" },
+    CommandDef { name: "siege", level: 3, args: Some(&["word?", "word?", "word?"]), usage: "/siege [start <château> | end <château> | owner <château> <guilde ou -> | hp <château> <PV>]" },
+    CommandDef { name: "tax", level: 3, args: Some(&["word?", "word?"]), usage: "/tax [pay [château]]" },
 ];
 
 pub fn command(name: &str) -> Option<&'static CommandDef> {
@@ -540,6 +543,37 @@ async fn run(world: &Arc<World>, st: &mut WorldState, sid: u32, cmd: &CommandDef
                 let pos = teleport(ctx, st, sid, x, y, z).await?;
                 Ok(format!("Téléporté en {}, {}.", pos.x.round(), pos.z.round()))
             }
+        },
+        "shrine" => {
+            // Sans argument : état des Shrines ; « open » / « close » : ouverture ou fermeture forcée d'un combat.
+            let id = a[1].int().unwrap_or(0).clamp(0, 255) as u8;
+            match a[0].name() {
+                None => Ok(super::shrine::describe(ctx, st)),
+                Some("open") => super::shrine::force_open(ctx, st, id, Instant::now()).map(|n| format!("{n} : combat ouvert.")).map_err(GmError),
+                Some("close") => super::shrine::force_close(ctx, st, id, Instant::now()).map(|n| format!("{n} : combat fermé.")).map_err(GmError),
+                Some(other) => err(format!("action inconnue : {other} (open ou close)")),
+            }
+        }
+        "siege" => {
+            // Sans argument : état des châteaux ; start, end, owner, hp : commandes d'essai des guerres de siège.
+            let castle = a[1].name().unwrap_or("");
+            match a[0].name() {
+                None => Ok(super::siege::describe(ctx, st)),
+                Some("start") => super::siege::force_start(ctx, st, castle, Instant::now()).await?.map_err(GmError),
+                Some("end") => super::siege::force_end(ctx, st, castle, Instant::now()).await?.map_err(GmError),
+                Some("owner") => super::siege::set_owner(ctx, st, castle, a[2].name().unwrap_or("-")).await?.map_err(GmError),
+                Some("hp") => match a[2].name().and_then(|v| v.parse::<i32>().ok()) {
+                    Some(hp) => super::siege::war::set_hp(ctx, st, castle, hp).map_err(GmError),
+                    None => err("PV attendus : /siege hp <château> <PV>"),
+                },
+                Some(other) => err(format!("action inconnue : {other} (start, end, owner ou hp)")),
+            }
+        }
+        "tax" => match a[0].name() {
+            // Sans argument : taux et recettes des régions ; « pay » : versement immédiat des recettes (tax.rs).
+            None => Ok(super::tax::describe(ctx, st, &st.players[&sid].language)),
+            Some("pay") => super::tax::force_payout(ctx, st, a[1].name()).await?.map_err(GmError),
+            Some(other) => err(format!("action inconnue : {other} (pay)")),
         },
         other => err(format!("commande non implémentée : {other}")),
     })

@@ -17,7 +17,9 @@
 //! Météo (choix d'ArchCore) : la même pour tout le monde, fixée par la commande MJ `/weather` ou, si
 //! `World.WeatherAuto` vaut 1, tirée toutes les `World.WeatherMinutes` minutes (pluie, neige ou temps clair selon
 //! `World.WeatherRainChance` et `World.WeatherSnowChance`). Elle n'est pas enregistrée : temps clair au démarrage.
-//! Les compétences de l'Archlord sur le ciel (478, 522, 523) attendent le système de l'Archlord.
+//! Compétences de l'ArchLord sur le ciel (`archlord.rs`) : Rain Control et Snow Control imposent la pluie ou la neige
+//! à tous pendant leur durée, puis la météo d'avant revient ; Day and Night décale de 12 h l'horloge envoyée à tous
+//! (`shift_ms`) pendant `Archlord.SkyMinutes`.
 
 use super::{World, WorldCtx, WorldState};
 use crate::info;
@@ -45,11 +47,13 @@ pub struct Nature {
     pub timer_sent: Instant,
     /// Prochain tirage de la météo automatique.
     pub next_weather: Option<Instant>,
+    /// Décalage de l'horloge (ms) : Day and Night de l'ArchLord (`archlord.rs`), 0 sinon.
+    pub shift_ms: i64,
 }
 
 impl Default for Nature {
     fn default() -> Self {
-        Nature { weather: weather::CLEAR, started_ms: crate::config::TimeZone::Local.game_time_ms(), timer_sent: Instant::now(), next_weather: None }
+        Nature { weather: weather::CLEAR, started_ms: crate::config::TimeZone::Local.game_time_ms(), timer_sent: Instant::now(), next_weather: None, shift_ms: 0 }
     }
 }
 
@@ -71,16 +75,34 @@ pub fn game_time_ms(speed: u8, start_hour: i64, started_ms: i64, now_ms: i64) ->
     DAY_MS + start_hour.min(23) * HOUR_MS + (now_ms - started_ms).max(0).saturating_mul(speed)
 }
 
-/// Temps du jeu maintenant.
+/// Temps du jeu maintenant (décalage de Day and Night compris).
 pub fn now_ms(ctx: &WorldCtx, st: &WorldState) -> i64 {
     let w = &ctx.config.world;
-    game_time_ms(w.time_speed, w.time_start, st.nature.started_ms, w.time_zone.game_time_ms())
+    game_time_ms(w.time_speed, w.time_start, st.nature.started_ms, w.time_zone.game_time_ms()) + st.nature.shift_ms
 }
 
-/// Champs d'AGPMTIMER : vitesse et temps du jeu.
+/// AGPMTIMER à tous les joueurs en jeu (horloge changée).
+pub fn broadcast_timer(ctx: &WorldCtx, st: &mut WorldState) {
+    st.nature.timer_sent = Instant::now();
+    let pkt = build_packet(&schema::TIMER, &timer_fields(ctx, st));
+    for p in st.players.values().filter(|p| p.in_game) {
+        p.send_raw(pkt.clone());
+    }
+}
+
+/// Champs d'AGPMTIMER : vitesse et temps du jeu ; heure du serveur (2 : secondes Unix, UTC) et décalage de son fuseau
+/// (3 : secondes, `World.TimeZone`), lus par la fenêtre des boss d'Archonia (« Server Time », comptes à rebours).
 pub fn timer_fields(ctx: &WorldCtx, st: &WorldState) -> Fields {
     let s = &schema::TIMER;
-    Fields::new(s).with(0, ctx.config.world.time_speed.max(1)).with(1, now_ms(ctx, st))
+    let offset = match ctx.config.world.time_zone {
+        crate::config::TimeZone::Utc => 0,
+        crate::config::TimeZone::Local => chrono::Local::now().offset().local_minus_utc(),
+    };
+    Fields::new(s)
+        .with(0, ctx.config.world.time_speed.max(1))
+        .with(1, now_ms(ctx, st))
+        .with(2, crate::character::unix_now() as u32)
+        .with(3, offset as u32)
 }
 
 /// Heure et minute du jeu d'un temps en ms.

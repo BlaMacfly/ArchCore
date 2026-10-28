@@ -33,6 +33,8 @@ use std::time::Instant;
 pub mod ride_op {
     pub const RIDE_ACK: i64 = 2;
     pub const DISMOUNT_ACK: i64 = 4;
+    /// Monté sur le modèle de monture donné par son TID (champ 2), sans objet : Call Dragon de l'ArchLord (`archlord.rs`).
+    pub const RIDE_TID: i64 = 6;
 }
 
 /// Bit 1 du champ 18 d'AGPMCHARACTER : personnage monté.

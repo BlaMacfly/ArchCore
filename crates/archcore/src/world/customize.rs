@@ -7,7 +7,7 @@
 //! Op 0 : le client demande la fenêtre au coiffeur (PNJ de fonction 29 à portée) → op 1, événement et CID renvoyés ;
 //! le client ouvre `UI_Customizing` (ou affiche lui-même son refus s'il est monté ou transformé). Op 2 : achat du
 //! visage (champ 3) et de la coiffure (champ 4), -1 pour ce qui ne change pas ; le client n'attend aucune réponse.
-//! Calcul de la logique partagée d'Archonia (`FUN_14022d860`) : prix = somme des prix (taxe de région nulle) ; niveau
+//! Calcul de la logique partagée d'Archonia (`FUN_14022d860`) : prix = somme des prix, chacun taxé au taux de la région du joueur (`tax.rs`) ; niveau
 //! exigé = celui du visage s'il est choisi, aucun pour une coiffure seule ; la colonne « Case » n'est pas vérifiée au
 //! coiffeur. ArchCore refuse en plus, avec un message système (le protocole n'a pas de code de résultat) : un joueur
 //! monté, une valeur absente de la table pour son modèle, un prix en objets (colonne « Price(Skull) », nulle dans les
@@ -83,10 +83,12 @@ impl CustomizeTable {
     }
 }
 
-/// Ce que coûte un changement d'apparence : prix, niveau exigé, nouvelles valeurs (`None` : inchangée).
+/// Ce que coûte un changement d'apparence : prix taxe comprise et taxe, niveau exigé, nouvelles valeurs (`None` :
+/// inchangée).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Quote {
     pub price: i64,
+    pub tax: i64,
     pub level: i32,
     pub face: Option<i32>,
     pub hair: Option<i32>,
@@ -103,27 +105,30 @@ pub enum Refusal {
     ItemPrice,
 }
 
-/// Devis d'un achat pour le modèle `tid` dont l'apparence actuelle est (visage, coiffure).
-pub fn quote(table: &CustomizeTable, tid: u32, current: (i32, i32), face: i32, hair: i32) -> Result<Quote, Refusal> {
+/// Devis d'un achat pour le modèle `tid` dont l'apparence actuelle est (visage, coiffure), au taux de taxe `ratio`.
+pub fn quote(table: &CustomizeTable, tid: u32, current: (i32, i32), face: i32, hair: i32, ratio: i32) -> Result<Quote, Refusal> {
     let face = Some(face).filter(|f| *f >= 0 && *f != current.0);
     let hair = Some(hair).filter(|h| *h >= 0 && *h != current.1);
     if face.is_none() && hair.is_none() {
         return Err(Refusal::Nothing);
     }
-    let (mut price, mut level) = (0, 0);
+    let (mut price, mut tax, mut level) = (0, 0, 0);
     for (k, number) in [(kind::HAIR, hair), (kind::FACE, face)] {
         let Some(number) = number else { continue };
         let look = table.find(tid, k, number).ok_or(Refusal::Unknown)?;
         if look.price_item != 0 {
             return Err(Refusal::ItemPrice);
         }
-        price += look.price;
+        // Comme le client : chaque ligne payée en or porte sa taxe.
+        let t = super::tax::tax_of(look.price, ratio);
+        price += look.price + t;
+        tax += t;
         // Comme le client : seul le visage fixe un niveau exigé.
         if k == kind::FACE {
             level = look.use_level;
         }
     }
-    Ok(Quote { price, level, face, hair })
+    Ok(Quote { price, tax, level, face, hair })
 }
 
 /// Visage ou coiffure choisi à la création : gardé s'il est proposé à la création pour ce modèle (Case 0 ou 2), sinon
@@ -190,7 +195,7 @@ async fn buy(ctx: &WorldCtx, st: &mut WorldState, sid: u32, face: i32, hair: i32
         send_system(st, sid, "Descendez de votre monture pour changer d'apparence.");
         return Ok(());
     }
-    let q = match quote(&ctx.customize, p.ch.template_id, (p.ch.face, p.ch.hair), face, hair) {
+    let q = match quote(&ctx.customize, p.ch.template_id, (p.ch.face, p.ch.hair), face, hair, super::tax::ratio_of(ctx, st, sid)) {
         Ok(q) => q,
         Err(r) => {
             debug!("[apparence] {} : refus {r:?} (visage {face}, coiffure {hair})", p.ch.name);
@@ -224,7 +229,9 @@ async fn buy(ctx: &WorldCtx, st: &mut WorldState, sid: u32, face: i32, hair: i32
     let plain = build_packet(c, &Fields::new(c).with(0, 1).with(1, cid).with_opt(20, q.face).with_opt(21, q.hair));
     super::combat::send_around(st, sid, &plain);
     crate::journal::shop(&ctx.db, (cid, &name), npc_name, "style", 0, 0, 1, q.price);
-    info!("[apparence] {name} chez {npc_name} : visage {f}, coiffure {h} pour {} pièce(s)", q.price);
+    info!("[apparence] {name} chez {npc_name} : visage {f}, coiffure {h} pour {} pièce(s) (taxe {})", q.price, q.tax);
+    let taxed = super::tax::Taxed { total: q.price, tax: q.tax, region: super::tax::taxed_region(ctx, st, sid) };
+    super::tax::collect(ctx, st, &taxed).await?;
     Ok(())
 }
 
@@ -242,15 +249,16 @@ mod tests {
     #[test]
     fn devis_comme_le_client() {
         let t = table();
-        assert_eq!(quote(&t, 96, (2, 1), -1, 4), Ok(Quote { price: 1000, level: 0, face: None, hair: Some(4) }), "coiffure seule : aucun niveau");
-        assert_eq!(quote(&t, 96, (2, 1), 21, -1), Ok(Quote { price: 3000, level: 10, face: Some(21), hair: None }));
-        assert_eq!(quote(&t, 96, (2, 1), 1, 4).map(|q| (q.price, q.level)), Ok((4000, 7)), "niveau du visage");
-        assert_eq!(quote(&t, 96, (2, 4), -1, 4), Err(Refusal::Nothing), "coiffure actuelle");
-        assert_eq!(quote(&t, 96, (2, 1), -1, -1), Err(Refusal::Nothing));
-        assert_eq!(quote(&t, 96, (2, 1), -1, 9), Err(Refusal::Unknown));
-        assert_eq!(quote(&t, 1, (2, 1), -1, 4), Err(Refusal::Unknown), "autre modèle");
-        assert_eq!(quote(&t, 96, (2, 1), 5, -1), Err(Refusal::ItemPrice));
-        assert_eq!(quote(&t, 96, (2, 1), -1, 0).map(|q| q.price), Ok(0), "Case 0 permise au coiffeur");
+        assert_eq!(quote(&t, 96, (2, 1), -1, 4, 0), Ok(Quote { price: 1000, tax: 0, level: 0, face: None, hair: Some(4) }), "coiffure seule : aucun niveau");
+        assert_eq!(quote(&t, 96, (2, 1), 21, -1, 0), Ok(Quote { price: 3000, tax: 0, level: 10, face: Some(21), hair: None }));
+        assert_eq!(quote(&t, 96, (2, 1), 1, 4, 0).map(|q| (q.price, q.level)), Ok((4000, 7)), "niveau du visage");
+        assert_eq!(quote(&t, 96, (2, 1), 1, 4, 10).map(|q| (q.price, q.tax)), Ok((4400, 400)), "taxe de 10 % sur chaque ligne");
+        assert_eq!(quote(&t, 96, (2, 4), -1, 4, 0), Err(Refusal::Nothing), "coiffure actuelle");
+        assert_eq!(quote(&t, 96, (2, 1), -1, -1, 0), Err(Refusal::Nothing));
+        assert_eq!(quote(&t, 96, (2, 1), -1, 9, 0), Err(Refusal::Unknown));
+        assert_eq!(quote(&t, 1, (2, 1), -1, 4, 0), Err(Refusal::Unknown), "autre modèle");
+        assert_eq!(quote(&t, 96, (2, 1), 5, -1, 0), Err(Refusal::ItemPrice));
+        assert_eq!(quote(&t, 96, (2, 1), -1, 0, 0).map(|q| q.price), Ok(0), "Case 0 permise au coiffeur");
     }
 
     #[test]

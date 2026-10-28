@@ -112,6 +112,8 @@ pub fn preemptive_step(st: &mut WorldState, now: Instant) {
             .values()
             .filter(|p| p.in_game && !p.dead && p.invincible_until.is_none_or(|u| now >= u))
             .filter(|p| p.skills.status_sent & status::UNTOUCHABLE == 0 && pre.allows(p.factors.status[7]))
+            // Tours et gardes de siège : les assaillants de leur château seulement (siege/war.rs).
+            .filter(|p| super::siege::war::may_target(st, cid, p.ch.id, false))
             .map(|p| (combat::dist2d(p.ch.pos(), m.pos), p.ch.id))
             .filter(|(d, _)| *d <= pre.range)
             .min_by(|a, b| a.0.total_cmp(&b.0));
@@ -136,6 +138,7 @@ pub fn choose_target(st: &WorldState, m: &Monster) -> Option<u32> {
                     && !p.dead
                     && p.skills.status_sent & status::UNTOUCHABLE == 0
                     && combat::dist2d(p.ch.pos(), m.pos) <= CHASE_LIMIT
+                    && super::siege::war::may_target(st, m.cid, a.cid, true)
             });
             player || summon_target(st, a.cid).is_some_and(|pos| combat::dist2d(pos, m.pos) <= CHASE_LIMIT)
         })

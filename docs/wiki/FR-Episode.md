@@ -6,8 +6,8 @@ programmés.
 
 > **Repère.** ArchCore charge le monde de l'**épisode 8, « The Dark Revelation »** (Webzen,
 > 26 septembre 2012), avec en plus les extensions propres au serveur Archonia, dont le client 64 bits
-> sert de base. Les systèmes de jeu programmés couvrent pour l'instant le socle de la sortie d'origine ;
-> ceux des épisodes suivants sont à rattraper (voir plus bas).
+> sert de base. Les systèmes de jeu d'origine que ce client connaît sont programmés, jusqu'aux sièges,
+> à l'ArchLord et aux Shrines ; ils restent à confirmer en jeu (voir plus bas).
 
 ## Les épisodes d'ArchLord
 
@@ -66,18 +66,21 @@ Contrôle du 25 octobre 2026, données du client Archonia et `Archonia.exe` :
 | Origine | Combat, monstres, butin, équipement, potions, parchemins, compétences | 🟡 validés au simulateur |
 | Origine | Quêtes, groupes, banque, échange, boutiques, portails de téléportation | 🟡 validés au simulateur |
 | Origine | Guildes (création, membres, départ, exclusion, dissolution, annonce, discussion), discussion de groupe | 🟡 validées au simulateur |
-| Origine | Combats de guildes, alliances, emblèmes, entrepôt de guilde | ⏳ à faire |
-| Origine | Battle Square | ⏳ à faire |
-| 2 | Sièges de châteaux | ⏳ à faire |
-| 3 | Pouvoirs de l'ArchLord | ⏳ à faire |
+| Origine | Combats de guildes, alliances, emblèmes, entrepôt de guilde | 🟡 validés au simulateur |
+| Origine | Amis et ignorés, courrier, salons et cris de zone, combat entre joueurs, avis de recherche, production, usure et réparation, montures, maison des ventes, coiffeurs, invocations, heure du monde et météo | 🟡 validés au simulateur (28 octobre 2026) |
+| Origine | Battle Square et Battleground | 🟡 validés au simulateur |
+| 2 | Sièges de châteaux, taxes des régions | 🟡 validés au simulateur |
+| 3 | Pouvoirs de l'ArchLord, guerre de Rensphere | 🟡 validés au simulateur |
 | 4 | Donjons de Chaotic Frontier | 🟡 zones et monstres chargés ; règles propres aux donjons à vérifier |
 | 6 | Dragon Scion jouable | 🟡 données et compétences présentes ; création à confirmer en jeu |
-| 7 | Niveau 120, Heaven's Hell | 🟡 barème et monstres chargés ; siège revu à faire |
-| 8 | Shrines et pièces de Shrine | ⏳ à faire |
-| — | Maîtrises (arbres des compétences supérieures et héroïques), compétences des monstres et de groupe | 🟡 validées au simulateur ; points héroïques et de charisme à faire |
+| 7 | Niveau 120, Heaven's Hell | 🟡 barème et monstres chargés ; siège revu d'après les règles du client |
+| 8 | Shrines et pièces de Shrine | 🟡 validés au simulateur ; horaires et récompenses choisis par ArchCore (tables d'origine absentes du client) |
+| — | Maîtrises (arbres des compétences supérieures et héroïques), compétences des monstres et de groupe | 🟡 validées au simulateur |
 
-L'ordre de rattrapage suit la [[feuille de route|FR-Feuille-de-route]] : guildes, puis sièges, puis
-pouvoirs de l'ArchLord et Shrines.
+Tous les systèmes d'origine présents dans le client Archonia sont désormais programmés et validés au
+simulateur ; il reste à les confirmer en jeu (voir la [[feuille de route|FR-Feuille-de-route]]). Les ajouts
+propres à Archonia (guerre des races, tableau des groupes, arène, tournois, failles, passe de combat) restent
+hors du cœur, sauf la fenêtre des boss et le commutateur d'équipement, qui ne changent pas le jeu.
 
 ## Sources
 

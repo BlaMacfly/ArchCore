@@ -82,8 +82,8 @@
   clock shared by everyone (AgpmTimer, `World.TimeSpeed` speed, resent every 10 min) and weather (type 0x30:
   `/weather`, automatic weather `World.WeatherAuto`). ArchCore's rules are described in
   [[Network protocol|EN-Network-protocol]]. Validated with the simulator on 28 October 2026 (`auction`, `itemset` and
-  `nature` scenarios), to be confirmed in game; ArchRust windows in progress. The Archlord's sky skills (478, 522, 523)
-  wait for the Archlord system.
+  `nature` scenarios), to be confirmed in game; ArchRust windows in progress. The ArchLord's sky skills (478, 522, 523)
+  act on this clock and weather (see the ArchLord title).
 - Summons (type 0x4F): Elementalist spirits, Sacred One, Legion of the Dead and the other skill summons (creature at
   the master's level, `Summons.StatScale`), fixed creatures (traps), Increase Gate (raised limit), summoning scrolls
   and item pets; view, special state then op 0 in the order the client requires, following the master, attack,
@@ -103,6 +103,49 @@
   [[Network protocol|EN-Network-protocol]]. Validated with the simulator on 28 October 2026 (`chat`, `channel`,
   `customize` and `wanted` scenarios), to be confirmed in game; ArchRust windows in progress. The `<Chat>No</Chat>`
   region rule is not applied (there is none in the data).
+- Episode 8 battles and the original combat areas: Shrines (type 0x62, raw structure; `shrine` and `shrine_reward`
+  tables of the content layer, as the original tables are not shipped): eight Shrines opening every evening
+  (`Shrine.Enabled`, `/shrine open|close`), entry by level and head count (codes 47 and 48), carving at the centre,
+  occupation, race victory, 53000 coins and charisma, scores, `shrinemessage.xml` messages; combat rules inside the
+  Shrine (races are enemies without Ctrl, no murderer points or bounty, resurrection in one's race zone). Battle Square:
+  floor levels imported, travel through the supervisors (`BattleSquare.SupervisorTeleport`, no portal leads there),
+  codes 2, 13 and 18, kills without penalty, skulls from `pvpskulldroptable.txt`. Battleground: resurrection in one's
+  race fort, 0x58 announcements on a schedule (`Battleground.Schedule`). Archonia's boss window (type 0x64): state of
+  the `UIBoss.xml` bosses, possible loot, ranking of the last fight, damage meter; server time in AgpmTimer (fields 2
+  and 3). ArchCore's rules are described in [[Network protocol|EN-Network-protocol]]. Validated with the simulator on
+  28 October 2026 (`shrine`, `battlesquare` and `boss` scenarios), to be confirmed in game; Shrine op 8 (unknown
+  meaning) is only logged, Archonia's race war (type 0x33) is not done, ArchRust windows in progress.
+- Castle siege wars (types 0x49, 0x50 and 0x61): castles from `SiegeWar.txt`, assault objects from
+  `SiegeWarObject.txt` and siege resurrection points imported (`siege_war`, `siege_war_object`, `siege_binding`
+  tables); owner, calendar and applications stored (`castle`, `castle_application`). Client rules: the owner declares
+  within its slot (base day, 8 to 10 pm), applications by the guild master on site (15 attackers, 3 defenders of which
+  2 are chosen, one guild per castle), siege commanders (function 33), object attack order, throne, Archon's Eyes,
+  carving by the master (the last one wins). ArchCore's choices: castles start without an owner, date set
+  automatically without a declaration, every attacking applicant kept, siege cancelled without attackers, the former
+  owner keeps the castle without a successful carving, `Siege.MinGuildMembers` and `Siege.MinGuildAgeDays`
+  thresholds, `Siege.DurationMinutes` length, `Siege.Enabled` calendar. Siege objects and guards only shown during
+  the battle, "being destroyed" then ruin variants; fighting without Ctrl between sides, no murderer points or bounty;
+  siege resurrection (AgpmCharacter 0x13 and 0x14); castle trips (`SpecialType` 2 to 4); catapults and resurrection
+  camps; WarInfo board; `/siege start|end|owner|hp` commands. Validated with the simulator on 28 October 2026 (`siege`
+  scenario), to be confirmed in game; guard towers and guards now only target attackers; the lord's hunting ground
+  contents and the exact catapult effect remain to be established.
+- ArchLord title (type 0x55): Rensphere war every 30 days at 8 pm (`Siege.Enabled`) or with `/siege start Rensphere`,
+  guilds owning a castle as attackers, steps 1 to 4 (portal, fight, ArchLord battle at status 7, end), seal carved by the
+  master (skill 930); that master becomes ArchLord until the next war (`archlord` table), announced to everyone (ops 0
+  and 1) and on entering the game. `skill_type` 9 skills given to the ArchLord and refused to anyone else: Call Dragon
+  (Alcadia, AgpmRide op 6), Call Royal Knight and `/guardactivate`, `/guarddeactivate`, `/guardinformation` (royal
+  guards, `Archlord.MaxGuards`), Rain and Snow Control (rain or snow for 5 min for everyone), Day and Night (clock
+  shifted by 12 hours, `Archlord.SkyMinutes`), `/archlord <message>` to the whole server; test commands
+  `/archlord set|clear`, `/archlordbegin`, `/archlordend`, `/nextstep`…
+- Region taxes (type 0x53): "Grand Advisor" stewards (function 34), 0 to 50 % rates for the castle and outskirts regions
+  set by the owner once a week (codes 0 to 3), op 4 to everyone with the region name translated by the player's language
+  `RegionGlossary.txt` (`region_glossary` table, imported); price + price × rate / 100 on NPC purchases, repair, stylist,
+  portals, skill master, production and guild creation (neither sales to NPCs nor sales between players); income per
+  region (`castle_tax`, `castle_tax_region`), paid every Monday at midnight (`Tax.PayoutDay`, `Tax.PayoutHour`) into the
+  bank of the owning guild's master, minus the 20 % tribute to the ArchLord; `/tax` and `/tax pay`. Validated with the
+  simulator on 28 October 2026 (`archlord` and `tax` scenarios), to be confirmed in game; skill 472 Evil Light (summon
+  kind 7) and the guards' Archon item remain to be established, removed skills only leave the client's bar on
+  reconnection.
 - ArchRust client (`client` branch): combat (attacking, hits, death, resurrection, loot), parties, other
   players, inventory and equipment, NPCs (dialog, shop, bank and buying pages, quests), skills (trainers,
   casting, shortcut bar), teleport portals (original window and loading screen, confirmation of player-versus-player zones, "Return",
@@ -124,8 +167,8 @@
 1. Full character creation and visibility between two players: checked on 25 October 2026 with two ArchRust
    clients on the test server (creation, arrival in Golundo, refusal of a taken name, players visible to each
    other). Still to confirm with the Archonia client.
-3. NPC functions: quests with interaction objects. Portals: disabled points (op 5 field 5) and siege war
-   trips; refusal while transformed to check once transformation exists.
+3. NPC functions: quests with interaction objects. Portals: disabled points (op 5 field 5); refusal while
+   transformed to check once transformation exists.
 4. Skills: damage reflection (counter attack), monster skills, party skills and masteries validated with the
    simulator on 25 October 2026; damage sharing (Divine Protection, Martyr's Mark), dispels (Antimagic, Cure,
    Disentangle…), ignored defense (Lethal Attack, Stunner), heroic points earned with levels and charisma (saved, spent
