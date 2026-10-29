@@ -1,5 +1,6 @@
 //! Journaux de l'économie et de l'administration, dans la base `archcore_logs` (écriture seule) : échanges
-//! conclus, achats et ventes aux PNJ, mouvements de la banque, maison des ventes, commandes MJ.
+//! conclus, achats et ventes aux PNJ, mouvements de la banque, maison des ventes, commandes MJ, anomalies de
+//! l'anti-triche (seule table relue par le serveur, pour la commande MJ `/anomalies`).
 //!
 //! Chaque écriture part dans sa propre tâche, hors du verrou du monde : un journal lent ou indisponible ne
 //! retarde jamais le jeu, et son échec ne fait qu'un avertissement.
@@ -123,6 +124,16 @@ pub fn gm(db: &Databases, account_id: u32, character: (u32, &str), gm_level: i64
         "MJ",
         "INSERT INTO log_gm (account_id, character_id, name, gm_level, command, args, ok, reply) VALUES (?,?,?,?,?,?,?,?)",
         (account_id, character.0, cut(character.1, 48), gm_level.clamp(0, 255), cut(command, 48), cut(args, 512), ok, cut(reply, 512)).into(),
+    );
+}
+
+/// Anomalie relevée par l'anti-triche (`world/anticheat.rs`), avec la sanction appliquée (`kick`, `ban`, vide : aucune).
+pub fn anomaly(db: &Databases, account_id: u32, character: (u32, &str), kind: &'static str, details: &str, action: &'static str) {
+    write(
+        &db.logs,
+        "d'anomalie",
+        "INSERT INTO log_anomaly (account_id, character_id, name, kind, details, action) VALUES (?,?,?,?,?,?)",
+        (account_id, character.0, cut(character.1, 48), kind, cut(details, 512), action).into(),
     );
 }
 

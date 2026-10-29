@@ -74,6 +74,7 @@ pub async fn run(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> 
     gm(&mut a, "/level 40").await?;
     gm(&mut a, &format!("/level 20 \"{cb}\"")).await?;
     place(&mut a, SPOT).await?;
+    super::gm_place(&mut a, cb, SPOT).await?;
     place(&mut b, SPOT).await?;
     tokio::time::sleep(Duration::from_millis(800)).await;
     kill(&mut a, bcid, "mort de B").await?;
@@ -101,6 +102,7 @@ pub async fn run(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> 
     step(&format!("{cb} ressuscite et consulte le tableau chez Rembrandt"));
     b.world.send(c, Fields::new(c).with(0, 9).with(1, bcid)).await?;
     tokio::time::sleep(Duration::from_millis(500)).await;
+    super::gm_place(&mut a, cb, NEAR_REMBRANDT).await?;
     place(&mut b, NEAR_REMBRANDT).await?;
     tokio::time::sleep(Duration::from_millis(500)).await;
     let eb = &mini::EVENT_BASE;
@@ -119,6 +121,7 @@ pub async fn run(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> 
     gm(&mut a, "/level 20").await?;
     gm(&mut a, &format!("/level 60 \"{cb}\"")).await?;
     place(&mut a, SPOT).await?;
+    super::gm_place(&mut a, cb, SPOT).await?;
     place(&mut b, SPOT).await?;
     tokio::time::sleep(Duration::from_millis(800)).await;
     // La prime (op 8) part avant le message de victoire du combat entre joueurs.

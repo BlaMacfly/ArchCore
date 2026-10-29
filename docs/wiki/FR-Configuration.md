@@ -75,6 +75,14 @@ défaut, avec un avertissement dans le journal ; une clé inconnue (faute de fra
 | `Archlord.PortalMinutes` | `10` | Guerre de Rensphere : durée de l'étape « portail » avant l'étape « combat » |
 | `Archlord.SkyMinutes` | `5` | Durée du décalage de 12 h de l'horloge par Day and Night |
 | `Tax.PayoutDay`, `Tax.PayoutHour` | `1`, `0` | Versement hebdomadaire des taxes des régions : jour (1 lundi à 7 dimanche) et heure (fuseau `World.TimeZone`) |
+| `AntiCheat.Enabled` | `1` | Contrôles anti-triche côté serveur : positions envoyées par le client et cadence des coups normaux (voir [[Administration|FR-Administration]]) ; `0` : désactivés (la limite de paquets reste) |
+| `AntiCheat.Action` | `log` | Sanction d'un joueur qui atteint `AntiCheat.Threshold` anomalies : `log` (journal seul), `kick` (déconnexion, sans attente de reconnexion) ou `ban` (bannissement du compte, puis déconnexion) |
+| `AntiCheat.Threshold`, `AntiCheat.WindowMinutes` | `10`, `10` | Anomalies d'un personnage dans la fenêtre glissante (minutes) qui déclenchent la sanction |
+| `AntiCheat.BanHours` | `24` | Durée du bannissement de `ban` (heures) ; `0` : sans fin (levé à la main dans `account_banned`) |
+| `AntiCheat.SpeedTolerance` | `150` | Vitesse permise aux positions envoyées par le client, en pour cent de la vitesse de course courante (monture, renforcements et `/speed` compris) |
+| `AntiCheat.MoveSlack` | `300` | Marge fixe de lag (unités) des positions ; le crédit de distance accumule en plus jusqu'à 5 s de course, pour les paquets retardés |
+| `AntiCheat.AttackTolerance` | `150` | Cadence permise des coups normaux, en pour cent de la vitesse d'attaque : le premier coup d'une nouvelle cible ou d'une reprise attend l'intervalle divisé par 1,5 |
+| `AntiCheat.MaxPacketsPerSecond`, `AntiCheat.PacketBurst` | `150`, `500` | Paquets par seconde et par connexion, et rafale tolérée (login et monde) ; au-delà ignorés, et une seconde de débit ignorée sans pause ferme la connexion (toujours, même avec `AntiCheat.Enabled = 0`). `0` : sans limite |
 | `World.TimeZone` | `local` | Fuseau de l'horloge envoyée au client (paquet AGPMTIMER) : `local` = heure de la machine (jour/nuit, musique et ambiance suivent l'heure locale du serveur), `utc` = époque Unix brute. Voir [[Protocole réseau|FR-Protocole-reseau]] |
 | `World.ExitOnRestart` | `0` | `1` : arrête le serveur à la fin du compte à rebours de `/announce_restart` |
 | `StartPosition.<race>.Village` / `.X` / `.Y` / `.Z` | voir le modèle | Position d'apparition par race : 1 Humain, 2 Orc, 3 Elfe de lune, 4 Scion |
@@ -98,7 +106,7 @@ Villages de départ actuels :
 | `Database.User` / `Database.Password` | `root` / `archcore` | Accès. **À changer** hors d'un poste de développement |
 | `Database.ConnectionLimit` | `8` | Taille du pool par base |
 | `Database.Auth` / `Database.Characters` / `Database.World` | `archcore_*` | Noms des trois bases principales |
-| `Database.Logs` | `archcore_logs` | Base des journaux (échanges, boutiques, banque, commandes MJ), en écriture seule. Une instance de test prend la sienne |
+| `Database.Logs` | `archcore_logs` | Base des journaux (échanges, boutiques, banque, commandes MJ, anomalies de l'anti-triche), en écriture seule (sauf `/anomalies`, qui relit les anomalies). Une instance de test prend la sienne |
 | `Database.SlowQueryMs` | `200` | Une requête plus longue (ms) est notée « requête lente » dans le journal du serveur, une fois le serveur prêt (le chargement du monde n'est pas compté) ; `0` : jamais |
 
 ## Variables d'environnement

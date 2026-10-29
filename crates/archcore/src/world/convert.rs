@@ -528,6 +528,11 @@ pub fn physical_roll(t: &ConvertTable, rank: usize, next: usize, mut roll: impl 
 /// AGPMITEMCONVERT reçu du client.
 pub async fn on_packet(ctx: &super::WorldCtx, st: &mut super::WorldState, sid: u32, p: &archcore_net::Packet) -> anyhow::Result<()> {
     let (iid, other) = (p.int(2).unwrap_or(0) as u32, p.int(3).unwrap_or(0) as u32);
+    // Un objet proposé à l'échange (l'objet visé ou la pierre, la rune, le catalyseur) ne se convertit pas.
+    if super::trade::is_offered(st, sid, iid) || super::trade::is_offered(st, sid, other) {
+        crate::debug!("[conversion] #{sid} objet proposé à l'échange : refusé");
+        return Ok(());
+    }
     match p.int(0) {
         Some(op::REQUEST_RUNE) => rune(ctx, st, sid, iid, other).await,
         // Une rune posée depuis certains sacs arrive comme une pierre d'esprit : on la reconnaît à sa table.

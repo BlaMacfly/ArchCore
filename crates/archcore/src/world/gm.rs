@@ -141,6 +141,17 @@ pub fn parse_args(spec: &[&str], tokens: &[String]) -> Result<Vec<Arg>, GmError>
 }
 
 /// Coordonnées de /move : « x,z », « x z », « x,y,z » ou « x y z ».
+/// Niveau MJ requis pour déplacer un autre joueur avec `/move x,z "nom"`.
+pub const MOVE_OTHER_LEVEL: i64 = 2;
+
+/// Arguments de `/move` : coordonnées, puis le nom d'un autre joueur s'il y en a un (dernier mot qui n'est pas un nombre).
+pub fn split_move_target(tokens: &[String]) -> (&[String], Option<&str>) {
+    match tokens.split_last() {
+        Some((last, rest)) if !rest.is_empty() && last.trim_start_matches(['-', '+']).parse::<f64>().is_err() && !last.contains(',') => (rest, Some(last.as_str())),
+        _ => (tokens, None),
+    }
+}
+
 pub fn parse_coordinates(tokens: &[String]) -> Result<(f64, Option<f64>, f64), GmError> {
     let joined = tokens.join(" ");
     let parts: Vec<&str> = joined.split(|c: char| c.is_whitespace() || c == ',' || c == ';').filter(|p| !p.is_empty()).collect();
@@ -269,7 +280,8 @@ pub static COMMANDS: &[CommandDef] = &[
     CommandDef { name: "money", level: 3, args: Some(&["int", "name?"]), usage: "/money <montant> \"nom\"" },
     CommandDef { name: "charisma", level: 3, args: Some(&["int", "name?"]), usage: "/charisma <points> \"nom\"" },
     CommandDef { name: "announce_restart", level: 3, args: Some(&["int", "int?"]), usage: "/announce_restart <minutes> <secondes>" },
-    CommandDef { name: "move", level: 1, args: None, usage: "/move x,z" },
+    CommandDef { name: "move", level: 1, args: None, usage: "/move x,z [\"nom\"]" },
+    CommandDef { name: "anomalies", level: 1, args: Some(&["name"]), usage: "/anomalies \"nom\"" },
     CommandDef { name: "shrine", level: 3, args: Some(&["word?", "int?"]), usage: "/shrine [open|close <n>]" },
     CommandDef { name: "siege", level: 3, args: Some(&["word?", "word?", "word?"]), usage: "/siege [start <château> | end <château> | owner <château> <guilde ou -> | hp <château> <PV>]" },
     CommandDef { name: "tax", level: 3, args: Some(&["word?", "word?"]), usage: "/tax [pay [château]]" },
@@ -537,13 +549,41 @@ async fn run(world: &Arc<World>, st: &mut WorldState, sid: u32, cmd: &CommandDef
             schedule_restart(world, st, total, seconds);
             Ok(format!("Redémarrage annoncé dans {}.", format_duration(total)))
         }
-        "move" => match parse_coordinates(tokens) {
-            Err(e) => Err(e),
-            Ok((x, y, z)) => {
-                let pos = teleport(ctx, st, sid, x, y, z).await?;
-                Ok(format!("Téléporté en {}, {}.", pos.x.round(), pos.z.round()))
+        "move" => {
+            // « /move x,z "nom" » : un autre joueur en jeu (niveau MOVE_OTHER_LEVEL). C'est par là qu'on pose ailleurs un
+            // joueur : le serveur refuse qu'un client se téléporte lui-même (anticheat.rs).
+            let (coords, target) = split_move_target(tokens);
+            let target_sid = match target {
+                None => sid,
+                Some(name) => {
+                    if st.players[&sid].gm_level < MOVE_OTHER_LEVEL {
+                        return Ok(err(format!("niveau MJ {MOVE_OTHER_LEVEL} requis pour déplacer un autre joueur")));
+                    }
+                    match st.by_name(name) {
+                        Some(t) => t,
+                        None => return Ok(err(format!("personnage absent du monde : {name}"))),
+                    }
+                }
+            };
+            match parse_coordinates(coords) {
+                Err(e) => Err(e),
+                Ok((x, y, z)) => {
+                    let pos = teleport(ctx, st, target_sid, x, y, z).await?;
+                    if target_sid == sid {
+                        Ok(format!("Téléporté en {}, {}.", pos.x.round(), pos.z.round()))
+                    } else {
+                        Ok(format!("{} téléporté en {}, {}.", st.players[&target_sid].ch.name, pos.x.round(), pos.z.round()))
+                    }
+                }
             }
-        },
+        }
+        "anomalies" => {
+            let name = a[0].name().unwrap_or("");
+            match super::find_character(ctx, st, name).await? {
+                None => err(format!("personnage introuvable : {name}")),
+                Some((cid, exact)) => Ok(super::anticheat::describe(ctx, st, cid, &exact).await?),
+            }
+        }
         "shrine" => {
             // Sans argument : état des Shrines ; « open » / « close » : ouverture ou fermeture forcée d'un combat.
             let id = a[1].int().unwrap_or(0).clamp(0, 255) as u8;
@@ -644,6 +684,15 @@ mod tests {
         assert_eq!(parse_coordinates(&["-479091,-66202".into()]).unwrap(), (-479091.0, None, -66202.0));
         assert_eq!(parse_coordinates(&["1".into(), "2".into(), "3".into()]).unwrap(), (1.0, Some(2.0), 3.0));
         assert!(parse_coordinates(&["1".into()]).is_err());
+        let t = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<String>>();
+        let move_a = t(&["-479091,-66202", "SimA"]);
+        assert_eq!(split_move_target(&move_a), (&move_a[..1], Some("SimA")));
+        let move_b = t(&["1", "2", "3", "Le Héros"]);
+        assert_eq!(split_move_target(&move_b), (&move_b[..3], Some("Le Héros")));
+        let alone = t(&["1", "-3"]);
+        assert_eq!(split_move_target(&alone), (&alone[..], None), "coordonnées seules");
+        let one = t(&["-479091,-66202"]);
+        assert_eq!(split_move_target(&one), (&one[..], None));
     }
 
     #[test]

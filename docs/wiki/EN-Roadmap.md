@@ -146,13 +146,24 @@
   simulator on 28 October 2026 (`archlord` and `tax` scenarios), to be confirmed in game; skill 472 Evil Light (summon
   kind 7) and the guards' Archon item remain to be established, removed skills only leave the client's bar on
   reconnection.
-- ArchRust client (`client` branch): combat (attacking, hits, death, resurrection, loot), parties, other
+- Server-side anti-cheat (`world/anticheat.rs`, no client-side check): positions sent by the client bounded by a
+  distance credit (current run speed × `AntiCheat.SpeedTolerance` + `AntiCheat.MoveSlack`, up to 5 s of lag), valid
+  position sent back beyond it; server teleports, entering the world and reconnection as starting points, GMs exempt;
+  normal hit rate bounded after a target change or a resume; packet rate per connection
+  (`AntiCheat.MaxPacketsPerSecond`), floods disconnected; `log_anomaly` table, `log`, `kick` or `ban` sanctions beyond a
+  threshold, `/anomalies`, `/move x,z "name"` to place a player. Duplication audit: refining with the same item listed
+  twice (ingredients counted twice) closed; trade cancelled if an offered item changed since it was offered, unlocking
+  also unlocks the partner, a request cannot be accepted by its author; offered items can no longer be converted, sold,
+  refined or put in the guild warehouse; ground gold beyond the cap left on the ground; second world entry on one
+  connection. Validated with the simulator on 29 October 2026 (`cheat` scenario, and the existing ones), to be confirmed
+  in game.
+- ArchRust client ([own repository](https://github.com/BlaMacfly/ArchRust)): combat (attacking, hits, death, resurrection, loot), parties, other
   players, inventory and equipment, NPCs (dialog, shop, bank and buying pages, quests), skills (trainers,
   casting, shortcut bar), teleport portals (original window and loading screen, confirmation of player-versus-player zones, "Return",
   refusal in combat), automatic reconnection (`UI_ReconnectHold` window, 60 s), guilds (registrar, creation,
   disbanding and guild windows, members, guild name above heads) and guild and party chat, whispers (private bar, `/w`, `/r`, guild
   window button), graphics and sound resource packs (enabled,
-  ordered and checked from the Options; see the [guide](https://github.com/BlaMacfly/ArchCore/blob/client/ArchRust/docs/RESOURCE-PACKS.en.md)), original Archonia windows instead of the temporary ones (confirmations, stack split,
+  ordered and checked from the Options; see the [guide](https://github.com/BlaMacfly/ArchRust/blob/main/docs/RESOURCE-PACKS.en.md)), original Archonia windows instead of the temporary ones (confirmations, stack split,
   buying, bank, party, main menus, character select and creation, options), movement speed like Archonia (the
   GM's `/speed` visible), potions drunk automatically below the gauge sliders' threshold, GFX, Display and
   Function options wired, AddOns that can be toggled, client texts in the chosen language; verified against ArchCore by headless runs and screenshots of the graphical client, to confirm in game.

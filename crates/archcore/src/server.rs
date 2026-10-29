@@ -9,6 +9,8 @@ pub async fn run(mode: &str) -> anyhow::Result<()> {
     let config = Arc::new(crate::config::load_mode(mode)?);
     let db = crate::db::Databases::new(&config.database);
     crate::world::set_slow_packet_ms(config.world.slow_packet_ms);
+    // Débit de paquets permis par connexion, au login comme au monde (world/anticheat.rs).
+    crate::net::set_packet_limit(config.world.anticheat.max_packets_per_second, config.world.anticheat.packet_burst);
     db.check().await?;
     // Contrôle de version : refuse une base en retard ou en avance sur cet exécutable.
     crate::migrations::verify(&db, [config.database.auth.as_str(), config.database.characters.as_str(), config.database.world.as_str(), config.database.logs.as_str()]).await?;

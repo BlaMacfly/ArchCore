@@ -90,7 +90,8 @@ messages. ArchCore's replies are in French.
 | `/money <amount> ["name"]` | 3 | Sets the online character's gold (0 to 1,000,000,000); without a name, on yourself. ArchCore-specific command |
 | `/charisma <points> ["name"]` | 3 | Gives charisma points to the online character (1 to 1,000,000, multiplied by the `Rate.Charisma` rate and the charisma bonuses of its effects, except the boss one); without a name, to yourself. ArchCore-specific command (Archonia has none), until player-versus-player fights exist |
 | `/announce_restart <minutes> <seconds>` | 3 | Announces to every player, reminds every minute, counts down the last seconds. `0 0` cancels |
-| `/move x,z` | 1 | Teleports the GM to (x, z) and sends the NPCs of the new spot |
+| `/move x,z ["name"]` | 1 | Teleports the GM to (x, z) and sends the NPCs of the new spot; with a name (level 2), another online player: this is how a player is placed elsewhere, since the server refuses that a client teleports itself (anti-cheat) |
+| `/anomalies "name"` | 1 | Anomalies found by the anti-cheat for this character: count in the database and in the current window, last ten (see section 5). ArchCore command |
 
 The required level can be changed per command in `config/world.conf` (see
 [[Configuration|EN-Configuration]]):
@@ -152,6 +153,7 @@ Example: `/SetExp 2.0`, then `/GetExp` to check.
 | `/kill_explosion -1 "name"` | Removes that effect from a character |
 | `/kill_explosion` | Removes the effect from yourself |
 | ✅ `/rename_char "old" "new"` | Renames a character |
+| ✅ `/anomalies "name"` | Anti-cheat anomalies of a character (ArchCore addition) |
 
 ### Arena
 
@@ -258,7 +260,35 @@ without effect ("Unknown command") as long as the system they drive does not exi
 | `/cast_cap`, `/cooldown_cap` | Cast speed and cooldown reduction bonuses, which these caps limit |
 | `/refresh_lua_scripts`, `/reload_ip_players`, `/log_activity`, `/test` | LUA scripts, IP address list, activity log and test command of the original server |
 
-## 5. Good practice
+## 5. Anti-cheat
+
+ArchCore does not take the client at its word, without punishing an honest player for lag; there is
+no client-side check. `AntiCheat.*` settings: see [[Configuration|EN-Configuration]].
+
+- **Movement.** The original client only sends its destination and the server walks the player
+  itself, at its speed: a local speedhack changes nothing. A position supplied by the client (field 1
+  of packet 0x40: simulator, modified client) is checked against a distance credit: current run speed
+  (mount, buffs, `/speed`) × `AntiCheat.SpeedTolerance`, plus the `AntiCheat.MoveSlack` margin, with up
+  to 5 s of running stored for delayed packets. Beyond it, the server keeps the last valid position
+  and sends it back to the client as a teleport; anomaly `vitesse` (speed), or `téléportation`
+  (teleport) for a jump impossible even with a full credit. Portals, scrolls, `/move`, resurrections,
+  sieges, Shrines, Battle Square, entering the world and reconnection restart from the position set by
+  the server. GMs are not checked.
+- **Normal hits.** The server deals hits at the attack speed; a new target or resuming after a move no
+  longer brings the next hit forward beyond `AntiCheat.AttackTolerance`. The early hit is delayed;
+  three early requests before the next hit make a `cadence` anomaly.
+- **Packets.** Beyond `AntiCheat.MaxPacketsPerSecond` (burst `AntiCheat.PacketBurst`), a connection's
+  packets are ignored; a lasting flood closes the connection (anomaly `inondation`, the character
+  leaves the world without waiting for a reconnection), whatever the settings.
+- **Sanctions.** Each anomaly goes to the server log (`[anti-triche]`) and to the `log_anomaly` table of
+  the log database (at most 20 rows per minute and per character). With `AntiCheat.Action = kick` or
+  `ban`, `AntiCheat.Threshold` anomalies within `AntiCheat.WindowMinutes` minutes disconnect the player,
+  or ban the account (`account_banned`, author `anti-triche`, `AntiCheat.BanHours` hours). Default:
+  journal only.
+- **Review.** `/anomalies "name"`: number of anomalies in the database and in the current window, then
+  the last ten (date, type, detail, sanction).
+
+## 6. Good practice
 
 - Keep GM accounts separate from play accounts, with a strong password.
 - Try a command on a test character before using it on a player.

@@ -13,6 +13,10 @@
 //! ```
 //! Les objets restent dans l'inventaire de leur propriétaire (et en base) jusqu'à l'échange : rien n'est
 //! perdu si un joueur se déconnecte, l'échange est alors annulé.
+//!
+//! Contre les arnaques : seul le joueur sollicité accepte la demande (op 4) ; déverrouiller (op 18) déverrouille
+//! aussi le partenaire, qui doit revoir l'offre ; un objet proposé qui a changé depuis (quantité consommée,
+//! conversion, options, durabilité) annule l'échange ; un second « prêt » est sans effet.
 
 use super::combat;
 use super::items::{item_remove, item_status, item_update, stored_status, Grid};
@@ -64,6 +68,11 @@ pub struct Trade {
     pub gold: i64,
     /// Objets proposés : IID → case de la grille d'échange.
     pub items: BTreeMap<u32, Grid>,
+    /// État de chaque objet proposé quand il l'a été (quantité, conversion, options, durabilité) : l'échange est
+    /// annulé s'il a changé depuis (pierres consommées, conversion ratée…), car le partenaire ne le voit pas.
+    pub offered: BTreeMap<u32, super::items::InventoryItem>,
+    /// Auteur de la demande : lui ne peut pas l'accepter à la place de l'autre.
+    pub requester: bool,
 }
 
 impl Trade {
@@ -147,7 +156,7 @@ fn request(st: &mut WorldState, sid: u32, target_cid: u32) {
     }
     let (cid, names) = (me.ch.id, (me.ch.name.clone(), other.ch.name.clone()));
     for (a, b) in [(sid, target), (target, sid)] {
-        st.players.get_mut(&a).unwrap().trade = Some(Trade { peer: b, awaiting: true, ..Default::default() });
+        st.players.get_mut(&a).unwrap().trade = Some(Trade { peer: b, awaiting: true, requester: a == sid, ..Default::default() });
         action_status(st, a, ACTION_STATUS_TRADE);
     }
     send(st, target, packet(op::REQUEST_CONFIRM, Some(cid), Some(target_cid)));
@@ -155,7 +164,8 @@ fn request(st: &mut WorldState, sid: u32, target_cid: u32) {
 }
 
 fn confirm(st: &mut WorldState, sid: u32) {
-    let Some(peer) = st.players[&sid].trade.as_ref().filter(|t| t.awaiting).map(|t| t.peer) else { return cancel(st, sid) };
+    // Seul le joueur sollicité accepte : l'auteur de la demande ne peut pas ouvrir l'échange à sa place.
+    let Some(peer) = st.players[&sid].trade.as_ref().filter(|t| t.awaiting && !t.requester).map(|t| t.peer) else { return cancel(st, sid) };
     for s in [sid, peer] {
         if let Some(t) = st.players.get_mut(&s).and_then(|p| p.trade.as_mut()) {
             t.awaiting = false;
@@ -207,7 +217,9 @@ fn add(ctx: &WorldCtx, st: &mut WorldState, sid: u32, iid: u32) {
         return;
     };
     let cid = p.ch.id;
-    st.players.get_mut(&sid).unwrap().trade.as_mut().unwrap().items.insert(iid, grid);
+    let t = st.players.get_mut(&sid).unwrap().trade.as_mut().unwrap();
+    t.items.insert(iid, grid);
+    t.offered.insert(iid, item.clone());
     let shown = super::items::InventoryItem { grid, ..item.clone() };
     st.players[&sid].send_raw(item_update(&shown, cid, item_status::TRADE_GRID));
     if let Some(peer) = st.players.get(&mine.peer) {
@@ -225,7 +237,9 @@ fn take_back(st: &mut WorldState, sid: u32, iid: u32) {
     if mine.locked || !mine.items.contains_key(&iid) {
         return;
     }
-    st.players.get_mut(&sid).unwrap().trade.as_mut().unwrap().items.remove(&iid);
+    let t = st.players.get_mut(&sid).unwrap().trade.as_mut().unwrap();
+    t.items.remove(&iid);
+    t.offered.remove(&iid);
     let p = &st.players[&sid];
     if let Some(item) = p.inventory.get(iid) {
         p.send_raw(item_update(item, p.ch.id, item_status::INVENTORY));
@@ -269,6 +283,15 @@ fn unlock(st: &mut WorldState, sid: u32) {
     st.players.get_mut(&sid).unwrap().trade.as_mut().unwrap().locked = false;
     send(st, sid, packet(op::UNLOCK, None, None));
     send(st, mine.peer, packet(op::TARGET_UNLOCKED, None, None));
+    // L'offre va pouvoir changer : le partenaire devra la revoir et verrouiller de nouveau (sinon un objet retiré
+    // après son verrou passerait sans son accord).
+    if theirs.locked {
+        if let Some(t) = st.players.get_mut(&mine.peer).and_then(|p| p.trade.as_mut()) {
+            t.locked = false;
+        }
+        send(st, mine.peer, packet(op::UNLOCK, None, None));
+        send(st, sid, packet(op::TARGET_UNLOCKED, None, None));
+    }
 }
 
 async fn ready(ctx: &WorldCtx, st: &mut WorldState, sid: u32) -> anyhow::Result<()> {
@@ -288,6 +311,14 @@ async fn ready(ctx: &WorldCtx, st: &mut WorldState, sid: u32) -> anyhow::Result<
     Ok(())
 }
 
+/// Objet proposé encore tel qu'au moment de sa proposition (sa case peut avoir changé).
+pub fn same_offer(offered: Option<&super::items::InventoryItem>, now: Option<&super::items::InventoryItem>) -> bool {
+    match (offered, now) {
+        (Some(o), Some(n)) => super::items::InventoryItem { grid: o.grid, ..n.clone() } == *o,
+        _ => false,
+    }
+}
+
 /// Ce qui empêche l'échange, côté `a` qui reçoit ce que `b` propose.
 fn check(st: &WorldState, a: u32, b: u32) -> Option<&'static str> {
     let (pa, pb) = (&st.players[&a], &st.players[&b]);
@@ -300,6 +331,10 @@ fn check(st: &WorldState, a: u32, b: u32) -> Option<&'static str> {
     }
     if ta.items.keys().chain(tb.items.keys()).any(|iid| pa.inventory.get(*iid).is_none() && pb.inventory.get(*iid).is_none()) {
         return Some("objet disparu");
+    }
+    // Ce que `b` donne doit être resté tel qu'il l'a proposé (quantité, conversion, options, durabilité).
+    if tb.items.keys().any(|iid| !same_offer(tb.offered.get(iid), pb.inventory.get(*iid))) {
+        return Some("objet modifié depuis sa proposition");
     }
     if pa.inventory.free_count() + ta.items.len() < tb.items.len() {
         return Some("inventaire plein");
@@ -411,5 +446,14 @@ mod tests {
         }
         assert_eq!(t.items[&11], [0, 2, 3]);
         assert!(t.free_slot().is_none(), "12 cases");
+    }
+
+    #[test]
+    fn objet_propose_inchange() {
+        let it = super::super::items::InventoryItem { iid: 7, tid: 190, count: 50, grid: [0, 1, 2], conv: Default::default(), options: vec![], durability: -1 };
+        assert!(same_offer(Some(&it), Some(&super::super::items::InventoryItem { grid: [0, 3, 3], ..it.clone() })), "case changée : même objet");
+        assert!(!same_offer(Some(&it), Some(&super::super::items::InventoryItem { count: 1, ..it.clone() })), "pierres consommées après la proposition");
+        assert!(!same_offer(Some(&it), Some(&super::super::items::InventoryItem { durability: 3, ..it.clone() })));
+        assert!(!same_offer(Some(&it), None) && !same_offer(None, Some(&it)));
     }
 }

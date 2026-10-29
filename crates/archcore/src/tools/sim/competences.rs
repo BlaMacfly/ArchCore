@@ -205,6 +205,8 @@ pub async fn divide(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) 
     step(&format!("{ca} et {cb} entrent en jeu et forment un groupe"));
     let mut a = enter(&cfg, ua, pa, ca, "A-").await?;
     let mut b = enter(&cfg, ub, pb, cb, "B-").await?;
+    // B n'a pas de droits MJ : A (MJ) le pose, le serveur refusant qu'il se téléporte lui-même.
+    super::gm_place(&mut a, cb, HUNT).await?;
     for w in [&mut a, &mut b] {
         let cid = w.cid;
         w.world.send(mv, Fields::new(mv).with(0, cid).with(1, HUNT).with(2, HUNT).with(5, STOP).with(6, 0)).await?;

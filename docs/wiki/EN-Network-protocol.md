@@ -194,6 +194,13 @@ recomputes visibility by sector (see above): a character packet **op 0** adds a 
 neighbouring sectors, **op 3** (remove from view, CID in field 1) removes a player who left them or disconnected. The position is saved on disconnect
 and every minute.
 
+Anti-cheat (`world/anticheat.rs`): a position supplied in field 1 is only accepted within a distance credit
+(current run speed × `AntiCheat.SpeedTolerance` + `AntiCheat.MoveSlack`, up to 5 s of running for delayed packets);
+beyond it, the packet is ignored and the server sends the client back the position it tracks (0x40 with equal fields
+1 and 2, flags `0x0C`, then AGPMCHARACTER op 1 field 5), like a teleport. GMs are not checked. For every connection,
+beyond `AntiCheat.MaxPacketsPerSecond` packets per second (burst `AntiCheat.PacketBurst`) packets are ignored, and a
+lasting flood closes the connection.
+
 ## Chat (type 0x0F, AgpmChatting)
 
 1-byte field flags: op, sender CID, channel type, target CID, sender name (49), target name (49),

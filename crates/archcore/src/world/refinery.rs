@@ -182,6 +182,12 @@ pub fn on_event(st: &super::WorldState, sid: u32, p: &archcore_net::Packet) {
     player.send(s, Fields::new(s).with(0, 1).with(1, build_mini(&mini::EVENT_BASE, &base)).with(2, player.ch.id));
 }
 
+/// Vrai si un IID est cité plusieurs fois.
+pub fn has_duplicates(iids: &[u32]) -> bool {
+    let mut seen = std::collections::HashSet::new();
+    !iids.iter().all(|i| seen.insert(*i))
+}
+
 /// AGPMREFINERY reçu du client.
 pub async fn on_packet(ctx: &super::WorldCtx, st: &mut super::WorldState, sid: u32, p: &archcore_net::Packet) -> anyhow::Result<()> {
     let Some(player) = st.players.get(&sid) else { return Ok(()) };
@@ -192,8 +198,11 @@ pub async fn on_packet(ctx: &super::WorldCtx, st: &mut super::WorldState, sid: u
                 archcore_net::packet::Value::Int(i) if *i > 0 => Some(*i as u32),
                 _ => None,
             }).collect();
-            let picked: Vec<(u32, u32, i64)> = iids.iter().filter_map(|i| player.inventory.get(*i).map(|it| (it.iid, it.tid, it.count))).collect();
-            let recipe = (picked.len() == iids.len()).then(|| ctx.recipes.find(picked.iter().map(|(_, t, n)| (*t, *n)))).flatten();
+            // Un même IID cité deux fois compterait ses exemplaires deux fois ; un objet proposé à l'échange n'est pas pris.
+            let offered = |i: &u32| player.trade.as_ref().is_some_and(|t| t.items.contains_key(i));
+            let picked: Vec<(u32, u32, i64)> = iids.iter().filter(|i| !offered(i)).filter_map(|i| player.inventory.get(*i).map(|it| (it.iid, it.tid, it.count))).collect();
+            let valid = picked.len() == iids.len() && !has_duplicates(&iids);
+            let recipe = valid.then(|| ctx.recipes.find(picked.iter().map(|(_, t, n)| (*t, *n)))).flatten();
             let Some(recipe) = recipe else {
                 player.send_raw(packet(op::RESULT, cid, Some(result::NO_RECIPE), None, None));
                 return Ok(());
@@ -225,7 +234,7 @@ pub async fn refine_recipe(ctx: &super::WorldCtx, st: &mut super::WorldState, si
     let mut take = Vec::new();
     for (tid, need) in &recipe.resources {
         let mut left = *need;
-        for it in player.inventory.items.values().filter(|i| i.tid == *tid) {
+        for it in player.inventory.items.values().filter(|i| i.tid == *tid && !player.trade.as_ref().is_some_and(|t| t.items.contains_key(&i.iid))) {
             if left == 0 {
                 break;
             }
@@ -249,6 +258,12 @@ async fn refine(ctx: &super::WorldCtx, st: &mut super::WorldState, sid: u32, id:
     let Some(p) = st.players.get_mut(&sid) else { return Ok(()) };
     let cid = p.ch.id;
     let money = p.ch.money as i64;
+    // Chaque ingrédient une seule fois, présent en quantité suffisante : sinon rien n'est consommé.
+    let iids: Vec<u32> = take.iter().map(|(iid, _)| *iid).collect();
+    if has_duplicates(&iids) || take.iter().any(|(iid, n)| *n <= 0 || p.inventory.get(*iid).is_none_or(|i| i.count < *n)) {
+        p.send_raw(packet(op::RESULT, cid, Some(result::MISSING_ITEMS), None, None));
+        return Ok(());
+    }
     if money < recipe.price {
         p.send_raw(packet(op::RESULT, cid, Some(result::NO_MONEY), None, None));
         return Ok(());
@@ -370,6 +385,13 @@ mod tests {
 4\t2\t10305\tRank 5\t1\t0\t\t\t0\t0\t0\t0\t0\t\t2\t9001\tManual\t1\t10304\tRank 4\t1\r\n\
 4\t2\t10303\tRank 3\t1\t0\t\t\t0\t0\t0\t0\t0\t\t2\t9001\tManual\t1\t10304\tRank 4\t1\r\n\
 944\t1\t3299\tComet Wand\t1\t0\t\t\t1\t3\t1\t4\t5000\t\t2\t257\tStone\t1\t3299\tWand\t1\r\n";
+
+    #[test]
+    fn ingredients_en_double_refuses() {
+        // [X, X] : la même pile compterait deux fois ses exemplaires.
+        assert!(has_duplicates(&[5, 9, 5]));
+        assert!(!has_duplicates(&[5, 9, 12]) && !has_duplicates(&[]));
+    }
 
     #[test]
     fn recettes() {

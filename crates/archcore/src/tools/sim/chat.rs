@@ -47,6 +47,8 @@ pub async fn run(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> 
     let mut a = enter_world(&cfg, ua, pa, ca, "A-").await?;
     let mut b = enter_world(&cfg, ub, pb, cb, "B-").await?;
     a.world.send(mv, place(a.cid)).await?;
+    // B n'a pas de droits MJ : A (MJ) le pose, le serveur refusant qu'il se téléporte lui-même.
+    super::gm_place(&mut a, cb, SPOT).await?;
     b.world.send(mv, place(b.cid)).await?;
     tokio::time::sleep(Duration::from_millis(800)).await;
 

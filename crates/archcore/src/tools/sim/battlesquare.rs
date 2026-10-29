@@ -55,6 +55,8 @@ pub async fn run(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> 
     let (acid, bcid) = (a.cid as i64, b.cid as i64);
     let (level_a, level_b) = (a.level, b.level);
     gm(&mut a, &format!("/level 1 \"{cb}\"")).await?;
+    // B n'a pas de droits MJ : A (MJ) le pose, le serveur refusant qu'il se téléporte lui-même.
+    super::gm_place(&mut a, cb, NEAR_VALIANT).await?;
     b.world.send(mv, Fields::new(mv).with(0, b.cid).with(1, NEAR_VALIANT).with(2, NEAR_VALIANT).with(5, 0x04).with(6, 0)).await?;
     tokio::time::sleep(Duration::from_millis(500)).await;
     talk(&mut b).await?;

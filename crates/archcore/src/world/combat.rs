@@ -324,7 +324,21 @@ pub fn on_action(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) {
     }
     if player.attack.map(|a| a.target) != Some(target) {
         debug!("[combat] {} attaque {target:#x}", player.ch.name);
-        player.attack = Some(Attack { target, ready_at: Instant::now(), forced });
+        // Anti-triche : une nouvelle cible (ou une reprise après un déplacement) ne donne pas de coup avant
+        // l'intervalle de la vitesse d'attaque, tolérance comprise, depuis le coup précédent (anticheat.rs).
+        let now = Instant::now();
+        let ac = &ctx.config.world.anticheat;
+        let (ready_at, early) = if ac.enabled { player.hits.start(now, ac.attack_tolerance / 100.0) } else { (now, false) };
+        player.attack = Some(Attack { target, ready_at, forced });
+        if early && player.hits.early == super::anticheat::EARLY_ATTACKS {
+            let details = format!(
+                "{} demandes d'attaque avant le coup suivant (vitesse d'attaque {}, coup retardé de {} ms)",
+                player.hits.early,
+                player.factors.attack[2],
+                ready_at.saturating_duration_since(now).as_millis()
+            );
+            super::anticheat::report(ctx, st, sid, super::anticheat::kind::CADENCE, &details);
+        }
     }
 }
 
@@ -437,6 +451,7 @@ async fn attack_step(ctx: &WorldCtx, st: &mut WorldState, sid: u32, now: Instant
     let (cid, name) = (p.ch.id, p.ch.name.clone());
     let me = st.players.get_mut(&sid).unwrap();
     me.attack = Some(Attack { target: m.cid, ready_at: now + Duration::from_millis(60_000 / speed), forced: false });
+    me.hits.hit(now, speed as i32);
     // Qui frappe s'arrête, comme le client au début de l'animation du coup.
     me.dest = None;
     super::recovery::in_combat(&mut me.timers, now);

@@ -36,6 +36,8 @@ pub async fn run(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> 
         a.world.expect_where(|q| q.ptype == ch.id, 5000, "réponse du MJ").await?;
     }
     a.world.send(mv, place(acid)).await?;
+    // B n'a pas de droits MJ : A (MJ) le pose, le serveur refusant qu'il se téléporte lui-même.
+    super::gm_place(&mut a, cb, SPOT).await?;
     b.world.send(mv, place(bcid)).await?;
     tokio::time::sleep(std::time::Duration::from_millis(800)).await;
 

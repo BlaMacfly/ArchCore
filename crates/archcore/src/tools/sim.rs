@@ -3,7 +3,7 @@
 //!
 //! ```text
 //!   archcore sim client [compte] [mdp] [perso] [commandes…]   connexion complète (+ commandes de discussion)
-//!   archcore sim move [compteA mdpA persoA compteB mdpB persoB] deux joueurs : visibilité et déplacement
+//!   archcore sim move [compteA mdpA persoA compteB mdpB persoB] deux joueurs (A MJ : il se téléporte) : visibilité et déplacement
 //!   archcore sim shop [compte] [mdp] [perso]                  boutique de Darryl : liste, achat, revente
 //!   archcore sim addon [A… B… C…]                             extensions ArchRust : messages d'AddOn (A, B : ArchRust ; C : client d'origine, MJ)
 //!   archcore sim lang [compte] [mdp] [perso]                  langues : HELLO avec langue, noms de PNJ localisés, SET_LANGUAGE, TEXT_REQUEST, client d'origine (lang.rs)
@@ -54,6 +54,8 @@
 //!                                                             nouvel ArchLord (op 1, op 0), Rain Control pour tous, garde royal, refus à SimA (archlord.rs)
 //!   archcore sim tax [A… B…]                                 taxes d'Inflame : intendant Alfredo (op 1, 3, 2 : codes 3, 0, 2), op 4 à tous, achat chez Damian
 //!                                                             taxé de 10 %, /tax, versement forcé à la banque, registre (tax.rs)
+//!   archcore sim cheat [A… B…]                               anti-triche, GmTest (MJ) + SimA (tricheur) : course, cheval et portail légitimes, speedhack et
+//!                                                             téléportation ramenés, coups trop rapprochés, double récupération et double validation, inondation (cheat.rs)
 //!   archcore sim refusal [A… B…]                             options de GmTest (op 0x11) : SimA ne peut ni l'inviter en groupe (op 14) ni lui proposer d'échange (op 25)
 //!   archcore sim gm [compte] [mdp] [perso]                    commandes MJ d'ArchCore : /speed (×5, refus au-delà de 10, retour) et /additem ; compte MJ
 //!   archcore sim status [compte] [mdp] [perso]                état spécial : Shield Bash étourdit un Ver vert (champ 17), puis l'état retombe ; compte MJ, personnage GmEffets
@@ -78,6 +80,7 @@ use tokio::net::TcpStream;
 
 mod buddy;
 mod channel;
+mod cheat;
 mod chat;
 mod competences;
 mod customize;
@@ -113,7 +116,7 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
     let a = |i: usize, d: &str| args.get(i).cloned().unwrap_or_else(|| d.to_string());
     match args.first().map(String::as_str) {
         Some("client") => client(&a(1, "test"), &a(2, "test"), &a(3, "Testeur"), args.get(4..).unwrap_or_default()).await,
-        Some("move") => movement(&a(1, "sima"), &a(2, "sima"), &a(3, "SimA"), &a(4, "simb"), &a(5, "simb"), &a(6, "SimB")).await,
+        Some("move") => movement(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "simb"), &a(5, "simb"), &a(6, "SimB")).await,
         Some("shop") => shop(&a(1, "sima"), &a(2, "sima"), &a(3, "SimA")).await,
         Some("addon") => {
             let acc = [
@@ -158,6 +161,7 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         Some("archlord") => Box::pin(archlord::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("tax") => Box::pin(tax::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("wanted") => Box::pin(wanted::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
+        Some("cheat") => Box::pin(cheat::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("refusal") => Box::pin(refusal(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("party") => Box::pin(party(&a(1, "sima"), &a(2, "sima"), &a(3, "SimA"), &a(4, "simb"), &a(5, "simb"), &a(6, "SimB"))).await,
         Some("trade") => Box::pin(private_trade(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
@@ -183,7 +187,7 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         Some("ignore") => Box::pin(competences::ignore(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("rune") => Box::pin(competences::rune(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("trigger") => Box::pin(competences::trigger(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
-        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol|bag|skill|effects|status|bank|portal|pvp|reconnect|lastrefine|product|guild|guildlead|guildbattle|guildrelation|guildwarehouse|guildmark|guildstage|gm|buddy|mail|repair|ride|auction|itemset|nature|summons|chat|channel|customize|wanted|shrine|battlesquare|boss|siege|archlord|tax|trade|party|quest|mobskill|counter|partyskill|mastery [arguments]"),
+        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol|bag|skill|effects|status|bank|portal|pvp|reconnect|lastrefine|product|guild|guildlead|guildbattle|guildrelation|guildwarehouse|guildmark|guildstage|gm|buddy|mail|repair|ride|auction|itemset|nature|summons|chat|channel|customize|wanted|shrine|battlesquare|boss|siege|archlord|tax|cheat|trade|party|quest|mobskill|counter|partyskill|mastery [arguments]"),
     }
 }
 
@@ -300,6 +304,19 @@ impl TestClient {
             let left = deadline.saturating_duration_since(tokio::time::Instant::now());
             if left.is_zero() || tokio::time::timeout(left, self.read_more()).await.is_err() {
                 anyhow::bail!("[{}] attente dépassée : {what}", self.label);
+            }
+        }
+    }
+
+    /// Vrai si le serveur ferme la connexion sous `timeout_ms` (les paquets reçus d'ici là sont écartés).
+    pub async fn closed_within(&mut self, timeout_ms: u64) -> bool {
+        let deadline = tokio::time::Instant::now() + Duration::from_millis(timeout_ms);
+        loop {
+            let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+            match tokio::time::timeout(left, self.read_more()).await {
+                Err(_) => return false,
+                Ok(Err(_)) => return true,
+                Ok(Ok(())) => self.queue.clear(),
             }
         }
     }
@@ -732,6 +749,34 @@ fn step(t: &str) {
     println!("\n=== {t}");
 }
 
+/// Pose le joueur `name` en `pos` par la commande `/move x,z "nom"` du MJ `gm`, et attend sa réponse. Le serveur refuse
+/// qu'un client sans droits MJ se téléporte lui-même (world/anticheat.rs) : seul un MJ, ou le serveur, le déplace ainsi.
+pub async fn gm_place(gm: &mut InWorld, name: &str, pos: Vec3) -> anyhow::Result<()> {
+    let ch = &schema::CHATTING;
+    let cmd = format!("/move {},{} \"{name}\"", pos.x.round(), pos.z.round());
+    // Un message toutes les 100 ms au plus (chat.rs).
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    gm.world.send(ch, Fields::new(ch).with(0, 0).with(1, gm.cid).with(2, chat_type::NORMAL).with(6, crate::tools::to_cp1252(&cmd))).await?;
+    let r = gm
+        .world
+        .expect_where(|q| q.ptype == ch.id && q.fields().text(6).is_some_and(|t| t.contains("porté en") || t.contains("/move")), 5000, &cmd)
+        .await?;
+    let text = r.fields().text(6).unwrap_or_default();
+    anyhow::ensure!(text.contains("porté en"), "{cmd} : {text}");
+    println!("  {cmd} → {text}");
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    Ok(())
+}
+
+/// Position de départ d'un personnage hors jeu, écrite en base avant son entrée : l'autre chemin légitime pour poser un
+/// joueur sans droits MJ (voir `gm_place`).
+pub async fn start_at(cfg: &Config, name: &str, pos: Vec3) -> anyhow::Result<()> {
+    let db = crate::db::Databases::new(&cfg.database);
+    db.characters.exec("UPDATE characters SET pos_x = ?, pos_y = ?, pos_z = ? WHERE name = ?", (pos.x as f64, pos.y as f64, pos.z as f64, name.to_string())).await?;
+    db.close().await;
+    Ok(())
+}
+
 async fn movement(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> anyhow::Result<()> {
     const STOP: i64 = 0x04;
     let cfg = crate::config::load()?;
@@ -813,6 +858,8 @@ async fn addon(acc: &[(String, String, String); 3]) -> anyhow::Result<()> {
     // Tous au même endroit, à portée de discussion.
     let mv = &schema::OPT_CHAR_MOVE;
     let here = b.start;
+    // A n'a pas de droits MJ : c'est C (MJ) qui le pose ; le serveur refuse qu'un joueur se téléporte lui-même.
+    gm_place(&mut c, ca, here).await?;
     for w in [&mut a, &mut c] {
         w.world.send(mv, Fields::new(mv).with(0, w.cid).with(1, here).with(2, here).with(5, STOP).with(6, 0)).await?;
     }
@@ -1736,6 +1783,8 @@ async fn refusal(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> 
     step(&format!("{ca} et {cb} entrent en jeu"));
     let mut a = enter_world(&cfg, ua, pa, ca, "A-").await?;
     let mut b = enter_world(&cfg, ub, pb, cb, "B-").await?;
+    // B n'a pas de droits MJ : A (MJ) le pose, le serveur refusant qu'il se téléporte lui-même.
+    gm_place(&mut a, cb, SPOT).await?;
     for w in [&mut a, &mut b] {
         let cid = w.cid;
         w.world.send(mv, Fields::new(mv).with(0, cid).with(1, SPOT).with(2, SPOT).with(5, STOP).with(6, 0)).await?;
@@ -1781,6 +1830,10 @@ async fn party(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> an
     let is_p = |op: i64| move |q: &Recv| q.is(pt, Some(op));
 
     step(&format!("{ca} et {cb} entrent en jeu"));
+    // Ni l'un ni l'autre n'a de droits MJ : ils entrent en jeu à l'endroit voulu (le serveur refuserait qu'ils s'y
+    // téléportent eux-mêmes).
+    start_at(&cfg, ca, SPOT).await?;
+    start_at(&cfg, cb, SPOT).await?;
     let mut a = enter_world(&cfg, ua, pa, ca, "A-").await?;
     let mut b = enter_world(&cfg, ub, pb, cb, "B-").await?;
     for w in [&mut a, &mut b] {
@@ -1861,6 +1914,8 @@ async fn private_trade(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &st
     step(&format!("{ca} et {cb} entrent en jeu au même endroit"));
     let mut a = enter_world(&cfg, ua, pa, ca, "A-").await?;
     let mut b = enter_world(&cfg, ub, pb, cb, "B-").await?;
+    // B n'a pas de droits MJ : A (MJ) le pose, le serveur refusant qu'il se téléporte lui-même.
+    gm_place(&mut a, cb, SPOT).await?;
     for w in [&mut a, &mut b] {
         let cid = w.cid;
         w.world.send(mv, Fields::new(mv).with(0, cid).with(1, SPOT).with(2, SPOT).with(5, STOP).with(6, 0)).await?;

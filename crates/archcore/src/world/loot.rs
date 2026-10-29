@@ -398,6 +398,11 @@ async fn pick_up(ctx: &WorldCtx, st: &mut WorldState, sid: u32, iid: u32, now: I
     }
     let (cid, name, money) = (p.ch.id, p.ch.name.clone(), p.ch.money as i64);
     if item.tid == GOLD_TID {
+        // Au-delà du plafond d'or, la pile reste au sol plutôt que de perdre le surplus.
+        if money + item.count > super::npc_trade::MAX_MONEY {
+            fail(st);
+            return Ok(());
+        }
         take_from_ground(st, iid);
         st.players[&sid].send_raw(pickup_result_packet(pickup_result::SUCCESS, iid, item.tid, item.count));
         set_money(ctx, st, sid, money + item.count).await?;

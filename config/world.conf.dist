@@ -27,6 +27,7 @@
 #   5. VILLAGES DE DÉPART
 #   6. TAUX
 #   7. COMMANDES MJ
+#   8. ANTI-TRICHE
 ###############################################################################
 
 ###############################################################################
@@ -451,3 +452,76 @@ Rate.ChatBuff = 1
 #        défaut (liste des commandes : page Administration du wiki).
 #        Exemple : GM.CommandLevel.kill = 3
 ###############################################################################
+
+###############################################################################
+# 8. ANTI-TRICHE
+#
+#    Contrôles côté serveur : le client n'est pas cru sur parole, sans punir un
+#    joueur honnête à cause du lag (aucun contrôle côté client). Chaque anomalie
+#    est notée dans le journal du serveur et dans la table log_anomaly de la base
+#    des journaux ; /anomalies "nom" les relit. Valeurs choisies par ArchCore.
+###############################################################################
+
+#    AntiCheat.Enabled
+#        1 = contrôle des positions envoyées par le client et de la cadence des
+#        coups normaux ; 0 = désactivé (la limite de paquets reste).
+#        Défaut : 1
+
+AntiCheat.Enabled = 1
+
+#    AntiCheat.Action
+#        Sanction d'un joueur qui atteint AntiCheat.Threshold anomalies :
+#            log  : journal seulement
+#            kick : déconnexion (sans attente de reconnexion)
+#            ban  : bannissement du compte (AntiCheat.BanHours), puis déconnexion
+#        Défaut : "log"
+
+AntiCheat.Action = "log"
+
+#    AntiCheat.Threshold
+#    AntiCheat.WindowMinutes
+#        Nombre d'anomalies d'un personnage, dans une fenêtre glissante de tant de
+#        minutes, qui déclenche AntiCheat.Action.
+#        Défaut : 10 et 10
+
+AntiCheat.Threshold = 10
+AntiCheat.WindowMinutes = 10
+
+#    AntiCheat.BanHours
+#        Durée d'un bannissement par l'anti-triche, en heures. 0 : sans fin (levé à
+#        la main : account_banned.active = 0).
+#        Défaut : 24
+
+AntiCheat.BanHours = 24
+
+#    AntiCheat.SpeedTolerance
+#    AntiCheat.MoveSlack
+#        Une position envoyée par le client doit rester à portée d'un crédit de
+#        distance : la vitesse de course courante (monture, renforcements, /speed)
+#        multipliée par cette tolérance en pour cent (100 à 1000), plus une marge
+#        fixe de lag en unités ; le crédit accumule jusqu'à 5 s de course pour les
+#        paquets retardés. Au-delà, le joueur est ramené à la dernière position
+#        valide. Les MJ ne sont pas contrôlés.
+#        Défaut : 150 et 300
+
+AntiCheat.SpeedTolerance = 150
+AntiCheat.MoveSlack = 300
+
+#    AntiCheat.AttackTolerance
+#        Cadence des coups normaux permise, en pour cent de la vitesse d'attaque
+#        (100 à 1000) : une nouvelle cible ou une reprise après un déplacement ne
+#        frappe pas avant l'intervalle des coups divisé par cette tolérance.
+#        Défaut : 150
+
+AntiCheat.AttackTolerance = 150
+
+#    AntiCheat.MaxPacketsPerSecond
+#    AntiCheat.PacketBurst
+#        Paquets permis par seconde et par connexion (connexion et monde), et
+#        rafale tolérée. Au-delà, ils sont ignorés ; une seconde de débit ignorée
+#        sans pause de 2 s ferme la connexion, même avec AntiCheat.Enabled = 0.
+#        0 : sans limite.
+#        Défaut : 150 et 500
+
+AntiCheat.MaxPacketsPerSecond = 150
+AntiCheat.PacketBurst = 500

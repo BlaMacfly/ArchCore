@@ -25,7 +25,7 @@
 
 | Projet / Project | 🇫🇷 Rôle | 🇬🇧 Role |
 |---|---|---|
-| [ArchRust](https://github.com/BlaMacfly/ArchCore/tree/client) | Client ArchLord 64 bits en Rust (branche `client`) | 64-bit ArchLord client in Rust (`client` branch) |
+| [ArchRust](https://github.com/BlaMacfly/ArchRust) | Client ArchLord 64 bits en Rust (dépôt à part) | 64-bit ArchLord client in Rust (own repository) |
 | [ArchCoreAdmin](https://github.com/BlaMacfly/ArchCoreAdmin) | Panneau MJ en jeu (AddOn Lua pour ArchRust) | In-game GM panel (Lua add-on for ArchRust) |
 | [ArchHome](https://github.com/BlaMacfly/ArchHome) | ArchLord en solo hors ligne : ArchCore local, MariaDB portable, ArchRust, lanceur à un bouton | Single-player offline ArchLord: local ArchCore, portable MariaDB, ArchRust, one-button launcher |
 | [ArchForge](https://github.com/BlaMacfly/ArchForge) | Éditeur de la base de données, export vers `content/*.sql` | Database editor, export to `content/*.sql` |

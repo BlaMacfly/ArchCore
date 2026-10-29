@@ -92,7 +92,8 @@ la discussion comme messages système.
 | `/money <montant> ["nom"]` | 3 | Fixe l'or du personnage connecté (de 0 à 1 000 000 000) ; sans nom, sur soi. Commande propre à ArchCore |
 | `/charisma <points> ["nom"]` | 3 | Donne des points de charisme au personnage connecté (1 à 1 000 000, multipliés par le taux `Rate.Charisma` et les bonus de charisme de ses effets, sauf celui des boss) ; sans nom, à soi. Commande propre à ArchCore (Archonia n'en a pas), en attendant le combat entre joueurs |
 | `/announce_restart <minutes> <secondes>` | 3 | Annonce à tous les joueurs, rappel chaque minute, compte à rebours sur les dernières secondes. `0 0` annule |
-| `/move x,z` | 1 | Téléporte le MJ en (x, z) et envoie les PNJ du nouvel endroit |
+| `/move x,z ["nom"]` | 1 | Téléporte le MJ en (x, z) et envoie les PNJ du nouvel endroit ; avec un nom (niveau 2), un autre joueur en jeu : c'est ainsi qu'on pose ailleurs un joueur, le serveur refusant qu'un client se téléporte lui-même (anti-triche) |
+| `/anomalies "nom"` | 1 | Anomalies relevées par l'anti-triche pour ce personnage : nombre en base et dans la fenêtre en cours, dix dernières (voir la section 5). Commande propre à ArchCore |
 
 Le niveau requis se change commande par commande dans `config/world.conf` (voir
 [[Configuration|FR-Configuration]]) :
@@ -154,6 +155,7 @@ Exemple : `/SetExp 2.0` puis `/GetExp` pour vérifier.
 | `/kill_explosion -1 "nom"` | Retire cet effet d'un personnage |
 | `/kill_explosion` | Retire l'effet sur soi |
 | ✅ `/rename_char "ancien" "nouveau"` | Renomme un personnage |
+| ✅ `/anomalies "nom"` | Anomalies de l'anti-triche d'un personnage (ajout d'ArchCore) |
 
 ### Arène
 
@@ -260,7 +262,36 @@ serveur. Elles restent sans effet (« Commande inconnue ») tant que le système
 | `/cast_cap`, `/cooldown_cap` | Bonus de vitesse d'incantation et de réduction des recharges, que ces limites plafonnent |
 | `/refresh_lua_scripts`, `/reload_ip_players`, `/log_activity`, `/test` | Scripts LUA, liste d'adresses IP, journal d'activité et commande de test du serveur d'origine |
 
-## 5. Bonnes pratiques
+## 5. Anti-triche
+
+ArchCore ne croit pas le client sur parole, sans punir un joueur honnête à cause du lag ; il n'y a
+aucun contrôle côté client. Réglages `AntiCheat.*` : voir [[Configuration|FR-Configuration]].
+
+- **Déplacements.** Le client d'origine n'envoie que sa destination et le serveur fait marcher le
+  joueur lui-même, à sa vitesse : un speedhack local n'y change rien. Une position fournie par le
+  client (champ 1 du paquet 0x40 : simulateur, client modifié) est comparée à un crédit de distance :
+  vitesse de course courante (monture, renforcements, `/speed`) × `AntiCheat.SpeedTolerance`, plus la
+  marge `AntiCheat.MoveSlack`, jusqu'à 5 s de course accumulées pour les paquets retardés. Au-delà, le
+  serveur garde la dernière position valide et la renvoie au client comme une téléportation ;
+  anomalie `vitesse`, ou `téléportation` pour un saut impossible même avec le crédit plein. Portails,
+  parchemins, `/move`, résurrections, sièges, Shrines, Battle Square, entrée en jeu et reconnexion
+  repartent de la position posée par le serveur. Les MJ ne sont pas contrôlés.
+- **Coups normaux.** Le serveur porte les coups au rythme de la vitesse d'attaque ; une nouvelle cible
+  ou une reprise après un déplacement n'avance plus le coup suivant au-delà de
+  `AntiCheat.AttackTolerance`. Le coup en avance est retardé ; trois demandes en avance avant le coup
+  suivant font une anomalie `cadence`.
+- **Paquets.** Au-delà de `AntiCheat.MaxPacketsPerSecond` (rafale `AntiCheat.PacketBurst`), les
+  paquets d'une connexion sont ignorés ; une inondation qui dure ferme la connexion (anomalie
+  `inondation`, le personnage quitte le monde sans attendre de reconnexion), quel que soit le réglage.
+- **Sanctions.** Chaque anomalie est notée dans le journal du serveur (`[anti-triche]`) et dans la table
+  `log_anomaly` de la base des journaux (20 lignes par minute et par personnage au plus). Avec
+  `AntiCheat.Action = kick` ou `ban`, `AntiCheat.Threshold` anomalies en `AntiCheat.WindowMinutes`
+  minutes déconnectent le joueur, ou bannissent son compte (`account_banned`, auteur `anti-triche`,
+  `AntiCheat.BanHours` heures). Par défaut : journal seul.
+- **Consulter.** `/anomalies "nom"` : nombre d'anomalies en base et dans la fenêtre en cours, puis les
+  dix dernières (date, type, détail, sanction).
+
+## 6. Bonnes pratiques
 
 - Garder les comptes MJ séparés des comptes de jeu, avec un mot de passe solide.
 - Tester une commande sur un personnage de test avant de l'utiliser sur un joueur.

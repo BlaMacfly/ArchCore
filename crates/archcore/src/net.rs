@@ -19,11 +19,88 @@ use async_trait::async_trait;
 use rand::RngCore;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc;
 
 static NEXT_SESSION_ID: AtomicU32 = AtomicU32::new(1);
+
+/// Paquets permis par seconde et par connexion, et rafale tolérée (`AntiCheat.MaxPacketsPerSecond`,
+/// `AntiCheat.PacketBurst` ; 0 : sans limite). Voir `world/anticheat.rs`.
+static PACKETS_PER_SEC: AtomicU32 = AtomicU32::new(0);
+static PACKET_BURST: AtomicU32 = AtomicU32::new(0);
+
+/// Une inondation se termine après cette pause sans paquet ignoré.
+const FLOOD_PAUSE: Duration = Duration::from_secs(2);
+
+pub fn set_packet_limit(per_sec: u32, burst: u32) {
+    PACKETS_PER_SEC.store(per_sec, Ordering::Relaxed);
+    PACKET_BURST.store(burst.max(per_sec), Ordering::Relaxed);
+}
+
+/// Sort d'un paquet reçu.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Admit {
+    Pass,
+    /// Au-delà du débit permis : ignoré.
+    Drop,
+    /// Inondation qui dure (une seconde de débit permis ignorée sans pause) : la connexion est fermée.
+    Flood,
+}
+
+/// Débit des paquets d'une connexion : seau de jetons (`per_sec` par seconde, `burst` au plus), et pic mesuré sur une
+/// seconde, noté à la déconnexion (pour régler la limite d'après le trafic réel).
+#[derive(Clone, Debug)]
+pub struct PacketBudget {
+    tokens: f64,
+    at: Instant,
+    /// Paquets ignorés depuis le début de l'inondation en cours, et instant du dernier.
+    dropped: u32,
+    last_drop: Option<Instant>,
+    /// Seconde en cours : début et paquets reçus.
+    second: (Instant, u32),
+    pub peak: u32,
+    pub total: u64,
+    pub ignored: u64,
+}
+
+impl PacketBudget {
+    pub fn new(burst: u32, now: Instant) -> Self {
+        PacketBudget { tokens: burst as f64, at: now, dropped: 0, last_drop: None, second: (now, 0), peak: 0, total: 0, ignored: 0 }
+    }
+
+    pub fn admit(&mut self, now: Instant, per_sec: u32, burst: u32) -> Admit {
+        self.total += 1;
+        if now.saturating_duration_since(self.second.0) >= Duration::from_secs(1) {
+            self.second = (now, 0);
+        }
+        self.second.1 += 1;
+        self.peak = self.peak.max(self.second.1);
+        if per_sec == 0 {
+            return Admit::Pass;
+        }
+        let dt = now.saturating_duration_since(self.at).as_secs_f64();
+        self.tokens = (self.tokens + dt * per_sec as f64).min(burst.max(per_sec) as f64);
+        self.at = now;
+        if self.last_drop.is_some_and(|t| now.saturating_duration_since(t) >= FLOOD_PAUSE) {
+            self.dropped = 0;
+        }
+        if self.tokens >= 1.0 {
+            self.tokens -= 1.0;
+            return Admit::Pass;
+        }
+        self.dropped += 1;
+        self.ignored += 1;
+        self.last_drop = Some(now);
+        if self.dropped >= per_sec { Admit::Flood } else { Admit::Drop }
+    }
+
+    /// Premier paquet ignoré d'une inondation (pour ne l'annoncer qu'une fois).
+    pub fn flood_started(&self) -> bool {
+        self.dropped == 1
+    }
+}
 
 enum Out {
     Bytes(Vec<u8>),
@@ -132,6 +209,8 @@ impl SessionHandle {
 pub trait Connection: Send {
     async fn on_packet(&mut self, session: &SessionHandle, packet: Packet) -> anyhow::Result<()>;
     async fn on_close(&mut self, _session: &SessionHandle) {}
+    /// Inondation de paquets : la connexion va être fermée (`ignored` paquets ignorés).
+    async fn on_flood(&mut self, _session: &SessionHandle, _ignored: u64) {}
 }
 
 /// Service : crée l'état de chaque connexion et déclare les types de paquets qu'il traite.
@@ -196,6 +275,7 @@ async fn run_session(name: &'static str, socket: TcpStream, remote: String, ip: 
     let mut conn = service.connect(&session);
     let mut splitter = FrameSplitter::default();
     let mut buf = vec![0u8; 64 * 1024];
+    let mut budget = PacketBudget::new(PACKET_BURST.load(Ordering::Relaxed), Instant::now());
     'read: loop {
         let n = tokio::select! {
             r = reader.read(&mut buf) => match r {
@@ -228,6 +308,21 @@ async fn run_session(name: &'static str, socket: TcpStream, remote: String, ip: 
                 warn!("[{name}] #{id} paquet sans en-tête valide — {}", hex_dump(&plain, 96));
                 continue;
             };
+            // Débit permis par connexion : au-delà, le paquet est ignoré ; une inondation qui dure ferme la connexion.
+            match budget.admit(Instant::now(), PACKETS_PER_SEC.load(Ordering::Relaxed), PACKET_BURST.load(Ordering::Relaxed)) {
+                Admit::Pass => {}
+                Admit::Drop => {
+                    if budget.flood_started() {
+                        warn!("[{name}] #{id} plus de {} paquets par seconde : le surplus est ignoré", PACKETS_PER_SEC.load(Ordering::Relaxed));
+                    }
+                    continue;
+                }
+                Admit::Flood => {
+                    warn!("[{name}] #{id} inondation de paquets ({} ignorés) : connexion fermée", budget.ignored);
+                    conn.on_flood(&session, budget.ignored).await;
+                    break 'read;
+                }
+            }
             if header.ptype == schema::ptype::STARTUP_ENCRYPTION {
                 if !startup_encryption(&session, &plain) {
                     break 'read;
@@ -273,7 +368,13 @@ async fn run_session(name: &'static str, socket: TcpStream, remote: String, ip: 
     }
     session.0.closed.store(true, Ordering::Relaxed);
     session.close();
-    info!("[{name}] #{id} déconnecté ({})", session.0.remote);
+    info!(
+        "[{name}] #{id} déconnecté ({}) : {} paquet(s), pic {}/s{}",
+        session.0.remote,
+        budget.total,
+        budget.peak,
+        if budget.ignored > 0 { format!(", {} ignoré(s)", budget.ignored) } else { String::new() }
+    );
     conn.on_close(&session).await;
     let _ = writer_task.await;
 }
@@ -348,5 +449,35 @@ fn startup_encryption(session: &SessionHandle, plain: &[u8]) -> bool {
             warn!("[{name}] #{id} opération de chiffrement inconnue {op}");
             true
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn debit_des_paquets() {
+        let t0 = Instant::now();
+        let at = |ms: u64| t0 + Duration::from_millis(ms);
+        // Sans limite : tout passe, le pic est mesuré.
+        let mut b = PacketBudget::new(0, t0);
+        for _ in 0..500 {
+            assert_eq!(b.admit(t0, 0, 0), Admit::Pass);
+        }
+        assert_eq!((b.peak, b.ignored), (500, 0));
+        // 100 par seconde, rafale de 300 : la rafale passe, puis le surplus est ignoré.
+        let mut b = PacketBudget::new(300, t0);
+        assert!((0..300).all(|_| b.admit(t0, 100, 300) == Admit::Pass));
+        assert_eq!(b.admit(t0, 100, 300), Admit::Drop);
+        assert!(b.flood_started());
+        // Au débit permis, tout passe de nouveau et l'inondation s'oublie après la pause.
+        assert!((1..=100).all(|i| b.admit(at(2000 + i * 10), 100, 300) == Admit::Pass));
+        assert_eq!(b.admit(at(3010), 100, 300), Admit::Pass);
+        // Inondation qui dure : une seconde de débit ignorée ferme la connexion.
+        let mut b = PacketBudget::new(300, t0);
+        let verdicts: Vec<Admit> = (0..1000).map(|i| b.admit(at(i), 100, 300)).collect();
+        let flood = verdicts.iter().position(|v| *v == Admit::Flood).expect("inondation");
+        assert!((390..=520).contains(&flood), "fermée au paquet {flood}");
     }
 }

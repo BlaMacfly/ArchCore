@@ -198,6 +198,13 @@ entré dans les secteurs voisins, l'**op 3** (retrait de la vue, CID au champ 1)
 déconnecté. La position est
 sauvegardée à la déconnexion et toutes les minutes.
 
+Anti-triche (`world/anticheat.rs`) : une position fournie au champ 1 n'est acceptée que dans la limite d'un crédit de
+distance (vitesse de course courante × `AntiCheat.SpeedTolerance` + `AntiCheat.MoveSlack`, jusqu'à 5 s de course pour
+les paquets retardés) ; au-delà, le paquet est ignoré et le serveur renvoie au client la position qu'il suit (0x40
+champs 1 et 2 égaux, drapeaux `0x0C`, puis AGPMCHARACTER op 1 champ 5), comme une téléportation. Les MJ ne sont pas
+contrôlés. Toutes connexions confondues, au-delà de `AntiCheat.MaxPacketsPerSecond` paquets par seconde (rafale
+`AntiCheat.PacketBurst`) les paquets sont ignorés, et une inondation qui dure ferme la connexion.
+
 ## Discussion (type 0x0F, AgpmChatting)
 
 Drapeaux de champs sur 1 octet : op, CID émetteur, type de canal, CID cible, nom émetteur (49),

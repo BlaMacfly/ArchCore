@@ -30,6 +30,7 @@
 
 pub mod addon;
 pub mod ai;
+pub mod anticheat;
 pub mod archlord;
 pub mod auction;
 pub mod bank;
@@ -255,6 +256,11 @@ pub struct Player {
     pub chat: chat::ChatClock,
     /// Tueur (CID, nom) que ce joueur, mort, peut mettre à prix (wanted.rs).
     pub wanted_killer: Option<(u32, String)>,
+    /// Anti-triche : crédit de distance des positions envoyées par le client, cadence des coups normaux, déconnexion
+    /// déjà demandée (anticheat.rs).
+    pub move_guard: anticheat::MoveGuard,
+    pub hits: anticheat::HitGuard,
+    pub kicked: bool,
 }
 
 impl Player {
@@ -320,6 +326,8 @@ pub struct WorldState {
     pub archlord: archlord::Archlord,
     /// Taux et recettes des régions des châteaux (tax.rs).
     pub tax: tax::Taxes,
+    /// Anomalies relevées par l'anti-triche, par personnage (anticheat.rs).
+    pub anomalies: anticheat::Ledger,
 }
 
 impl WorldState {
@@ -536,6 +544,19 @@ impl Connection for WorldConn {
         Ok(())
     }
 
+    /// Inondation de paquets (net.rs) : anomalie notée, et le personnage quitte le monde à la fermeture, sans attendre de
+    /// reconnexion, quelle que soit `AntiCheat.Action`.
+    async fn on_flood(&mut self, s: &SessionHandle, ignored: u64) {
+        let world = self.world.clone();
+        let mut st = world.state.lock().await;
+        if !st.players.get(&self.sid).is_some_and(|p| p.sess.id() == s.id()) {
+            return;
+        }
+        let details = format!("{ignored} paquets ignorés au-delà de {} par seconde", world.ctx.config.world.anticheat.max_packets_per_second);
+        anticheat::report(&world.ctx, &mut st, self.sid, anticheat::kind::FLOOD, &details);
+        anticheat::kick(&mut st, self.sid, "inondation de paquets");
+    }
+
     async fn on_close(&mut self, s: &SessionHandle) {
         let world = self.world.clone();
         let mut st = world.state.lock().await;
@@ -585,6 +606,12 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
         return Ok(());
     };
     let account = Account { id: col(&acc, "id"), username: col(&acc, "username") };
+    // Seconde entrée sur la même connexion (autre clé d'auth) : le personnage déjà en jeu la quitte d'abord, sinon
+    // il resterait dans le monde sans session (CID, groupe, guilde, courriers reçus).
+    if st.players.contains_key(&s.id()) {
+        warn!("[world] #{} seconde entrée en jeu sur la même connexion : le personnage en jeu la quitte", s.id());
+        remove_player(ctx, st, s.id()).await;
+    }
     // La clé d'entrée ne sert qu'une fois.
     ctx.db.auth.exec("UPDATE account SET auth_token = NULL WHERE id = ? AND auth_token = ?", (account.id, auth_key)).await?;
     // Une seule session en jeu par compte : la précédente quitte le monde (et sa position est enregistrée)
@@ -663,6 +690,8 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
     ctx.db.characters.exec("UPDATE characters SET last_played = NOW() WHERE id = ?", (ch.id,)).await?;
 
     let cid = ch.id;
+    // Anti-triche : la position de chargement est la première position sûre.
+    let move_guard = anticheat::MoveGuard::new(&ctx.config.world.anticheat, pos, anticheat::move_speed(&factors), Instant::now());
     st.players.insert(
         s.id(),
         Player {
@@ -717,6 +746,9 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
             item_sets,
             chat: chat::ChatClock::default(),
             wanted_killer: None,
+            move_guard,
+            hits: anticheat::HitGuard::default(),
+            kicked: false,
         },
     );
     st.by_cid.insert(cid, s.id());
@@ -1016,6 +1048,8 @@ pub async fn teleport(ctx: &WorldCtx, st: &mut WorldState, sid: u32, x: f64, y: 
     let c = &schema::CHARACTER;
     p.send(c, Fields::new(c).with(0, 1).with(1, p.ch.id).with(5, move_mini(MoveMini { pos, dest: None, flags: MOVE_STOP_SYNC })));
     p.dest = None;
+    // Anti-triche : la destination devient la référence des positions envoyées par le client.
+    p.move_guard.reset(pos, anticheat::move_speed(&p.factors), std::time::Instant::now());
     let (id, name) = (p.ch.id, p.ch.name.clone());
     let sent = send_nearby_npcs(ctx, st, sid, pos);
     presence::refresh(st, sid);

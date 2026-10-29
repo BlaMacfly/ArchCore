@@ -149,13 +149,24 @@
   20 % à l'ArchLord ; `/tax` et `/tax pay`. Validé au simulateur le 28 octobre 2026 (scénarios `archlord` et `tax`),
   à confirmer en jeu ; la compétence 472 Evil Light (invocation de nature 7) et l'objet d'Archon des gardes restent à
   établir, les compétences retirées ne disparaissent de la barre du client qu'à la reconnexion.
-- Client ArchRust (branche `client`) : combat (attaque, coups, mort, résurrection, butin), groupes, autres
+- Anti-triche côté serveur (`world/anticheat.rs`, aucun contrôle côté client) : positions envoyées par le client
+  bornées par un crédit de distance (vitesse de course courante × `AntiCheat.SpeedTolerance` + `AntiCheat.MoveSlack`,
+  jusqu'à 5 s de lag), position valide renvoyée au-delà ; téléportations du serveur, entrée et reconnexion comme points
+  de départ, MJ exemptés ; cadence des coups normaux bornée après un changement de cible ou une reprise ; débit de
+  paquets par connexion (`AntiCheat.MaxPacketsPerSecond`), inondation déconnectée ; table `log_anomaly`, sanctions
+  `log`, `kick` ou `ban` au-delà d'un seuil, `/anomalies`, `/move x,z "nom"` pour poser un joueur. Audit des
+  duplications : raffinage avec un même objet cité deux fois (ingrédients comptés double) fermé ; échange annulé si un
+  objet proposé a changé depuis sa proposition, déverrouillage qui déverrouille aussi le partenaire, demande non
+  acceptable par son auteur ; objets proposés ni convertis, ni vendus, ni raffinés, ni déposés à l'entrepôt ; or au
+  sol laissé au-delà du plafond ; seconde entrée en jeu sur une même connexion. Validé au simulateur le
+  29 octobre 2026 (scénario `cheat`, et les scénarios existants), à confirmer en jeu.
+- Client ArchRust ([dépôt à part](https://github.com/BlaMacfly/ArchRust)) : combat (attaque, coups, mort, résurrection, butin), groupes, autres
   joueurs, inventaire et équipement, PNJ (dialogue, boutique, banque et achat de pages, quêtes), compétences
   (instructeurs, lancement, barre de raccourcis), portails de téléportation (fenêtre et chargement d'origine, confirmation des zones de combat entre joueurs,
   « Retour », refus en combat), reconnexion automatique (fenêtre `UI_ReconnectHold`, 60 s),
   guildes (greffier, fenêtres de création, de dissolution et de guilde, membres, nom de guilde au-dessus des têtes) et discussion de
   guilde et de groupe, chuchotements (barre privée, `/w`, `/r`, bouton de la fenêtre de guilde), packs de ressources graphismes et sons (activés, ordonnés et vérifiés depuis les Options ; voir le
-  [guide](https://github.com/BlaMacfly/ArchCore/blob/client/ArchRust/docs/PACKS-DE-RESSOURCES.md)), fenêtres d'origine d'Archonia à la place des fenêtres provisoires (confirmations,
+  [guide](https://github.com/BlaMacfly/ArchRust/blob/main/docs/PACKS-DE-RESSOURCES.md)), fenêtres d'origine d'Archonia à la place des fenêtres provisoires (confirmations,
   séparation de pile, achat, banque, groupe, menus principaux, sélection et création du personnage, options),
   vitesse de déplacement comme Archonia (`/speed` du MJ visible), potions bues automatiquement sous le seuil
   des curseurs des jauges, options GFX, Affichage et Fonction branchées, AddOns activables, textes du client dans

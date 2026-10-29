@@ -383,6 +383,7 @@ pub fn strike(st: &mut WorldState, sid: u32, tsid: u32, target: u32, forced: boo
     let cid = p.ch.id;
     let me = st.players.get_mut(&sid).unwrap();
     me.attack = Some(combat::Attack { target, ready_at: now + Duration::from_millis(60_000 / speed), forced });
+    me.hits.hit(now, speed as i32);
     me.dest = None;
     super::recovery::in_combat(&mut me.timers, now);
     if st.players[&tsid].invincible_until.is_some_and(|u| now < u) {

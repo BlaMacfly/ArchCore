@@ -12,7 +12,7 @@ Toutes sont en `utf8mb4`.
 | Table | Contenu |
 |---|---|
 | `account` | Comptes : nom, empreinte SHA-256 du mot de passe, niveau MJ, ancienne date de fin de bannissement (`banned_until`, encore lue pendant une version), dernière connexion, clé d'entrée dans le monde (unique, effacée une fois utilisée), langue (dernier choix d'un client ArchRust, voir [[Traduction|FR-Traduction]]) |
-| `account_banned` | Bannissements, avec leur historique : compte, date, fin (`NULL` : sans fin), auteur, raison, `active` (0 : levé avant son terme). Un compte est refusé tant qu'un bannissement actif n'est pas échu |
+| `account_banned` | Bannissements, avec leur historique : compte, date, fin (`NULL` : sans fin), auteur, raison, `active` (0 : levé avant son terme). Un compte est refusé tant qu'un bannissement actif n'est pas échu. L'anti-triche y écrit les siens (auteur `anti-triche`, `AntiCheat.Action = ban`) |
 | `server_group` | Groupes de serveurs affichés dans la liste |
 | `world` | Mondes : nom, groupe, adresse `ip:port` (23 caractères max), statut |
 
@@ -144,7 +144,7 @@ sql/migrations/<base>/<AAAAMMJJHHMM>_<sujet>.sql      <base> = auth, characters 
 
 ## `archcore_logs` — journaux (`sql/migrations/logs/`)
 
-Traces de l'économie et de l'administration, en écriture seule : le serveur n'y lit jamais, et chaque écriture part
+Traces de l'économie et de l'administration, en écriture seule : le serveur n'y lit que pour la commande `/anomalies`, et chaque écriture part
 à part, hors du verrou du monde (un journal lent ou indisponible ne retarde pas le jeu). Pas de clé étrangère, des
 index par personnage ou compte et par date.
 
@@ -155,6 +155,7 @@ index par personnage ou compte et par date.
 | `log_bank` | Dépôt ou retrait à la banque du compte : objet (TID, IID, quantité) ou or |
 | `log_auction` | Maison des ventes : mise en vente, achat, annulation ou encaissement, vente, auteur (et vendeur pour un achat), objet (TID, IID), quantité, prix en or et en CC, frais |
 | `log_gm` | Commande MJ : auteur, niveau, commande, arguments, réussite, réponse |
+| `log_anomaly` | Anomalie de l'anti-triche (`world/anticheat.rs`) : compte, personnage, type (`vitesse`, `téléportation`, `cadence`, `inondation`), détail, sanction appliquée (`kick`, `ban` ou vide) ; 20 lignes par minute et par personnage au plus. Relue par `/anomalies` |
 
 **Mesure.** Une requête plus longue que `Database.SlowQueryMs` (200 ms par défaut) est notée « requête lente » dans le
 journal du serveur, une fois le serveur prêt (les chargements du démarrage ne sont pas comptés) ; un paquet traité plus longtemps que `World.SlowPacketMs` (100 ms) sous le verrou du monde est

@@ -152,6 +152,8 @@ pub async fn run(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> 
 
     step(&format!("{cb} cherche les potions et les achète"));
     let mut b = enter_world(&cfg, ub, pb, cb, "B-").await?;
+    // B n'a pas de droits MJ : A (MJ) le pose chez Fotherbee, le serveur refusant qu'il s'y téléporte lui-même.
+    super::gm_place(&mut a, cb, TRADER).await?;
     open(&mut b).await?;
     let (total, rows) = search(&mut b, POTION).await?;
     let row = rows.iter().find(|r| r[0] == id.to_string()).ok_or_else(|| anyhow::anyhow!("vente {id} absente : {rows:?}"))?;

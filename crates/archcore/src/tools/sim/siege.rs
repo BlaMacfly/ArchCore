@@ -208,6 +208,7 @@ pub async fn run(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> 
 
     step("commandant Garrison et candidatures");
     gm(&mut a, &format!("/move {},{}", GARRISON_AT.0, GARRISON_AT.1)).await?;
+    super::gm_place(&mut a, cb, Vec3::new(GARRISON_AT.0 + 200.0, 0.0, GARRISON_AT.1)).await?;
     place(&mut b, (GARRISON_AT.0 + 200.0, GARRISON_AT.1)).await?;
     let npc = &schema::EVENT_SIEGE_WAR_NPC;
     let ev = crate::world::npcs::event_base(GARRISON, crate::world::npcs::event_function::SIEGE_WAR_NPC);
@@ -237,6 +238,7 @@ pub async fn run(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> 
     a.world.send(&schema::CHATTING, say(&a, &format!("/move {},{}", BEFORE_GATE.0, BEFORE_GATE.1))).await?;
     collect(&mut a, 1000).await;
     // À portée de coup de GmTest : les tours de garde ne visent plus les défenseurs, c'est lui qui doit tuer SimA.
+    super::gm_place(&mut a, cb, Vec3::new(BEFORE_GATE.0 + 60.0, 0.0, BEFORE_GATE.1)).await?;
     place(&mut b, (BEFORE_GATE.0 + 60.0, BEFORE_GATE.1)).await?;
     a.world.send(&schema::CHATTING, say(&a, &format!("/siege start {CASTLE}"))).await?;
     let got = collect(&mut a, 2500).await;

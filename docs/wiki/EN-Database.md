@@ -11,7 +11,7 @@ ArchCore uses three main MariaDB databases, plus a log database, created and upd
 | Table | Content |
 |---|---|
 | `account` | Accounts: name, SHA-256 password hash, GM level, former ban end date (`banned_until`, still read for one version), last login, world entry key (unique, cleared once used), language (last choice of an ArchRust client, see [[Translation|EN-Translation]]) |
-| `account_banned` | Bans, with their history: account, date, end (`NULL`: no end), author, reason, `active` (0: lifted early). An account is refused while an active ban has not expired |
+| `account_banned` | Bans, with their history: account, date, end (`NULL`: no end), author, reason, `active` (0: lifted early). An account is refused while an active ban has not expired. The anti-cheat writes its own there (author `anti-triche`, `AntiCheat.Action = ban`) |
 | `server_group` | Server groups shown in the list |
 | `world` | Worlds: name, group, `ip:port` address (23 characters max), status |
 
@@ -136,7 +136,7 @@ sql/migrations/<base>/<YYYYMMDDHHMM>_<topic>.sql      <base> = auth, characters 
 
 ## `archcore_logs` — logs (`sql/migrations/logs/`)
 
-Traces of the economy and of administration, write-only: the server never reads them, and each write runs on its
+Traces of the economy and of administration, write-only: the server only reads them for the `/anomalies` command, and each write runs on its
 own, outside the world lock (a slow or unavailable log never delays the game). No foreign key, indexes by
 character or account and by date.
 
@@ -147,6 +147,7 @@ character or account and by date.
 | `log_bank` | Deposit or withdrawal at the account bank: item (TID, IID, count) or gold |
 | `log_auction` | Auction house: listing, purchase, cancel or collect, sale, author (and seller for a purchase), item (TID, IID), count, gold and CC prices, fees |
 | `log_gm` | GM command: author, level, command, arguments, success, reply |
+| `log_anomaly` | Anti-cheat anomaly (`world/anticheat.rs`): account, character, type (`vitesse` speed, `téléportation` teleport, `cadence` hit rate, `inondation` flood), detail, sanction applied (`kick`, `ban` or empty); at most 20 rows per minute and per character. Read back by `/anomalies` |
 
 **Measurement.** A query longer than `Database.SlowQueryMs` (200 ms by default) is logged as a slow query in the
 server log, once the server is ready (start-up loads are not counted); a packet handled for longer than `World.SlowPacketMs` (100 ms) under the world lock is logged as a slow

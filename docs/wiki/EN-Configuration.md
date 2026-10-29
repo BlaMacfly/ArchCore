@@ -75,6 +75,14 @@ unknown key (typo) is reported.
 | `Archlord.PortalMinutes` | `10` | Rensphere war: length of the "portal" step before the "fight" step |
 | `Archlord.SkyMinutes` | `5` | Length of the 12-hour clock shift of Day and Night |
 | `Tax.PayoutDay`, `Tax.PayoutHour` | `1`, `0` | Weekly payout of the region taxes: day (1 Monday to 7 Sunday) and hour (`World.TimeZone`) |
+| `AntiCheat.Enabled` | `1` | Server-side anti-cheat checks: positions sent by the client and normal hit rate (see [[Administration|EN-Administration]]); `0`: off (the packet limit stays) |
+| `AntiCheat.Action` | `log` | Sanction for a player reaching `AntiCheat.Threshold` anomalies: `log` (journal only), `kick` (disconnect, no reconnection wait) or `ban` (account ban, then disconnect) |
+| `AntiCheat.Threshold`, `AntiCheat.WindowMinutes` | `10`, `10` | Anomalies of one character within the sliding window (minutes) that trigger the sanction |
+| `AntiCheat.BanHours` | `24` | Length of a `ban` (hours); `0`: no end (lift it by hand in `account_banned`) |
+| `AntiCheat.SpeedTolerance` | `150` | Allowed speed for positions sent by the client, in percent of the current run speed (mount, buffs and `/speed` included) |
+| `AntiCheat.MoveSlack` | `300` | Fixed lag margin (units) for positions; the distance credit also builds up to 5 s of running, for delayed packets |
+| `AntiCheat.AttackTolerance` | `150` | Allowed normal hit rate, in percent of the attack speed: the first hit on a new target or after resuming waits the interval divided by 1.5 |
+| `AntiCheat.MaxPacketsPerSecond`, `AntiCheat.PacketBurst` | `150`, `500` | Packets per second per connection, and tolerated burst (login and world); beyond, ignored, and one second worth of ignored packets without a pause closes the connection (always, even with `AntiCheat.Enabled = 0`). `0`: no limit |
 | `World.TimeZone` | `local` | Time zone of the clock sent to the client (AGPMTIMER packet): `local` = the machine's time (day/night cycle, music and ambience follow the server's local time), `utc` = raw Unix epoch. See [[Network protocol|EN-Network-protocol]] |
 | `World.ExitOnRestart` | `0` | `1`: stops the server at the end of the `/announce_restart` countdown |
 | `StartPosition.<race>.Village` / `.X` / `.Y` / `.Z` | see the template | Spawn position per race: 1 Human, 2 Orc, 3 Moon Elf, 4 Scion |
@@ -98,7 +106,7 @@ Current starting villages:
 | `Database.User` / `Database.Password` | `root` / `archcore` | Credentials. **Change them** outside a development machine |
 | `Database.ConnectionLimit` | `8` | Pool size per database |
 | `Database.Auth` / `Database.Characters` / `Database.World` | `archcore_*` | Names of the three main databases |
-| `Database.Logs` | `archcore_logs` | Log database (trades, shops, bank, GM commands), write-only. A test instance takes its own |
+| `Database.Logs` | `archcore_logs` | Log database (trades, shops, bank, GM commands, anti-cheat anomalies), write-only (except `/anomalies`, which reads the anomalies back). A test instance takes its own |
 | `Database.SlowQueryMs` | `200` | A longer query (ms) is logged as a "slow query" (`requête lente`) in the server log, once the server is ready (loading the world is not counted); `0`: never |
 
 ## Environment variables

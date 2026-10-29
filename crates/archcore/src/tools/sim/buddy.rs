@@ -79,6 +79,8 @@ pub async fn run(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> 
     let mut b = enter_world(&cfg, ub, pb, cb, "B-").await?;
     let list = entries(&mut b).await?;
     anyhow::ensure!(list.is_empty(), "liste de {cb} : {list:?}");
+    // B n'a pas de droits MJ : A (MJ) le pose, le serveur refusant qu'il se téléporte lui-même.
+    super::gm_place(&mut a, cb, SPOT).await?;
     for w in [&mut a, &mut b] {
         let f = place(w);
         w.world.send(mv, f).await?;

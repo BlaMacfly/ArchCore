@@ -19,19 +19,19 @@ fn say(w: &InWorld, text: &str) -> Fields {
 }
 
 /// Courrier écrit comme le client : identifiant, date, drapeaux, TID et quantité à 0, texte avec son zéro.
-fn letter(from: &str, to: &str, subject: &str, body: &str) -> Vec<u8> {
+pub(super) fn letter(from: &str, to: &str, subject: &str, body: &str) -> Vec<u8> {
     let s = &mini::MAIL;
     let mut text = crate::tools::to_cp1252(body);
     text.push(0);
     build_mini(s, &Fields::new(s).with(0, 0).with(1, from).with(2, to).with(3, subject).with(4, 0).with(5, 0).with(6, 0).with(7, 0).with(8, text))
 }
 
-fn mail(op: i64, cid: u32) -> Fields {
+pub(super) fn mail(op: i64, cid: u32) -> Fields {
     let s = &schema::MAILBOX;
     Fields::new(s).with(0, op).with(1, cid)
 }
 
-fn id_only(id: i64) -> Vec<u8> {
+pub(super) fn id_only(id: i64) -> Vec<u8> {
     let s = &mini::MAIL;
     build_mini(s, &Fields::new(s).with(0, id))
 }
@@ -41,7 +41,7 @@ fn is_mail(op: i64) -> impl Fn(&Recv) -> bool {
 }
 
 /// Réponse attendue à une op, avec ce code.
-async fn expect_code(w: &mut InWorld, op: i64, code: i64, what: &str) -> anyhow::Result<Recv> {
+pub(super) async fn expect_code(w: &mut InWorld, op: i64, code: i64, what: &str) -> anyhow::Result<Recv> {
     let r = w.world.expect_where(is_mail(op), 3000, what).await?;
     anyhow::ensure!(r.int(4) == Some(code) && r.int(1) == Some(w.cid as i64), "{what} : code {:?}, CID {:?}", r.int(4), r.int(1));
     println!("  ✓ {what} : op {op}, code {code}");
@@ -49,7 +49,7 @@ async fn expect_code(w: &mut InWorld, op: i64, code: i64, what: &str) -> anyhow:
 }
 
 /// Objet reçu par une commande MJ : IID.
-async fn give(w: &mut InWorld, tid: i64, n: i64) -> anyhow::Result<i64> {
+pub(super) async fn give(w: &mut InWorld, tid: i64, n: i64) -> anyhow::Result<i64> {
     let f = say(w, &format!("/additem {tid} {n}"));
     w.world.send(&schema::CHATTING, f).await?;
     let it = &schema::ITEM;

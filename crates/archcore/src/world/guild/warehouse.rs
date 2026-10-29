@@ -260,6 +260,10 @@ async fn item_in(ctx: &WorldCtx, st: &mut WorldState, sid: u32, cid: u32, gid: u
     if !viewing(st, gid, sid) || rights(&st.guilds.by_id[&gid], cid) & right::ITEM_IN == 0 {
         return Ok(());
     }
+    // Un objet proposé à l'échange ne se dépose pas.
+    if super::super::trade::is_offered(st, sid, iid) {
+        return Ok(());
+    }
     let Some(item) = st.players[&sid].inventory.get(iid).cloned() else { return Ok(()) };
     let w = &st.guilds.by_id[&gid].warehouse;
     let Some(grid) = Some(wanted).filter(|g| w.is_free(*g)).or_else(|| w.free_slot()) else {

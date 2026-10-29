@@ -109,6 +109,8 @@ pub async fn on_packet(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p
     let p = st.players.get_mut(&sid).unwrap();
     p.sess = s.clone();
     p.link = Link { key: new_key(), detached_until: None };
+    // Anti-triche : la position gardée pendant la coupure redevient la référence des positions du client.
+    p.move_guard.reset(p.ch.pos(), super::anticheat::move_speed(&p.factors), Instant::now());
     p.send(&schema::RECONNECT, result(cid, p.link.key, true));
     info!("[reconnexion] #{} reprend {} (session #{sid})", s.id(), p.ch.name);
     resync(ctx, st, sid);

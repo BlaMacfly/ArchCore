@@ -202,7 +202,8 @@ async fn sell(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> anyh
         return Ok(());
     };
     let iid = p.int(3).unwrap_or(0) as u32;
-    let item = st.players[&sid].inventory.get(iid).cloned();
+    // Un objet proposé à l'échange ne se vend pas.
+    let item = st.players[&sid].inventory.get(iid).cloned().filter(|_| !super::trade::is_offered(st, sid, iid));
     let Some((item, data)) = item.and_then(|i| ctx.catalog.get(i.tid).map(|d| (i, d))) else {
         result(st, sid, trade_op::SELL, trade_result::INVALID_ITEM);
         return Ok(());

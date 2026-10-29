@@ -9,6 +9,8 @@
 //! de marche ou de course en dixièmes d'unité par seconde), l'arrête à destination et recalcule sa vue quand il
 //! change de secteur. Le sol infranchissable n'arrête pas la marche : le client gère lui-même les obstacles,
 //! et les tables de blocage arrêteraient le serveur là où le client passe.
+//! Une position fournie par le client (champ 1) n'est acceptée que dans la limite de la vitesse permise ; sinon le
+//! joueur est renvoyé à la position que le serveur suit (`anticheat.rs`).
 
 use super::{character_add_packet, character_remove_packet, sector, send_nearby_npcs, WorldCtx, WorldState};
 use crate::{debug, info, warn};
@@ -75,6 +77,23 @@ pub fn on_move(ctx: &WorldCtx, st: &mut WorldState, sid: u32, packet: &Packet) {
     if p.dead {
         return;
     }
+    // Position : celle que le serveur tient, la marche en cours avancée jusqu'à maintenant. Le vrai client ne
+    // l'envoie pas ; si elle est fournie (simulateur, outils), elle la remplace, dans la limite de la vitesse
+    // permise (anticheat.rs) : au-delà, tout le paquet est ignoré et le joueur renvoyé à la position suivie.
+    let now = Instant::now();
+    advance(p, now);
+    let tracked = p.ch.pos();
+    let given = packet.vec3(1).filter(Vec3::is_finite);
+    if let Some(g) = given {
+        let speed = super::anticheat::move_speed(&p.factors);
+        let checked = ctx.config.world.anticheat.enabled && p.gm_level == 0;
+        if !checked {
+            p.move_guard.reset(g, speed, now);
+        } else if let Err(r) = p.move_guard.check(g, tracked, speed, now) {
+            snap_back(ctx, st, sid, g, r);
+            return;
+        }
+    }
     // Un déplacement demandé par le joueur interrompt son attaque, la compétence en préparation et la
     // course vers un portail.
     p.attack = None;
@@ -82,11 +101,6 @@ pub fn on_move(ctx: &WorldCtx, st: &mut WorldState, sid: u32, packet: &Packet) {
     p.portal = None;
     let flags = packet.int(5).unwrap_or(0);
     let dest = packet.vec3(2).filter(Vec3::is_finite);
-    // Position : celle que le serveur tient, la marche en cours avancée jusqu'à maintenant. Le vrai client ne
-    // l'envoie pas ; si elle est fournie (simulateur, outils), elle la remplace.
-    advance(p, Instant::now());
-    let tracked = p.ch.pos();
-    let given = packet.vec3(1).filter(Vec3::is_finite);
     let pos = given.unwrap_or_else(|| p.ch.pos());
     p.ch.set_pos(pos);
     p.view_pos = pos;
@@ -130,6 +144,27 @@ pub fn on_move(ctx: &WorldCtx, st: &mut WorldState, sid: u32, packet: &Packet) {
     send_nearby_npcs(ctx, st, sid, pos);
 }
 
+/// Position refusée par l'anti-triche : le joueur s'arrête à la position que le serveur suit, qui lui est renvoyée
+/// comme une téléportation (0x40 arrêt synchronisé, AGPMCHARACTER op 1) ; ceux qui le voient le voient arrêté.
+fn snap_back(ctx: &WorldCtx, st: &mut WorldState, sid: u32, given: Vec3, r: super::anticheat::Refused) {
+    let Some(p) = st.players.get_mut(&sid) else { return };
+    let pos = p.ch.pos();
+    p.dest = None;
+    p.dirty = true;
+    let speed = super::anticheat::move_speed(&p.factors);
+    let mv = &schema::OPT_CHAR_MOVE;
+    p.send(mv, Fields::new(mv).with(0, p.ch.id).with(1, pos).with(2, pos).with(5, super::MOVE_STOP_SYNC).with(6, p.direction));
+    let c = &schema::CHARACTER;
+    p.send(c, Fields::new(c).with(0, 1).with(1, p.ch.id).with(5, crate::character::move_mini(crate::character::MoveMini { pos, dest: None, flags: super::MOVE_STOP_SYNC })));
+    broadcast_move(st, sid);
+    let what = super::anticheat::move_kind(&r);
+    let details = format!(
+        "{:.0} unités demandées, {:.0} permises (course {}, crédit plein {:.0}) : {:.0}, {:.0} → {:.0}, {:.0} ; renvoyé en {:.0}, {:.0}",
+        r.distance, r.allowed, speed, r.full, pos.x, pos.z, given.x, given.z, pos.x, pos.z
+    );
+    super::anticheat::report(ctx, st, sid, what, &details);
+}
+
 /// Un pas de marche : `speed` en dixièmes d'unité par seconde, `dt` en secondes. Rend la nouvelle position
 /// (hauteur inchangée en chemin) et vrai si la destination est atteinte.
 pub fn step_toward(pos: Vec3, dest: Vec3, speed: f64, dt: f64) -> (Vec3, bool) {
@@ -151,8 +186,11 @@ fn advance(p: &mut super::Player, now: Instant) {
         return;
     }
     let speed = if p.move_flags & MOVE_FAST != 0 { p.factors.status[9] } else { p.factors.status[8] } as f64;
-    let (next, arrived) = step_toward(p.ch.pos(), dest, speed, dt);
+    let from = p.ch.pos();
+    let (next, arrived) = step_toward(from, dest, speed, dt);
     p.ch.set_pos(next);
+    // La marche du serveur consomme le crédit de distance des positions du client (anticheat.rs).
+    p.move_guard.walked(super::anticheat::dist2d(from, next), super::anticheat::move_speed(&p.factors), now);
     if arrived {
         p.dest = None;
     }

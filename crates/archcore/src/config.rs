@@ -125,6 +125,69 @@ pub struct WorldConfig {
     /// dimanche) et heure (`Tax.PayoutHour`, 0) dans le fuseau `World.TimeZone`. Choix d'ArchCore.
     pub tax_payout_day: u32,
     pub tax_payout_hour: u32,
+    /// Anti-triche côté serveur (`world/anticheat.rs`, réglages `AntiCheat.*`).
+    #[serde(skip)]
+    pub anticheat: AntiCheatConfig,
+}
+
+/// Sanction d'un joueur qui cumule les anomalies (`AntiCheat.Action`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum AntiCheatAction {
+    /// Journal seulement.
+    #[default]
+    Log,
+    /// Déconnexion.
+    Kick,
+    /// Bannissement du compte (`AntiCheat.BanHours`), puis déconnexion.
+    Ban,
+}
+
+impl AntiCheatAction {
+    pub fn name(self) -> &'static str {
+        match self {
+            AntiCheatAction::Log => "log",
+            AntiCheatAction::Kick => "kick",
+            AntiCheatAction::Ban => "ban",
+        }
+    }
+}
+
+/// Anti-triche (`world/anticheat.rs`) : contrôles des déplacements et de la cadence des coups (`AntiCheat.Enabled`, 1) ;
+/// sanction (`AntiCheat.Action` : log, kick ou ban pour `AntiCheat.BanHours` heures, 0 : sans fin) quand un joueur cumule
+/// `AntiCheat.Threshold` anomalies en `AntiCheat.WindowMinutes` minutes. Tolérances : vitesse de course en pour cent
+/// (`AntiCheat.SpeedTolerance`) plus une marge fixe de lag en unités (`AntiCheat.MoveSlack`), cadence des coups en pour cent
+/// de la vitesse d'attaque (`AntiCheat.AttackTolerance`). Paquets par seconde et par connexion (`AntiCheat.MaxPacketsPerSecond`,
+/// rafale `AntiCheat.PacketBurst` ; 0 : sans limite), appliqués même avec `AntiCheat.Enabled = 0` : c'est une protection du
+/// serveur. Valeurs choisies par ArchCore.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AntiCheatConfig {
+    pub enabled: bool,
+    pub action: AntiCheatAction,
+    pub threshold: usize,
+    pub window_minutes: u64,
+    pub ban_hours: u64,
+    pub speed_tolerance: f64,
+    pub move_slack: f64,
+    pub attack_tolerance: f64,
+    pub max_packets_per_second: u32,
+    pub packet_burst: u32,
+}
+
+impl Default for AntiCheatConfig {
+    fn default() -> Self {
+        AntiCheatConfig {
+            enabled: true,
+            action: AntiCheatAction::Log,
+            threshold: 10,
+            window_minutes: 10,
+            ban_hours: 24,
+            speed_tolerance: 150.0,
+            move_slack: 300.0,
+            attack_tolerance: 150.0,
+            max_packets_per_second: 150,
+            packet_burst: 500,
+        }
+    }
 }
 
 /// Fuseau de l'horloge envoyée au client (`World.TimeZone`). Le client calcule l'heure du ciel par
@@ -252,6 +315,7 @@ impl Default for WorldConfig {
             archlord_sky_minutes: 5,
             tax_payout_day: 1,
             tax_payout_hour: 0,
+            anticheat: AntiCheatConfig::default(),
         }
     }
 }
@@ -467,6 +531,28 @@ fn read_world(s: &Settings, cfg: &mut Config) {
             v.trim().parse::<f64>().ok().map(|x| (name, x))
         })
         .collect();
+    let ac = AntiCheatConfig::default();
+    let action = match s.string("AntiCheat.Action", ac.action.name()).to_ascii_lowercase().as_str() {
+        "log" => AntiCheatAction::Log,
+        "kick" => AntiCheatAction::Kick,
+        "ban" => AntiCheatAction::Ban,
+        other => {
+            warn!("configuration : AntiCheat.Action = « {other} » inconnue (log, kick ou ban), journal seul");
+            AntiCheatAction::Log
+        }
+    };
+    let anticheat = AntiCheatConfig {
+        enabled: s.flag("AntiCheat.Enabled", ac.enabled),
+        action,
+        threshold: s.parse("AntiCheat.Threshold", ac.threshold).max(1),
+        window_minutes: s.parse("AntiCheat.WindowMinutes", ac.window_minutes).max(1),
+        ban_hours: s.parse("AntiCheat.BanHours", ac.ban_hours),
+        speed_tolerance: s.parse("AntiCheat.SpeedTolerance", ac.speed_tolerance).clamp(100.0, 1000.0),
+        move_slack: s.parse("AntiCheat.MoveSlack", ac.move_slack).max(0.0),
+        attack_tolerance: s.parse("AntiCheat.AttackTolerance", ac.attack_tolerance).clamp(100.0, 1000.0),
+        max_packets_per_second: s.parse("AntiCheat.MaxPacketsPerSecond", ac.max_packets_per_second),
+        packet_burst: s.parse("AntiCheat.PacketBurst", ac.packet_burst),
+    };
     let gm_command_levels = s.prefixed("GM.CommandLevel").into_iter().filter_map(|(k, v)| v.trim().parse::<i64>().ok().map(|x| (k, x))).collect();
     cfg.world = WorldConfig {
         port: s.parse("WorldServer.Port", d.port),
@@ -514,6 +600,7 @@ fn read_world(s: &Settings, cfg: &mut Config) {
         archlord_sky_minutes: s.parse("Archlord.SkyMinutes", d.archlord_sky_minutes).max(1),
         tax_payout_day: s.parse("Tax.PayoutDay", d.tax_payout_day).clamp(1, 7),
         tax_payout_hour: s.parse("Tax.PayoutHour", d.tax_payout_hour).min(23),
+        anticheat,
         language: s.string("World.Language", &d.language),
         rates,
         gm_command_levels,
@@ -670,6 +757,17 @@ pub fn to_values(cfg: &Config, which: Which) -> Vec<(String, String)> {
             put("Archlord.SkyMinutes", w.archlord_sky_minutes.to_string());
             put("Tax.PayoutDay", w.tax_payout_day.to_string());
             put("Tax.PayoutHour", w.tax_payout_hour.to_string());
+            let ac = &w.anticheat;
+            put("AntiCheat.Enabled", (ac.enabled as i64).to_string());
+            put("AntiCheat.Action", ac.action.name().into());
+            put("AntiCheat.Threshold", ac.threshold.to_string());
+            put("AntiCheat.WindowMinutes", ac.window_minutes.to_string());
+            put("AntiCheat.BanHours", ac.ban_hours.to_string());
+            put("AntiCheat.SpeedTolerance", fmt_num(ac.speed_tolerance));
+            put("AntiCheat.MoveSlack", fmt_num(ac.move_slack));
+            put("AntiCheat.AttackTolerance", fmt_num(ac.attack_tolerance));
+            put("AntiCheat.MaxPacketsPerSecond", ac.max_packets_per_second.to_string());
+            put("AntiCheat.PacketBurst", ac.packet_burst.to_string());
             put("World.ExitOnRestart", (w.exit_on_restart as i64).to_string());
             put("Client.DataDir", cfg.client.data_dir.clone());
             let mut races: Vec<&String> = w.start_positions.keys().collect();
@@ -734,6 +832,19 @@ mod tests {
         assert_eq!((w.time_zone, w.exit_on_restart), (TimeZone::Utc, true));
         assert_eq!(w.bind, "0.0.0.0", "clé absente : défaut");
         assert_eq!(s.unused(), vec!["Faute.Frappe".to_string()]);
+    }
+
+    #[test]
+    fn reglages_anti_triche() {
+        let s = settings("AntiCheat.Action = kick\nAntiCheat.Threshold = 0\nAntiCheat.SpeedTolerance = 50\nAntiCheat.MaxPacketsPerSecond = 0\n");
+        let mut cfg = Config::default();
+        read_world(&s, &mut cfg);
+        let ac = &cfg.world.anticheat;
+        assert_eq!((ac.action, ac.threshold, ac.speed_tolerance, ac.max_packets_per_second), (AntiCheatAction::Kick, 1, 100.0, 0), "bornes");
+        assert!(ac.enabled && ac.move_slack == 300.0, "défauts");
+        read_world(&settings("AntiCheat.Action = \"pendre\"\n"), &mut cfg);
+        assert_eq!(cfg.world.anticheat.action, AntiCheatAction::Log, "action inconnue : journal seul");
+        assert!(to_values(&cfg, Which::World).iter().any(|(k, v)| k == "AntiCheat.Action" && v == "log"));
     }
 
     #[test]

@@ -441,6 +441,7 @@ pub async fn guild_stage(mode: &str, secs: u64) -> anyhow::Result<()> {
             let (it, gw) = (&schema::ITEM, &schema::GUILD_WAREHOUSE);
             let mut a = enter_world(&cfg, "gmtest", "gmtest", "GmTest", "A-").await?;
             let mut b = enter_world(&cfg, "sima", "sima", "SimA", "B-").await?;
+            super::gm_place(&mut a, "SimA", KEEPER_SPOT).await?;
             let keeper = go_to_keeper(&mut b).await?;
             a.world.send(&schema::CHATTING, chat_line(a.cid, "/create \"SimA\" 190 3")).await?;
             let made = b.world.expect_where(|q| q.is(it, None) && q.int(3) == Some(190) && q.int(1) == Some(2), 3000, "potions").await?;
@@ -673,6 +674,8 @@ pub async fn guild_battle(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: 
     println!("  ✓ op 15 reçue par {cb} (SimWarA, type 2, 5 min), refus : code 30");
 
     step(&format!("défi aux points accepté ; annulation trop tardive ; pas de coups avant le début"));
+    // B n'a pas de droits MJ : A (MJ) le pose, le serveur refusant qu'il se téléporte lui-même.
+    super::gm_place(&mut a, cb, WAR_SPOT).await?;
     for w in [&mut a, &mut b] {
         let mv = &schema::OPT_CHAR_MOVE;
         w.world.send(mv, Fields::new(mv).with(0, w.cid).with(1, WAR_SPOT).with(2, WAR_SPOT).with(5, 0x04).with(6, 0)).await?;
@@ -732,6 +735,7 @@ pub async fn guild_battle(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: 
     b.world.expect_where(gop(15), 3000, "défi reçu").await?;
     b.world.send(gd, Fields::new(gd).with(0, 16).with(1, b.cid).with(2, GB).with(3, cb)).await?;
     a.world.expect_where(gop(21), (ready as u64 + 10) * 1000, "début").await?;
+    super::gm_place(&mut a, cb, WAR_SPOT).await?;
     {
         let mv = &schema::OPT_CHAR_MOVE;
         b.world.send(mv, Fields::new(mv).with(0, b.cid).with(1, WAR_SPOT).with(2, WAR_SPOT).with(5, 0x04).with(6, 0)).await?;
@@ -997,6 +1001,8 @@ pub async fn guild_warehouse(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, c
     a.world.expect_where(gsys(11), 3000, "création").await?;
     Box::pin(lead_join(&mut a, GW, &mut b, cb)).await?;
     let keeper = go_to_keeper(&mut a).await?;
+    // B n'a pas de droits MJ : A (MJ) le pose chez Holly, le serveur refusant qu'il s'y téléporte lui-même.
+    super::gm_place(&mut a, cb, KEEPER_SPOT).await?;
     go_to_keeper(&mut b).await?;
     println!("  ✓ {GW} : 2 membres ; gardienne {keeper:#x}");
 
