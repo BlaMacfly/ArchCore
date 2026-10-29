@@ -31,8 +31,8 @@ from the client's data tables.
 > ArchCore is based on the 64-bit client of the Archonia server.
 >
 > **Episode:** ArchCore loads the world of **Episode 8, "The Dark Revelation"** (2012), plus Archonia's own
-> extensions. The gameplay systems programmed so far cover the original release; sieges, guilds, ArchLord
-> powers and Shrines are still to come. See the wiki's [Episode](https://github.com/BlaMacfly/ArchCore/wiki/EN-Episode) page.
+> extensions. Every original system the Archonia client knows is programmed, up to sieges, the ArchLord and
+> Shrines; Archonia's own additions (race war, arena, rifts, battle pass…) are left out. See the wiki's [Episode](https://github.com/BlaMacfly/ArchCore/wiki/EN-Episode) page.
 
 ### Project status
 
@@ -40,7 +40,7 @@ from the client's data tables.
 |---|---|
 | Encrypted handshake (Blowfish) | ✅ verified with the real client |
 | World list, account login | ✅ verified |
-| Character list, creation and deletion | ✅ list and creation screen verified |
+| Character list, creation and deletion | ✅ list and creation screen verified; all 10 starting classes (Dragon Scion included) |
 | World entry, per-race starting village | ✅ verified |
 | NPC spawning around the player (567 NPCs) | ✅ verified |
 | French translation of the client and NPCs | 🟡 in progress |
@@ -49,11 +49,18 @@ from the client's data tables.
 | Players seeing each other | 🟡 verified with the simulator, to confirm in game |
 | NPC shops (list, buy) | ✅ verified in game; selling verified with the simulator |
 | Character inventory | 🟡 shown in game |
-| Monsters, combat, drops, equipment, potions, scrolls, skills | 🟡 verified with the simulator, to confirm in game |
-| Chat, GM level, first GM commands | 🟡 verified with the simulator, to confirm in game |
-| Bank, trading, quests, parties, teleport portals | 🟡 verified with the simulator, to confirm in game |
-| Guilds (creation, members, leaving, disbanding, notice, chat), party chat | 🟡 verified with the simulator, to confirm in game |
-| Guild battles, reconnection | ⏳ to do |
+| Monsters, combat, drops, equipment, potions, scrolls, skills, masteries | 🟡 verified with the simulator, to confirm in game |
+| Chat (party, guild, shouts, chat rooms), GM level and commands | 🟡 verified with the simulator, to confirm in game |
+| Bank, trading, quests, parties, teleport portals, automatic reconnection | 🟡 verified with the simulator, to confirm in game |
+| Guilds, guild battles, alliances, guild warehouse | 🟡 verified with the simulator, to confirm in game |
+| Item conversion, runes, refining, wear and repair | 🟡 verified with the simulator, to confirm in game |
+| Player versus player, remission, wanted criminals | 🟡 verified with the simulator, to confirm in game |
+| Production (gathering, cooking, alchemy) | 🟡 verified with the simulator, to confirm in game |
+| Friends and ignore list, mail, auction house, stylists | 🟡 verified with the simulator, to confirm in game |
+| Mounts, summons and pets, world time and weather | 🟡 verified with the simulator, to confirm in game |
+| Shrines, Battle Square, Battleground | 🟡 verified with the simulator, to confirm in game |
+| Castle sieges, ArchLord, region taxes | 🟡 verified with the simulator, to confirm in game |
+| Scion evolution at level 20, metamorphosis | ⏳ to do |
 
 ### Quick start
 
@@ -85,7 +92,7 @@ are in [`docs/wiki`](docs/wiki).
 
 | Project | Role |
 |---|---|
-| [ArchRust](https://github.com/BlaMacfly/ArchCore/tree/client) (`client` branch) | 64-bit ArchLord client rewritten in Rust, with Lua add-ons |
+| [ArchRust](https://github.com/BlaMacfly/ArchRust) (own repository) | 64-bit ArchLord client rewritten in Rust, with Lua add-ons |
 | [ArchCoreAdmin](https://github.com/BlaMacfly/ArchCoreAdmin) | In-game GM panel: a Lua add-on for ArchRust with a button for every ArchCore GM command, server replies read back into the panel |
 | [ArchHome](https://github.com/BlaMacfly/ArchHome) | HomeRPG ArchLord: single-player, offline ArchLord in one folder — local ArchCore, portable MariaDB, ArchRust and a one-button Rust launcher |
 | [ArchForge](https://github.com/BlaMacfly/ArchForge) | Database editor: creatures, NPCs, items, shops, loot, quests, skills, teleports, with SQL preview and export to the content layer (`content/*.sql`) |
@@ -152,8 +159,9 @@ et à partir des tables de données du client.
 > ArchCore est basé sur le client 64 bits du serveur Archonia.
 >
 > **Épisode :** ArchCore charge le monde de l'**épisode 8, « The Dark Revelation »** (2012), avec les
-> extensions propres à Archonia. Les systèmes de jeu programmés couvrent pour l'instant la sortie d'origine ;
-> sièges, guildes, pouvoirs de l'ArchLord et Shrines restent à faire. Voir la page [Épisode](https://github.com/BlaMacfly/ArchCore/wiki/FR-Episode) du wiki.
+> extensions propres à Archonia. Tous les systèmes d'origine que connaît le client Archonia sont programmés,
+> jusqu'aux sièges, à l'ArchLord et aux Shrines ; les ajouts propres à Archonia (guerre des races, arène, failles,
+> passe de combat…) sont laissés de côté. Voir la page [Épisode](https://github.com/BlaMacfly/ArchCore/wiki/FR-Episode) du wiki.
 
 ### État du projet
 
@@ -161,7 +169,7 @@ et à partir des tables de données du client.
 |---|---|
 | Poignée de main chiffrée (Blowfish) | ✅ validée avec le vrai client |
 | Liste des mondes, connexion au compte | ✅ validée |
-| Liste, création et suppression de personnages | ✅ liste et écran de création validés |
+| Liste, création et suppression de personnages | ✅ liste et écran de création validés ; les 10 classes de départ (Dragon Scion compris) |
 | Entrée dans le monde, village de départ par race | ✅ validée |
 | Apparition des PNJ autour du joueur (567 PNJ) | ✅ validée |
 | Traduction française du client et des PNJ | 🟡 en cours |
@@ -170,11 +178,18 @@ et à partir des tables de données du client.
 | Joueurs visibles entre eux | 🟡 validé au simulateur, à confirmer en jeu |
 | Boutiques des PNJ (liste, achat) | ✅ validées en jeu ; revente validée au simulateur |
 | Inventaire du personnage | 🟡 affiché en jeu |
-| Monstres, combat, butin, équipement, potions, parchemins, compétences | 🟡 validés au simulateur, à confirmer en jeu |
-| Discussion, niveau MJ, premières commandes MJ | 🟡 validés au simulateur, à confirmer en jeu |
-| Banque, échange, quêtes, groupes, portails de téléportation | 🟡 validés au simulateur, à confirmer en jeu |
-| Guildes (création, membres, départ, dissolution, annonce, discussion), discussion de groupe | 🟡 validées au simulateur, à confirmer en jeu |
-| Combats de guildes, reconnexion | ⏳ à faire |
+| Monstres, combat, butin, équipement, potions, parchemins, compétences, maîtrises | 🟡 validés au simulateur, à confirmer en jeu |
+| Discussion (groupe, guilde, cris, salons), niveau et commandes MJ | 🟡 validés au simulateur, à confirmer en jeu |
+| Banque, échange, quêtes, groupes, portails de téléportation, reconnexion automatique | 🟡 validés au simulateur, à confirmer en jeu |
+| Guildes, combats de guildes, alliances, entrepôt de guilde | 🟡 validés au simulateur, à confirmer en jeu |
+| Conversion des objets, runes, raffinage, usure et réparation | 🟡 validés au simulateur, à confirmer en jeu |
+| Combat entre joueurs, rémission, avis de recherche | 🟡 validés au simulateur, à confirmer en jeu |
+| Production (récolte, cuisine, alchimie) | 🟡 validée au simulateur, à confirmer en jeu |
+| Amis et ignorés, courrier, maison des ventes, coiffeurs | 🟡 validés au simulateur, à confirmer en jeu |
+| Montures, invocations et familiers, heure du monde et météo | 🟡 validés au simulateur, à confirmer en jeu |
+| Shrines, Battle Square, Battleground | 🟡 validés au simulateur, à confirmer en jeu |
+| Sièges des châteaux, ArchLord, taxes des régions | 🟡 validés au simulateur, à confirmer en jeu |
+| Évolution du Scion au niveau 20, métamorphose | ⏳ à faire |
 
 ### Démarrage rapide
 
@@ -206,7 +221,7 @@ Les mêmes pages sont dans [`docs/wiki`](docs/wiki).
 
 | Projet | Rôle |
 |---|---|
-| [ArchRust](https://github.com/BlaMacfly/ArchCore/tree/client) (branche `client`) | Client ArchLord 64 bits réécrit en Rust, avec AddOns Lua |
+| [ArchRust](https://github.com/BlaMacfly/ArchRust) (dépôt à part) | Client ArchLord 64 bits réécrit en Rust, avec AddOns Lua |
 | [ArchCoreAdmin](https://github.com/BlaMacfly/ArchCoreAdmin) | Panneau MJ en jeu : un AddOn Lua pour ArchRust, avec un bouton pour chaque commande MJ d'ArchCore et les réponses du serveur relues dans le panneau |
 | [ArchHome](https://github.com/BlaMacfly/ArchHome) | HomeRPG ArchLord : ArchLord en solo, hors ligne, dans un seul dossier — ArchCore en local, MariaDB portable, ArchRust et un lanceur Rust à un seul bouton |
 | [ArchForge](https://github.com/BlaMacfly/ArchForge) | Éditeur de la base de données : créatures, PNJ, objets, boutiques, butin, quêtes, compétences, téléportation, avec aperçu du SQL et export vers la couche de contenu (`content/*.sql`) |
