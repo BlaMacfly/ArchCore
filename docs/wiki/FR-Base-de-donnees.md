@@ -20,7 +20,7 @@ Toutes sont en `utf8mb4`.
 
 | Table | Contenu |
 |---|---|
-| `characters` | Compte, emplacement, nom unique, modèle (TID), niveau, expérience, PV/PM/PE, position, argent, banque, coiffure, visage, charisme, suppression logique |
+| `characters` | Compte, emplacement, nom unique, modèle (TID), niveau, expérience, PV/PM/PE, position, argent, banque, coiffure, visage, charisme, suppression logique ; `evolution_tid` : forme évoluée d'un Dragon Scion (1722, 1723, 1732 ; 0 aucune), `template_id` restant celui du Scion |
 | `character_items` | Objets : statut 0 inventaire, 1 équipé, 2 banque (rattaché au personnage qui l'a déposé), 3 entrepôt de guilde (`guild_id` ; le personnage qui l'a déposé reste noté), 4 pièce jointe d'un courrier (rattachée au destinataire), 5 en vente dans la maison des ventes (rattaché au vendeur) ; `durability` : -1 pleine (colonne DUR du modèle), sinon durabilité actuelle (usure, `repair.rs`) |
 | `character_quests` | Quêtes en cours (compteurs des monstres A et B) et terminées |
 | `account_bank` | Banque du compte : argent, pages en plus de la première (créée à la première entrée, avec l'argent que les personnages avaient en banque) |
@@ -84,6 +84,7 @@ Remplie par `archcore import` à partir des tables du client.
 | `refinery_object` | `obj*.ini` (événement 26) | 20 sphères d'alchimie : objet, position (raffinage à 1600 unités au plus) |
 | `teleport_fee` | `TeleportFee.txt` | 227 prix de trajet (départ, arrivée) |
 | `bank_slot_price` | `bankslotprice.txt` | Prix des pages de banque en plus (-1 : pas en vente contre de l'or) |
+| `item_transform` | `itemtransformtable.txt` | 89 potions de métamorphose : TID de l'objet, forme, niveau et nom coréen (pour mémoire), bonus ajoutés aux facteurs du joueur transformé (course, vitesse d'attaque, PV et PM max, défense, dégâts min et max ; négatifs possibles) |
 | `character_customize` | `charactercustomizelist.txt` | Coiffures (1) et visages (2) par modèle : numéro (champs 20 et 21 d'AGPMCHARACTER), nom, `Case` (0 création et coiffeur, 1 coiffeur, 2 création), niveau exigé, prix en or ou en objets, ordre du fichier |
 | `guild_max_member` | `guildmaxmember.txt` | Tailles de guilde et leur prix ; la première ligne est la guilde neuve (50 places, 10 000 pièces), les suivantes les agrandissements |
 | `guild_mark` | `guildmark.txt` | Éléments d'emblème : couche (1 fond, 2 motif, 3 symbole, 4 couleur), numéro, TID (numéro << 8 × (couche − 1)), nom, prix en or, crânes, argent liquide, couleur ARGB |
@@ -174,6 +175,7 @@ fait de même au démarrage :
 |---|---|
 | personnage sans compte (`characters.account_id` → `account`) | grave |
 | personnage au modèle inconnu (`characters.template_id` → `character_template`) | grave |
+| forme évoluée inconnue (`characters.evolution_tid` non nul → `character_template`) | avertissement |
 | objet sans définition (`character_items.template_id` → `item_data`), par exemple après un réimport | grave |
 | compétence inconnue (`character_skills.skill_tid` → `skill_template`) | grave |
 | quête absente de `quest_template` | avertissement |

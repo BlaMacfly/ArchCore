@@ -271,6 +271,24 @@ potion (code 5). `sim ride` (SimDepart on the GM account, SimA watching): level 
 dismounting (op 4, original speed), mounting refused right after hitting a Green Worm (code 24, horse left in the
 inventory) then accepted 11 s later, death on horseback (`/kill`): forced dismount.
 
+## Metamorphosis and Scion evolution test
+
+```bash
+ARCHCORE_CONF_DIR=config/test archcore sim morph [accountA passA charA accountB passB charB]
+ARCHCORE_SIM_CREATE_TID=1724 ARCHCORE_CONF_DIR=config/test archcore sim client test test SimScion   # once
+ARCHCORE_CONF_DIR=config/test archcore sim evolution [accountA passA charA accountB passB charB]
+```
+
+`sim morph` (GmTest GM, SimA watching; run with `Item.TransformMaxDurationMs = 8000`): three Spider Potions (form 272,
+damage +26 / +28) and a Passport; potion drunk (op 4, op 19 at 600,000 ms, higher damage, op 11 for both), second potion
+refused (op 27 code 4), Passport refused; SimA comes back and gets GmTest through op 0 (original TID, bit 0) then op 11;
+end of duration after 8 s (op 12 for both, original damage); GmTest comes back, drinks a potion and cancels it (op 13 →
+op 12). `sim evolution` (GmTest GM, SimScion a Scion of the `test` account, placed at Gilliwen's, with no form nor
+evolution skill at start): level 20 and gold from the GM, Slayer and Orbiter of Evolution learnt, Power Stunner refused
+(code 5); Slayer of Evolution (Slayer factors, STR 83, op 4, op 26 → 1722 for both), Orbiter of Evolution (op 27 → 1724
+then op 26 → 1723), active form cast again refused, reconnection (TID 1723, field 18 = 4, op 4 on entry, GM's view),
+cancellation by AGPMSKILL op 7 action 4 (op 5, op 27 → 1724, form cleared in the database).
+
 ## Auction house, equipment switch and weather test
 
 ```bash

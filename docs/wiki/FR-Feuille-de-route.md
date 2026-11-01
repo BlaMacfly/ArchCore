@@ -166,6 +166,24 @@
   sur la position suivie à l'instant ; raffinage limité aux 20 sphères d'alchimie des `obj*.ini` ; points de portail
   désactivés (destinations sans objet d'arrivée ou interdites à la race) ; arbre héroïque du Berserker lu (deux
   arbres, colonnes décalées). Validé au simulateur, à confirmer en jeu.
+- Métamorphose (`world/morph.rs`) : potions de type d'usage 7 (101 objets, forme « Polymorph Id », durée « Polymorph
+  Dur ») et bonus d'ItemTransformTable.txt (table `item_transform`) ajoutés aux facteurs ; AGPMCHARACTER op 11 au joueur
+  et à ceux qui le voient (vue : op 0 au TID d'origine, bit 0 du champ 18, puis op 11), op 12 à la fin de la durée, à
+  l'annulation (op 13 du client) ou à la mort ; AGPMITEM op 4, op 19 (recharge commune de 10 min), op 27 code 4 à cheval,
+  transformé ou évolué, code 2 en zone de siège ; forme perdue à la déconnexion, recharge propre à la session. Refus
+  du client répétés (compétences, parchemins, Potions of Quickness et Beam, portails, Shrines, PNJ, coiffeur), sauf
+  pour l'ArchLord ; équipement figé pendant la métamorphose (contrôle du client `FUN_1401bfa10` sur un drapeau de
+  modèle non établi) ; race de la forme pour le combat entre joueurs. Mutation (`transform_target` 4) sur les joueurs
+  seulement : forme tirée dans `creature_tid` pour 7 s, sans annulation. `Item.TransformMaxDurationMs` abrège la durée
+  (simulateur). Validé au simulateur le 1er novembre 2026 (scénario `morph`), à confirmer en jeu.
+- Évolution du Dragon Scion (`world/evolution.rs`) : Slayer, Orbiter et Summoner of Evolution (1189, 1192, 1195),
+  apprises chez les maîtres du Dragon Scion dès le niveau 20 ; lancement → AGPMSKILL op 4 (effet sans durée) puis
+  AGPMCHARACTER op 26 (1722, 1723, 1732) ; d'une forme à l'autre, op 27 puis op 26 ; forme active relancée refusée ;
+  annulation par AGPMSKILL op 7 action 4 → op 5 et op 27 (1724). Facteurs et croissance de la forme, PV et PM bornés,
+  compétences et passives selon les colonnes `require_class_*` de la forme, armes non admises ne comptant plus, objet
+  d'oubli des compétences refusé ; forme enregistrée (`characters.evolution_tid`), gardée à la mort et rendue à
+  l'entrée (TID de la forme, bit 2 du champ 18). Validé au simulateur le 1er novembre 2026 (scénario `evolution`), à
+  confirmer en jeu ; le client ArchRust doit encore traiter ces paquets.
 - Client ArchRust ([dépôt à part](https://github.com/BlaMacfly/ArchRust)) : combat (attaque, coups, mort, résurrection, butin), groupes, autres
   joueurs, inventaire et équipement, PNJ (dialogue, boutique, banque et achat de pages, quêtes), compétences
   (instructeurs, lancement, barre de raccourcis), portails de téléportation (fenêtre et chargement d'origine, confirmation des zones de combat entre joueurs,
@@ -194,7 +212,7 @@
 3. Fonctions des PNJ : quêtes à objets d'interaction. Menus composés par le serveur (AgpmEventNPCDialog ops 2 et 3,
    boîtes de message et boutons) des PNJ « <Ville> Event », « Portal to Chaotic Frontier », « Portal to Town » et de
    Jaig : le client sait les afficher, mais leur contenu n'est ni dans le client ni dans ses données ; en attente d'une
-   source. Portails : refus des métamorphosés à vérifier quand la métamorphose existera ; les entrées des forts de la
+   source. Portails : refus des métamorphosés fait (morph.rs), à confirmer en jeu ; les entrées des forts de la
    Battle Ground (`TeleportPoint.ini`) n'ont pas d'objet dans les `obj*.ini` d'Archonia.
 4. Compétences : renvoi de dégâts (contre-attaque), compétences des monstres, compétences de groupe et maîtrises
    validés au simulateur le 25 octobre 2026 ; partage des dégâts (Divine Protection, Martyr's Mark), purges

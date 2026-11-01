@@ -847,6 +847,50 @@ pub fn parse_bank_slot_prices(text: &str) -> Vec<(u8, i64)> {
         .collect()
 }
 
+/// Une ligne d'ItemTransformTable.txt : potion de métamorphose (TID de l'objet), forme, niveau, nom coréen et bonus
+/// ajoutés aux facteurs (vides : 0).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ItemTransformRow {
+    pub item_tid: u32,
+    pub tid: u32,
+    pub level: i64,
+    pub name: String,
+    pub movement_run: i64,
+    pub atk_speed: i64,
+    pub max_hp: i64,
+    pub max_mp: i64,
+    pub defense: i64,
+    pub min_damage: i64,
+    pub max_damage: i64,
+}
+
+/// ItemTransformTable.txt (tabulé, en-tête `ItemTid Tid level Name Movement Run ATK Speed Max_HP Max_MP Defence Min_Damage
+/// Max_Damage`) : colonnes lues par leur nom, comme le client (`FUN_1401d85a0`) ; une ligne sans TID d'objet est écartée.
+pub fn parse_item_transform(text: &str) -> Vec<ItemTransformRow> {
+    let (h, rows) = parse_tsv(text);
+    let c = ["ItemTid", "Tid", "level", "Name", "Movement Run", "ATK Speed", "Max_HP", "Max_MP", "Defence", "Min_Damage", "Max_Damage"].map(|n| h.iter().position(|x| x == n));
+    rows.iter()
+        .filter_map(|r| {
+            let cell = |i: Option<usize>| i.and_then(|i| r.get(i)).map(|s| s.trim().to_string()).unwrap_or_default();
+            let n = |i: usize| js_number(&cell(c[i]), 0.0) as i64;
+            let item_tid = n(0);
+            (item_tid > 0).then(|| ItemTransformRow {
+                item_tid: item_tid as u32,
+                tid: n(1).max(0) as u32,
+                level: n(2),
+                name: cell(c[3]),
+                movement_run: n(4),
+                atk_speed: n(5),
+                max_hp: n(6),
+                max_mp: n(7),
+                defense: n(8),
+                min_damage: n(9),
+                max_damage: n(10),
+            })
+        })
+        .collect()
+}
+
 /// Une ligne de charactercustomizelist.txt (coiffure ou visage proposé à un modèle).
 #[derive(Clone, Debug, PartialEq)]
 pub struct CustomizeRow {
@@ -1689,6 +1733,22 @@ async fn import_all(db: &Databases, src: &Source) -> anyhow::Result<()> {
         println!("✓ bank_slot_price : {n}");
     }
 
+    // ---------------------------------------------------------------- itemtransformtable.txt (bonus des potions de métamorphose)
+    if let Some(file) = ["itemtransformtable.txt", "ItemTransformTable.txt"].into_iter().find(|f| src.exists(f)) {
+        let out: Vec<Vec<Value>> = parse_item_transform(&src.read(file)?)
+            .into_iter()
+            .map(|r| vec![v(r.item_tid), v(r.tid), v(r.level), v(r.name), v(r.movement_run), v(r.atk_speed), v(r.max_hp), v(r.max_mp), v(r.defense), v(r.min_damage), v(r.max_damage)])
+            .collect();
+        let n = replace(
+            db,
+            "item_transform",
+            "INSERT INTO item_transform (item_tid,tid,level,name,movement_run,atk_speed,max_hp,max_mp,defense,min_damage,max_damage) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            out,
+        )
+        .await?;
+        println!("✓ item_transform : {n}");
+    }
+
     // ---------------------------------------------------------------- charactercustomizelist.txt (coiffures, visages)
     if src.exists("charactercustomizelist.txt") {
         let out: Vec<Vec<Value>> = parse_customize(&src.read("charactercustomizelist.txt")?)
@@ -1838,6 +1898,14 @@ mod tests {
         assert_eq!(parse_refinery_objects(spheres), vec![(139_264_002, [-360200.0, 8429.980469, 77400.0])]);
         let fees = parse_teleport_fees("start_portal\tfinish_portal\tcost\r\nA\tB\t500 \r\nA\tB\t700\r\nB\tA\t\r\n");
         assert_eq!(fees, vec![("A".to_string(), "B".to_string(), 700)]);
+        let transform = parse_item_transform("ItemTid	Tid	level	Name	Movement Run	ATK Speed	Max_HP	Max_MP	Defence	Min_Damage	Max_Damage
+406	272	1	거미						26	28
+402	75	11	해골	-1000						
+			
+");
+        assert_eq!(transform.len(), 2);
+        assert_eq!((transform[0].item_tid, transform[0].tid, transform[0].min_damage, transform[0].max_damage, transform[0].movement_run), (406, 272, 26, 28, 0));
+        assert_eq!((transform[1].item_tid, transform[1].movement_run, transform[1].name.as_str()), (402, -1000, "해골"));
         assert_eq!(parse_bank_slot_prices("Slot\tPrice\t\r\n1\t1000000\t# commentaire\r\n2\t-1\t\r\n"), vec![(1, 1_000_000), (2, -1)]);
         assert_eq!(parse_guild_max_members("\tOr\tCrâne\tID\tNombre\r\n50\t10000\t\t\t\r\n60\t1000000\tX\t7\t2\r\n"), vec![(50, 10_000, 0, 0), (60, 1_000_000, 7, 2)]);
         let marks = parse_guild_marks("Type\tNumber\tName\tPrice\tSkull\tN\tCC\r\nBottom\t3\tFond 3\t10000\t0\t0\t\r\nSymbol\t65\tSymbole\t40000\t0\t0\t99999\r\nColor\t2\tColor 2\t0\tFF6C261A\t0\t\r\n");

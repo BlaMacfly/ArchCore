@@ -42,7 +42,8 @@ pub mod trade_result {
 pub const MAX_MONEY: i64 = 1_000_000_000;
 
 pub async fn on_packet(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> anyhow::Result<()> {
-    if !st.players.contains_key(&sid) {
+    // Sous métamorphose (sauf l'ArchLord) : pas de boutique, comme aucun dialogue de PNJ (morph.rs).
+    if !st.players.contains_key(&sid) || super::morph::restricted(st, sid) {
         return Ok(());
     }
     match p.int(1).unwrap_or(-1) {

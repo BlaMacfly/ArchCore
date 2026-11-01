@@ -68,6 +68,9 @@ pub struct WorldConfig {
     /// qu'un coup reçu use une pièce d'armure (`Item.ArmorWearChance`, 10). Valeurs choisies par ArchCore.
     pub item_weapon_wear_chance: f64,
     pub item_armor_wear_chance: f64,
+    /// Métamorphose (`world/morph.rs`) : durée au plus d'une potion de métamorphose, en millisecondes
+    /// (`Item.TransformMaxDurationMs`, 0 : la durée de l'objet, « Polymorph Dur »). Sert au simulateur.
+    pub item_transform_max_ms: u64,
     /// Horloge du monde (`world/nature.rs`) : vitesse du temps du jeu (`World.TimeSpeed`, 6 comme Archonia : une journée
     /// en 4 h réelles) et heure du jeu au démarrage du serveur (`World.TimeStart`, 0 à 23 ; -1 : heure tirée de
     /// l'horloge de la machine, identique d'un démarrage à l'autre).
@@ -308,6 +311,7 @@ impl Default for WorldConfig {
             pvp_remission_points: 2,
             item_weapon_wear_chance: 10.0,
             item_armor_wear_chance: 10.0,
+            item_transform_max_ms: 0,
             time_speed: 6,
             time_start: -1,
             weather_auto: false,
@@ -597,6 +601,7 @@ fn read_world(s: &Settings, cfg: &mut Config) {
         pvp_remission_points: s.parse("PvP.RemissionPoints", d.pvp_remission_points),
         item_weapon_wear_chance: s.parse("Item.WeaponWearChance", d.item_weapon_wear_chance),
         item_armor_wear_chance: s.parse("Item.ArmorWearChance", d.item_armor_wear_chance),
+        item_transform_max_ms: s.parse("Item.TransformMaxDurationMs", d.item_transform_max_ms),
         time_speed: s.parse("World.TimeSpeed", d.time_speed).max(1),
         time_start: s.parse("World.TimeStart", d.time_start).clamp(-1, 23),
         weather_auto: s.flag("World.WeatherAuto", d.weather_auto),
@@ -758,6 +763,7 @@ pub fn to_values(cfg: &Config, which: Which) -> Vec<(String, String)> {
             put("PvP.RemissionPoints", w.pvp_remission_points.to_string());
             put("Item.WeaponWearChance", fmt_num(w.item_weapon_wear_chance));
             put("Item.ArmorWearChance", fmt_num(w.item_armor_wear_chance));
+            put("Item.TransformMaxDurationMs", w.item_transform_max_ms.to_string());
             put("World.TimeZone", w.time_zone.name().into());
             put("World.TimeSpeed", w.time_speed.to_string());
             put("World.TimeStart", w.time_start.to_string());

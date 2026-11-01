@@ -51,6 +51,7 @@ unknown key (typo) is reported.
 | `PvP.RemissionPoints` | `2` | Murderer points removed by a remission with 10 letters of pardon, as the client announces |
 | `Item.WeaponWearChance` | `10` | Chance (%) that a wounding hit wears the weapon that dealt it by one point (ArchCore's choice; 0: no wear) |
 | `Item.ArmorWearChance` | `10` | Chance (%) that a wounding hit received wears one worn armour piece picked at random by one point (ArchCore's choice) |
+| `Item.TransformMaxDurationMs` | `0` | Longest duration (ms) of a metamorphosis potion; 0: the item's ("Polymorph Dur"). Used by the simulator |
 | `World.TimeSpeed` | `6` | Game time speed sent to the client (AGPMTIMER field 0): 6 as in Archonia, a day lasts 4 real hours; 1 = real time |
 | `World.TimeStart` | `-1` | Game hour when the server starts (0 to 23), the same for everyone; -1 = machine clock × speed, the same from one start to the next. See [[Network protocol|EN-Network-protocol]] |
 | `World.WeatherAuto` | `0` | 1 = automatic weather (rain, snow or clear rolled for everyone); 0 = `/weather` only (ArchCore's choice) |

@@ -348,6 +348,23 @@ pub struct ItemCatalog {
     pub shops: HashMap<i64, Vec<ShopEntry>>,
     /// Objets qui lancent une compétence à l'utilisation, par TID.
     pub use_skill: HashMap<u32, UseSkill>,
+    /// Potions de métamorphose (type d'usage 7) et leurs bonus (table `item_transform`), par TID (`morph.rs`).
+    pub morph: HashMap<u32, super::morph::Potion>,
+    /// Potions of Quickness et Beam (type d'usage 12, sous-type 1 ou 2), refusées sous métamorphose.
+    pub speed_potions: std::collections::HashSet<u32>,
+}
+
+/// Bonus d'une ligne de la table `item_transform` (ItemTransformTable.txt).
+fn transform_bonus(r: &mysql_async::Row) -> super::morph::Bonus {
+    super::morph::Bonus {
+        movement_run: col(r, "movement_run"),
+        atk_speed: col(r, "atk_speed"),
+        max_hp: col(r, "max_hp"),
+        max_mp: col(r, "max_mp"),
+        defense: col(r, "defense"),
+        min_damage: col(r, "min_damage"),
+        max_damage: col(r, "max_damage"),
+    }
 }
 
 impl ItemCatalog {
@@ -377,13 +394,31 @@ impl ItemCatalog {
                 (tid, ItemData { tid, name: col(r, "name"), npc_price: col(r, "npc_price"), pc_price: col(r, "pc_price"), stack: col::<i64>(r, "stack").max(1), equip, potion, scroll, stone, usable_type, option_tids, kind, bound_type, cash, enable_on_ride, auction_category, event_item })
             })
             .collect();
+        let raws: Vec<(u32, serde_json::Value)> =
+            rows.iter().filter_map(|r| Some((col::<u32>(r, "tid"), serde_json::from_str::<serde_json::Value>(&col::<String>(r, "raw")).ok()?))).collect();
+        let mut morph: HashMap<u32, super::morph::Potion> = raws.iter().filter_map(|(tid, raw)| super::morph::Potion::from_raw(raw).map(|p| (*tid, p))).collect();
+        let speed_potions = raws
+            .iter()
+            .filter(|(_, raw)| usable_type_of(raw) == super::morph::USABLE_SPEED && matches!(raw.get("SubType").and_then(|v| v.as_str()).map(str::trim), Some("1" | "2")))
+            .map(|(tid, _)| *tid)
+            .collect();
+        match db.world.rows("SELECT * FROM item_transform", ()).await {
+            Ok(rows) => {
+                for r in &rows {
+                    if let Some(p) = morph.get_mut(&col::<u32>(r, "item_tid")) {
+                        p.bonus = transform_bonus(r);
+                    }
+                }
+            }
+            Err(_) => crate::warn!("bonus des potions de métamorphose non chargés : lancer `archcore db-init` puis `archcore import`"),
+        }
         let lists = db.world.rows("SELECT template_id, tid, count FROM npc_trade_list ORDER BY template_id, idx", ()).await?;
         let mut shops: HashMap<i64, Vec<ShopEntry>> = HashMap::new();
         for r in &lists {
             shops.entry(col(r, "template_id")).or_default().push(ShopEntry { tid: col(r, "tid"), count: col::<i64>(r, "count").max(1) });
         }
-        info!("{} objet(s) et {} boutique(s) chargé(s), {} objet(s) à compétence", items.len(), shops.len(), use_skill.len());
-        Ok(ItemCatalog { items, shops, use_skill })
+        info!("{} objet(s) et {} boutique(s) chargé(s), {} objet(s) à compétence, {} potion(s) de métamorphose", items.len(), shops.len(), use_skill.len(), morph.len());
+        Ok(ItemCatalog { items, shops, use_skill, morph, speed_potions })
     }
 
     pub fn get(&self, tid: u32) -> Option<&ItemData> {

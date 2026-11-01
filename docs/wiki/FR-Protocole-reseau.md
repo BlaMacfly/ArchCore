@@ -786,7 +786,8 @@ Battle Square, salles et entrées des donjons. Dans Archonia (AgcmUIEventTelepor
 **Refus.** Le client n'envoie pas l'op 4 en mode combat (10 s après le dernier coup donné ou reçu, ou une
 compétence offensive) : message `Teleport_CombatMode` dans la discussion ; ni métamorphosé (champ 18 du
 personnage) : `Teleport_TransformChar`. ArchCore ignore de même les ops 0, 4 et 7 d'un joueur mort ou en
-combat. Un départ annulé est signalé par l'**op 2** (fermeture de l'écran de chargement).
+combat, et, sous métamorphose (sauf l'ArchLord), les ops 0, 4 et 7 avec un message système. Un départ annulé est
+signalé par l'**op 2** (fermeture de l'écran de chargement).
 
 ## Banque (types 0x36, 0x04 et 0x02)
 
@@ -1245,6 +1246,42 @@ cheval : combat permis, l'arme montée remplace celles des mains (à pied, elle 
 (seules celles marquées `auto_attack`, que le client ne lance pas, y échappent) ; consommables refusés sans
 `EnableOnRide`. Choix d'ArchCore : pas de retrait des renforcements en montant, pas d'expiration (aucune monture des
 données n'a `RemainTime` ni `ExpireTime`).
+
+## Métamorphose et évolution du Scion (types 0x02, 0x04 et 0x05)
+
+**Champ 18 d'AGPMCHARACTER** (« transformation ») : bit 0 métamorphosé, bit 1 monté, bit 2 évolué ; le client ne le lit
+qu'à l'op 0.
+
+| Op AGPMCHARACTER | Sens | Champs | Effet |
+|---|---|---|---|
+| 11 | serveur | 1 CID, 2 TID de la forme | métamorphose (le client garde le TID d'origine, rendu à l'op 12) |
+| 12 | serveur | 1 CID | fin de la métamorphose |
+| 13 | client | 1 CID du joueur | annulation (icône « Cancel Metamorphosis ») ; refusée pour une Mutation subie |
+| 26 | serveur | 1 CID, 2 TID de la forme | évolution (ignorée par le client sur un personnage déjà évolué) |
+| 27 | serveur | 1 CID, 2 TID à rétablir | fin de l'évolution |
+
+**Potions de métamorphose** (objets d'`ItemType` 1 et de `Type` 7 d'itemdatatable.txt : forme `Polymorph Id`, durée
+`Polymorph Dur`, 0 : jusqu'à l'annulation) : AGPMITEM op 3 → pile diminuée (op 2) ou objet retiré (op 1), **op 4**
+(le client lance son compte à rebours d'après la durée de l'objet), **op 19** (champ 22 : recharge restante, 600 000 ms,
+commune à toutes ces potions), facteurs (op 1, bonus d'ItemTransformTable.txt), puis op 11 au joueur et à ceux qui le
+voient. Refus : **AGPMITEM op 27** (champ 1 code, champ 4 CID) : 2 en zone de siège en combat, 4 à cheval, transformé
+ou évolué (le code 3, qui ouvre une fenêtre, n'est jamais envoyé) ; recharge ou niveau (« Level ») : message système.
+Un joueur qui arrive en vue reçoit l'op 0 avec le **TID d'origine** et le bit 0, son équipement, puis l'op 11. Fin :
+durée écoulée (`Item.TransformMaxDurationMs` l'abrège), op 13, mort → op 12 à tous et facteurs d'origine ; rien n'est
+enregistré. Sous métamorphose (sauf l'ArchLord) : compétences, parchemins de téléportation, Potions of Quickness et
+Beam, portails, Shrines, dialogues et boutiques de PNJ, coiffeur, changements d'équipement (monture comprise) refusés ;
+la race de la forme vaut pour le combat entre joueurs. **Mutation** (compétence de `transform_target` 4) : la cible,
+un joueur, prend pour la durée du niveau (7 s) une forme tirée dans `creature_tid` ; les monstres ne sont pas changés.
+
+**Évolution du Dragon Scion** : Slayer, Orbiter et Summoner of Evolution (1189, 1192, 1195, `transform_target` 5),
+lancées sur soi (AGPMSKILL op 7, action 1). Au bout de l'incantation : facteurs de la forme (op 1), **AGPMSKILL op 4**
+(effet sans durée de la compétence, au lanceur : le client le cherche pour l'annulation), puis **op 26** (1722, 1723,
+1732) au joueur et à ceux qui le voient ; depuis une autre forme, op 5 et **op 27** (1724) d'abord. Relancer la forme
+active : message système. **Annulation** : AGPMSKILL op 7, identifiant de la compétence d'évolution, mini
+SKILL_ACTION de **type 4** → op 5, facteurs du Scion, op 27 (1724). Une action de type 4 sur une autre compétence arrête
+seulement une approche en cours. Vue et entrée en jeu : op 0 avec le TID de la forme et le bit 2 ; à l'entrée, l'op 4
+de la compétence suit les compétences. Sous une forme, une compétence ne sert que si ses colonnes `require_class_*`
+admettent la classe de la forme (les évolutions exceptées) ; l'apprentissage suit la même règle.
 
 ## Maison des ventes (type 0x0B, AgpmAuction)
 

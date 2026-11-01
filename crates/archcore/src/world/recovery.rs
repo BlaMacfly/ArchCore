@@ -135,11 +135,27 @@ pub fn used_packet(tid: u32, cid: u32, delay: Duration) -> Vec<u8> {
 pub async fn use_item(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet, catalog: &ItemCatalog) -> anyhow::Result<()> {
     let iid = p.int(2).unwrap_or(0) as u32;
     let now = Instant::now();
+    let lord = super::archlord::is_lord(st, sid);
     let Some(player) = st.players.get_mut(&sid) else { return Ok(()) };
     if !player.in_game || player.dead {
         return Ok(());
     }
     let Some(item) = player.inventory.get(iid).cloned() else { return Ok(()) };
+    // Potion de métamorphose : ses propres refus (à cheval, transformé, siège : AGPMITEM op 27), morph.rs.
+    if let Some(potion) = catalog.morph.get(&item.tid).copied() {
+        return super::morph::use_potion(ctx, st, sid, &item, potion, now).await;
+    }
+    // Sous métamorphose (sauf l'ArchLord) : ni parchemin de téléportation, ni Potion of Quickness ou Beam (morph.rs).
+    if player.form.morph.is_some() && !lord && (catalog.get(item.tid).is_some_and(|d| d.scroll.is_some()) || catalog.speed_potions.contains(&item.tid)) {
+        debug!("[objet] {} : objet {} refusé sous métamorphose", player.ch.name, item.tid);
+        super::send_system(st, sid, "Cet objet ne s'utilise pas sous métamorphose.");
+        return Ok(());
+    }
+    // Évolution du Scion : objet d'oubli des compétences refusé (« IsEvolutionNotUseInitSkillItem »), evolution.rs.
+    if player.form.evolved.is_some() && catalog.get(item.tid).is_some_and(|d| d.usable_type == super::morph::USABLE_INIT_SKILL) {
+        super::send_system(st, sid, "Vous ne pouvez pas utiliser cet objet pendant l'évolution.");
+        return Ok(());
+    }
     // À cheval : seuls les consommables marqués « EnableOnRide » servent (ride.rs).
     if super::ride::is_mounted(&player.inventory) && catalog.get(item.tid).is_some_and(|d| !d.enable_on_ride) {
         debug!("[objet] {} : objet {} refusé à cheval", player.ch.name, item.tid);

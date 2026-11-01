@@ -282,6 +282,8 @@ pub struct CharacterRow {
     pub murderer: u32,
     pub criminal_until: i64,
     pub murderer_until: i64,
+    /// Forme de l'évolution du Dragon Scion (`world/evolution.rs`), 0 : aucune ; `template_id` reste le Scion.
+    pub evolution_tid: u32,
 }
 
 impl CharacterRow {
@@ -312,6 +314,7 @@ impl CharacterRow {
             murderer: col(r, "murderer_points"),
             criminal_until: col(r, "criminal_until"),
             murderer_until: col(r, "murderer_until"),
+            evolution_tid: col(r, "evolution_tid"),
         }
     }
 

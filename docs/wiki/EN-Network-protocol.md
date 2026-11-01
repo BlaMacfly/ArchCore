@@ -749,8 +749,9 @@ Square, dungeon rooms and entrances. In Archonia (AgcmUIEventTeleport):
 
 **Refusals.** The client does not send op 4 in combat mode (10 s after the last hit given or taken, or an
 offensive skill): `Teleport_CombatMode` message in the chat; nor while transformed (character field 18):
-`Teleport_TransformChar`. ArchCore likewise ignores ops 0, 4 and 7 from a dead player or one in combat. A
-cancelled departure is reported by **op 2** (closes the loading screen).
+`Teleport_TransformChar`. ArchCore likewise ignores ops 0, 4 and 7 from a dead player or one in combat, and, while
+transformed (except for the ArchLord), with a system message. A cancelled departure is reported by **op 2** (closes
+the loading screen).
 
 ## Bank (types 0x36, 0x04 and 0x02)
 
@@ -1192,6 +1193,41 @@ AgpmSystemMessage code 24 "CannotRideWhileCombat"), murderer of tier 2 or more (
 allowed, the mounted weapon replaces the hand weapons (on foot it does not count); skills refused (only those marked
 `auto_attack`, which the client never casts, escape this); consumables refused without `EnableOnRide`. ArchCore's
 choices: buffs are not removed when mounting, no expiry (no mount in the data has `RemainTime` or `ExpireTime`).
+
+## Metamorphosis and Scion evolution (types 0x02, 0x04 and 0x05)
+
+**AGPMCHARACTER field 18** ("transformation"): bit 0 transformed, bit 1 mounted, bit 2 evolved; the client only reads
+it on op 0.
+
+| AGPMCHARACTER op | Direction | Fields | Effect |
+|---|---|---|---|
+| 11 | server | 1 CID, 2 form TID | metamorphosis (the client keeps the original TID, restored on op 12) |
+| 12 | server | 1 CID | end of the metamorphosis |
+| 13 | client | 1 player's CID | cancellation ("Cancel Metamorphosis" icon); refused for a Mutation undergone |
+| 26 | server | 1 CID, 2 form TID | evolution (ignored by the client on an already evolved character) |
+| 27 | server | 1 CID, 2 TID to restore | end of the evolution |
+
+**Metamorphosis potions** (itemdatatable.txt items with `ItemType` 1 and `Type` 7: form `Polymorph Id`, duration
+`Polymorph Dur`, 0: until cancelled): AGPMITEM op 3 → stack decreased (op 2) or item removed (op 1), **op 4** (the
+client starts its countdown from the item's duration), **op 19** (field 22: remaining cooldown, 600,000 ms, shared by
+all these potions), factors (op 1, ItemTransformTable.txt bonuses), then op 11 to the player and those who see them.
+Refusals: **AGPMITEM op 27** (field 1 code, field 4 CID): 2 in a siege zone during combat, 4 when mounted, transformed
+or evolved (code 3, which opens a window, is never sent); cooldown or level ("Level"): system message. A player coming
+into view gets op 0 with the **original TID** and bit 0, the equipment, then op 11. End: duration over
+(`Item.TransformMaxDurationMs` shortens it), op 13, death → op 12 to everyone and original factors; nothing is saved.
+While transformed (except for the ArchLord): skills, teleport scrolls, Potions of Quickness and Beam, portals, Shrines,
+NPC dialogs and shops, stylist, equipment changes (mounts included) are refused; the form's race applies to
+player-versus-player rules. **Mutation** (`transform_target` 4 skill): the target, a player, takes a form drawn from
+`creature_tid` for the level's duration (7 s); monsters are not changed.
+
+**Dragon Scion evolution**: Slayer, Orbiter and Summoner of Evolution (1189, 1192, 1195, `transform_target` 5), cast
+on oneself (AGPMSKILL op 7, action 1). When the cast ends: form's factors (op 1), **AGPMSKILL op 4** (effect without
+duration of the skill, to the caster: the client looks it up to cancel), then **op 26** (1722, 1723, 1732) to the
+player and those who see them; from another form, op 5 and **op 27** (1724) first. Casting the active form again:
+system message. **Cancellation**: AGPMSKILL op 7, id of the evolution skill, SKILL_ACTION mini of **type 4** → op 5,
+Scion's factors, op 27 (1724). A type 4 action on another skill only stops an approach in progress. View and world
+entry: op 0 with the form's TID and bit 2; on entry, the skill's op 4 follows the skills. Under a form, a skill only
+works if its `require_class_*` columns allow the form's class (evolutions excepted); learning follows the same rule.
 
 ## Auction house (type 0x0B, AgpmAuction)
 

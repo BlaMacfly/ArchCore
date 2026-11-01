@@ -559,6 +559,11 @@ async fn join(ctx: &WorldCtx, st: &mut WorldState, sid: u32, id: u8) -> anyhow::
         return Ok(());
     };
     let Some(p) = st.players.get(&sid).filter(|p| p.in_game && !p.dead) else { return Ok(()) };
+    // Sous métamorphose (sauf l'ArchLord) : inscription refusée, comme le client (morph.rs).
+    if super::morph::restricted(st, sid) {
+        super::send_system(st, sid, "Impossible d'entrer dans un Shrine sous métamorphose.");
+        return Ok(());
+    }
     let (cid, name, level, race, pos) = (p.ch.id, p.ch.name.clone(), p.factors.status[7], p.factors.ftype[0], p.ch.pos());
     let now = Instant::now();
     let open = st.shrines.battles.get(&id).is_some_and(|b| b.is_active() || (b.state == state::CLOSED && b.opens_at <= now + EARLY_ENTRY));

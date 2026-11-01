@@ -103,6 +103,10 @@ fn describe(base: &Fields) -> String {
 
 pub fn on_dialog(ctx: &WorldCtx, st: &WorldState, sid: u32, p: &Packet) {
     let Some(player) = st.players.get(&sid) else { return };
+    // Sous métamorphose (sauf l'ArchLord) : aucun dialogue, sans réponse, comme le client (morph.rs).
+    if super::morph::restricted(st, sid) {
+        return;
+    }
     if p.int(0) != Some(dialog_op::REQUEST) {
         warn!("[pnj] #{sid} AGPMEVENTNPCDIALOG op {:?} inattendu", p.int(0));
         return;

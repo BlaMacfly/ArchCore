@@ -276,6 +276,25 @@ monter (objet porté, course 10 500, AgpmRide op 2 chez les deux), reconnexion �
 l'entrée), descendre (op 4, course d'origine), montée refusée juste après un coup sur un Ver vert (code 24, cheval
 resté dans l'inventaire) puis acceptée 11 s plus tard, mort à cheval (`/kill`) : descente forcée.
 
+## Test de la métamorphose et de l'évolution du Scion
+
+```bash
+ARCHCORE_CONF_DIR=config/test archcore sim morph [compteA mdpA persoA compteB mdpB persoB]
+ARCHCORE_SIM_CREATE_TID=1724 ARCHCORE_CONF_DIR=config/test archcore sim client test test SimScion   # une fois
+ARCHCORE_CONF_DIR=config/test archcore sim evolution [compteA mdpA persoA compteB mdpB persoB]
+```
+
+`sim morph` (GmTest MJ, SimA témoin ; à lancer avec `Item.TransformMaxDurationMs = 8000`) : trois Spider Potions
+(forme 272, dégâts +26 / +28) et un Passport ; potion bue (op 4, op 19 à 600 000 ms, dégâts majorés, op 11 chez les
+deux), seconde potion refusée (op 27 code 4), Passport refusé ; SimA revient en jeu et reçoit GmTest par l'op 0 (TID
+d'origine, bit 0) puis l'op 11 ; fin de durée au bout de 8 s (op 12 chez les deux, dégâts d'origine) ; GmTest revient,
+boit une potion et l'annule (op 13 → op 12). `sim evolution` (GmTest MJ, SimScion Scion du compte `test`, posé chez
+Gilliwen, sans forme ni compétence d'évolution au départ) : niveau 20 et or par le MJ, Slayer et Orbiter of Evolution
+apprises, Power Stunner refusée (code 5) ; Slayer of Evolution (facteurs du Slayer, FOR 83, op 4, op 26 → 1722 chez
+les deux), Orbiter of Evolution (op 27 → 1724 puis op 26 → 1723), forme active relancée refusée, reconnexion (TID
+1723, champ 18 = 4, op 4 à l'entrée, vue du MJ), annulation par AGPMSKILL op 7 action 4 (op 5, op 27 → 1724, forme
+effacée en base).
+
 ## Test de la maison des ventes, du commutateur et de la météo
 
 ```bash

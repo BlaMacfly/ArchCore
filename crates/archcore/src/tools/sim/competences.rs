@@ -69,11 +69,28 @@ fn mine(q: &Recv, me: i64) -> bool {
 
 /// Va chez les Vers verts ; rend les vers vivants en vue, les plus valides d'abord.
 async fn worms(w: &mut InWorld) -> anyhow::Result<Vec<i64>> {
-    let mv = &schema::OPT_CHAR_MOVE;
-    w.world.send(mv, Fields::new(mv).with(0, w.cid).with(1, HUNT).with(2, HUNT).with(5, STOP).with(6, 0)).await?;
+    // Téléportation par le MJ : la validation du serveur refuse une position lointaine donnée par le client, et la
+    // marche depuis le village est plus longue que l'attente des monstres en vue.
+    let ch = &schema::CHATTING;
+    let cmd = format!("/move {},{}", HUNT.x.round(), HUNT.z.round());
+    // Détour par le village : déjà sur place, le serveur ne renverrait pas les monstres en vue. Pas d'attente de la
+    // réponse au retour : les monstres en vue arrivent avant elle et seraient perdus.
+    let say = |text: &str| Fields::new(ch).with(0, 0).with(1, w.cid).with(2, chat_type::NORMAL).with(6, crate::tools::to_cp1252(text));
+    w.world.send(ch, say("/move -476000,-61000")).await?;
+    w.world.expect_where(|q| q.ptype == ch.id, 5000, "réponse à /move").await?;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    w.world.send(ch, say(&cmd)).await?;
     let near = |p: Vec3| (((p.x - HUNT.x) as f64).powi(2) + ((p.z - HUNT.z) as f64).powi(2)).sqrt() <= 3000.0;
     let mut out: Vec<(i64, i64)> = w.monsters.iter().filter(|m| m.name == "Green Worm" && m.hp > 0 && near(m.pos)).map(|m| (m.cid as i64, m.hp)).collect();
-    while let Ok(p) = w.world.expect_where(|q| q.is(&schema::OPT_VIEW, Some(1)), 1500, "monstres").await {
+    // Les scénarios enchaînés tuent les vers du coin : sans ver vivant en vue, attendre leur réapparition (45 s au plus).
+    let t0 = std::time::Instant::now();
+    loop {
+        let Ok(p) = w.world.expect_where(|q| q.is(&schema::OPT_VIEW, Some(1)), 1500, "monstres").await else {
+            if !out.is_empty() || t0.elapsed() > Duration::from_secs(45) {
+                break;
+            }
+            continue;
+        };
         if let Ok(view) = decode_mini(&mini::OPT_VIEW_CHAR, p.fields().bytes(1).unwrap_or_default()) {
             let hp = view.bytes(5).and_then(factors_hp).unwrap_or(0);
             if view.text(2).as_deref() == Some("Green Worm") && hp > 0 {

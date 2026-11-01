@@ -284,6 +284,8 @@ pub(super) fn set_visible(st: &mut WorldState, viewer: u32, target: u32, visible
     // Monture portée, ou Alcadia de l'ArchLord (op 6, archlord.rs).
     let ride = super::ride::view_packet(t).or_else(|| super::archlord::dragon_view(st, tid));
     let link = super::guild::view_packet(st, tid);
+    // Métamorphose : op 11 après le personnage (TID d'origine) et son équipement (morph.rs).
+    let morph = super::morph::view_packet(t);
     let has_dest = t.dest.is_some();
     let mv = if has_dest { Some(move_fields(st, target)) } else { None };
     let v = st.players.get_mut(&viewer).unwrap();
@@ -300,6 +302,9 @@ pub(super) fn set_visible(st: &mut WorldState, viewer: u32, target: u32, visible
         // Guilde à laquelle il appartient.
         if let Some(l) = link {
             v.send_raw(l);
+        }
+        if let Some(m) = morph {
+            v.send_raw(m);
         }
         if let Some(mv) = mv {
             v.send(&schema::OPT_CHAR_MOVE, mv);

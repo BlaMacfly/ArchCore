@@ -221,6 +221,11 @@ fn portal_of<'a>(ctx: &'a WorldCtx, p: &Packet) -> Option<(u32, &'a Portal, Vec<
 }
 
 pub async fn on_packet(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> anyhow::Result<()> {
+    // Sous métamorphose (sauf l'ArchLord) : « Portals may not be used while under metamorphosis. » (morph.rs).
+    if matches!(p.int(0), Some(op::REQUEST | op::TELEPORT_POINT | op::RETURN)) && super::morph::restricted(st, sid) {
+        super::send_system(st, sid, "Les portails ne s'utilisent pas sous métamorphose.");
+        return Ok(());
+    }
     match p.int(0) {
         Some(op::REQUEST) => request(ctx, st, sid, p),
         Some(op::TELEPORT_POINT) => teleport(ctx, st, sid, p).await?,

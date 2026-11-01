@@ -185,6 +185,14 @@ Item.WeaponWearChance = 10
 
 Item.ArmorWearChance = 10
 
+#    Item.TransformMaxDurationMs
+#        Durée au plus d'une potion de métamorphose, en millisecondes. 0 : la durée de
+#        l'objet (colonne « Polymorph Dur » d'itemdatatable.txt, 4 minutes pour presque
+#        toutes). Sert au simulateur (fin de la métamorphose sans attendre).
+#        Défaut : 0
+
+Item.TransformMaxDurationMs = 0
+
 #    Auction.MaxSales
 #        Ventes au plus par personnage dans la maison des ventes (1 à 100 : la boîte
 #        de ventes du client a 100 cases). La limite du serveur d'origine n'est pas

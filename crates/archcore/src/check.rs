@@ -61,6 +61,12 @@ fn checks(n: &Names) -> Vec<Check> {
             sample: "CONCAT(x.name, ' (TID ', x.template_id, ')')",
         },
         Check {
+            label: "formes évoluées inconnues (evolution_tid)",
+            severity: Severity::Warning,
+            rows: format!("`{c}`.characters x LEFT JOIN `{w}`.character_template r ON r.tid = x.evolution_tid WHERE x.evolution_tid <> 0 AND r.tid IS NULL"),
+            sample: "CONCAT(x.name, ' (forme ', x.evolution_tid, ')')",
+        },
+        Check {
             label: "objets sans définition dans item_data",
             severity: Severity::Error,
             rows: format!(
@@ -249,7 +255,7 @@ mod tests {
     fn requetes_des_controles() {
         let n = Names { auth: "a_auth", characters: "a_chars", world: "a_world" };
         let all = checks(&n);
-        assert_eq!(all.len(), 18);
+        assert_eq!(all.len(), 19);
         // Chaque contrôle nomme ses bases : il passe par le pool des personnages.
         for k in &all {
             assert!(k.rows.contains("`a_chars`.") || k.rows.contains("`a_auth`.") || k.rows.contains("`a_world`.import_run"), "{}", k.label);

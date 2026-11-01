@@ -83,28 +83,30 @@ pub fn displaced(inv: &Inventory, catalog: &ItemCatalog, e: &EquipData, at: i64)
 
 /// Objets portés qui comptent dans les facteurs : pas ceux dont la durabilité est tombée à 0 (ils restent portés
 /// jusqu'à leur réparation, `repair.rs`) ; à cheval, l'arme montée (partie 15) remplace les armes des mains, et à
-/// pied elle ne compte pas (`ride.rs`).
-pub fn counted<'a>(inv: &'a Inventory, catalog: &'a ItemCatalog) -> impl Iterator<Item = (&'a InventoryItem, &'a EquipData)> + 'a {
+/// pied elle ne compte pas (`ride.rs`). `form` : classe d'une forme évoluée du Dragon Scion (`evolution.rs`), dont une
+/// arme qu'elle n'admet pas ne compte plus (Xenon sous la forme Slayer, Karon sous la forme Orbiter).
+pub fn counted<'a>(inv: &'a Inventory, catalog: &'a ItemCatalog, form: Option<i64>) -> impl Iterator<Item = (&'a InventoryItem, &'a EquipData)> + 'a {
     let mounted = super::ride::is_mounted(inv);
     inv.equipment.iter().filter_map(move |(at, i)| {
         let e = catalog.get(i.tid).and_then(|d| d.equip.as_ref())?;
         let hand_weapon = matches!(*at, part::HAND_LEFT | part::HAND_RIGHT) && e.kind == KIND_WEAPON;
-        let skipped = e.is_broken(i.durability) || (mounted && hand_weapon) || (!mounted && *at == part::LANCER);
+        let foreign = form.is_some_and(|c| e.kind == KIND_WEAPON && !e.classes.is_empty() && !e.classes.contains(&c));
+        let skipped = e.is_broken(i.durability) || (mounted && hand_weapon) || (!mounted && *at == part::LANCER) || foreign;
         (!skipped).then_some((i, e))
     })
 }
 
 /// Caractéristiques des objets portés (ceux qui comptent, voir `counted`).
-pub fn worn(inv: &Inventory, catalog: &ItemCatalog, table: &super::convert::ConvertTable) -> Vec<EquipData> {
+pub fn worn(inv: &Inventory, catalog: &ItemCatalog, table: &super::convert::ConvertTable, form: Option<i64>) -> Vec<EquipData> {
     let stone = |tid: u32| catalog.get(tid).and_then(|d| d.stone);
-    counted(inv, catalog).map(|(i, e)| super::convert::effective(table, e, &i.conv, stone)).collect()
+    counted(inv, catalog, form).map(|(i, e)| super::convert::effective(table, e, &i.conv, stone)).collect()
 }
 
 /// TID des options de l'équipement porté par un personnage de niveau `level` : les siennes, celles des runes
 /// serties (« OptionTID » ; une pierre d'esprit n'en a pas) et les options liées de l'objet à ce niveau.
-pub fn worn_options(inv: &Inventory, catalog: &ItemCatalog, options: &super::options::OptionCatalog, level: i64) -> Vec<u16> {
+pub fn worn_options(inv: &Inventory, catalog: &ItemCatalog, options: &super::options::OptionCatalog, level: i64, form: Option<i64>) -> Vec<u16> {
     let mut out = Vec::new();
-    for (i, _) in counted(inv, catalog) {
+    for (i, _) in counted(inv, catalog, form) {
         out.extend(i.options.iter().copied());
         out.extend(i.conv.filled.iter().filter_map(|t| catalog.get(*t)).flat_map(|d| d.option_tids.iter().copied()));
         if let Some(e) = catalog.get(i.tid).and_then(|d| d.equip.as_ref()) {
@@ -116,9 +118,9 @@ pub fn worn_options(inv: &Inventory, catalog: &ItemCatalog, options: &super::opt
 
 /// Effets de combat de l'équipement porté : options à déclenchement (les mêmes que `worn_options`) et
 /// compétences des runes serties, retrouvées par leur nom dans le catalogue des compétences.
-pub fn worn_gear(ctx: &WorldCtx, inv: &Inventory, level: i64) -> super::options::Gear {
-    let mut g = ctx.options.gear(&worn_options(inv, &ctx.catalog, &ctx.options, level));
-    for (i, _) in counted(inv, &ctx.catalog) {
+pub fn worn_gear(ctx: &WorldCtx, inv: &Inventory, level: i64, form: Option<i64>) -> super::options::Gear {
+    let mut g = ctx.options.gear(&worn_options(inv, &ctx.catalog, &ctx.options, level, form));
+    for (i, _) in counted(inv, &ctx.catalog, form) {
         for rune in i.conv.filled.iter().filter_map(|t| ctx.convert.runes.get(t)) {
             let Some((name, skill_level, rate)) = &rune.skill else { continue };
             match ctx.skills.by_name(name) {
@@ -164,16 +166,21 @@ pub fn refresh_factors(ctx: &WorldCtx, st: &mut WorldState, sid: u32) {
     p.send(c, Fields::new(c).with(0, 1).with(1, p.ch.id).with(7, factors_mini(&p.factors)));
 }
 
-/// Comme `refresh_factors`, sans rien envoyer : modèle et croissance au niveau de `p.ch`, équipement, effets.
+/// Comme `refresh_factors`, sans rien envoyer : modèle (la forme évoluée du Dragon Scion, `evolution.rs`) et croissance au
+/// niveau de `p.ch`, équipement, bonus d'une potion de métamorphose (`morph.rs`), effets.
 pub fn recompute_factors(ctx: &WorldCtx, p: &mut Player) {
-    let Some(tpl) = ctx.templates.get(p.ch.template_id) else { return };
+    let Some(tpl) = ctx.templates.get(p.current_tid()).or_else(|| ctx.templates.get(p.ch.template_id)) else { return };
+    let form = p.form.evolved.map(|_| tpl.class as i64);
     let old = p.factors.clone();
-    let mut f = with_equipment(make_factors(tpl, Some(&p.ch)), &worn(&p.inventory, &ctx.catalog, &ctx.convert));
-    ctx.options.apply(&mut f, &worn_options(&p.inventory, &ctx.catalog, &ctx.options, p.ch.level as i64));
-    p.gear = worn_gear(ctx, &p.inventory, p.ch.level as i64);
+    let mut f = with_equipment(make_factors(tpl, Some(&p.ch)), &worn(&p.inventory, &ctx.catalog, &ctx.convert, form));
+    ctx.options.apply(&mut f, &worn_options(&p.inventory, &ctx.catalog, &ctx.options, p.ch.level as i64, form));
+    p.gear = worn_gear(ctx, &p.inventory, p.ch.level as i64, form);
     f.point[..5].copy_from_slice(&old.point[..5]);
     f.status[7] = old.status[7];
     f.dirt = old.dirt;
+    if let Some(m) = p.form.morph {
+        m.bonus.apply(&mut f);
+    }
     super::effects::apply(&mut f, &super::effects::total(&p.skills.effects));
     // À cheval : la vitesse de la monture (« Run_Buff ») remplace marche et course.
     if let Some(speed) = super::ride::mount_speed(&p.inventory, &ctx.catalog) {
@@ -225,6 +232,14 @@ pub async fn on_item_update(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &P
     let worn_part = player.inventory.equipment.iter().find(|(_, i)| i.iid == iid).map(|(part, _)| *part);
     match (status, worn_part) {
         (item_status::EQUIP, None) => equip(ctx, st, sid, iid, false).await.map(|_| ()),
+        // Métamorphose : aucun changement d'équipement (morph.rs) ; l'objet reste porté.
+        (item_status::INVENTORY, Some(_)) if player.form.morph.is_some() => {
+            send_system(st, sid, "Vous ne pouvez pas changer d'équipement sous métamorphose.");
+            if let Some(item) = st.players[&sid].inventory.equipment.values().find(|i| i.iid == iid) {
+                st.players[&sid].send_raw(item_update(item, st.players[&sid].ch.id, item_status::EQUIP));
+            }
+            Ok(())
+        }
         (item_status::INVENTORY, Some(at)) => unequip(ctx, st, sid, at, wanted_grid(p), false).await.map(|_| ()),
         (item_status::INVENTORY, None) => move_in_bag(ctx, st, sid, iid, wanted_grid(p)).await,
         _ => {
@@ -259,6 +274,12 @@ pub async fn equip(ctx: &WorldCtx, st: &mut WorldState, sid: u32, iid: u32, quie
         refused(st, "Cet objet ne se porte pas.");
         return Ok(false);
     };
+    // Métamorphose : aucun changement d'équipement (morph.rs).
+    if p.form.morph.is_some() {
+        info!("[équipement] {} : {} refusé sous métamorphose", p.ch.name, data.name);
+        refused(st, "Vous ne pouvez pas changer d'équipement sous métamorphose.");
+        return Ok(false);
+    }
     let f = &p.factors;
     let (level, race, class, gender) = (f.status[7] as i64, f.ftype[0] as i64, f.ftype[2] as i64, f.ftype[1] as i64);
     if let Err(why) = check(&e, level, race, class, gender) {
@@ -455,8 +476,10 @@ mod tests {
         inv.equipment.insert(part::HAND_RIGHT, item(10, 1, part::HAND_RIGHT, -1));
         inv.equipment.insert(2, item(11, 2, 2, 0));
         inv.equipment.insert(part::LANCER, item(12, 3, part::LANCER, 5));
-        let tids = |inv: &Inventory| counted(inv, &cat).map(|(i, _)| i.tid).collect::<Vec<_>>();
+        let tids = |inv: &Inventory| counted(inv, &cat, None).map(|(i, _)| i.tid).collect::<Vec<_>>();
         assert_eq!(tids(&inv), vec![1], "armure cassée (0) et lance à pied ne comptent pas");
+        assert!(counted(&inv, &cat, Some(2)).next().is_none(), "forme de classe 2 : l'épée (classe 1) ne compte plus");
+        assert_eq!(counted(&inv, &cat, Some(1)).count(), 1, "forme de classe 1 : l'épée compte");
         inv.equipment.insert(part::RIDE, item(13, 4, part::RIDE, -1));
         assert_eq!(tids(&inv), vec![4, 3], "à cheval : la lance remplace l'épée");
     }

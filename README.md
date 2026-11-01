@@ -60,7 +60,7 @@ from the client's data tables.
 | Mounts, summons and pets, world time and weather | 🟡 verified with the simulator, to confirm in game |
 | Shrines, Battle Square, Battleground | 🟡 verified with the simulator, to confirm in game |
 | Castle sieges, ArchLord, region taxes | 🟡 verified with the simulator, to confirm in game |
-| Scion evolution at level 20, metamorphosis | ⏳ to do |
+| Scion evolution at level 20, metamorphosis | 🟡 verified with the simulator, to confirm in game |
 
 ### Quick start
 
@@ -189,7 +189,7 @@ et à partir des tables de données du client.
 | Montures, invocations et familiers, heure du monde et météo | 🟡 validés au simulateur, à confirmer en jeu |
 | Shrines, Battle Square, Battleground | 🟡 validés au simulateur, à confirmer en jeu |
 | Sièges des châteaux, ArchLord, taxes des régions | 🟡 validés au simulateur, à confirmer en jeu |
-| Évolution du Scion au niveau 20, métamorphose | ⏳ à faire |
+| Évolution du Scion au niveau 20, métamorphose | 🟡 validées au simulateur, à confirmer en jeu |
 
 ### Démarrage rapide
 

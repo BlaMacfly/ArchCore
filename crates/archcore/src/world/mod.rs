@@ -24,6 +24,7 @@
 //!   AgcmBattleGround (0x58, brut, serveur → client) : annonces du Battleground ; Battle Square (battlesquare.rs)
 //!   AgpmSiegeWar (0x49), AgpmEventSiegeWarNPC (0x50), AgpmWarInfo (0x61, serveur → client) : guerres de siège (siege/)
 //!   AgpmArchlord (0x55) : titre d'ArchLord, guerre de Rensphere (archlord.rs) ; AgpmTax (0x53) : taxes des régions (tax.rs)
+//!   AGPMCHARACTER ops 11 à 13 : métamorphose (morph.rs) ; ops 26, 27 : évolution du Dragon Scion (evolution.rs)
 //! ```
 //! L'état du monde est partagé derrière un verrou : les paquets de tous les joueurs sont traités un à
 //! un, comme dans la boucle unique du serveur Node.
@@ -45,6 +46,7 @@ pub mod convert;
 pub mod customize;
 pub mod effects;
 pub mod equipment;
+pub mod evolution;
 pub mod gm;
 pub mod guild;
 pub mod items;
@@ -55,6 +57,7 @@ pub mod mail;
 pub mod map;
 pub mod monster_skills;
 pub mod monsters;
+pub mod morph;
 pub mod nature;
 pub mod npc_events;
 pub mod npc_trade;
@@ -262,11 +265,20 @@ pub struct Player {
     pub move_guard: anticheat::MoveGuard,
     pub hits: anticheat::HitGuard,
     pub kicked: bool,
+    /// Métamorphose, évolution du Dragon Scion, recharge des potions de métamorphose (morph.rs, evolution.rs).
+    pub form: morph::Form,
 }
 
 impl Player {
+    /// Vue du personnage : TID de la forme évoluée (le TID d'origine sous métamorphose, la forme suivant par l'op 11),
+    /// champ 18 : bit 0 métamorphose, bit 1 monté, bit 2 évolution.
     pub fn view(&self) -> CharView {
-        CharView { transform: ride::transform_bits(&self.inventory), ..CharView::from(&self.ch) }
+        let base = CharView::from(&self.ch);
+        CharView { transform: ride::transform_bits(&self.inventory) | self.form.bits(), template_id: self.current_tid(), ..base }
+    }
+    /// Modèle des facteurs et de la vue : la forme évoluée, sinon celui du personnage.
+    pub fn current_tid(&self) -> u32 {
+        self.form.evolved.map(|e| e.tid).unwrap_or(self.ch.template_id)
     }
     pub fn send(&self, schema: &archcore_net::Schema, fields: Fields) {
         self.sess.send(schema, fields);
@@ -480,6 +492,8 @@ impl Connection for WorldConn {
             ptype::CHARACTER if p.int(0) == Some(combat::REQUEST_RESURRECTION_TOWN) => combat::resurrect(ctx, &mut st, self.sid).await?,
             ptype::CHARACTER if p.int(0) == Some(bank::MOVE_BANK_MONEY) => bank::move_money(ctx, &mut st, self.sid, p.int(9).unwrap_or(0)).await?,
             ptype::CHARACTER if p.int(0) == Some(option_flags::UPDATE_OPTION_FLAG) => option_flags::on_packet(ctx, &mut st, self.sid, &p).await?,
+            // Annulation de la métamorphose (icône « Cancel Metamorphosis »).
+            ptype::CHARACTER if p.int(0) == Some(morph::op::CANCEL_TRANSFORM) => morph::on_cancel(ctx, &mut st, self.sid, &p),
             // Résurrection de siège : 0x13 au point intérieur, 0x14 à l'extérieur (siege/war.rs).
             ptype::CHARACTER if matches!(p.int(0), Some(siege::war::RESURRECT_INNER | siege::war::RESURRECT_OUTER)) => {
                 siege::war::resurrect(ctx, &mut st, self.sid, p.int(0) == Some(siege::war::RESURRECT_INNER)).await?
@@ -500,7 +514,7 @@ impl Connection for WorldConn {
                 Some(ext_op::SET_LANGUAGE | ext_op::TEXT_REQUEST) => lang::on_packet(ctx, &mut st, self.sid, &p).await?,
                 _ => addon::on_packet(ctx, &mut st, self.sid, &p),
             },
-            ptype::SKILL => skills::on_packet(ctx, &mut st, self.sid, &p),
+            ptype::SKILL => skills::on_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::EVENT_SKILL_MASTER => skills::on_master_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::EVENT_BANK => bank::on_packet(ctx, &mut st, self.sid, &p),
             ptype::ITEM_CONVERT => convert::on_packet(ctx, &mut st, self.sid, &p).await?,
@@ -655,12 +669,18 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
     // Banque du compte : son argent et ses pages remplacent ceux de la ligne du personnage.
     ch.bank_money = bank.money;
     ch.bank_size = bank.extra_slots as i32;
-    let mut factors = equipment::with_equipment(make_factors(tpl, Some(&ch)), &equipment::worn(&inventory, &ctx.catalog, &ctx.convert));
-    ctx.options.apply(&mut factors, &equipment::worn_options(&inventory, &ctx.catalog, &ctx.options, ch.level as i64));
-    let gear = equipment::worn_gear(ctx, &inventory, ch.level as i64);
     let mut skills = skills::load(&ctx.db, &ctx.skills, ch.id, &mut st.next_skill_id).await?;
+    // Évolution du Dragon Scion enregistrée : facteurs de la forme (evolution.rs).
+    let evolved = evolution::at_entry(ctx, &ch, &skills);
+    let (tpl, form_class) = match evolved.and_then(|e| ctx.templates.get(e.tid)) {
+        Some(t) => (t, Some(t.class as i64)),
+        None => (tpl, None),
+    };
+    let mut factors = equipment::with_equipment(make_factors(tpl, Some(&ch)), &equipment::worn(&inventory, &ctx.catalog, &ctx.convert, form_class));
+    ctx.options.apply(&mut factors, &equipment::worn_options(&inventory, &ctx.catalog, &ctx.options, ch.level as i64, form_class));
+    let gear = equipment::worn_gear(ctx, &inventory, ch.level as i64, form_class);
     skills::refresh_points(&ctx.skills, &skills, &mut factors);
-    skills::sync_passives(&ctx.skills, &mut skills, ch.template_id);
+    skills::sync_passives(&ctx.skills, &mut skills, ch.template_id, skills::form_class(&factors));
     effects::apply(&mut factors, &effects::total(&skills.effects));
     // PV et PM enregistrés au-delà du maximum (maximum changé depuis) : ramenés au maximum.
     factors.point[crate::character::POINT_HP] = factors.point[crate::character::POINT_HP].min(factors.point_max[0]);
@@ -750,6 +770,7 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
             move_guard,
             hits: anticheat::HitGuard::default(),
             kicked: false,
+            form: morph::Form { evolved, ..Default::default() },
         },
     );
     st.by_cid.insert(cid, s.id());
@@ -788,8 +809,9 @@ fn enter_world(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle) {
     let empty = Vec::<u8>::new();
     p.send(ov, Fields::new(ov).with(0, 2).with(6, all_items).with(7, empty.clone()).with(8, skills::all_packets(p)));
     p.send(ov, Fields::new(ov).with(0, 2).with(6, empty.clone()).with(7, empty));
-    // Monture portée : AgpmRide op 2, une fois ses objets connus du client.
+    // Monture portée : AgpmRide op 2, une fois ses objets connus du client ; effet de l'évolution du Scion (op 4).
     ride::on_enter(st, sid);
+    evolution::on_enter(st, sid);
     let mv = &schema::OPT_CHAR_MOVE;
     p.send(mv, Fields::new(mv).with(0, p.ch.id).with(1, pos).with(2, pos).with(5, MOVE_STOP_SYNC).with(6, 0));
     let sent = send_nearby_npcs(ctx, st, sid, pos);

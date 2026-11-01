@@ -38,6 +38,10 @@
 //!   archcore sim itemset [compte] [mdp] [perso]               commutateur d'équipement : enregistrer, retirer, rééquiper (op 1), déplacer, relu à l'entrée ; compte MJ (itemset.rs)
 //!   archcore sim nature [A… B…]                               horloge commune à deux connexions décalées, /weather reçu par tous et à l'entrée ; A compte MJ (nature.rs)
 //!   archcore sim ride [A… B…]                                 montures, SimDepart (compte MJ) + SimA : monter, vitesse, op 2 vue, reconnexion, descente, refus en combat, mort (ride.rs)
+//!   archcore sim morph [A… B…]                                métamorphose, GmTest (MJ) + SimA : Spider Potion (op 4, op 19, facteurs, op 11 chez les deux), refus
+//!                                                             (op 27 code 4, Passport), vue (op 0 puis op 11), fin de durée (op 12), annulation op 13 (morph.rs)
+//!   archcore sim evolution [A… B…]                            évolution du Scion, GmTest (MJ) + SimScion (Scion du compte test) : apprentissage chez Gilliwen,
+//!                                                             Slayer (op 26, facteurs), Orbiter (op 27 puis 26), reconnexion, annulation (op 7 action 4) (evolution.rs)
 //!   archcore sim summons [compte] [mdp] [perso]               invocations, GmEffets (compte MJ) : Griolli (vue, état 0x800, op 0), ver tué par l'esprit, expérience au maître,
 //!                                                             propension (op 2), fin à la téléportation, Bomba expirée, limite, familier d'objet (summons.rs)
 //!   archcore sim chat [A… B…]                                 préfixes d'Archonia en type 0 (« /p », « /g », « /s »), commande inconnue sans réponse, « /race » avec Race Trumpet (chat.rs)
@@ -84,6 +88,7 @@ mod cheat;
 mod chat;
 mod competences;
 mod customize;
+mod evolution;
 mod guilds;
 mod lang;
 mod last_refine;
@@ -96,6 +101,7 @@ mod boss;
 mod shrine;
 mod siege;
 mod itemset;
+mod morph;
 mod nature;
 mod pk;
 mod product;
@@ -150,6 +156,8 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         Some("itemset") => Box::pin(itemset::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("nature") => Box::pin(nature::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("summons") => Box::pin(summons::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmEffets"))).await,
+        Some("morph") => Box::pin(morph::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
+        Some("evolution") => Box::pin(evolution::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "test"), &a(5, "test"), &a(6, "SimScion"))).await,
         Some("ride") => Box::pin(ride::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "SimDepart"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("chat") => Box::pin(chat::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("channel") => Box::pin(channel::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
@@ -187,7 +195,7 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         Some("ignore") => Box::pin(competences::ignore(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("rune") => Box::pin(competences::rune(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("trigger") => Box::pin(competences::trigger(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
-        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol|bag|skill|effects|status|bank|portal|pvp|reconnect|lastrefine|product|guild|guildlead|guildbattle|guildrelation|guildwarehouse|guildmark|guildstage|gm|buddy|mail|repair|ride|auction|itemset|nature|summons|chat|channel|customize|wanted|shrine|battlesquare|boss|siege|archlord|tax|cheat|trade|party|quest|mobskill|counter|partyskill|mastery [arguments]"),
+        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol|bag|skill|effects|status|bank|portal|pvp|reconnect|lastrefine|product|guild|guildlead|guildbattle|guildrelation|guildwarehouse|guildmark|guildstage|gm|buddy|mail|repair|ride|morph|evolution|auction|itemset|nature|summons|chat|channel|customize|wanted|shrine|battlesquare|boss|siege|archlord|tax|cheat|trade|party|quest|mobskill|counter|partyskill|mastery [arguments]"),
     }
 }
 
@@ -405,9 +413,14 @@ pub struct InWorld {
     pub converts: Vec<(i64, i64, i64, i64)>,
     /// Durabilités entamées reçues avec les objets (AGPMITEM champ 10, facteur « objet ») : (IID, durabilité).
     pub durabilities: Vec<(i64, i64)>,
-    /// Champ 18 du personnage (« transformation » : bit 1 monté) et AgpmRide reçus pendant l'entrée : (op, IID).
+    /// Champ 18 du personnage (« transformation » : bit 0 métamorphose, bit 1 monté, bit 2 évolution) et AgpmRide reçus
+    /// pendant l'entrée : (op, IID).
     pub transform: i64,
     pub rides: Vec<(i64, i64)>,
+    /// TID du personnage à l'entrée (champ 2 : la forme d'un Dragon Scion évolué) et effets annoncés pendant l'entrée
+    /// (AGPMSKILL op 4 : identifiant de la compétence).
+    pub tid: i64,
+    pub effects: Vec<i64>,
     /// AGPMTIMER reçu à l'entrée : temps du jeu (ms), vitesse, instant de réception.
     pub game_ms: i64,
     pub time_speed: i64,
@@ -633,7 +646,8 @@ pub async fn enter_world_opts(cfg: &Config, user: &str, pass: &str, char_name: &
     let mut converts = Vec::new();
     let mut item_keys = Vec::new();
     let (mut durabilities, mut rides) = (Vec::new(), Vec::new());
-    let transform = me.int(18).unwrap_or(0);
+    let (transform, tid) = (me.int(18).unwrap_or(0), me.int(2).unwrap_or(0));
+    let mut effects = Vec::new();
     let (mut quests_done, mut quests_active) = (Vec::new(), Vec::new());
     let mut language_ack = None;
     loop {
@@ -646,6 +660,7 @@ pub async fn enter_world_opts(cfg: &Config, user: &str, pass: &str, char_name: &
                         || q.is(&schema::QUEST, None)
                         || q.is(&schema::ARCHCORE_EXT, Some(ext_op::LANGUAGE_ACK))
                         || q.is(&schema::RIDE, None)
+                        || q.is(&schema::SKILL, Some(4))
                         || q.is(cm, Some(char_mgr_op::FINISH_ENTER))
                 },
                 5000,
@@ -661,6 +676,10 @@ pub async fn enter_world_opts(cfg: &Config, user: &str, pass: &str, char_name: &
         }
         if p.ptype == schema::RIDE.id {
             rides.push((p.int(0).unwrap_or(0), p.int(2).unwrap_or(0)));
+            continue;
+        }
+        if p.ptype == schema::SKILL.id {
+            effects.push(p.int(1).unwrap_or(0));
             continue;
         }
         if p.is(&schema::QUEST, Some(5)) {
@@ -720,7 +739,7 @@ pub async fn enter_world_opts(cfg: &Config, user: &str, pass: &str, char_name: &
     println!("  niveau {level}, {} compétence(s) : {skills:?}", skills.len());
     println!("  entrée en jeu confirmée");
     println!("  quêtes : terminées {quests_done:?}, en cours {quests_active:?}");
-    Ok(InWorld { world, cid, start, monsters, npcs, level, bank_money, bank_size, items, quests_done, quests_active, skills, language_ack, converts, durabilities, transform, rides, game_ms, time_speed, timer_at, server_time, item_keys })
+    Ok(InWorld { world, cid, start, monsters, npcs, level, bank_money, bank_size, items, quests_done, quests_active, skills, language_ack, converts, durabilities, transform, rides, tid, effects, game_ms, time_speed, timer_at, server_time, item_keys })
 }
 
 async fn client(user: &str, pass: &str, char_name: &str, commands: &[String]) -> anyhow::Result<()> {
@@ -2884,7 +2903,7 @@ async fn party_skill(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str)
     const SPOT: Vec3 = Vec3 { x: -476_000.0, y: 4_422.0, z: -61_000.0 };
     const MARCHING_SONG: i64 = 526;
     let cfg = crate::config::load()?;
-    let (k, ch, mv, pm) = (&schema::SKILL, &schema::CHATTING, &schema::OPT_CHAR_MOVE, &schema::PARTY_MANAGEMENT);
+    let (k, ch, pm) = (&schema::SKILL, &schema::CHATTING, &schema::PARTY_MANAGEMENT);
     step(&format!("préparation : {ca} connaît Marching Song"));
     let db = crate::db::Databases::new(&cfg.database);
     let id = character_id(&db, ca).await?;
@@ -2892,12 +2911,11 @@ async fn party_skill(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str)
     db.close().await;
 
     step(&format!("{ca} et {cb} entrent en jeu et forment un groupe"));
+    // Côte à côte dès l'entrée : la validation du serveur refuse une position lointaine donnée par le client.
+    start_at(&cfg, ca, SPOT).await?;
+    start_at(&cfg, cb, SPOT).await?;
     let mut a = enter_world(&cfg, ua, pa, ca, "A-").await?;
     let mut b = enter_world(&cfg, ub, pb, cb, "B-").await?;
-    for w in [&mut a, &mut b] {
-        let cid = w.cid;
-        w.world.send(mv, Fields::new(mv).with(0, cid).with(1, SPOT).with(2, SPOT).with(5, 0x04).with(6, 0)).await?;
-    }
     let (acid, bcid) = (a.cid as i64, b.cid as i64);
     let song = a.skills.iter().find(|s| s.1 == MARCHING_SONG).map(|s| s.0).ok_or_else(|| anyhow::anyhow!("Marching Song absente"))?;
     a.world.send(pm, Fields::new(pm).with(0, 0).with(1, acid).with(2, bcid)).await?;
@@ -2922,7 +2940,8 @@ async fn party_skill(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str)
 
     step(&format!("{cb} s'éloigne : seul {ca} est renforcé"));
     let far = Vec3::new(SPOT.x + 3000.0, SPOT.y, SPOT.z);
-    b.world.send(mv, Fields::new(mv).with(0, b.cid).with(1, far).with(2, far).with(5, 0x04).with(6, 0)).await?;
+    // Le MJ l'éloigne : la validation du serveur refuse une position lointaine donnée par le client.
+    gm_place(&mut a, cb, far).await?;
     tokio::time::sleep(Duration::from_millis(500)).await;
     a.world.send(ch, say(a.cid, "/recast")).await?;
     a.world.expect_where(system, 3000, "relance").await?;

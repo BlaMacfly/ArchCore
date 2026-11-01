@@ -391,6 +391,8 @@ pub async fn step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) -> anyhow::
     // Usure des coups de ce tour, descentes de monture forcées.
     super::repair::step(ctx, st).await?;
     super::ride::step(ctx, st).await?;
+    // Métamorphoses échues ou de joueurs morts.
+    super::morph::step(ctx, st, now);
     Ok(())
 }
 

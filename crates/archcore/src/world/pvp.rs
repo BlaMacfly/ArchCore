@@ -141,13 +141,13 @@ pub fn check(ctx: &WorldCtx, st: &WorldState, sid: u32, tsid: u32, forced: bool)
     if super::guild::battle::enemies(st, a.ch.id, c.ch.id) {
         return Ok(());
     }
-    // Battlegrounds : races différentes seulement.
+    // Battlegrounds : races différentes seulement (race de la forme sous métamorphose, morph.rs).
     if in_battleground(ctx, st, sid) && in_battleground(ctx, st, tsid) {
-        return if a.factors.ftype[0] != c.factors.ftype[0] { Ok(()) } else { Err(Refusal(None)) };
+        return if super::morph::race(ctx, a) != super::morph::race(ctx, c) { Ok(()) } else { Err(Refusal(None)) };
     }
     // Shrine en combat (shrine.rs) : de même, entre joueurs du même Shrine.
     if let (Some(x), Some(y)) = (super::shrine::active_shrine(ctx, st, sid), super::shrine::active_shrine(ctx, st, tsid)) {
-        return if x == y && a.factors.ftype[0] != c.factors.ftype[0] { Ok(()) } else { Err(Refusal(None)) };
+        return if x == y && super::morph::race(ctx, a) != super::morph::race(ctx, c) { Ok(()) } else { Err(Refusal(None)) };
     }
     // Siège en cours (siege/war.rs) : guildes de camps opposés sans Ctrl, jamais dans un même camp ; les autres joueurs
     // suivent les règles ordinaires.

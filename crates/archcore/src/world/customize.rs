@@ -195,6 +195,11 @@ async fn buy(ctx: &WorldCtx, st: &mut WorldState, sid: u32, face: i32, hair: i32
         send_system(st, sid, "Descendez de votre monture pour changer d'apparence.");
         return Ok(());
     }
+    // Transformé ou évolué : « CustomizeNeedRestoreTransform » côté client (morph.rs, evolution.rs).
+    if p.form.morph.is_some() || p.form.evolved.is_some() {
+        send_system(st, sid, "Reprenez votre apparence d'origine pour changer d'apparence.");
+        return Ok(());
+    }
     let q = match quote(&ctx.customize, p.ch.template_id, (p.ch.face, p.ch.hair), face, hair, super::tax::ratio_of(ctx, st, sid)) {
         Ok(q) => q,
         Err(r) => {

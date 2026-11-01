@@ -19,7 +19,7 @@ ArchCore uses three main MariaDB databases, plus a log database, created and upd
 
 | Table | Content |
 |---|---|
-| `characters` | Account, slot, unique name, template (TID), level, experience, HP/MP/SP, position, money, bank, hair, face, charisma, soft delete |
+| `characters` | Account, slot, unique name, template (TID), level, experience, HP/MP/SP, position, money, bank, hair, face, charisma, soft delete; `evolution_tid`: evolved form of a Dragon Scion (1722, 1723, 1732; 0 none), `template_id` staying the Scion's |
 | `character_items` | Items: status 0 inventory, 1 equipped, 2 bank (attached to the character who deposited it), 3 guild warehouse (`guild_id`; the character who deposited it stays recorded), 4 item attached to a mail (attached to the recipient), 5 on sale in the auction house (attached to the seller); `durability`: -1 full (template DUR column), otherwise current durability (wear, `repair.rs`) |
 | `character_quests` | Quests in progress (monster A and B counters) and completed |
 | `account_bank` | Account bank: money, pages beyond the first (created on first entry, with the money the characters had in the bank) |
@@ -83,6 +83,7 @@ Filled by `archcore import` from the client tables.
 | `refinery_object` | `obj*.ini` (event 26) | 20 alchemy spheres: object, position (refining within 1600 units) |
 | `teleport_fee` | `TeleportFee.txt` | 227 trip fees (departure, arrival) |
 | `bank_slot_price` | `bankslotprice.txt` | Price of extra bank pages (-1: cannot be bought with gold) |
+| `item_transform` | `itemtransformtable.txt` | 89 metamorphosis potions: item TID, form, level and Korean name (for reference), bonuses added to the transformed player's factors (run speed, attack speed, max HP and MP, defense, min and max damage; may be negative) |
 | `character_customize` | `charactercustomizelist.txt` | Hair styles (1) and faces (2) per model: number (AGPMCHARACTER fields 20 and 21), name, `Case` (0 creation and stylist, 1 stylist, 2 creation), required level, gold or item price, file order |
 | `guild_max_member` | `guildmaxmember.txt` | Guild sizes and their price; the first row is a new guild (50 places, 10,000 coins), the next ones the enlargements |
 | `guild_mark` | `guildmark.txt` | Guild mark items: layer (1 background, 2 pattern, 3 symbol, 4 colour), number, TID (number << 8 × (layer − 1)), name, gold price, skulls, cash, ARGB colour |
@@ -165,6 +166,7 @@ start-up:
 |---|---|
 | character without an account (`characters.account_id` → `account`) | serious |
 | character with an unknown template (`characters.template_id` → `character_template`) | serious |
+| unknown evolved form (non-zero `characters.evolution_tid` → `character_template`) | warning |
 | item without a definition (`character_items.template_id` → `item_data`), for example after a reimport | serious |
 | unknown skill (`character_skills.skill_tid` → `skill_template`) | serious |
 | quest missing from `quest_template` | warning |

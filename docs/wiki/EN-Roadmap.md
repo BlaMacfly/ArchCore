@@ -163,6 +163,24 @@
   refining limited to the 20 alchemy spheres of the `obj*.ini` files; disabled portal points (destinations without
   an arrival object or forbidden to the race); Berserker heroic tree read (two trees, shifted columns). Validated with
   the simulator, to be confirmed in game.
+- Metamorphosis (`world/morph.rs`): usable type 7 potions (101 items, form "Polymorph Id", duration "Polymorph
+  Dur") and ItemTransformTable.txt bonuses (`item_transform` table) added to the factors; AGPMCHARACTER op 11 to the
+  player and those who see them (view: op 0 with the original TID, bit 0 of field 18, then op 11), op 12 when the
+  duration ends, on cancellation (client op 13) or on death; AGPMITEM op 4, op 19 (shared 10 min cooldown), op 27 code 4
+  when mounted, transformed or evolved, code 2 in a siege zone; form lost on logout, cooldown kept per session. Client
+  refusals repeated (skills, scrolls, Potions of Quickness and Beam, portals, Shrines, NPCs, stylist), except for the
+  ArchLord; equipment frozen while transformed (client check `FUN_1401bfa10` on an unidentified template flag); form's
+  race for player-versus-player rules. Mutation (`transform_target` 4) on players only: form drawn from
+  `creature_tid` for 7 s, no cancellation. `Item.TransformMaxDurationMs` shortens the duration (simulator). Validated
+  with the simulator on 1 November 2026 (`morph` scenario), to be confirmed in game.
+- Dragon Scion evolution (`world/evolution.rs`): Slayer, Orbiter and Summoner of Evolution (1189, 1192, 1195), learnt
+  from the Dragon Scion skill masters from level 20; casting → AGPMSKILL op 4 (effect without duration) then
+  AGPMCHARACTER op 26 (1722, 1723, 1732); from one form to another, op 27 then op 26; casting the active form again is
+  refused; cancellation by AGPMSKILL op 7 action 4 → op 5 and op 27 (1724). Form's factors and growth, HP and MP
+  capped, skills and passives by the form's `require_class_*` columns, weapons not allowed no longer counted, skill
+  reset item refused; form saved (`characters.evolution_tid`), kept on death and restored on entry (form's TID, bit 2
+  of field 18). Validated with the simulator on 1 November 2026 (`evolution` scenario), to be confirmed in game; the
+  ArchRust client still has to handle these packets.
 - ArchRust client ([own repository](https://github.com/BlaMacfly/ArchRust)): combat (attacking, hits, death, resurrection, loot), parties, other
   players, inventory and equipment, NPCs (dialog, shop, bank and buying pages, quests), skills (trainers,
   casting, shortcut bar), teleport portals (original window and loading screen, confirmation of player-versus-player zones, "Return",
@@ -187,7 +205,7 @@
 3. NPC functions: quests with interaction objects. Server-built menus (AgpmEventNPCDialog ops 2 and 3, message
    boxes and buttons) of the "<Town> Event", "Portal to Chaotic Frontier", "Portal to Town" NPCs and of Jaig: the client
    can show them, but their content is neither in the client nor in its data; waiting for a source. Portals: refusal
-   while transformed to check once transformation exists; the Battle Ground fort entrances (`TeleportPoint.ini`) have
+   while transformed done (morph.rs), to be confirmed in game; the Battle Ground fort entrances (`TeleportPoint.ini`) have
    no object in Archonia's `obj*.ini` files.
 4. Skills: damage reflection (counter attack), monster skills, party skills and masteries validated with the
    simulator on 25 October 2026; damage sharing (Divine Protection, Martyr's Mark), dispels (Antimagic, Cure,

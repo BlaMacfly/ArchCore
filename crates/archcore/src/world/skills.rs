@@ -68,6 +68,8 @@ pub mod op {
 pub mod action {
     pub const CAST: i64 = 1;
     pub const RESULT: i64 = 2;
+    /// Annuler (icône d'annulation de l'évolution du Scion, `evolution.rs`).
+    pub const CANCEL: i64 = 4;
 }
 
 pub mod master_op {
@@ -142,6 +144,12 @@ pub fn class_column(race: i32, class: i32) -> Option<usize> {
     CLASS_COLUMNS.iter().position(|c| *c == col)
 }
 
+/// Colonne de classe qui règle les compétences d'un Dragon Scion (race 4) selon sa forme courante (Scion, Slayer, Orbiter,
+/// Summoner : `evolution.rs`) ; `None` pour les autres races, dont les compétences ne sont pas filtrées.
+pub fn form_class(f: &Factors) -> Option<usize> {
+    (f.ftype[0] == super::evolution::DRAGON_SCION).then(|| class_column(f.ftype[0], f.ftype[2])).flatten()
+}
+
 /// Points de compétence gagnés à un niveau : un par niveau, plus un par niveau de 50 à 70.
 pub fn points_for_level(level: i32) -> i32 {
     level + (level - 49).clamp(0, 21)
@@ -206,6 +214,9 @@ pub struct SkillLevel {
     pub limit_quantity: u32,
     /// `skill_type` de SKILL_CONST (9 : compétence de l'ArchLord, `archlord.rs`).
     pub skill_type: i32,
+    /// Formes d'une compétence de transformation (`creature_tid` de SKILL_CONST, liste « ; ») : TID de l'évolution du
+    /// Scion (`evolution.rs`), animaux de Mutation (`morph.rs`).
+    pub creature_tids: Vec<u32>,
 }
 
 /// Champs de SKILL_SPEC qui règlent les valeurs d'un niveau.
@@ -290,6 +301,7 @@ impl SkillLevel {
             summons_count: num("summons_count").max(0.0) as u32,
             limit_quantity: num("limit_quantity").max(0.0) as u32,
             skill_type: num("skill_type") as i32,
+            creature_tids: c.get("creature_tid").and_then(|v| v.as_str()).map(creature_list).unwrap_or_default(),
         }
     }
 
@@ -306,6 +318,11 @@ impl SkillLevel {
     pub fn leaves_effect(&self, status: u64) -> bool {
         self.lasting() || status != 0 && self.status_ms > 0
     }
+}
+
+/// Liste de TID de la colonne `creature_tid` de SKILL_CONST (« 100;103;104 »), zéros écartés.
+pub fn creature_list(text: &str) -> Vec<u32> {
+    text.split(';').filter_map(|t| t.trim().parse::<u32>().ok()).filter(|t| *t > 0).collect()
 }
 
 /// Modificateurs d'un niveau, avec les effets de combat que règle SKILL_SPEC.
@@ -416,6 +433,9 @@ pub struct SkillTemplate {
     /// (colonne `ride`) : compétences de l'ArchLord (`archlord.rs`).
     pub game_effect: i64,
     pub ride: bool,
+    /// Transformation (colonne `transform_target` de SKILL_SPEC) : 4 Mutation de la cible (`morph.rs`), 5 évolution du
+    /// Scion (`evolution.rs`) ; 0 : aucune.
+    pub transform_target: i64,
     /// Niveau n à l'indice n - 1.
     pub levels: Vec<SkillLevel>,
 }
@@ -483,11 +503,23 @@ impl SkillTemplate {
     pub fn party(&self) -> bool {
         !self.offensive() && self.range_code % 1000 == 303
     }
+    /// Évolution du Scion (Slayer, Orbiter, Summoner of Evolution : `transform_target` 5).
+    pub fn is_evolution(&self) -> bool {
+        self.transform_target == TRANSFORM_EVOLUTION
+    }
+    /// Mutation : change la cible en animal (`transform_target` 4).
+    pub fn is_mutation(&self) -> bool {
+        self.transform_target == TRANSFORM_MUTATION
+    }
     /// Compétence réservée à l'ArchLord (`skill_type` 9 de SKILL_CONST).
     pub fn archlord_only(&self) -> bool {
         self.levels.first().is_some_and(|l| l.skill_type == ARCHLORD_SKILL_TYPE)
     }
 }
+
+/// Valeurs de `transform_target` (SKILL_SPEC) traitées : Mutation, évolution du Scion.
+pub const TRANSFORM_MUTATION: i64 = 4;
+pub const TRANSFORM_EVOLUTION: i64 = 5;
 
 /// `skill_type` des compétences de l'ArchLord (liste « Archlord » de SKILLMASTERY.txt, `FUN_1402fa5c0` d'Archonia).
 pub const ARCHLORD_SKILL_TYPE: i32 = 9;
@@ -552,6 +584,7 @@ impl SkillCatalog {
                     summons: int("summons"),
                     game_effect: int("game_effect"),
                     ride: int("ride") != 0,
+                    transform_target: int("transform_target"),
                     levels: Vec::new(),
                 },
             );
@@ -716,13 +749,17 @@ pub async fn load(db: &Databases, catalog: &SkillCatalog, character_id: u32, nex
     Ok(skills)
 }
 
-/// Recrée les effets des compétences passives connues (niveau courant). Rend vrai si la liste a changé.
-pub fn sync_passives(catalog: &SkillCatalog, skills: &mut PlayerSkills, caster_tid: u32) -> bool {
+/// Recrée les effets des compétences passives connues (niveau courant) ; avec `form` (`form_class`), seulement celles
+/// que la classe de la forme admet. Rend vrai si la liste a changé.
+pub fn sync_passives(catalog: &SkillCatalog, skills: &mut PlayerSkills, caster_tid: u32, form: Option<usize>) -> bool {
     let before: Vec<(u32, u32)> = skills.effects.iter().filter(|e| e.ends_at.is_none()).map(|e| (e.tid, e.level)).collect();
     skills.effects.retain(|e| e.ends_at.is_some());
     for s in &skills.list {
         let Some(t) = catalog.get(s.tid).filter(|t| t.nature().passive) else { continue };
         let Some(lv) = t.level(s.level).filter(|lv| !lv.mods.is_empty()) else { continue };
+        if form.is_some() && lv.classes != 0 && !lv.allows(form) {
+            continue;
+        }
         effects::push(
             &mut skills.effects,
             Effect { skill_id: s.id, tid: s.tid, level: s.level, caster_tid, duration_ms: 0, ends_at: None, mods: lv.mods, dot: None, status: 0, status_until: None, caster_sid: effects::MONSTER_CASTER, purge: None },
@@ -867,11 +904,26 @@ fn spirit_ranges(f: &Factors) -> [(f64, f64); 8] {
 // ---------------------------------------------------------------------------------------------
 
 /// AGPMSKILL reçu du client.
-pub fn on_packet(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) {
+pub async fn on_packet(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> anyhow::Result<()> {
     match p.int(0) {
+        // Action de type 4 : annulation (icône de l'évolution du Scion), sinon l'incantation en préparation s'arrête.
+        Some(op::CAST) if cast_action(p) == Some(action::CANCEL) => {
+            let skill_id = p.int(1).unwrap_or(0) as u32;
+            if st.players.get(&sid).and_then(|pl| pl.skills.by_id(skill_id)).and_then(|s| ctx.skills.get(s.tid)).is_some_and(|t| t.is_evolution()) {
+                super::evolution::on_cancel_request(ctx, st, sid, skill_id).await?;
+            } else if st.players.get(&sid).is_some_and(|pl| matches!(pl.skills.cast, Some(Cast { stage: Stage::Approach { .. }, .. }))) {
+                stop(st, sid);
+            }
+        }
         Some(op::CAST) => request_cast(ctx, st, sid, p),
         other => debug!("[compétence] #{sid} AGPMSKILL op {other:?} (ignoré)"),
     }
+    Ok(())
+}
+
+/// Type d'action (champ 0 du mini SKILL_ACTION, champ 6) d'un AGPMSKILL op 7.
+fn cast_action(p: &Packet) -> Option<i64> {
+    p.bytes(6).and_then(|b| decode_mini(&mini::SKILL_ACTION, b).ok()).and_then(|a| a.int(0))
 }
 
 fn request_cast(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) {
@@ -914,6 +966,27 @@ fn request_cast(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) {
     if owned.ready_at.is_some_and(|r| now < r) {
         debug!("[compétence] {name} : {} pas encore prête", t.name);
         return;
+    }
+    // Métamorphose : compétences refusées, sauf à l'ArchLord (morph.rs).
+    if super::morph::restricted(st, sid) {
+        debug!("[compétence] {name} : {} refusée sous métamorphose", t.name);
+        send_system(st, sid, "Vous ne pouvez pas utiliser de compétence sous métamorphose.");
+        return stop(st, sid);
+    }
+    // Évolution du Scion : forme déjà prise, métamorphose, autre race (evolution.rs).
+    if t.is_evolution() {
+        if let Err(why) = t.level(owned.level).ok_or("niveau inconnu").and_then(|lv| super::evolution::check(ctx, st, sid, lv)) {
+            info!("[compétence] {name} : {} refusée ({why})", t.name);
+            send_system(st, sid, &format!("{} : {why}.", t.name));
+            return stop(st, sid);
+        }
+    } else if let Some(col) = form_class(&player.factors) {
+        // Dragon Scion : une compétence ne sert que sous une forme que ses colonnes `require_class_*` admettent.
+        if t.level(owned.level).is_some_and(|lv| lv.classes != 0 && !lv.allows(Some(col))) {
+            debug!("[compétence] {name} : {} refusée sous la forme {}", t.name, CLASS_COLUMNS[col]);
+            send_system(st, sid, &format!("{} ne s'utilise pas sous cette forme.", t.name));
+            return stop(st, sid);
+        }
     }
     // Compétence de l'ArchLord (`skill_type` 9) : refusée à tout autre joueur (archlord.rs).
     if t.archlord_only() && !super::archlord::is_lord(st, sid) {
@@ -1076,6 +1149,10 @@ async fn complete(ctx: &WorldCtx, st: &mut WorldState, sid: u32, cast: Cast, now
     // Compétences de l'ArchLord sur le monde : monture Alcadia, gardes royaux, ciel (archlord.rs).
     if super::archlord::on_cast(ctx, st, sid, t, lv, now) {
         return Ok(());
+    }
+    // Évolution du Scion : la forme change (evolution.rs).
+    if t.is_evolution() {
+        return super::evolution::on_cast(ctx, st, sid, &owned, t, lv).await;
     }
     let p = &st.players[&sid];
     // Invocation (colonne `summons` de SKILL_SPEC) : créatures, limite relevée (summons.rs).
@@ -1269,6 +1346,10 @@ async fn hit_player(ctx: &WorldCtx, st: &mut WorldState, sid: u32, owned: &Owned
     let status = roll_status(&mut rand::thread_rng(), lv, &mods);
     if !shielded && lv.leaves_effect(status) {
         add_player_effect(ctx, st, tsid, Effect { caster_sid: sid, ..new_effect(owned, lv, caster_tid, status, None, now) });
+    }
+    // Mutation : la cible prend une forme d'animal pour la durée du niveau (morph.rs).
+    if !shielded && ctx.skills.get(owned.tid).is_some_and(|t| t.is_mutation()) {
+        super::morph::mutate(ctx, st, tsid, &lv.creature_tids, lv.duration_ms, now).await?;
     }
     Ok(())
 }
@@ -1772,8 +1853,8 @@ pub async fn learn(ctx: &WorldCtx, st: &mut WorldState, sid: u32, tid: u32) -> a
     p.skills.list.push(owned);
     refresh_points(&ctx.skills, &p.skills, &mut p.factors);
     p.send_raw(add_packet(p.ch.id, &owned));
-    let caster_tid = p.ch.template_id;
-    if sync_passives(&ctx.skills, &mut p.skills, caster_tid) {
+    let (caster_tid, form) = (p.ch.template_id, form_class(&p.factors));
+    if sync_passives(&ctx.skills, &mut p.skills, caster_tid, form) {
         super::equipment::refresh_factors(ctx, st, sid);
     } else {
         send_points(p);
@@ -1815,8 +1896,8 @@ pub async fn upgrade(ctx: &WorldCtx, st: &mut WorldState, sid: u32, skill_id: u3
     let updated = *s;
     refresh_points(&ctx.skills, &p.skills, &mut p.factors);
     p.send_raw(update_packet(p.ch.id, &updated));
-    let caster_tid = p.ch.template_id;
-    if sync_passives(&ctx.skills, &mut p.skills, caster_tid) {
+    let (caster_tid, form) = (p.ch.template_id, form_class(&p.factors));
+    if sync_passives(&ctx.skills, &mut p.skills, caster_tid, form) {
         super::equipment::refresh_factors(ctx, st, sid);
     } else {
         send_points(p);
@@ -1917,6 +1998,7 @@ mod tests {
             summons: 0,
             game_effect: 0,
             ride: false,
+            transform_target: 0,
             levels: vec![SkillLevel::from_consts(&consts), SkillLevel { require_level: 7, require_point: 1, upgrade_cost: 480, ..SkillLevel::from_consts(&consts) }],
         }
     }
@@ -2061,8 +2143,8 @@ mod tests {
         let hold = serde_json::json!({ "require_class_knight": "1", "point.def_point_physical": "20" });
         catalog.insert(SkillTemplate { tid: 40, name: "Defense Hold".into(), attribute: 9, target: 111, levels: vec![SkillLevel::from_consts(&hold)], ..Default::default() });
         let mut skills = PlayerSkills { list: vec![Owned { id: 3, tid: 40, level: 1, ready_at: None, exp: 0 }], ..Default::default() };
-        assert!(sync_passives(&catalog, &mut skills, 96));
-        assert!(!sync_passives(&catalog, &mut skills, 96), "inchangée");
+        assert!(sync_passives(&catalog, &mut skills, 96, None));
+        assert!(!sync_passives(&catalog, &mut skills, 96, None), "inchangée");
         assert_eq!((skills.effects.len(), effects::total(&skills.effects).defense), (1, 20.0));
     }
 
