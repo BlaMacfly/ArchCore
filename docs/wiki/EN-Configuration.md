@@ -87,7 +87,10 @@ unknown key (typo) is reported.
 | `World.ExitOnRestart` | `0` | `1`: stops the server at the end of the `/announce_restart` countdown |
 | `StartPosition.<race>.Village` / `.X` / `.Y` / `.Z` | see the template | Spawn position per race: 1 Human, 2 Orc, 3 Moon Elf, 4 Scion |
 | `Rate.Exp`, `Rate.Gold`, `Rate.Drop`, `Rate.UniqueDrop`, `Rate.Charisma`, `Rate.Prestige`, `Rate.ChatBuff` | `1` | Rates at startup (see [[Administration|EN-Administration]]) |
-| `GM.CommandLevel.<command>` | — | Required GM level for a command, for example `GM.CommandLevel.kill = 3` |
+| `GM.CommandLevel.<command>` | — | Required GM level for a command, for example `GM.CommandLevel.kill = 3`; for a SOAP console command, words separated by dots (`GM.CommandLevel.account.create = 3`) |
+| `SOAP.Enabled` | `0` | `1`: SOAP administration interface, compatible with the AzerothCore and TrinityCore one (see [[Administration|EN-Administration]]) |
+| `SOAP.IP` / `SOAP.Port` | `127.0.0.1` / `7878` | HTTP listen address and port of SOAP, the AzerothCore defaults. Passwords travel in clear text: expose it only locally or behind a firewall |
+| `SOAP.MinGmLevel` | `3` | Minimum GM level of an account to use SOAP (like SEC_ADMINISTRATOR); below it, HTTP 403. Each command also requires its own level |
 
 Current starting villages:
 
@@ -121,6 +124,7 @@ upper case.
 | `World.MonsterDensity` | `ARCHCORE_WORLD_MONSTER_DENSITY` |
 | `Database.Password` | `ARCHCORE_DATABASE_PASSWORD` |
 | `Rate.Exp` | `ARCHCORE_RATE_EXP` |
+| `SOAP.Enabled` | `ARCHCORE_SOAP_ENABLED` |
 
 Other variables:
 

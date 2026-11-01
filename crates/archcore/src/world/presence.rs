@@ -177,6 +177,19 @@ pub fn step_toward(pos: Vec3, dest: Vec3, speed: f64, dt: f64) -> (Vec3, bool) {
     (Vec3::new(pos.x + (done * dx / total) as f32, pos.y, pos.z + (done * dz / total) as f32), false)
 }
 
+/// Vitesse de la marche en cours (course ou marche), en dixièmes d'unité par seconde.
+fn walk_speed(p: &super::Player) -> f64 {
+    (if p.move_flags & MOVE_FAST != 0 { p.factors.status[9] } else { p.factors.status[8] }) as f64
+}
+
+/// Position du joueur à `now`, la marche en cours avancée jusque-là, sans toucher à la position suivie.
+pub fn position_now(p: &super::Player, now: Instant) -> Vec3 {
+    match p.dest.filter(|_| !p.dead) {
+        Some(dest) => step_toward(p.ch.pos(), dest, walk_speed(p), now.saturating_duration_since(p.moved_at).as_secs_f64()).0,
+        None => p.ch.pos(),
+    }
+}
+
 /// Avance la marche d'un joueur jusqu'à `now` ; arrêt à destination.
 fn advance(p: &mut super::Player, now: Instant) {
     let dt = now.saturating_duration_since(p.moved_at).as_secs_f64();
@@ -185,7 +198,7 @@ fn advance(p: &mut super::Player, now: Instant) {
     if p.dead {
         return;
     }
-    let speed = if p.move_flags & MOVE_FAST != 0 { p.factors.status[9] } else { p.factors.status[8] } as f64;
+    let speed = walk_speed(p);
     let from = p.ch.pos();
     let (next, arrived) = step_toward(from, dest, speed, dt);
     p.ch.set_pos(next);

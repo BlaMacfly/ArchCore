@@ -45,7 +45,7 @@ pub const ARCHLORD_TRIBUTE: i64 = 20;
 /// Cadence des versements et des enregistrements différés.
 const STEP: Duration = Duration::from_secs(10);
 /// Distance à l'intendant pour lui parler.
-const NPC_RANGE: f64 = super::npc_events::MAX_NPC_DISTANCE;
+const NPC_RANGE: f64 = super::npc_events::range::TAX;
 
 /// Une région taxée.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -347,7 +347,7 @@ fn open(ctx: &WorldCtx, st: &WorldState, sid: u32, p: &Packet) {
         warn!("[taxe] #{sid} {} n'est pas un intendant", npc.name);
         return;
     }
-    if super::npc_events::npc_distance(npc, player.ch.pos_x, player.ch.pos_z) > NPC_RANGE {
+    if !super::npc_events::in_range(npc, player, NPC_RANGE) {
         return;
     }
     let echo = if p.bytes(3).is_some() { build_mini(&mini::EVENT_BASE, &ev) } else { super::npcs::event_base(npc.cid, event_function::TAX) };

@@ -12,7 +12,7 @@
 //! taxée.
 
 use super::items::{alloc_shop_iid, item_add, item_count, item_remove, item_status, SHOP_GRID};
-use super::npc_events::{npc_distance, resolve, MAX_NPC_DISTANCE};
+use super::npc_events::{in_range, range, resolve};
 use super::npcs::event_function;
 use super::{clamp_money, show_money, OpenShop, ShopItem, WorldCtx, WorldState, SAVE_MONEY};
 use crate::{info, warn};
@@ -75,7 +75,7 @@ fn open(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) {
         return;
     };
     let player = st.players.get_mut(&sid).unwrap();
-    if npc_distance(npc, player.ch.pos_x, player.ch.pos_z) > MAX_NPC_DISTANCE {
+    if !in_range(npc, player, range::NPC_TRADE) {
         warn!("[boutique] #{sid} {} trop loin de {}", player.ch.name, npc.name);
         return;
     }
@@ -133,7 +133,7 @@ fn active_shop(ctx: &WorldCtx, st: &WorldState, sid: u32) -> Option<(u32, String
     let p = st.players.get(&sid)?;
     let shop = p.shop.as_ref()?;
     let npc = ctx.npcs.get(shop.npc_cid)?;
-    (npc_distance(npc, p.ch.pos_x, p.ch.pos_z) <= MAX_NPC_DISTANCE).then(|| (npc.cid, npc.name.clone()))
+    in_range(npc, p, range::NPC_TRADE).then(|| (npc.cid, npc.name.clone()))
 }
 
 async fn buy(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> anyhow::Result<()> {

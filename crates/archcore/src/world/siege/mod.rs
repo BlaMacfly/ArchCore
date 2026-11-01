@@ -63,7 +63,7 @@ const FILETIME_EPOCH: i64 = 11_644_473_600;
 /// Cadence du calendrier.
 const STEP: Duration = Duration::from_secs(1);
 /// Distance au commandant de siège pour ouvrir sa fenêtre.
-const NPC_RANGE: f64 = super::npc_events::MAX_NPC_DISTANCE;
+const NPC_RANGE: f64 = super::npc_events::range::SIEGE_WAR_NPC;
 
 /// Statuts d'un château (`château+0x17c` du client).
 pub mod status {
@@ -1008,7 +1008,7 @@ pub fn on_npc_packet(ctx: &WorldCtx, st: &WorldState, sid: u32, p: &Packet) {
         warn!("[siège] #{sid} {} n'est pas un commandant de siège", npc.name);
         return;
     }
-    if super::npc_events::npc_distance(npc, player.ch.pos_x, player.ch.pos_z) > NPC_RANGE {
+    if !super::npc_events::in_range(npc, player, NPC_RANGE) {
         return;
     }
     let Some(def) = ctx.map.region(npc.pos.x as f64, npc.pos.z as f64).and_then(|r| ctx.sieges.by_region(r)) else {

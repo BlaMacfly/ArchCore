@@ -552,7 +552,7 @@ pub async fn on_packet(ctx: &super::WorldCtx, st: &mut super::WorldState, sid: u
 /// AGPMEVENTITEMCONVERT reçu : op 0 demande la fenêtre de conversion d'un forgeron (fonction 22), op 1
 /// l'accorde.
 pub fn on_event(ctx: &super::WorldCtx, st: &super::WorldState, sid: u32, p: &archcore_net::Packet) {
-    use super::npc_events::{npc_distance, resolve, MAX_NPC_DISTANCE};
+    use super::npc_events::{in_range, range, resolve};
     use archcore_net::schema::{self, mini};
     use archcore_net::{build_mini, decode_mini, Fields};
     if p.int(0) != Some(0) {
@@ -561,7 +561,7 @@ pub fn on_event(ctx: &super::WorldCtx, st: &super::WorldState, sid: u32, p: &arc
     let Some(player) = st.players.get(&sid) else { return };
     let base = p.bytes(1).and_then(|b| decode_mini(&mini::EVENT_BASE, b).ok()).unwrap_or_else(|| Fields::new(&mini::EVENT_BASE));
     let Some((npc, _)) = resolve(&ctx.npcs, &base) else { return };
-    if !npc.events.iter().any(|e| e.function == super::npcs::event_function::ITEM_CONVERT) || npc_distance(npc, player.ch.pos_x, player.ch.pos_z) > MAX_NPC_DISTANCE {
+    if !npc.events.iter().any(|e| e.function == super::npcs::event_function::ITEM_CONVERT) || !in_range(npc, player, range::ITEM_CONVERT) {
         crate::warn!("[conversion] #{sid} {} : conversion refusée auprès de {}", player.ch.name, npc.name);
         return;
     }
@@ -572,7 +572,7 @@ pub fn on_event(ctx: &super::WorldCtx, st: &super::WorldState, sid: u32, p: &arc
 /// Un forgeron (fonction 22) est à portée.
 fn near_blacksmith(ctx: &super::WorldCtx, p: &super::Player) -> bool {
     let f = super::npcs::event_function::ITEM_CONVERT;
-    ctx.npcs.near(p.ch.pos(), super::npc_events::MAX_NPC_DISTANCE * 2.0).any(|n| n.events.iter().any(|e| e.function == f))
+    super::npc_events::npcs_in_range(&ctx.npcs, p, super::npc_events::range::ITEM_CONVERT * 2.0).any(|n| n.events.iter().any(|e| e.function == f))
 }
 
 /// Enregistre l'état de conversion d'un objet de l'inventaire.

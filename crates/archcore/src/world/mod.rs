@@ -40,6 +40,7 @@ pub mod buddy;
 pub mod channel;
 pub mod chat;
 pub mod combat;
+pub mod console;
 pub mod convert;
 pub mod customize;
 pub mod effects;
@@ -505,7 +506,7 @@ impl Connection for WorldConn {
             ptype::ITEM_CONVERT => convert::on_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::EVENT_ITEM_CONVERT => convert::on_event(ctx, &st, self.sid, &p),
             ptype::REFINERY => refinery::on_packet(ctx, &mut st, self.sid, &p).await?,
-            ptype::EVENT_REFINERY => refinery::on_event(&st, self.sid, &p),
+            ptype::EVENT_REFINERY => refinery::on_event(ctx, &st, self.sid, &p),
             ptype::EVENT_TELEPORT => portal::on_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::GUILD => guild::on_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::EVENT_GUILD => guild::on_event(ctx, &mut st, self.sid, &p),
@@ -762,6 +763,7 @@ fn enter_world(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle) {
         s.close();
         return;
     };
+    console::note_players(st.players.len());
     let pos = p.ch.pos();
     p.send_raw(character_packet(&p.view(), &p.factors, 0));
     // Client ArchRust en « automatique » (HELLO sans langue) : le HELLO_ACK annonçait la langue par défaut ;

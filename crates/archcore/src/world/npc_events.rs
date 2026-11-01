@@ -5,24 +5,77 @@
 //! Le serveur accorde par l'op 1 en renvoyant les mêmes champs ; le texte du dialogue est dans le client.
 
 use super::npcs::{event_function, Npc, NpcEvent, NpcRegistry};
-use super::{WorldCtx, WorldState};
+use super::{Player, WorldCtx, WorldState};
 use crate::{info, warn};
 use archcore_net::schema::{self, mini};
 use archcore_net::{build_mini, decode_mini, Fields, Packet};
+use std::time::Instant;
 
 pub mod dialog_op {
     pub const REQUEST: i64 = 0;
     pub const GRANT: i64 = 1;
 }
 
-/// Distance maximale (unités du jeu, ~1 cm) entre le joueur et le PNJ pour lui parler ou commercer.
-pub const MAX_NPC_DISTANCE: f64 = 1500.0;
+/// Portées d'usage des fonctions de PNJ et d'objet : distance au sol (unités du jeu, ~1 cm) que vérifie le code
+/// partagé d'Archonia à la réception de chaque module, par son contrôle de portée d'ApmEventManager
+/// (`FUN_140304580`, appelé avec une portée fixe par module).
+pub mod range {
+    /// Dialogue (AgpmEventNPCDialog, `FUN_140289730`).
+    pub const DIALOG: f64 = 600.0;
+    /// Boutique : son module (AgpmEventNPCTrade) ne contrôle aucune portée ; elle s'ouvre depuis le dialogue, dont
+    /// elle garde la portée.
+    pub const NPC_TRADE: f64 = DIALOG;
+    /// Commandant de siège (AgpmEventSiegeWarNPC, `FUN_140285090`).
+    pub const SIEGE_WAR_NPC: f64 = 600.0;
+    /// Banque (AgpmEventBank, `FUN_1402b2810`).
+    pub const BANK: f64 = 800.0;
+    /// Conversion chez le forgeron (AgpmEventItemConvert, `FUN_14029f1f0`).
+    pub const ITEM_CONVERT: f64 = 800.0;
+    /// Maître des compétences (AgpmEventSkillMaster, `FUN_1402b7550`).
+    pub const SKILL_MASTER: f64 = 800.0;
+    /// Guilde et entrepôt de guilde (AgpmEventGuild, `FUN_14027b630`).
+    pub const GUILD: f64 = 800.0;
+    /// Coiffeur (AgpmEventCharCustomize, `FUN_14022d200`).
+    pub const CHAR_CUSTOMIZE: f64 = 800.0;
+    /// Réparation (AgpmEventItemRepair, `FUN_1402b4020`).
+    pub const ITEM_REPAIR: f64 = 1600.0;
+    /// Maison des ventes (AgpmAuction, `FUN_140269a70`).
+    pub const AUCTION: f64 = 1600.0;
+    /// Quêtes (AgpmEventQuest, `FUN_1402a56b0` : 1600 au plus).
+    pub const QUEST: f64 = 1600.0;
+    /// Production (AgpmEventProduct, `FUN_1402d05a0`).
+    pub const PRODUCT: f64 = 1600.0;
+    /// Rémission (AgpmRemission, `FUN_140276e50`).
+    pub const REMISSION: f64 = 1600.0;
+    /// Tableau des avis de recherche (AgpmWantedCriminal, `FUN_14028a700`).
+    pub const WANTED_CRIMINAL: f64 = 1600.0;
+    /// Intendant des taxes (AgpmTax, `FUN_14026c7b0`).
+    pub const TAX: f64 = 1600.0;
+    /// Portails (AgpmEventTeleport, `FUN_1402e8780`).
+    pub const TELEPORT: f64 = 1600.0;
+    /// Sphères d'alchimie (AgpmEventRefinery, `FUN_14029d820`).
+    pub const REFINERY: f64 = 1600.0;
+}
+
+/// Marge ajoutée aux portées (choix d'ArchCore) : positions arrondies du client et marche suivie par le serveur.
+pub const RANGE_TOLERANCE: f64 = 50.0;
 
 /// Distance au sol (x, z) entre un PNJ et une position.
 pub fn npc_distance(npc: &Npc, x: f64, z: f64) -> f64 {
     let dx = npc.pos.x as f64 - x;
     let dz = npc.pos.z as f64 - z;
     (dx * dx + dz * dz).sqrt()
+}
+
+/// Le joueur est à portée `range` du PNJ : position suivie à l'instant (marche en cours comprise), plus la marge.
+pub fn in_range(npc: &Npc, p: &Player, range: f64) -> bool {
+    let at = super::presence::position_now(p, Instant::now());
+    npc_distance(npc, at.x as f64, at.z as f64) <= range + RANGE_TOLERANCE
+}
+
+/// PNJ à portée `range` du joueur (même mesure que `in_range`).
+pub fn npcs_in_range<'a>(npcs: &'a NpcRegistry, p: &Player, range: f64) -> impl Iterator<Item = &'a Npc> + 'a {
+    npcs.near(super::presence::position_now(p, Instant::now()), range + RANGE_TOLERANCE)
 }
 
 /// Désigne l'événement visé : PNJ trouvé par CID (champ 1) ou par identifiant d'événement (champ 2).
@@ -61,9 +114,8 @@ pub fn on_dialog(ctx: &WorldCtx, st: &WorldState, sid: u32, p: &Packet) {
         return;
     };
     let ch = &player.ch;
-    let dist = npc_distance(npc, ch.pos_x, ch.pos_z);
-    if dist > MAX_NPC_DISTANCE {
-        warn!("[pnj] #{sid} {} trop loin de {} ({dist:.0}) pour lui parler", ch.name, npc.name);
+    if !in_range(npc, player, range::DIALOG) {
+        warn!("[pnj] #{sid} {} trop loin de {} ({:.0}) pour lui parler", ch.name, npc.name, npc_distance(npc, ch.pos_x, ch.pos_z));
         return;
     }
     if let Some(e) = event.filter(|e| e.function != event_function::NPC_DIALOG) {

@@ -8,7 +8,8 @@
 //!        de même identifiant, sont autant d'issues équiprobables : objet produit et quantité, objet bonus,
 //!        nombre d'options (« Item Option Min/Max ») et de sockets (« Socket Inchant Min/Max ») de l'objet
 //!        produit. Une recette se reconnaît à ses ingrédients, dans n'importe quel ordre.
-//!   Ouverture : AGPMEVENTREFINERY op 0 sur un objet du monde de fonction 26 (sphère d'alchimie), op 1 accord.
+//!   Ouverture : AGPMEVENTREFINERY op 0 sur un objet du monde de fonction 26 (sphère d'alchimie, table
+//!        `refinery_object`), op 1 accord, à 1600 unités au plus de la sphère comme dans le code partagé d'Archonia.
 //!   AGPMREFINERY : op 5 devis (20 IID de la grille → op 5, prix au champ 6) ; op 2 raffinage de la grille ;
 //!        op 6 raffinage d'une recette (identifiant au champ 2, ingrédients pris dans l'inventaire). Réponse
 //!        op 1 : résultat 0 réussite (TID produit au champ 5), 1 ingrédients manquants, 2 objets sans recette,
@@ -52,6 +53,8 @@ pub struct Recipe {
 pub struct Recipes {
     pub by_id: HashMap<u32, Recipe>,
     by_resources: HashMap<Vec<(u32, i64)>, u32>,
+    /// Sphères d'alchimie (objets du monde de fonction 26) et leur position.
+    pub spheres: HashMap<u32, archcore_net::Vec3>,
 }
 
 /// Ingrédients triés et regroupés par TID.
@@ -70,15 +73,23 @@ pub fn normalize(items: impl IntoIterator<Item = (u32, i64)>) -> Vec<(u32, i64)>
 impl Recipes {
     /// Table importée dans `client_table` (`archcore import --server`) ; vide si elle manque.
     pub async fn load(db: &crate::db::Databases) -> anyhow::Result<Self> {
+        use crate::db::col;
+        let mut spheres = HashMap::new();
+        for r in db.world.rows("SELECT object_id, pos_x, pos_y, pos_z FROM refinery_object", ()).await? {
+            spheres.insert(col(&r, "object_id"), archcore_net::Vec3::new(col::<f64>(&r, "pos_x") as f32, col::<f64>(&r, "pos_y") as f32, col::<f64>(&r, "pos_z") as f32));
+        }
+        if spheres.is_empty() {
+            crate::warn!("raffinage : aucune sphère d'alchimie dans refinery_object (lancer archcore import)");
+        }
         for name in ["RefineryItem2.txt", "refineryrecipetable.txt"] {
             let row = db.world.first("SELECT data FROM client_table WHERE name = ? AND row_idx = 0", (name,)).await?;
-            let Some(text) = row.and_then(|r| serde_json::from_str::<String>(&crate::db::col::<String>(&r, "data")).ok()) else { continue };
-            let r = Self::parse(&text);
-            crate::info!("raffinage : {} recette(s) ({name})", r.by_id.len());
+            let Some(text) = row.and_then(|r| serde_json::from_str::<String>(&col::<String>(&r, "data")).ok()) else { continue };
+            let r = Self { spheres, ..Self::parse(&text) };
+            crate::info!("raffinage : {} recette(s) ({name}), {} sphère(s) d'alchimie", r.by_id.len(), r.spheres.len());
             return Ok(r);
         }
         crate::warn!("raffinage : aucune table de recettes dans client_table (lancer archcore import)");
-        Ok(Self::default())
+        Ok(Self { spheres, ..Self::default() })
     }
 
     pub fn parse(text: &str) -> Self {
@@ -165,8 +176,8 @@ fn packet(op: i64, cid: u32, result: Option<i64>, tid: Option<u32>, price: Optio
     build_packet(s, &f)
 }
 
-/// AGPMEVENTREFINERY : la demande d'ouverture (op 0) d'une sphère d'alchimie est accordée (op 1).
-pub fn on_event(st: &super::WorldState, sid: u32, p: &archcore_net::Packet) {
+/// AGPMEVENTREFINERY : la demande d'ouverture (op 0) d'une sphère d'alchimie à portée est accordée (op 1).
+pub fn on_event(ctx: &super::WorldCtx, st: &super::WorldState, sid: u32, p: &archcore_net::Packet) {
     use archcore_net::schema::{self, mini};
     use archcore_net::{build_mini, decode_mini, Fields};
     if p.int(0) != Some(0) {
@@ -176,6 +187,17 @@ pub fn on_event(st: &super::WorldState, sid: u32, p: &archcore_net::Packet) {
     let base = p.bytes(1).and_then(|b| decode_mini(&mini::EVENT_BASE, b).ok()).unwrap_or_else(|| Fields::new(&mini::EVENT_BASE));
     if base.int(3) != Some(EVENT_FUNCTION) {
         crate::warn!("[raffinage] #{sid} événement {:?} : pas une sphère d'alchimie", base.int(3));
+        return;
+    }
+    let sphere = (base.int(0) == Some(super::npcs::BASE_TYPE_OBJECT)).then(|| base.int(1)).flatten().and_then(|id| ctx.recipes.spheres.get(&(id as u32)));
+    let Some(at) = sphere else {
+        crate::warn!("[raffinage] #{sid} objet {:?} : pas une sphère d'alchimie", base.int(1));
+        return;
+    };
+    let me = super::presence::position_now(player, std::time::Instant::now());
+    let distance = super::combat::dist2d(me, *at);
+    if distance > super::npc_events::range::REFINERY + super::npc_events::RANGE_TOLERANCE {
+        crate::warn!("[raffinage] #{sid} {} trop loin de la sphère d'alchimie ({distance:.0})", player.ch.name);
         return;
     }
     let s = &schema::EVENT_REFINERY;

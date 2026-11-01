@@ -78,6 +78,7 @@ la discussion comme messages système.
 | `/rename_char "ancien" "nouveau"` | 2 | Renomme en base (2 à 24 caractères, sans espace). Un joueur connecté voit son nouveau nom à sa prochaine connexion |
 | `/create "nom" <TID> <quantité> <0\|1>` | 3 | Ajoute l'objet dans `character_items`, dans la première case libre de l'inventaire. Un joueur connecté le reçoit tout de suite ; le personnage peut aussi être hors ligne |
 | `/additem <TID> [quantité]` | 3 | Raccourci de `/create` sur soi : ajoute l'objet (1 par défaut, jusqu'à 9999) dans l'inventaire du MJ, échangeable. Commande propre à ArchCore |
+| `/simloot <TID du monstre> <nombre> [taux de butin] [taux d'or]` | 2 | Simule le butin de `nombre` monstres de ce modèle (1 à 10 000) : chaque mort tire le butin exactement comme à la mort d'un vrai monstre (or, groupes de butin, objets propres au monstre), sans rien créer ni poser au sol. Taux du serveur (`/GetDrop`, `/GetGold`) sauf s'ils sont donnés (0 à 100) ; niveau du monstre : celui d'un monstre de ce modèle présent dans le monde, sinon celui du modèle ; le niveau du personnage du MJ tient lieu de niveau du tueur. Réponse : un en-tête (monstres, taux, or, nombre d'objets et de sortes), puis une ligne `· quantité × nom (TID n)` par objet, du plus fréquent au plus rare (40 au plus, puis une ligne de résumé). Commande propre à ArchCore |
 | `/weather [clear\|rain\|snow]` | 2 | Météo pour tous les joueurs en jeu (pluie, neige, temps clair) ; sans argument, la météo et l'heure du jeu. Commande propre à ArchCore |
 | `/shrine [open\| `/siege [start|end <château> | owner <château> <guilde|-> | hp <château> <PV>]` | 3 | Sans argument, l'état des châteaux ; `start` clôt les candidatures et ouvre le combat, `end` le termine (la guilde du dernier carving prend le château), `owner` donne le château à une guilde (`-` : aucune) et remet son calendrier au statut 0, `hp` ramène les PV des objets intacts d'un château en guerre (essais). Commande propre à ArchCore |
 |close <n>]` | 3 | Sans argument, l'état des Shrines ; `open` ouvre le combat du Shrine `n` sans attendre son horaire, `close` le ferme sans vainqueur. Commande propre à ArchCore |
@@ -201,6 +202,7 @@ Exemple : `/SetExp 2.0` puis `/GetExp` pour vérifier.
 |---|---|
 | ✅ `/create "nom" <TID> <quantité> <0\|1>` | Donne un objet au personnage. `TID` = identifiant de l'objet ; le dernier nombre rend l'objet non échangeable (1) |
 | ✅ `/additem <TID> [quantité]` | Ajoute un objet à son propre inventaire (ajout d'ArchCore, absent du panneau) |
+| ✅ `/simloot <TID du monstre> <nombre> [taux de butin] [taux d'or]` | Simule le butin d'un nombre de monstres et liste les objets obtenus (ajout d'ArchCore, absent du panneau) |
 | ✅ `/speed <1-10>` | Multiplie sa vitesse de déplacement (ajout d'ArchCore, absent du panneau) |
 | ✅ `/weather [clear\|rain\|snow]` | Météo de tout le monde, ou météo et heure du jeu (ajout d'ArchCore, absent du panneau) |
 | ✅ `/shrine [open\|close <n>]` | État des Shrines, ouverture ou fermeture forcée d'un combat (ajout d'ArchCore, absent du panneau) |
@@ -291,7 +293,102 @@ aucun contrôle côté client. Réglages `AntiCheat.*` : voir [[Configuration|FR
 - **Consulter.** `/anomalies "nom"` : nombre d'anomalies en base et dans la fenêtre en cours, puis les
   dix dernières (date, type, détail, sanction).
 
-## 6. Bonnes pratiques
+## 6. Interface SOAP (outils d'AzerothCore et de TrinityCore)
+
+Le serveur monde peut recevoir des commandes d'administration par **SOAP**, avec le même protocole
+qu'AzerothCore et TrinityCore : leurs panneaux web, bots Discord et scripts (PHP `SoapClient`,
+`acore-soap` en Python, cURL…) fonctionnent sans changement. Méthode `executeCommand`, élément
+`command`, espace de noms quelconque (`urn:AC`, `urn:TC`, `urn:ArchCore`…), authentification HTTP
+Basic avec un compte du jeu.
+
+### Activation
+
+Dans `config/world.conf` (ou par variables d'environnement, voir [[Configuration|FR-Configuration]]) :
+
+```ini
+SOAP.Enabled = 1
+SOAP.IP = "127.0.0.1"
+SOAP.Port = 7878
+SOAP.MinGmLevel = 3
+```
+
+Au démarrage du monde, le journal montre `[soap] en écoute sur http://127.0.0.1:7878`. Le compte qui
+se connecte doit avoir un niveau MJ d'au moins `SOAP.MinGmLevel` (`account.gm_level`, voir la
+section 1) ; chaque commande demande en plus son propre niveau, exactement comme en jeu.
+
+### Sécurité
+
+- Les identifiants passent **en clair** (HTTP Basic, sans chiffrement). Laisser `SOAP.IP = "127.0.0.1"`,
+  ou n'ouvrir le port que derrière un pare-feu, un réseau privé ou un tunnel SSH
+  (`ssh -L 7878:127.0.0.1:7878 serveur`). Ne jamais ouvrir 7878 sur Internet.
+- Prendre un compte dédié à l'outil, avec un mot de passe solide et le niveau MJ juste nécessaire.
+- Une requête par connexion, corps de 64 Ko au plus, 10 s pour l'envoyer. Chaque commande est notée dans
+  le journal du serveur (`[soap] compte (IP, MJ n) : commande`, puis le résultat) et dans la table
+  `log_gm` de la base des journaux (personnage 0, nom `SOAP <adresse IP>`) ; les mots de passe de
+  `account create` et `account set password` y sont remplacés par `***`.
+
+### Réponses
+
+| Cas | HTTP | Corps |
+|---|---|---|
+| Commande réussie | 200 | `<ns1:executeCommandResponse><result>…</result>` ; chaque ligne finit par `&#xD;` + saut de ligne, comme la console d'AzerothCore |
+| Commande refusée ou en échec (syntaxe, droits, commande inconnue, vide) | 500 | `SOAP-ENV:Fault`, `faultcode` `SOAP-ENV:Client`, `faultstring` et `detail` = message |
+| Identifiants absents ou faux, compte inconnu ou banni | 401 | Fault `HTTP Error: 401 Unauthorized` (+ `WWW-Authenticate: Basic`) |
+| Niveau MJ sous `SOAP.MinGmLevel` | 403 | Fault `HTTP Error: 403 Forbidden` |
+
+`ns1` reprend l'espace de noms de la requête, `xsi` et `xsd` aussi (1999 par défaut, comme gSOAP).
+
+### Exemple avec curl
+
+```sh
+curl -s -u admin:MotDePasse -H "Content-Type: text/xml; charset=utf-8" http://127.0.0.1:7878/ \
+  -d '<?xml version="1.0" encoding="utf-8"?><SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ns1="urn:AC"><SOAP-ENV:Body><ns1:executeCommand><command>server info</command></ns1:executeCommand></SOAP-ENV:Body></SOAP-ENV:Envelope>'
+```
+
+Sous Windows PowerShell, appeler `curl.exe` (pas l'alias `curl`) et mettre l'enveloppe dans un fichier
+(`--data-binary "@requete.xml"`) pour éviter les soucis de guillemets. Réponse :
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/" xmlns:SOAP-ENC="http://schemas.xmlsoap.org/soap/encoding/" xmlns:xsi="http://www.w3.org/1999/XMLSchema-instance" xmlns:xsd="http://www.w3.org/1999/XMLSchema" xmlns:ns1="urn:AC"><SOAP-ENV:Body SOAP-ENV:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"><ns1:executeCommandResponse><result>ArchCore rev. 0.2.0 (windows, Release)&#xD;
+Connected players: 1. Characters in world: 1.&#xD;
+Connection peak: 2.&#xD;
+Server uptime: 1 Hour(s) 5 Minute(s) 12 Second(s)&#xD;
+</result></ns1:executeCommandResponse></SOAP-ENV:Body></SOAP-ENV:Envelope>
+```
+
+### Commandes
+
+Une commande s'écrit avec ou sans `.` ou `/` devant, sans tenir compte de la casse. Les commandes de
+gestion d'AzerothCore répondent avec leurs textes anglais d'origine, que les outils analysent :
+
+| Commande | Niveau | Effet |
+|---|---|---|
+| `account create <compte> <mot de passe> [courriel]` | 3 | Crée un compte (lettres, chiffres, `_ - .`, 32 caractères au plus ; mot de passe de 64 au plus). Le courriel est accepté et ignoré. Réponse `Account created: <compte>` |
+| `account set password <compte> <mdp> [<mdp>]` | 3 | Change le mot de passe (le second, s'il est donné, doit être identique). Réponse `The password was changed` |
+| `account set gmlevel <compte> <niveau> [royaume]` | 3 | Niveau MJ du compte (jamais au-dessus du sien ; le royaume, `-1` chez AzerothCore, est ignoré). Un joueur en jeu le reçoit tout de suite |
+| `account onlinelist` | 1 | Tableau des joueurs en ligne : compte, personnage, IP, niveau, niveau MJ (`Empty list` sans personne) |
+| `ban account <compte> <durée> [raison]` | 3 | Bannit le compte (`account_banned`, auteur `SOAP <compte>`) et déconnecte ses personnages. Durée : `1d2h30m10s`, un nombre de secondes, `-1` ou `0` sans fin |
+| `unban account <compte>` | 3 | Lève les bannissements en cours |
+| `kick <personnage> [raison]` | 2 | Déconnecte un joueur en jeu, sans attente de reconnexion. Réponse `Player <nom> kicked.` |
+| `announce <texte>` / `notify <texte>` | 2 | Annonce à tous les joueurs en jeu (sans sortie, comme AzerothCore) |
+| `server info` | 1 | Version, `Connected players: n. Characters in world: n.`, pic de connexions, temps de fonctionnement |
+| `server shutdown <délai>\|cancel`, `server restart <délai>\|cancel` | 3 | Compte à rebours de `/announce_restart` (délai en secondes ou `1h30m`) ; le serveur ne s'arrête à la fin qu'avec `World.ExitOnRestart = 1` |
+| `commands` / `help` | 0 | Commandes permises au compte |
+
+Toute autre commande passe par l'interpréteur des commandes MJ du jeu (sections 3 et 4), sans le `/` :
+`SetExp 2`, `GetExp`, `chatban "Nom" 10`, `money 1000 "Nom"`, `move -479091,-66202 "Nom"`,
+`announce_restart 5`, `siege`, `simloot 450 100`… Celles qui agissent sur le personnage du MJ
+(`speed`, `additem`, `invincible`, `durability`, `recast`, `questreset`, `last_refine`, et `kill`,
+`level`, `money`, `charisma`, `move` sans nom de personnage) répondent par un Fault « commande
+réservée au jeu ». Les niveaux se changent avec `GM.CommandLevel.<commande>` ; pour une commande de
+console, mots séparés par des points : `GM.CommandLevel.account.create = 3`.
+
+Les commandes s'exécutent sous le verrou du monde, comme un paquet de joueur : elles ne bloquent pas
+la boucle du jeu plus longtemps qu'une commande tapée en jeu. Une commande commencée va à son terme
+même si le client se déconnecte.
+
+## 7. Bonnes pratiques
 
 - Garder les comptes MJ séparés des comptes de jeu, avec un mot de passe solide.
 - Tester une commande sur un personnage de test avant de l'utiliser sur un joueur.

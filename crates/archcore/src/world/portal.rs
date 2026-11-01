@@ -3,8 +3,8 @@
 //! ```text
 //!   AGPMEVENTTELEPORT (0x31) :
 //!   client → op 4 (demande, EVENT_BASE de l'objet). À moins de 1600 unités ← op 5 (accord : le client ouvre
-//!            la liste des destinations) ; plus loin, le serveur fait courir le joueur vers l'objet et accorde
-//!            dès qu'il est à portée.
+//!            la liste des destinations ; champ 5 : numéros des points désactivés) ; plus loin, le serveur fait
+//!            courir le joueur vers l'objet et accorde dès qu'il est à portée.
 //!   client → op 0 (EVENT_BASE de l'objet de départ, nom du point d'arrivée)
 //!            ← op 1 (CID, position d'arrivée), déplacement, ← op 8 (chargement terminé).
 //!   client → op 7 (EVENT_BASE, CID) : « Retour » depuis un point de zone de combat entre joueurs
@@ -12,10 +12,16 @@
 //! ```
 //! Un trajet est permis si l'un des groupes visés par le point de départ (`TargetGroup`) compte le point
 //! d'arrivée (`Group`), et si la race du joueur est admise aux deux bouts (`UseType`, 0 : toutes). L'arrivée
-//! est l'objet qui porte le point d'arrivée : on se pose sur un cercle de rayon `RadiusMin`..`RadiusMax`
-//! autour de lui, au premier des huit points espacés de 45° (à partir d'un angle tiré au hasard) qui n'est
-//! pas sur un sol infranchissable. Le prix du trajet (TeleportFee.txt, que le client affiche aussi), plus la
+//! est l'objet qui porte le point d'arrivée (ou sa position fixe, `PointTargetType=1`) : on se pose sur un cercle
+//! de rayon `RadiusMin`..`RadiusMax` autour de lui, au premier des huit points espacés de 45° (à partir d'un angle
+//! tiré au hasard) qui n'est pas sur un sol infranchissable. Le prix du trajet (TeleportFee.txt, que le client affiche aussi), plus la
 //! taxe de la région du départ (`tax.rs`), est pris sur l'argent porté.
+//!
+//! Points désactivés (champ 5 de l'op 5, `FUN_1406ea050` d'Archonia) : au plus 20 numéros de point (entiers sur 4
+//! octets ; le numéro d'un point est son rang dans TeleportPoint.ini, à partir de 1, comme au chargement du client
+//! `FUN_14022f0d0`). Le client grise ces destinations (statut « Disable ») ; si le départ lui-même y figure, toutes. ArchCore
+//! y met les destinations que le client proposerait et qu'il refuserait de toute façon : point sans objet d'arrivée
+//! dans les obj*.ini (entrées des forts de la Battle Ground, par exemple) ou qui n'admet pas la race du joueur.
 //!
 //! Zones de combat entre joueurs (`RegionType=1`, toujours avec `SpecialType=1` dans TeleportPoint.ini) :
 //! comme dans le module AgpmEventTeleport d'Archonia (FUN_1402e8780), le point de départ de chaque trajet
@@ -38,7 +44,7 @@ use std::collections::HashMap;
 use std::time::Instant;
 
 /// Distance (au sol) à laquelle un portail répond.
-pub const MAX_USE_RANGE: f64 = 1600.0;
+pub const MAX_USE_RANGE: f64 = super::npc_events::range::TELEPORT;
 
 pub mod op {
     pub const TELEPORT_POINT: i64 = 0;
@@ -65,6 +71,8 @@ fn race_bit(race: i64) -> i64 {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Point {
+    /// Numéro du point : son rang dans TeleportPoint.ini, à partir de 1.
+    pub id: i64,
     pub radius_min: f64,
     pub radius_max: f64,
     pub use_type: i64,
@@ -73,7 +81,8 @@ pub struct Point {
     pub special_type: i64,
     pub groups: Vec<String>,
     pub target_groups: Vec<String>,
-    /// Position de l'objet qui porte le point ; sans objet, le point ne peut pas servir d'arrivée.
+    /// Arrivée : position fixe du point (`PointTargetType=1`) ou de l'objet qui le porte ; sans l'une ni l'autre, le
+    /// point ne peut pas servir d'arrivée.
     pub at: Option<Vec3>,
 }
 
@@ -94,10 +103,15 @@ pub struct Portal {
     pub pos: Vec3,
 }
 
+/// Destinations proposées (et donc points désactivés) : 20 au plus, comme la liste du client.
+pub const MAX_LISTED: usize = 20;
+
 /// Points, portails et prix des trajets, chargés au démarrage.
 #[derive(Default)]
 pub struct Portals {
     pub points: HashMap<String, Point>,
+    /// Noms des points dans l'ordre de TeleportPoint.ini.
+    pub order: Vec<String>,
     pub objects: HashMap<u32, Portal>,
     pub fees: HashMap<(String, String), i64>,
 }
@@ -105,13 +119,14 @@ pub struct Portals {
 impl Portals {
     pub async fn load(db: &Databases) -> anyhow::Result<Self> {
         let mut r = Portals::default();
-        let Ok(rows) = db.world.rows("SELECT name, radius_min, radius_max, use_type, region_type, special_type, point_groups, target_groups FROM teleport_point", ()).await else {
+        let Ok(rows) = db.world.rows("SELECT point_id, name, target_type, pos_x, pos_y, pos_z, radius_min, radius_max, use_type, region_type, special_type, point_groups, target_groups FROM teleport_point ORDER BY point_id", ()).await else {
             warn!("portails non chargés : lancer `archcore db-init` puis `archcore import`");
             return Ok(r);
         };
         let list = |s: String| serde_json::from_str::<Vec<String>>(&s).unwrap_or_default();
         for row in &rows {
             let point = Point {
+                id: col(row, "point_id"),
                 radius_min: col::<f32>(row, "radius_min") as f64,
                 radius_max: col::<f32>(row, "radius_max") as f64,
                 use_type: col(row, "use_type"),
@@ -119,9 +134,12 @@ impl Portals {
                 special_type: col(row, "special_type"),
                 groups: list(col(row, "point_groups")),
                 target_groups: list(col(row, "target_groups")),
-                at: None,
+                // Point à position fixe (`PointTargetType=1`, `PointPos`) : c'est son arrivée ; sinon l'objet qui le porte.
+                at: (col::<i64>(row, "target_type") == 1).then(|| Vec3::new(col::<f64>(row, "pos_x") as f32, col::<f64>(row, "pos_y") as f32, col::<f64>(row, "pos_z") as f32)),
             };
-            r.points.insert(col(row, "name"), point);
+            let name: String = col(row, "name");
+            r.order.push(name.clone());
+            r.points.insert(name, point);
         }
         // L'objet qui porte un point en est l'arrivée ; si plusieurs le portent, le dernier compte.
         for row in db.world.rows("SELECT object_id, point, pos_x, pos_y, pos_z FROM teleport_object ORDER BY object_id", ()).await? {
@@ -139,6 +157,26 @@ impl Portals {
         Ok(r)
     }
 
+    /// Destinations que le client propose depuis `from` (`FUN_1402e71e0` d'Archonia) : les points des groupes visés,
+    /// dans l'ordre des groupes puis de TeleportPoint.ini, sans doublon ni le départ, 20 au plus.
+    pub fn destinations(&self, from: &Point) -> Vec<&Point> {
+        let mut out: Vec<&Point> = Vec::new();
+        for g in &from.target_groups {
+            for p in self.order.iter().filter_map(|n| self.points.get(n)) {
+                if out.len() < MAX_LISTED && p.id != from.id && p.groups.contains(g) && !out.iter().any(|q| q.id == p.id) {
+                    out.push(p);
+                }
+            }
+        }
+        out
+    }
+
+    /// Champ 5 de l'accord : numéros (entiers sur 4 octets) des destinations sans objet d'arrivée ou qui n'admettent
+    /// pas la race `race`.
+    pub fn disabled(&self, from: &Point, race: i64) -> Vec<u8> {
+        self.destinations(from).iter().filter(|p| p.at.is_none() || !p.admits(race)).flat_map(|p| (p.id as i32).to_le_bytes()).collect()
+    }
+
     /// Prix du trajet de `from` à `to` (gratuit s'il n'est pas dans la table).
     pub fn fee(&self, from: &str, to: &str) -> i64 {
         self.fees.get(&(from.to_string(), to.to_string())).copied().unwrap_or(0).max(0)
@@ -152,6 +190,8 @@ pub struct Pending {
     pub pos: Vec3,
     /// EVENT_BASE de la demande, renvoyé tel quel avec l'accord.
     pub base: Vec<u8>,
+    /// Points désactivés envoyés avec l'accord (champ 5).
+    pub disabled: Vec<u8>,
 }
 
 /// Point visé : un nom de point en CP949, terminé par un zéro.
@@ -247,7 +287,8 @@ fn request(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) {
         return;
     }
     player.attack = None;
-    let pending = Pending { object, pos: portal.pos, base };
+    let disabled = ctx.portals.disabled(point, player.factors.ftype[0] as i64);
+    let pending = Pending { object, pos: portal.pos, base, disabled };
     let distance = dist2d(player.ch.pos(), portal.pos);
     if distance <= MAX_USE_RANGE {
         grant(st, sid, &pending);
@@ -267,7 +308,11 @@ fn grant(st: &mut WorldState, sid: u32, pending: &Pending) {
     let Some(player) = st.players.get_mut(&sid) else { return };
     player.portal = None;
     let cid = player.ch.id;
-    player.send(&schema::EVENT_TELEPORT, packet(op::GRANTED, Some(&pending.base), cid));
+    let mut grant = packet(op::GRANTED, Some(&pending.base), cid);
+    if !pending.disabled.is_empty() {
+        grant = grant.with(5, pending.disabled.clone());
+    }
+    player.send(&schema::EVENT_TELEPORT, grant);
     if player.dest.is_some() {
         super::presence::stop(st, sid);
     }
@@ -360,7 +405,7 @@ mod tests {
 
     fn point(use_type: i64, groups: &[&str], targets: &[&str]) -> Point {
         let s = |l: &[&str]| l.iter().map(|g| g.to_string()).collect();
-        Point { radius_min: 400.0, radius_max: 600.0, use_type, region_type: 0, special_type: 0, groups: s(groups), target_groups: s(targets), at: None }
+        Point { id: 0, radius_min: 400.0, radius_max: 600.0, use_type, region_type: 0, special_type: 0, groups: s(groups), target_groups: s(targets), at: None }
     }
 
     #[test]
@@ -371,5 +416,25 @@ mod tests {
         assert!(village.leads_to(&mine) && !mine.leads_to(&village));
         assert_eq!(point_name(b"Village\0\0\0"), "Village");
         assert_eq!(point_name(&[0xB8, 0xB6, 0xC0, 0xBB, 0]), "마을");
+    }
+
+    #[test]
+    fn points_desactives() {
+        let at = Some(Vec3::new(0.0, 0.0, 0.0));
+        let mut r = Portals::default();
+        let mut add = |name: &str, id: i64, p: Point| {
+            r.order.push(name.to_string());
+            r.points.insert(name.to_string(), Point { id, ..p });
+        };
+        add("Tullan", 1, Point { at, ..point(0, &["1.A"], &["2.B", "1.A"]) });
+        add("Fort", 2, point(1, &["2.B"], &[]));
+        add("Mine", 3, Point { at, ..point(4, &["2.B"], &[]) });
+        add("Village", 4, Point { at, ..point(0, &["1.A", "2.B"], &[]) });
+        let from = r.points["Tullan"].clone();
+        let ids: Vec<i64> = r.destinations(&from).iter().map(|p| p.id).collect();
+        assert_eq!(ids, vec![2, 3, 4], "groupe 2.B puis 1.A, sans doublon ni départ");
+        // Humain : le fort n'a pas d'objet d'arrivée, la mine n'admet que les elfes de lune.
+        assert_eq!(r.disabled(&from, 1), [2i32.to_le_bytes(), 3i32.to_le_bytes()].concat());
+        assert_eq!(r.disabled(&from, 3), 2i32.to_le_bytes().to_vec());
     }
 }

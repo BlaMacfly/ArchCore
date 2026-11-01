@@ -32,7 +32,7 @@
 //! `log_auction`.
 
 use super::items::{convert_add, convert_of, durability_of, item_add_of, item_remove, item_status, options_of, stored_status, InventoryItem, CONVERT_COLUMNS};
-use super::npc_events::{npc_distance, resolve, MAX_NPC_DISTANCE};
+use super::npc_events::{in_range, range, resolve};
 use super::npcs::{event_function, Npc};
 use super::{send_system, show_money, Player, WorldCtx, WorldState};
 use crate::db::{col, Databases};
@@ -209,7 +209,7 @@ fn show_cash(p: &mut Player, cash: u64) {
 /// PNJ de la maison des ventes à portée, chez qui la planche est ouverte.
 fn trader<'a>(ctx: &'a WorldCtx, p: &Player) -> Option<&'a Npc> {
     let npc = ctx.npcs.get(p.auction.npc?)?;
-    (npc_distance(npc, p.ch.pos_x, p.ch.pos_z) <= MAX_NPC_DISTANCE).then_some(npc)
+    in_range(npc, p, range::AUCTION).then_some(npc)
 }
 
 /// AgpmAuction reçu.
@@ -236,7 +236,7 @@ fn open(ctx: &WorldCtx, st: &mut WorldState, sid: u32, sub: &[u8]) {
     let base = decode_mini(&mini::EVENT_BASE, sub).ok();
     let p = &st.players[&sid];
     let trades = |n: &Npc| n.events.iter().any(|e| e.function == event_function::AUCTION);
-    let Some(npc) = base.as_ref().and_then(|b| resolve(&ctx.npcs, b)).map(|(n, _)| n).filter(|n| trades(n) && npc_distance(n, p.ch.pos_x, p.ch.pos_z) <= MAX_NPC_DISTANCE) else {
+    let Some(npc) = base.as_ref().and_then(|b| resolve(&ctx.npcs, b)).map(|(n, _)| n).filter(|n| trades(n) && in_range(n, p, range::AUCTION)) else {
         warn!("[ventes] #{sid} {} : pas de marchand de la maison des ventes à portée", p.ch.name);
         return;
     };

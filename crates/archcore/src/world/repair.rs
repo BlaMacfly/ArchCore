@@ -20,7 +20,7 @@
 //! le code 4.
 
 use super::items::{item_durability, DURABILITY_FULL};
-use super::npc_events::{npc_distance, resolve, MAX_NPC_DISTANCE};
+use super::npc_events::{in_range, npcs_in_range, range, resolve};
 use super::npcs::{event_function, Npc};
 use super::{send_system, set_money, WorldCtx, WorldState};
 use crate::{debug, info, warn};
@@ -204,10 +204,10 @@ fn packet(op: i64, base: Option<Vec<u8>>, cid: u32, code: Option<i64>) -> Vec<u8
 /// PNJ réparateur visé par l'événement du paquet (champ 1), à portée ; sans événement, le plus proche à portée.
 fn repairer<'a>(ctx: &'a WorldCtx, p: &super::Player, base: Option<&Fields>) -> Option<&'a Npc> {
     let repairs = |n: &Npc| n.events.iter().any(|e| e.function == event_function::ITEM_REPAIR);
-    let near = |n: &Npc| npc_distance(n, p.ch.pos_x, p.ch.pos_z) <= MAX_NPC_DISTANCE;
+    let near = |n: &Npc| in_range(n, p, range::ITEM_REPAIR);
     match base {
         Some(b) => resolve(&ctx.npcs, b).map(|(n, _)| n).filter(|n| repairs(n) && near(n)),
-        None => ctx.npcs.near(p.ch.pos(), MAX_NPC_DISTANCE).find(|n| repairs(n)),
+        None => npcs_in_range(&ctx.npcs, p, range::ITEM_REPAIR).find(|n| repairs(n)),
     }
 }
 

@@ -78,8 +78,9 @@ Filled by `archcore import` from the client tables.
 | `siege_binding` | `obj*.ini` (event 19, types 3 to 7) | 27 siege resurrection points: region, type (3 attackers, 4 inner defense, 7 outer defense, 5 and 6 Archlord), position |
 | `siege_war` | `SiegeWar.txt` | 5 castles (0 Rensphere to 4 Drayger): castle and outskirts regions, lengths of the battle, the Archon's Eyes and the carving, declaration and application delays, gap between two sieges, start hour, carving skill |
 | `siege_war_object` | `SiegeWarObject.txt` | 2 assault objects (9 camp, 10 catapult): repairs, cost, duration, required items (JSON) |
-| `teleport_point` | `TeleportPoint.ini` | 301 teleport points: landing radius, allowed races, groups (arrival, destinations) |
+| `teleport_point` | `TeleportPoint.ini` | 301 teleport points: number (rank in the file, from 1), landing radius, allowed races, groups (arrival, destinations) |
 | `teleport_object` | `obj*.ini` (event 8) | 291 portals: object, point carried, position |
+| `refinery_object` | `obj*.ini` (event 26) | 20 alchemy spheres: object, position (refining within 1600 units) |
 | `teleport_fee` | `TeleportFee.txt` | 227 trip fees (departure, arrival) |
 | `bank_slot_price` | `bankslotprice.txt` | Price of extra bank pages (-1: cannot be bought with gold) |
 | `character_customize` | `charactercustomizelist.txt` | Hair styles (1) and faces (2) per model: number (AGPMCHARACTER fields 20 and 21), name, `Case` (0 creation and stylist, 1 stylist, 2 creation), required level, gold or item price, file order |

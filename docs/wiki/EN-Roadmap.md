@@ -157,6 +157,12 @@
   refined or put in the guild warehouse; ground gold beyond the cap left on the ground; second world entry on one
   connection. Validated with the simulator on 29 October 2026 (`cheat` scenario, and the existing ones), to be confirmed
   in game.
+- Test report no. 1 (29 October 2026), server side: NPC and object use ranges aligned on Archonia's shared code (600
+  dialog and shop, 800 bank, conversion, guild, skill master and stylist, 1600 repair, quests, production, auction,
+  portals and alchemy spheres, instead of 1500 everywhere), measured on the position tracked at that moment;
+  refining limited to the 20 alchemy spheres of the `obj*.ini` files; disabled portal points (destinations without
+  an arrival object or forbidden to the race); Berserker heroic tree read (two trees, shifted columns). Validated with
+  the simulator, to be confirmed in game.
 - ArchRust client ([own repository](https://github.com/BlaMacfly/ArchRust)): combat (attacking, hits, death, resurrection, loot), parties, other
   players, inventory and equipment, NPCs (dialog, shop, bank and buying pages, quests), skills (trainers,
   casting, shortcut bar), teleport portals (original window and loading screen, confirmation of player-versus-player zones, "Return",
@@ -178,8 +184,11 @@
 1. Full character creation and visibility between two players: checked on 25 October 2026 with two ArchRust
    clients on the test server (creation, arrival in Golundo, refusal of a taken name, players visible to each
    other). Still to confirm with the Archonia client.
-3. NPC functions: quests with interaction objects. Portals: disabled points (op 5 field 5); refusal while
-   transformed to check once transformation exists.
+3. NPC functions: quests with interaction objects. Server-built menus (AgpmEventNPCDialog ops 2 and 3, message
+   boxes and buttons) of the "<Town> Event", "Portal to Chaotic Frontier", "Portal to Town" NPCs and of Jaig: the client
+   can show them, but their content is neither in the client nor in its data; waiting for a source. Portals: refusal
+   while transformed to check once transformation exists; the Battle Ground fort entrances (`TeleportPoint.ini`) have
+   no object in Archonia's `obj*.ini` files.
 4. Skills: damage reflection (counter attack), monster skills, party skills and masteries validated with the
    simulator on 25 October 2026; damage sharing (Divine Protection, Martyr's Mark), dispels (Antimagic, Cure,
    Disentangle…), ignored defense (Lethal Attack, Stunner), heroic points earned with levels and charisma (saved, spent

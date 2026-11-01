@@ -30,6 +30,7 @@ mod migrations;
 mod net;
 mod probe;
 mod server;
+mod soap;
 mod tools;
 mod world;
 

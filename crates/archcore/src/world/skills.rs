@@ -31,7 +31,7 @@
 use super::combat::{self, Attacker, Defender};
 use super::effects::{self, DotSpec, Effect, Heal, Mods};
 use super::monsters::Monster;
-use super::npc_events::{npc_distance, resolve, MAX_NPC_DISTANCE};
+use super::npc_events::{in_range, range, resolve};
 use super::npcs::event_function;
 use super::{send_system, Player, WorldCtx, WorldState};
 use crate::character::{factors_mini, Factors, POINT_HP};
@@ -1679,7 +1679,7 @@ pub async fn on_master_packet(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: 
         warn!("[maître] #{sid} {} n'enseigne pas de compétences", npc.name);
         return Ok(());
     }
-    if npc_distance(npc, player.ch.pos_x, player.ch.pos_z) > MAX_NPC_DISTANCE {
+    if !in_range(npc, player, range::SKILL_MASTER) {
         warn!("[maître] #{sid} {} trop loin de {}", player.ch.name, npc.name);
         return Ok(());
     }

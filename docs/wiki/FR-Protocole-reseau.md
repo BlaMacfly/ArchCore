@@ -128,7 +128,17 @@ Fonctions lues dans `npc.ini` : **21** dialogue, **9** boutique, **27** quêtes.
 Au clic, le client envoie **AgpmEventNPCDialog (0x37) op 0** : événement au champ 1 (type 3, CID du
 PNJ, fonction 21), CID du joueur au champ 2. Le serveur répond **op 1** avec les mêmes champs, et le
 client ouvre la fenêtre ; le texte vient du client (`npcdialog.txt`). ArchCore accorde le dialogue si
-le joueur est à moins de 1500 unités du PNJ.
+le joueur est à moins de 600 unités du PNJ.
+
+**Portées d'usage.** Le code partagé d'Archonia vérifie, à la réception de chaque module, la distance au sol entre
+le joueur et le PNJ ou l'objet (`FUN_140304580`, portée fixe par module). ArchCore reprend ces portées, mesurées sur
+la position suivie à l'instant (marche en cours comprise), plus 50 unités de marge :
+
+| Portée | Fonctions |
+|---|---|
+| 600 | dialogue (21), boutique (9, ouverte depuis le dialogue), commandant de siège (33), superviseurs de la Battle Square |
+| 800 | banque (20), conversion (22), guilde et entrepôt de guilde (23, 35), maître des compétences (25), coiffeur (29) |
+| 1600 | réparation (17), production (24), quêtes (27), maison des ventes (28), avis de recherche (32), taxes (34), rémission, portails (8), sphères d'alchimie (26) |
 
 ## Objets (type 0x04, AgpmItem)
 
@@ -480,7 +490,8 @@ sont autant d'issues équiprobables (objet et quantité produits, objet bonus, n
 Min/Max` et de sockets `Socket Inchant Min/Max` de l'objet produit) ; `Combine Use Price` est son prix en or.
 
 - **Ouverture** : AGPMEVENTREFINERY op 0 (événement, CID) sur un objet du monde de fonction 26 (la sphère
-  d'alchimie des `obj*.ini`, pas un PNJ) ; op 1 l'accorde, le client ouvre `UI_Refinery`.
+  d'alchimie des `obj*.ini`, pas un PNJ, table `refinery_object`) ; op 1 l'accorde à 1600 unités au plus de la
+  sphère, le client ouvre `UI_Refinery`.
 - **AGPMREFINERY** (drapeaux 2) : 0 op, 1 CID, 2 identifiant de recette, 3 IID des 20 cases de la grille
   (INT32[20], 0 = case vide), 4 résultat, 5 TID produit, 6 prix (INT64).
   - **op 5 → op 5, devis** : la grille désigne une recette, le serveur rend son prix au champ 6.
@@ -750,7 +761,9 @@ Les portails sont des objets du décor (`obj*.ini`) qui portent l'événement 8 
 
 - **op 4** : le client s'adresse au portail. À moins de 1600 unités, le serveur répond **op 5** (le client
   ouvre la liste des destinations) ; plus loin, il fait courir le joueur vers l'objet et répond dès qu'il est
-  à portée. Une marche demandée par le joueur annule l'attente.
+  à portée. Une marche demandée par le joueur annule l'attente. Champ 5 de l'op 5 : au plus 20 numéros de point
+  désactivés (entiers sur 4 octets ; numéro = rang dans `TeleportPoint.ini` à partir de 1), que le client grise
+  (`FUN_1406ea050`) ; ArchCore y met les destinations sans objet d'arrivée ou qui n'admettent pas la race du joueur.
 - **op 0** : le client choisit sa destination (nom du point). Le trajet est permis si l'un des groupes visés
   par le point de départ (`TargetGroup`) compte le point d'arrivée (`Group`) et si la race du joueur est
   admise aux deux bouts (`UseType` : 1 humain, 2 orc, 4 elfe de lune, 8 dragonien ; 0 toutes). Le prix
@@ -1256,7 +1269,7 @@ I64/U64 ; Archonia n'a pas d'op « SELECT ».
 | 12 | client, serveur | Recherche par TID |
 
 Ouverture : le client envoie l'op 9 avec l'EVENT_BASE de l'« Item Trader » (fonction 28, sans données dans sa vue,
-comme la banque) ; ArchCore répond l'op 10 si le PNJ est à portée (1500), sauf au palier 3 de meurtrier. Recherche :
+comme la banque) ; ArchCore répond l'op 10 si le PNJ est à portée (1600), sauf au palier 3 de meurtrier. Recherche :
 le client part du curseur 9 999 999 999 999 en sens 0 et redemande avec le docID de la dernière ligne tant qu'il en
 reçoit 15 ; ArchCore rend au plus 15 ventes du TID (sens 0 : docID inférieurs, décroissants ; sens 1 : supérieurs) et
 le nombre total, sans les ventes échues. Colonnes des lignes : 0 docID, 1 vendeur, 2 identifiant de vente, 3 or, 4 CC,

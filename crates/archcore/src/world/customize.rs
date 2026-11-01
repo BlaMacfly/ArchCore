@@ -17,7 +17,7 @@
 //! À la création d'un personnage (`login.rs`), visage et coiffure doivent être des lignes du modèle choisi proposées à
 //! la création (Case 0 ou 2) : sinon 0.
 
-use super::npc_events::{npc_distance, resolve, MAX_NPC_DISTANCE};
+use super::npc_events::{in_range, npcs_in_range, range, resolve};
 use super::npcs::{event_function, Npc};
 use super::{send_system, set_money, WorldCtx, WorldState};
 use crate::db::{col, Databases};
@@ -150,10 +150,10 @@ pub fn grant_packet(base: Vec<u8>, cid: u32) -> Vec<u8> {
 /// Coiffeur visé par l'événement du paquet (champ 1), à portée ; sans événement, le plus proche à portée.
 fn stylist<'a>(ctx: &'a WorldCtx, p: &super::Player, base: Option<&Fields>) -> Option<&'a Npc> {
     let styles = |n: &Npc| n.events.iter().any(|e| e.function == event_function::CHAR_CUSTOMIZE);
-    let near = |n: &Npc| npc_distance(n, p.ch.pos_x, p.ch.pos_z) <= MAX_NPC_DISTANCE;
+    let near = |n: &Npc| in_range(n, p, range::CHAR_CUSTOMIZE);
     match base {
         Some(b) => resolve(&ctx.npcs, b).map(|(n, _)| n).filter(|n| styles(n) && near(n)),
-        None => ctx.npcs.near(p.ch.pos(), MAX_NPC_DISTANCE).find(|n| styles(n)),
+        None => npcs_in_range(&ctx.npcs, p, range::CHAR_CUSTOMIZE).find(|n| styles(n)),
     }
 }
 

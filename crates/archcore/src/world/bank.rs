@@ -15,7 +15,7 @@
 //! rattachées au personnage qui les a déposés et passées à celui qui les retire.
 
 use super::items::{item_remove, item_status, item_update, stored_status, Grid, InventoryItem};
-use super::npc_events::{npc_distance, resolve, MAX_NPC_DISTANCE};
+use super::npc_events::{in_range, range, resolve};
 use super::npcs::event_function;
 use super::{send_system, WorldCtx, WorldState};
 use crate::db::{col, Databases};
@@ -157,7 +157,7 @@ pub fn on_packet(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) {
         warn!("[banque] #{sid} {} n'est pas un gardien de banque", npc.name);
         return;
     }
-    if npc_distance(npc, player.ch.pos_x, player.ch.pos_z) > MAX_NPC_DISTANCE {
+    if !in_range(npc, player, range::BANK) {
         warn!("[banque] #{sid} {} trop loin de {}", player.ch.name, npc.name);
         return;
     }
@@ -171,8 +171,8 @@ pub fn on_packet(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) {
 fn at_keeper(ctx: &WorldCtx, st: &WorldState, sid: u32) -> bool {
     let Some(p) = st.players.get(&sid) else { return false };
     let Some(npc) = p.bank.keeper.and_then(|cid| ctx.npcs.get(cid)) else { return false };
-    let pos = p.dest.unwrap_or_else(|| p.ch.pos());
-    npc_distance(npc, pos.x as f64, pos.z as f64) <= MAX_NPC_DISTANCE * 2.0
+    // Fenêtre déjà ouverte : le double de la portée d'ouverture.
+    in_range(npc, p, range::BANK * 2.0)
 }
 
 /// Case demandée dans un mini ITEM_GRID ; une coordonnée négative (0xFFFF) laisse le serveur choisir.

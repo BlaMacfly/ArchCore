@@ -126,7 +126,17 @@ Functions read from `npc.ini`: **21** dialog, **9** shop, **27** quests.
 On click, the client sends **AgpmEventNPCDialog (0x37) op 0**: event in field 1 (type 3, NPC CID,
 function 21), player CID in field 2. The server answers **op 1** with the same fields, and the client
 opens the window; the text comes from the client (`npcdialog.txt`). ArchCore grants the dialog when
-the player is within 1500 units of the NPC.
+the player is within 600 units of the NPC.
+
+**Use ranges.** Archonia's shared code checks, when each module receives a request, the ground distance between the
+player and the NPC or object (`FUN_140304580`, one fixed range per module). ArchCore uses the same ranges, measured
+on the position tracked at that moment (current walk included), plus a 50-unit margin:
+
+| Range | Functions |
+|---|---|
+| 600 | dialog (21), shop (9, opened from the dialog), siege commander (33), Battle Square supervisors |
+| 800 | bank (20), conversion (22), guild and guild warehouse (23, 35), skill master (25), stylist (29) |
+| 1600 | repair (17), production (24), quests (27), auction house (28), wanted board (32), taxes (34), remission, portals (8), alchemy spheres (26) |
 
 ## Items (type 0x04, AgpmItem)
 
@@ -463,7 +473,8 @@ and count made, bonus item, number of options `Item Option Min/Max` and sockets 
 item made); `Combine Use Price` is its gold price.
 
 - **Opening**: AGPMEVENTREFINERY op 0 (event, CID) on a world object with function 26 (the alchemy sphere of
-  the `obj*.ini` files, not an NPC); op 1 grants it, the client opens `UI_Refinery`.
+  the `obj*.ini` files, not an NPC, `refinery_object` table); op 1 grants it within 1600 units of the sphere, the
+  client opens `UI_Refinery`.
 - **AGPMREFINERY** (2 flag bytes): 0 op, 1 CID, 2 recipe id, 3 IIDs of the grid's 20 cells (INT32[20], 0 = empty
   cell), 4 result, 5 TID made, 6 price (INT64).
   - **op 5 → op 5, quote**: the grid names a recipe, the server returns its price in field 6.
@@ -715,7 +726,9 @@ object), CID, point name (CP949, 33 bytes), position, disabled points.
 
 - **op 4**: the client addresses the portal. Within 1600 units, the server answers **op 5** (the client
   opens the destination list); further away, it makes the player run towards the object and answers as soon
-  as it is in range. A move asked by the player cancels the wait.
+  as it is in range. A move asked by the player cancels the wait. Op 5 field 5: at most 20 disabled point numbers
+  (4-byte integers; number = rank in `TeleportPoint.ini` from 1), greyed out by the client (`FUN_1406ea050`);
+  ArchCore puts there the destinations without an arrival object or that do not admit the player's race.
 - **op 0**: the client picks its destination (point name). The trip is allowed if one of the groups targeted
   by the departure point (`TargetGroup`) lists the arrival point (`Group`) and the player's race is allowed
   at both ends (`UseType`: 1 human, 2 orc, 4 moon elf, 8 dragon scion; 0 all). The fee (`TeleportFee.txt`,
@@ -1202,7 +1215,7 @@ string). Prices and ids are I64/U64; Archonia has no "SELECT" op.
 | 12 | client, server | Search by TID |
 
 Opening: the client sends op 9 with the "Item Trader" EVENT_BASE (function 28, without data in its view, like the
-bank); ArchCore answers op 10 when the NPC is in range (1500), except at murderer level 3. Search: the client starts
+bank); ArchCore answers op 10 when the NPC is in range (1600), except at murderer level 3. Search: the client starts
 from the cursor 9,999,999,999,999 in direction 0 and asks again with the last row's docID while it gets 15 rows;
 ArchCore returns at most 15 sales of the TID (direction 0: lower docIDs, descending; direction 1: higher ones) and the
 total, without expired sales. Row columns: 0 docID, 1 seller, 2 sale id, 3 gold, 4 CC, 5 IID, 6 TID, 7 count, 8 date,

@@ -60,7 +60,7 @@
 //!   archcore sim gm [compte] [mdp] [perso]                    commandes MJ d'ArchCore : /speed (×5, refus au-delà de 10, retour) et /additem ; compte MJ
 //!   archcore sim status [compte] [mdp] [perso]                état spécial : Shield Bash étourdit un Ver vert (champ 17), puis l'état retombe ; compte MJ, personnage GmEffets
 //!   archcore sim effects [compte] [mdp] [perso]               passive (défense), renforcement (vitesse d'attaque), zone, affaiblissement d'un Ver vert ; compte MJ, personnage GmEffets
-//!   archcore sim refinery [compte] [mdp] [perso]              sphère d'alchimie : refus, devis et raffinage de la grille, raffinage d'une recette ; compte MJ
+//!   archcore sim refinery [compte] [mdp] [perso]              sphère d'alchimie : refus (trop loin, objet inconnu, pas de recette), devis et raffinage de la grille, raffinage d'une recette ; compte MJ
 //!   archcore sim convert [compte] [mdp] [perso]               forgeron Halo : socket, pierre d'eau, renforcement +2, état relu à la reconnexion ; compte MJ
 //!   archcore sim heroic|divide|dispel|ignore|rune|trigger      compétences et objets (voir `sim/competences.rs`) ; compte MJ
 //! ```
@@ -955,6 +955,10 @@ async fn combat(user: &str, pass: &str, char_name: &str, prey: &str) -> anyhow::
     let mut w = enter_world(&cfg, user, pass, char_name, "").await?;
     let me = w.cid as i64;
     let village = village.unwrap_or(w.start);
+    // Le monstre doit pouvoir tuer le personnage : d'autres scénarios le laissent à un niveau élevé.
+    let say0 = |cid: u32, text: &str| Fields::new(ch).with(0, 0).with(1, cid).with(2, chat_type::NORMAL).with(6, crate::tools::to_cp1252(text));
+    w.world.send(ch, say0(w.cid, "/level 5")).await?;
+    w.world.expect_where(|q| q.ptype == ch.id, 3000, "réponse à /level").await?;
 
     // Se rend au point de chasse et choisit le monstre demandé le plus proche.
     async fn hunt(w: &mut InWorld, prey: &str) -> anyhow::Result<SeenMonster> {
@@ -2044,6 +2048,30 @@ async fn gm_commands(user: &str, pass: &str, char_name: &str) -> anyhow::Result<
     // La pile ajoutée est détruite.
     w.world.send(it, Fields::new(it).with(0, 21).with(2, iid)).await?;
     w.world.expect_where(|q| q.is(it, Some(1)) && q.int(2) == Some(iid), 3000, "pile détruite").await?;
+
+    step("/simloot 450 500 100 : butin simulé de 500 Green Worm, taux de butin ×100");
+    let text = |q: &Recv| q.fields().text(6).unwrap_or_default();
+    w.world.send(ch, say(w.cid, "/simloot 450 500 100")).await?;
+    let head = text(&w.world.expect_where(|q| reply(q) && text(q).starts_with("Butin simulé : 500 × "), 5000, "en-tête de la simulation").await?);
+    println!("  {head}");
+    // « … : G pièce(s) d'or, T objet(s) en S sorte(s). » puis une ligne « · » par sorte (40 au plus, puis un résumé).
+    let kinds = head.rsplit(" en ").next().and_then(|t| t.split(' ').next()).and_then(|n| n.parse::<usize>().ok()).unwrap_or(0);
+    anyhow::ensure!(kinds > 0 && head.contains("taux de butin 100.0"), "simulation sans objet : {head}");
+    let lines = kinds.min(crate::world::gm::SIMLOOT_LINES) + usize::from(kinds > crate::world::gm::SIMLOOT_LINES);
+    for i in 0..lines {
+        let l = text(&w.world.expect_where(|q| reply(q) && text(q).starts_with("· "), 3000, "ligne d'objet").await?);
+        if i < 3 {
+            println!("  {l}");
+        }
+    }
+    println!("  ✓ {kinds} sorte(s) d'objet listée(s), rien créé");
+    w.world.send(ch, say(w.cid, "/simloot 450 0")).await?;
+    w.world.expect_where(|q| reply(q) && text(q).contains("nombre de monstres"), 3000, "nombre refusé").await?;
+    w.world.send(ch, say(w.cid, "/simloot 999999 10")).await?;
+    w.world.expect_where(|q| reply(q) && text(q).contains("monstre inconnu"), 3000, "monstre inconnu").await?;
+    println!("  ✓ nombre nul et monstre inconnu refusés");
+    // Aucun objet ne doit avoir été créé par la simulation.
+    anyhow::ensure!(w.world.expect_where(|q| q.is(it, Some(0)), 800, "objet créé").await.is_err(), "la simulation a créé un objet");
     println!("\ncommandes MJ : OK");
     Ok(())
 }
@@ -2166,12 +2194,23 @@ async fn refinery(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()>
     let grid = |iids: &[i64]| Value::List((0..20).map(|i| Value::Int(iids.get(i).copied().unwrap_or(0))).collect());
 
     step(&format!("{char_name} entre en jeu et ouvre une sphère d'alchimie"));
+    // Sphère d'alchimie d'Anchorville (obj02024.ini, fonction 26).
+    const SPHERE: (i64, f64, f64) = (132_646_583, -472_783.0, -72_675.0);
     let mut w = enter_world(&cfg, user, pass, char_name, "").await?;
     let me = w.cid as i64;
-    let event = build_mini(eb, &Fields::new(eb).with(0, 1).with(1, 1).with(3, 26));
+    let event = build_mini(eb, &Fields::new(eb).with(0, 1).with(1, SPHERE.0).with(3, 26));
+    w.world.send(ev, Fields::new(ev).with(0, 0).with(1, event.clone()).with(2, w.cid)).await?;
+    anyhow::ensure!(w.world.expect_where(|q| q.is(ev, Some(1)), 1000, "refus").await.is_err(), "fenêtre accordée loin de la sphère");
+    println!("  ✓ loin de la sphère : pas de fenêtre");
+    let fake = build_mini(eb, &Fields::new(eb).with(0, 1).with(1, 1).with(3, 26));
+    w.world.send(ch, say(w.cid, &format!("/move {},{}", SPHERE.1, SPHERE.2 + 1000.0))).await?;
+    w.world.expect_where(|q| q.is(ch, None) && q.fields().text(6).is_some_and(|t| t.contains("porté en")), 5000, "/move").await?;
+    w.world.send(ev, Fields::new(ev).with(0, 0).with(1, fake).with(2, w.cid)).await?;
+    anyhow::ensure!(w.world.expect_where(|q| q.is(ev, Some(1)), 1000, "refus").await.is_err(), "fenêtre accordée sur un objet qui n'est pas une sphère");
+    println!("  ✓ objet inconnu : pas de fenêtre");
     w.world.send(ev, Fields::new(ev).with(0, 0).with(1, event).with(2, w.cid)).await?;
     w.world.expect_where(|q| q.is(ev, Some(1)), 3000, "fenêtre de raffinage").await?;
-    println!("  ✓ fenêtre accordée");
+    println!("  ✓ fenêtre accordée à 1000 unités");
     w.world.send(ch, say(w.cid, "/money 100000")).await?;
 
     step("refus : une potion seule");

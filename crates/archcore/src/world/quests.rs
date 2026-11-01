@@ -19,7 +19,7 @@
 //! propose, ou depuis le journal si elle est « personnelle » (`Self_Quest`) ; elle se rend de même.
 
 use super::items::{item_add, item_count, item_remove, item_status};
-use super::npc_events::{npc_distance, resolve, MAX_NPC_DISTANCE};
+use super::npc_events::{in_range, range, resolve};
 use super::npcs::event_function;
 use super::{send_system, WorldCtx, WorldState};
 use crate::db::{col, Databases};
@@ -293,8 +293,7 @@ fn npc_group(ctx: &WorldCtx, st: &WorldState, sid: u32, event: Option<&[u8]>) ->
     let (npc, _) = resolve(&ctx.npcs, &base)?;
     let ev = npc.events.iter().find(|e| e.function == event_function::QUEST)?;
     let p = st.players.get(&sid)?;
-    let pos = p.dest.unwrap_or_else(|| p.ch.pos());
-    (npc_distance(npc, pos.x as f64, pos.z as f64) <= MAX_NPC_DISTANCE * 2.0).then_some(())?;
+    in_range(npc, p, range::QUEST).then_some(())?;
     ev.param("QuestGroupID").and_then(|g| g.trim().parse::<u32>().ok())
 }
 

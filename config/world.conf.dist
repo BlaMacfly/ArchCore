@@ -28,6 +28,7 @@
 #   6. TAUX
 #   7. COMMANDES MJ
 #   8. ANTI-TRICHE
+#   9. INTERFACE SOAP
 ###############################################################################
 
 ###############################################################################
@@ -525,3 +526,38 @@ AntiCheat.AttackTolerance = 150
 
 AntiCheat.MaxPacketsPerSecond = 150
 AntiCheat.PacketBurst = 500
+
+###############################################################################
+# 9. INTERFACE SOAP
+#
+#    Administration à distance par SOAP, compatible avec celle d'AzerothCore et
+#    de TrinityCore : leurs panneaux web, bots et scripts (méthode
+#    executeCommand, espace de noms urn:AC ou urn:TC, authentification HTTP
+#    Basic) fonctionnent sans changement. Chaque commande est exécutée comme une
+#    commande MJ, avec les droits du compte, et notée dans log_gm. Commandes et
+#    exemple d'appel : page Administration du wiki.
+#
+#    SÉCURITÉ : les mots de passe passent en clair (HTTP). N'exposer SOAP qu'en
+#    local, ou derrière un pare-feu ou un tunnel SSH.
+###############################################################################
+
+#    SOAP.Enabled
+#        1 = interface SOAP active (serveur monde : archcore world ou all).
+#        Défaut : 0
+
+SOAP.Enabled = 0
+
+#    SOAP.IP
+#    SOAP.Port
+#        Adresse et port d'écoute (HTTP).
+#        Défaut : "127.0.0.1" et 7878 (comme AzerothCore et TrinityCore)
+
+SOAP.IP = "127.0.0.1"
+SOAP.Port = 7878
+
+#    SOAP.MinGmLevel
+#        Niveau MJ minimal (account.gm_level) d'un compte pour se connecter ;
+#        chaque commande demande en plus son propre niveau. En dessous : HTTP 403.
+#        Défaut : 3 (comme SEC_ADMINISTRATOR)
+
+SOAP.MinGmLevel = 3

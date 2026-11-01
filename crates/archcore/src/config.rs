@@ -128,6 +128,9 @@ pub struct WorldConfig {
     /// Anti-triche côté serveur (`world/anticheat.rs`, réglages `AntiCheat.*`).
     #[serde(skip)]
     pub anticheat: AntiCheatConfig,
+    /// Interface SOAP d'administration (`soap/`, réglages `SOAP.*`).
+    #[serde(skip)]
+    pub soap: SoapConfig,
 }
 
 /// Sanction d'un joueur qui cumule les anomalies (`AntiCheat.Action`).
@@ -187,6 +190,23 @@ impl Default for AntiCheatConfig {
             max_packets_per_second: 150,
             packet_burst: 500,
         }
+    }
+}
+
+/// Interface SOAP d'administration (`soap/`), compatible avec celle d'AzerothCore et de TrinityCore : désactivée par défaut
+/// (`SOAP.Enabled`, 0), écoute sur `SOAP.IP`:`SOAP.Port` (127.0.0.1:7878, comme eux), réservée aux comptes de niveau MJ
+/// `SOAP.MinGmLevel` au moins (3, comme SEC_ADMINISTRATOR).
+#[derive(Clone, Debug, PartialEq)]
+pub struct SoapConfig {
+    pub enabled: bool,
+    pub ip: String,
+    pub port: u16,
+    pub min_gm_level: i64,
+}
+
+impl Default for SoapConfig {
+    fn default() -> Self {
+        SoapConfig { enabled: false, ip: "127.0.0.1".into(), port: 7878, min_gm_level: 3 }
     }
 }
 
@@ -316,6 +336,7 @@ impl Default for WorldConfig {
             tax_payout_day: 1,
             tax_payout_hour: 0,
             anticheat: AntiCheatConfig::default(),
+            soap: SoapConfig::default(),
         }
     }
 }
@@ -553,6 +574,13 @@ fn read_world(s: &Settings, cfg: &mut Config) {
         max_packets_per_second: s.parse("AntiCheat.MaxPacketsPerSecond", ac.max_packets_per_second),
         packet_burst: s.parse("AntiCheat.PacketBurst", ac.packet_burst),
     };
+    let sd = SoapConfig::default();
+    let soap = SoapConfig {
+        enabled: s.flag("SOAP.Enabled", sd.enabled),
+        ip: s.string("SOAP.IP", &sd.ip),
+        port: s.parse("SOAP.Port", sd.port),
+        min_gm_level: s.parse("SOAP.MinGmLevel", sd.min_gm_level).max(1),
+    };
     let gm_command_levels = s.prefixed("GM.CommandLevel").into_iter().filter_map(|(k, v)| v.trim().parse::<i64>().ok().map(|x| (k, x))).collect();
     cfg.world = WorldConfig {
         port: s.parse("WorldServer.Port", d.port),
@@ -601,6 +629,7 @@ fn read_world(s: &Settings, cfg: &mut Config) {
         tax_payout_day: s.parse("Tax.PayoutDay", d.tax_payout_day).clamp(1, 7),
         tax_payout_hour: s.parse("Tax.PayoutHour", d.tax_payout_hour).min(23),
         anticheat,
+        soap,
         language: s.string("World.Language", &d.language),
         rates,
         gm_command_levels,
@@ -769,6 +798,10 @@ pub fn to_values(cfg: &Config, which: Which) -> Vec<(String, String)> {
             put("AntiCheat.MaxPacketsPerSecond", ac.max_packets_per_second.to_string());
             put("AntiCheat.PacketBurst", ac.packet_burst.to_string());
             put("World.ExitOnRestart", (w.exit_on_restart as i64).to_string());
+            put("SOAP.Enabled", (w.soap.enabled as i64).to_string());
+            put("SOAP.IP", w.soap.ip.clone());
+            put("SOAP.Port", w.soap.port.to_string());
+            put("SOAP.MinGmLevel", w.soap.min_gm_level.to_string());
             put("Client.DataDir", cfg.client.data_dir.clone());
             let mut races: Vec<&String> = w.start_positions.keys().collect();
             races.sort();
@@ -845,6 +878,21 @@ mod tests {
         read_world(&settings("AntiCheat.Action = \"pendre\"\n"), &mut cfg);
         assert_eq!(cfg.world.anticheat.action, AntiCheatAction::Log, "action inconnue : journal seul");
         assert!(to_values(&cfg, Which::World).iter().any(|(k, v)| k == "AntiCheat.Action" && v == "log"));
+    }
+
+    #[test]
+    fn reglages_soap() {
+        let mut cfg = Config::default();
+        read_world(&settings(""), &mut cfg);
+        assert_eq!(cfg.world.soap, SoapConfig { enabled: false, ip: "127.0.0.1".into(), port: 7878, min_gm_level: 3 }, "défauts d'AzerothCore");
+        read_world(&settings("SOAP.Enabled = 1
+SOAP.IP = \"0.0.0.0\"
+SOAP.Port = 7879
+SOAP.MinGmLevel = 0
+"), &mut cfg);
+        assert_eq!((cfg.world.soap.enabled, cfg.world.soap.ip.as_str(), cfg.world.soap.port, cfg.world.soap.min_gm_level), (true, "0.0.0.0", 7879, 1), "niveau 1 au moins");
+        assert_eq!(env_name("SOAP.MinGmLevel"), "ARCHCORE_SOAP_MIN_GM_LEVEL");
+        assert!(to_values(&cfg, Which::World).iter().any(|(k, v)| k == "SOAP.Port" && v == "7879"));
     }
 
     #[test]

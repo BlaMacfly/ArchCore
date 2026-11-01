@@ -87,7 +87,10 @@ défaut, avec un avertissement dans le journal ; une clé inconnue (faute de fra
 | `World.ExitOnRestart` | `0` | `1` : arrête le serveur à la fin du compte à rebours de `/announce_restart` |
 | `StartPosition.<race>.Village` / `.X` / `.Y` / `.Z` | voir le modèle | Position d'apparition par race : 1 Humain, 2 Orc, 3 Elfe de lune, 4 Scion |
 | `Rate.Exp`, `Rate.Gold`, `Rate.Drop`, `Rate.UniqueDrop`, `Rate.Charisma`, `Rate.Prestige`, `Rate.ChatBuff` | `1` | Taux au démarrage (voir [[Administration|FR-Administration]]) |
-| `GM.CommandLevel.<commande>` | — | Niveau MJ requis pour une commande, par exemple `GM.CommandLevel.kill = 3` |
+| `GM.CommandLevel.<commande>` | — | Niveau MJ requis pour une commande, par exemple `GM.CommandLevel.kill = 3` ; pour une commande de console SOAP, mots séparés par des points (`GM.CommandLevel.account.create = 3`) |
+| `SOAP.Enabled` | `0` | `1` : interface SOAP d'administration, compatible avec celle d'AzerothCore et de TrinityCore (voir [[Administration|FR-Administration]]) |
+| `SOAP.IP` / `SOAP.Port` | `127.0.0.1` / `7878` | Adresse et port d'écoute HTTP de SOAP, les défauts d'AzerothCore. Les mots de passe y passent en clair : n'exposer qu'en local ou derrière un pare-feu |
+| `SOAP.MinGmLevel` | `3` | Niveau MJ minimal d'un compte pour se servir de SOAP (comme SEC_ADMINISTRATOR) ; en dessous, HTTP 403. Chaque commande demande en plus son propre niveau |
 
 Villages de départ actuels :
 
@@ -121,6 +124,7 @@ intérieures deviennent des `_`, le tout en majuscules.
 | `World.MonsterDensity` | `ARCHCORE_WORLD_MONSTER_DENSITY` |
 | `Database.Password` | `ARCHCORE_DATABASE_PASSWORD` |
 | `Rate.Exp` | `ARCHCORE_RATE_EXP` |
+| `SOAP.Enabled` | `ARCHCORE_SOAP_ENABLED` |
 
 Autres variables :
 

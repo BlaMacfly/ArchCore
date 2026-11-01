@@ -42,7 +42,7 @@
 
 use super::items::{item_add_of, item_count, item_remove, item_status};
 use super::monsters::Life;
-use super::npc_events::{npc_distance, resolve};
+use super::npc_events::{in_range, resolve};
 use super::npcs::event_function;
 use super::skills::{self, Cast, Owned, Stage};
 use super::{send_system, Player, WorldCtx, WorldState};
@@ -63,7 +63,7 @@ pub const GATHER_RANGE: f64 = 250.0;
 /// Marge ajoutée aux distances, pour les positions arrondies du client.
 const REACH_TOLERANCE: f64 = 50.0;
 /// Distance au PNJ : le client s'en approche à 1600 unités avant d'envoyer sa demande.
-const NPC_RANGE: f64 = 1700.0;
+const NPC_RANGE: f64 = super::npc_events::range::PRODUCT;
 /// Durée de la réservation d'un cadavre par le lancement de la récolte, et de sa prolongation.
 pub const HARVEST_HOLD: Duration = Duration::from_secs(15);
 
@@ -640,7 +640,7 @@ pub async fn on_event(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet)
         warn!("[production] #{sid} {} n'enseigne pas la production", npc.name);
         return Ok(());
     };
-    if npc_distance(npc, player.ch.pos_x, player.ch.pos_z) > NPC_RANGE {
+    if !in_range(npc, player, NPC_RANGE) {
         warn!("[production] #{sid} {} trop loin de {}", player.ch.name, npc.name);
         return Ok(());
     }

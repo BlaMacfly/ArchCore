@@ -160,6 +160,12 @@
   acceptable par son auteur ; objets proposés ni convertis, ni vendus, ni raffinés, ni déposés à l'entrepôt ; or au
   sol laissé au-delà du plafond ; seconde entrée en jeu sur une même connexion. Validé au simulateur le
   29 octobre 2026 (scénario `cheat`, et les scénarios existants), à confirmer en jeu.
+- Retour de test n° 1 (29 octobre 2026), côté serveur : portées d'usage des PNJ et des objets alignées sur le code
+  partagé d'Archonia (600 dialogue et boutique, 800 banque, conversion, guilde, maître des compétences et coiffeur,
+  1600 réparation, quêtes, production, ventes, portails et sphères d'alchimie, au lieu de 1500 partout), mesurées
+  sur la position suivie à l'instant ; raffinage limité aux 20 sphères d'alchimie des `obj*.ini` ; points de portail
+  désactivés (destinations sans objet d'arrivée ou interdites à la race) ; arbre héroïque du Berserker lu (deux
+  arbres, colonnes décalées). Validé au simulateur, à confirmer en jeu.
 - Client ArchRust ([dépôt à part](https://github.com/BlaMacfly/ArchRust)) : combat (attaque, coups, mort, résurrection, butin), groupes, autres
   joueurs, inventaire et équipement, PNJ (dialogue, boutique, banque et achat de pages, quêtes), compétences
   (instructeurs, lancement, barre de raccourcis), portails de téléportation (fenêtre et chargement d'origine, confirmation des zones de combat entre joueurs,
@@ -185,8 +191,11 @@
 1. Création complète d'un personnage et visibilité entre deux joueurs : vérifiées le 25 octobre 2026 avec
    deux clients ArchRust sur le serveur de test (création, entrée à Golundo, refus d'un nom déjà pris,
    joueurs visibles l'un de l'autre). Reste à les confirmer avec le client Archonia.
-3. Fonctions des PNJ : quêtes à objets d'interaction. Portails : points désactivés (champ 5 de l'op 5) ; refus des
-   métamorphosés à vérifier quand la métamorphose existera.
+3. Fonctions des PNJ : quêtes à objets d'interaction. Menus composés par le serveur (AgpmEventNPCDialog ops 2 et 3,
+   boîtes de message et boutons) des PNJ « <Ville> Event », « Portal to Chaotic Frontier », « Portal to Town » et de
+   Jaig : le client sait les afficher, mais leur contenu n'est ni dans le client ni dans ses données ; en attente d'une
+   source. Portails : refus des métamorphosés à vérifier quand la métamorphose existera ; les entrées des forts de la
+   Battle Ground (`TeleportPoint.ini`) n'ont pas d'objet dans les `obj*.ini` d'Archonia.
 4. Compétences : renvoi de dégâts (contre-attaque), compétences des monstres, compétences de groupe et maîtrises
    validés au simulateur le 25 octobre 2026 ; partage des dégâts (Divine Protection, Martyr's Mark), purges
    (Antimagic, Cure, Disentangle…), défense ignorée (Lethal Attack, Stunner), points héroïques gagnés au niveau et

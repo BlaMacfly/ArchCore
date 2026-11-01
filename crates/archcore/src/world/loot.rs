@@ -101,6 +101,26 @@ pub struct Rates {
     pub drop: f64,
 }
 
+/// Nombre maximal de monstres d'une simulation de butin (/simloot) : le tirage se fait d'un bloc.
+pub const SIM_MAX_KILLS: i64 = 10_000;
+
+/// Résultat d'une simulation de butin : or total, quantité de chaque objet (TID).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Simulation {
+    pub kills: u32,
+    pub gold: i64,
+    pub items: BTreeMap<u32, i64>,
+}
+
+impl Simulation {
+    /// Objets du plus fréquent au plus rare (TID croissant à égalité).
+    pub fn sorted(&self) -> Vec<(u32, i64)> {
+        let mut v: Vec<(u32, i64)> = self.items.iter().map(|(t, n)| (*t, *n)).collect();
+        v.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+        v
+    }
+}
+
 #[derive(Default)]
 pub struct LootTables {
     pub per_monster: HashMap<u32, Vec<MonsterDrop>>,
@@ -203,6 +223,22 @@ impl LootTables {
         out.retain(|x| seen.insert(x.0));
         out.truncate(limit);
         out
+    }
+
+    /// `kills` morts du monstre `m` (commande MJ /simloot) : chaque mort passe par `roll`, comme à la mort d'un monstre
+    /// (`on_kill`), mais rien n'est créé ni posé au sol. L'or est cumulé à part.
+    pub fn simulate(&self, rng: &mut impl Rng, m: &Source, killer_level: i32, rates: Rates, kills: u32) -> Simulation {
+        let mut sim = Simulation { kills, ..Default::default() };
+        for _ in 0..kills {
+            for (tid, count) in self.roll(rng, m, killer_level, rates) {
+                if tid == GOLD_TID {
+                    sim.gold += count;
+                } else {
+                    *sim.items.entry(tid).or_default() += count;
+                }
+            }
+        }
+        sim
     }
 
     fn roll_group(&self, rng: &mut impl Rng, g: &DropGroup, ranks: &[i64; 10], m: &Source, killer_level: i32, rates: Rates) -> Option<u32> {
@@ -502,6 +538,34 @@ mod tests {
         let src = Source { geld_max: 0, tid: 1, ..worm() };
         assert_eq!(t.roll(&mut rng, &src, 5, ONE), vec![(10, 1)], "niveau 1 à 10 : bonus");
         assert!(t.roll(&mut rng, &src, 15, ONE).is_empty(), "niveau 11 à 20 : rien");
+    }
+
+    #[test]
+    fn simulation_de_butin() {
+        let t = tables();
+        // Même graine : la simulation tire exactement ce que donneraient autant de morts.
+        let mut a = rand::rngs::StdRng::seed_from_u64(5);
+        let mut b = rand::rngs::StdRng::seed_from_u64(5);
+        let sim = t.simulate(&mut a, &worm(), 1, ONE, 200);
+        let mut expected = Simulation { kills: 200, ..Default::default() };
+        for _ in 0..200 {
+            for (tid, n) in t.roll(&mut b, &worm(), 1, ONE) {
+                if tid == GOLD_TID {
+                    expected.gold += n;
+                } else {
+                    *expected.items.entry(tid).or_default() += n;
+                }
+            }
+        }
+        assert_eq!(sim, expected);
+        assert!((2000..=2400).contains(&sim.gold), "or : {}", sim.gold);
+        assert_eq!(sim.items.get(&99), Some(&400), "2 garantis par mort");
+        assert_eq!(sim.items.get(&10), Some(&200), "groupe à 100 000");
+        assert!(!sim.items.contains_key(&GOLD_TID) && !sim.items.contains_key(&98));
+        assert_eq!(sim.sorted(), vec![(99, 400), (10, 200)]);
+        // Taux de butin nul : seuls les objets garantis restent ; taux d'or doublé.
+        let sim = t.simulate(&mut a, &Source { geld_min: 10, geld_max: 10, ..worm() }, 1, Rates { gold: 2.0, drop: 0.0 }, 3);
+        assert_eq!((sim.gold, sim.sorted()), (60, vec![(99, 6)]));
     }
 
     #[test]

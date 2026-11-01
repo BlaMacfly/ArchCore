@@ -285,7 +285,37 @@ pub static COMMANDS: &[CommandDef] = &[
     CommandDef { name: "shrine", level: 3, args: Some(&["word?", "int?"]), usage: "/shrine [open|close <n>]" },
     CommandDef { name: "siege", level: 3, args: Some(&["word?", "word?", "word?"]), usage: "/siege [start <château> | end <château> | owner <château> <guilde ou -> | hp <château> <PV>]" },
     CommandDef { name: "tax", level: 3, args: Some(&["word?", "word?"]), usage: "/tax [pay [château]]" },
+    CommandDef { name: "simloot", level: 2, args: Some(&["int", "int", "float?", "float?"]), usage: "/simloot <TID du monstre> <nombre> [taux de butin] [taux d'or]" },
 ];
+
+/// Lignes d'objets affichées au plus par /simloot ; les autres sont résumées sur une dernière ligne.
+pub const SIMLOOT_LINES: usize = 40;
+
+/// Réponse de /simloot : un en-tête, puis une ligne « · quantité × nom (TID n) » par objet, du plus fréquent au plus
+/// rare. L'en-tête annonce le nombre de sortes d'objets (les lignes qui suivent : au plus `SIMLOOT_LINES`, plus une
+/// ligne de résumé s'il y en a davantage).
+pub fn simloot_report(sim: &super::loot::Simulation, monster: &str, m: &super::loot::Source, killer_level: i32, rates: super::loot::Rates, name_of: impl Fn(u32) -> String) -> String {
+    let items = sim.sorted();
+    let total: i64 = items.iter().map(|i| i.1).sum();
+    let mut lines = vec![format!(
+        "Butin simulé : {} × {monster} (TID {}, niveau {}), taux de butin {}, taux d'or {}, tueur niveau {killer_level} : {} pièce(s) d'or, {total} objet(s) en {} sorte(s).",
+        sim.kills,
+        m.tid,
+        m.level,
+        fmt_rate(rates.drop),
+        fmt_rate(rates.gold),
+        sim.gold,
+        items.len()
+    )];
+    for (tid, n) in items.iter().take(SIMLOOT_LINES) {
+        lines.push(format!("· {n} × {} (TID {tid})", name_of(*tid)));
+    }
+    if items.len() > SIMLOOT_LINES {
+        let rest = &items[SIMLOOT_LINES..];
+        lines.push(format!("· … et {} autre(s) sorte(s), {} objet(s).", rest.len(), rest.iter().map(|i| i.1).sum::<i64>()));
+    }
+    lines.join("\n")
+}
 
 pub fn command(name: &str) -> Option<&'static CommandDef> {
     COMMANDS.iter().find(|c| c.name == name)
@@ -331,7 +361,7 @@ pub async fn execute(world: &Arc<World>, st: &mut WorldState, sid: u32, text: &s
         None => Ok(Vec::new()),
     };
     let result = match args {
-        Ok(args) => run(world, st, sid, cmd, &args, &tokens).await?,
+        Ok(args) => run(world, st, sid, gm_level, cmd, &args, &tokens).await?,
         Err(e) => Err(e),
     };
     // Trace dans la base des journaux : auteur, commande, arguments, réponse.
@@ -349,7 +379,26 @@ pub async fn execute(world: &Arc<World>, st: &mut WorldState, sid: u32, text: &s
     Ok(true)
 }
 
-async fn run(world: &Arc<World>, st: &mut WorldState, sid: u32, cmd: &CommandDef, a: &[Arg], tokens: &[String]) -> anyhow::Result<Result<String, GmError>> {
+/// Commandes qui agissent sur le personnage du MJ qui les tape : refusées à la console (SOAP, `world/console.rs`),
+/// qui n'a pas de personnage. Les autres y passent telles quelles (avec un nom de personnage quand il est facultatif).
+pub fn needs_character(name: &str, tokens: &[String]) -> bool {
+    match name {
+        "invincible" | "additem" | "speed" | "durability" | "questreset" | "recast" | "last_refine" => true,
+        "kill" => tokens.is_empty(),
+        "level" | "money" | "charisma" => tokens.len() < 2,
+        "move" => split_move_target(tokens).1.is_none(),
+        _ => false,
+    }
+}
+
+/// Nom de l'auteur d'une commande pour le journal du serveur : son personnage, ou « la console ».
+fn caller_name(st: &WorldState, sid: u32) -> String {
+    st.players.get(&sid).map_or_else(|| "la console".to_string(), |p| p.ch.name.clone())
+}
+
+/// Exécute une commande dont les arguments sont déjà vérifiés. `sid` : session du MJ, ou `console::CONSOLE_SID` pour la
+/// console (SOAP), qui n'a pas de personnage : `needs_character` écarte avant les commandes qui en demandent un.
+pub(super) async fn run(world: &Arc<World>, st: &mut WorldState, sid: u32, gm_level: i64, cmd: &CommandDef, a: &[Arg], tokens: &[String]) -> anyhow::Result<Result<String, GmError>> {
     let ctx = &world.ctx;
     if let Some(r) = RATES.iter().find(|r| r.2 == cmd.name) {
         let v = a[0].float();
@@ -456,7 +505,7 @@ async fn run(world: &Arc<World>, st: &mut WorldState, sid: u32, cmd: &CommandDef
             Some(word) => match super::nature::parse_weather(word) {
                 None => err(format!("météo inconnue : {word}")),
                 Some(code) => {
-                    let by = format!("/weather de {}", st.players[&sid].ch.name);
+                    let by = format!("/weather de {}", caller_name(st, sid));
                     super::nature::set_weather(st, code, &by);
                     Ok(format!("Météo : {}.", super::nature::weather_label(code)))
                 }
@@ -494,7 +543,7 @@ async fn run(world: &Arc<World>, st: &mut WorldState, sid: u32, cmd: &CommandDef
             }
             let gain = super::skills::gain_charisma(ctx, st, target, points as u32, super::skills::CharismaSource::Gm).await?;
             let p = &st.players[&target];
-            info!("[mj] {} donne {gain} point(s) de charisme à {}", st.players[&sid].ch.name, p.ch.name);
+            info!("[mj] {} donne {gain} point(s) de charisme à {}", caller_name(st, sid), p.ch.name);
             Ok(format!("{} gagne {gain} point(s) de charisme ({} en tout).", p.ch.name, p.ch.charisma))
         }
         "questreset" => {
@@ -534,7 +583,7 @@ async fn run(world: &Arc<World>, st: &mut WorldState, sid: u32, cmd: &CommandDef
             }
             super::combat::set_level(ctx, st, target, level as i32).await?;
             let p = &st.players[&target];
-            info!("[mj] {} passe {} au niveau {level}", st.players[&sid].ch.name, p.ch.name);
+            info!("[mj] {} passe {} au niveau {level}", caller_name(st, sid), p.ch.name);
             Ok(format!("{} est maintenant niveau {level} ({} point(s) de compétence).", p.ch.name, p.factors.dirt[super::skills::DIRT_SKILL_POINT]))
         }
         "announce_restart" => {
@@ -556,7 +605,7 @@ async fn run(world: &Arc<World>, st: &mut WorldState, sid: u32, cmd: &CommandDef
             let target_sid = match target {
                 None => sid,
                 Some(name) => {
-                    if st.players[&sid].gm_level < MOVE_OTHER_LEVEL {
+                    if gm_level < MOVE_OTHER_LEVEL {
                         return Ok(err(format!("niveau MJ {MOVE_OTHER_LEVEL} requis pour déplacer un autre joueur")));
                     }
                     match st.by_name(name) {
@@ -611,10 +660,35 @@ async fn run(world: &Arc<World>, st: &mut WorldState, sid: u32, cmd: &CommandDef
         }
         "tax" => match a[0].name() {
             // Sans argument : taux et recettes des régions ; « pay » : versement immédiat des recettes (tax.rs).
-            None => Ok(super::tax::describe(ctx, st, &st.players[&sid].language)),
+            None => Ok(super::tax::describe(ctx, st, st.players.get(&sid).map_or(ctx.config.world.language.as_str(), |p| p.language.as_str()))),
             Some("pay") => super::tax::force_payout(ctx, st, a[1].name()).await?.map_err(GmError),
             Some(other) => err(format!("action inconnue : {other} (pay)")),
         },
+        "simloot" => {
+            // Simulation de butin : le tirage de la mort d'un monstre (loot.rs), répété, sans rien créer. Taux du serveur
+            // par défaut ; le niveau du personnage du MJ tient lieu de niveau du tueur (bonus de niveau des groupes).
+            let (tid, kills) = (a[0].int().unwrap_or(0), a[1].int().unwrap_or(0));
+            if !(1..=super::loot::SIM_MAX_KILLS).contains(&kills) {
+                return Ok(err(format!("nombre de monstres entre 1 et {}", super::loot::SIM_MAX_KILLS)));
+            }
+            let rate = |arg: &Arg, key: &str| if *arg == Arg::Missing { st.rates.get(key) } else { arg.float() };
+            let rates = super::loot::Rates { drop: rate(&a[2], "drop"), gold: rate(&a[3], "gold") };
+            if !(0.0..=MAX_RATE).contains(&rates.drop) || !(0.0..=MAX_RATE).contains(&rates.gold) {
+                return Ok(err(format!("le taux doit être compris entre 0 et {MAX_RATE}")));
+            }
+            let tid = u32::try_from(tid).unwrap_or(0);
+            // Niveau et nom d'un monstre de ce modèle présent dans le monde (comme la fenêtre des boss), sinon du modèle.
+            let instance = st.monsters.monsters.iter().find(|m| m.tid == tid && m.owner.is_none());
+            let name = instance.map(|m| m.name.clone()).or_else(|| st.monsters.names.get(&tid).cloned());
+            let Some(name) = name.filter(|_| st.monsters.stats.contains_key(&tid)) else { return Ok(err(format!("monstre inconnu : TID {tid}"))) };
+            let stats = st.monsters.stats_of(tid);
+            let source = super::loot::Source::of(tid, instance.map(|m| m.level).unwrap_or(stats.level as i64), &stats);
+            // À la console (sans personnage), le tueur a le niveau du monstre.
+            let killer = st.players.get(&sid).map_or(source.level.clamp(1, i32::MAX as i64) as i32, |p| p.factors.status[7]);
+            let sim = ctx.loot.simulate(&mut rand::thread_rng(), &source, killer, rates, kills as u32);
+            info!("[mj] {} simule le butin de {kills} × {name} (TID {tid}) : {} pièce(s) d'or, {} sorte(s) d'objet", caller_name(st, sid), sim.gold, sim.items.len());
+            Ok(simloot_report(&sim, &name, &source, killer, rates, |t| ctx.catalog.get(t).map(|d| d.name.clone()).unwrap_or_else(|| format!("objet {t}"))))
+        }
         other => err(format!("commande non implémentée : {other}")),
     })
 }
@@ -684,6 +758,9 @@ mod tests {
         assert_eq!(parse_coordinates(&["-479091,-66202".into()]).unwrap(), (-479091.0, None, -66202.0));
         assert_eq!(parse_coordinates(&["1".into(), "2".into(), "3".into()]).unwrap(), (1.0, Some(2.0), 3.0));
         assert!(parse_coordinates(&["1".into()]).is_err());
+        // Clic sur la carte : coordonnées monde à décimales, hauteur laissée au serveur (hauteur du sol).
+        assert_eq!(parse_coordinates(&["-355895.69,80414.52".into()]).unwrap(), (-355895.69, None, 80414.52));
+        assert_eq!(parse_coordinates(&["+12.5".into(), "-7".into()]).unwrap(), (12.5, None, -7.0));
         let t = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<String>>();
         let move_a = t(&["-479091,-66202", "SimA"]);
         assert_eq!(split_move_target(&move_a), (&move_a[..1], Some("SimA")));
@@ -696,6 +773,32 @@ mod tests {
     }
 
     #[test]
+    fn rapport_de_simloot() {
+        use super::super::loot::{Rates, Simulation, Source};
+        let m = Source { tid: 450, level: 1, ..Default::default() };
+        let rates = Rates { drop: 2.0, gold: 1.0 };
+        let mut sim = Simulation { kills: 500, gold: 6123, ..Default::default() };
+        sim.items.insert(190, 8);
+        sim.items.insert(12, 31);
+        let r = simloot_report(&sim, "Green Worm", &m, 50, rates, |t| if t == 190 { "Small Life Potion".into() } else { format!("objet {t}") });
+        assert_eq!(
+            r.split('\n').collect::<Vec<_>>(),
+            vec![
+                "Butin simulé : 500 × Green Worm (TID 450, niveau 1), taux de butin 2.0, taux d'or 1.0, tueur niveau 50 : 6123 pièce(s) d'or, 39 objet(s) en 2 sorte(s).",
+                "· 31 × objet 12 (TID 12)",
+                "· 8 × Small Life Potion (TID 190)",
+            ]
+        );
+        // Au-delà de SIMLOOT_LINES sortes : une ligne de résumé.
+        let sim = Simulation { kills: 1, gold: 0, items: (1..=45).map(|t| (t, 1)).collect() };
+        let lines: Vec<String> = simloot_report(&sim, "X", &m, 1, rates, |t| format!("o{t}")).split('\n').map(String::from).collect();
+        assert_eq!(lines.len(), 1 + SIMLOOT_LINES + 1);
+        assert_eq!(lines.last().unwrap(), "· … et 5 autre(s) sorte(s), 5 objet(s).");
+        assert!(command("simloot").is_some_and(|c| c.level == 2));
+        assert!(parse_args(command("simloot").unwrap().args.unwrap(), &["450".into(), "100".into(), "1,5".into()]).is_ok());
+    }
+
+    #[test]
     fn libelles() {
         assert_eq!(format_duration(90), "1 min 30 s");
         assert_eq!(format_duration(120), "2 minutes");
@@ -705,5 +808,15 @@ mod tests {
         assert_eq!(rate_label("butin"), "de butin");
         assert_eq!(fmt_rate(2.0), "2.0");
         assert_eq!(fmt_rate(2.5), "2.5");
+    }
+
+    #[test]
+    fn commandes_reservees_au_jeu() {
+        let t = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<String>>();
+        assert!(needs_character("speed", &t(&["2"])));
+        assert!(needs_character("kill", &[]) && !needs_character("kill", &t(&["Héros"])));
+        assert!(needs_character("level", &t(&["50"])) && !needs_character("level", &t(&["50", "Héros"])));
+        assert!(needs_character("move", &t(&["1,2"])) && !needs_character("move", &t(&["1,2", "Héros"])));
+        assert!(!needs_character("SetExp", &t(&["2"])) && !needs_character("announce_restart", &t(&["5"])));
     }
 }

@@ -185,7 +185,7 @@ pub async fn on_dialog(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet
         return Ok(());
     }
     let Some(pl) = st.players.get(&sid).filter(|pl| pl.in_game && !pl.dead) else { return Ok(()) };
-    if super::npc_events::npc_distance(npc, pl.ch.pos_x, pl.ch.pos_z) > super::npc_events::MAX_NPC_DISTANCE {
+    if !super::npc_events::in_range(npc, pl, super::npc_events::range::DIALOG) {
         return Ok(());
     }
     let level = pl.factors.status[7];

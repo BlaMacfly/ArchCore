@@ -7,7 +7,7 @@
 //! 2 points retirés (`PvP.RemissionPoints`). Pas de rémission avant la fin du délai de 2 heures qui suit le dernier
 //! meurtre (« REMIT_MSG_NOT_TP » : réponse de type 1, résultat 0).
 use super::items::{item_count, item_remove};
-use super::npc_events::{npc_distance, resolve, MAX_NPC_DISTANCE};
+use super::npc_events::{in_range, range, resolve};
 use super::{WorldCtx, WorldState};
 use crate::character::unix_now;
 use crate::{info, warn};
@@ -49,7 +49,7 @@ pub async fn on_packet(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet
                 warn!("[rémission] #{sid} pardonneur inconnu");
                 return Ok(());
             };
-            if !npc.events.iter().any(|e| e.function == FUNCTION) || npc_distance(npc, player.ch.pos_x, player.ch.pos_z) > MAX_NPC_DISTANCE {
+            if !npc.events.iter().any(|e| e.function == FUNCTION) || !in_range(npc, player, range::REMISSION) {
                 warn!("[rémission] #{sid} {} n'est pas un pardonneur à portée", npc.name);
                 return Ok(());
             }
@@ -65,7 +65,7 @@ pub async fn on_packet(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet
 
 async fn remit(ctx: &WorldCtx, st: &mut WorldState, sid: u32) -> anyhow::Result<()> {
     let Some(p) = st.players.get(&sid) else { return Ok(()) };
-    let near = p.remission_keeper.and_then(|cid| ctx.npcs.get(cid)).is_some_and(|n| npc_distance(n, p.ch.pos_x, p.ch.pos_z) <= MAX_NPC_DISTANCE);
+    let near = p.remission_keeper.and_then(|cid| ctx.npcs.get(cid)).is_some_and(|n| in_range(n, p, range::REMISSION));
     if !near {
         warn!("[rémission] #{sid} sans pardonneur à portée");
         return Ok(());

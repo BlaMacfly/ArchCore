@@ -21,7 +21,7 @@
 //! niveau (op 8 genre 5) et son avis disparaît (op 7 drapeau 0). Un criminel recherché n'est pas innocent : le tuer ne
 //! donne ni points de meurtrier ni statut de premier attaquant.
 
-use super::npc_events::{npc_distance, resolve};
+use super::npc_events::{in_range, resolve};
 use super::npcs::event_function;
 use super::{send_system, set_money, WorldCtx, WorldState};
 use crate::character::{factors_mini, unix_now};
@@ -36,7 +36,7 @@ pub const MAX_NOTICES: usize = 100;
 pub const PAGE_SIZE: usize = 10;
 pub const PAGES: i64 = 10;
 /// Distance au PNJ du tableau (code partagé d'Archonia : 1600).
-pub const BOARD_DISTANCE: f64 = 1600.0;
+pub const BOARD_DISTANCE: f64 = super::npc_events::range::WANTED_CRIMINAL;
 
 /// Prime de base selon le niveau du poseur (table d'Archonia `FUN_14028b7a0`).
 pub fn base_bounty(level: i32) -> u64 {
@@ -173,7 +173,7 @@ pub async fn on_packet(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet
         Some(wanted_op::REQUEST) => {
             let base = p.bytes(5).and_then(|b| decode_mini(&mini::EVENT_BASE, b).ok()).unwrap_or_else(|| Fields::new(&mini::EVENT_BASE));
             let near = resolve(&ctx.npcs, &base).map(|(n, _)| n).filter(|n| {
-                n.events.iter().any(|e| e.function == event_function::WANTED_CRIMINAL) && npc_distance(n, player.ch.pos_x, player.ch.pos_z) <= BOARD_DISTANCE
+                n.events.iter().any(|e| e.function == event_function::WANTED_CRIMINAL) && in_range(n, player, BOARD_DISTANCE)
             });
             let Some(npc) = near else {
                 warn!("[recherche] #{sid} {} : pas de tableau des avis à portée", player.ch.name);

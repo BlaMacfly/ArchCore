@@ -25,7 +25,7 @@
 //! En base : `guild`, `guild_member`, `guild_hostile`, `guild_warehouse` (base des personnages) ; tailles et prix :
 //! `guild_max_member`.
 
-use super::npc_events::{npc_distance, resolve, MAX_NPC_DISTANCE};
+use super::npc_events::{in_range, range, resolve};
 use super::npcs::event_function;
 use super::{send_system, WorldCtx, WorldState};
 use crate::db::{col, Databases};
@@ -920,7 +920,7 @@ pub fn on_event(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) {
     let Some(player) = st.players.get(&sid) else { return };
     let base = p.bytes(1).and_then(|b| decode_mini(&mini::EVENT_BASE, b).ok()).unwrap_or_else(|| Fields::new(&mini::EVENT_BASE));
     let Some((npc, _)) = resolve(&ctx.npcs, &base) else { return };
-    if !npc.events.iter().any(|e| e.function == function) || npc_distance(npc, player.ch.pos_x, player.ch.pos_z) > MAX_NPC_DISTANCE {
+    if !npc.events.iter().any(|e| e.function == function) || !in_range(npc, player, range::GUILD) {
         warn!("[guilde] #{sid} {} : {} refusé (fonction {function})", player.ch.name, npc.name);
         return;
     }

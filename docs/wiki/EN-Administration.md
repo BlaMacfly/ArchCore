@@ -75,6 +75,7 @@ messages. ArchCore's replies are in French.
 | `/speed <1-10>` | 2 | Multiplies the GM's movement speed (walk and run); `1` restores it. Kept when equipment or effects change, forgotten on logout. ArchCore-specific command |
 | `/rename_char "old" "new"` | 2 | Renames in the database (2 to 24 characters, no space). An online player sees the new name on next login |
 | `/additem <TID> [count]` | 3 | Shortcut for `/create` on yourself: adds the item (1 by default, up to 9999) to the GM's inventory, tradable. ArchCore-specific command |
+| `/simloot <monster TID> <count> [drop rate] [gold rate]` | 2 | Simulates the loot of `count` monsters of this template (1 to 10,000): each death rolls the loot exactly as when a real monster dies (gold, drop groups, monster-specific items), without creating anything or dropping it on the ground. Server rates (`/GetDrop`, `/GetGold`) unless given (0 to 100); monster level: that of a monster of this template present in the world, otherwise the template's; the GM character's level stands for the killer's level. Reply: a header (monsters, rates, gold, number of items and kinds), then one line `· count × name (TID n)` per item, most frequent first (40 at most, then a summary line). The replies are in French, like every GM reply. ArchCore-specific command |
 | `/weather [clear\|rain\|snow]` | 2 | Weather for every player in game (rain, snow, clear); without an argument, the weather and the game hour. ArchCore-specific command |
 | `/shrine [open\| `/siege [start|end <castle> | owner <castle> <guild|-> | hp <castle> <HP>]` | 3 | Without an argument, the castles' state; `start` closes the applications and opens the battle, `end` ends it (the guild of the last carving takes the castle), `owner` gives the castle to a guild (`-`: none) and resets its calendar to status 0, `hp` lowers the HP of a warring castle's intact objects (tests). ArchCore-specific command |
 |close <n>]` | 3 | Without an argument, the Shrines' state; `open` opens Shrine `n`'s battle without waiting for its schedule, `close` ends it with no winner. ArchCore-specific command |
@@ -199,6 +200,7 @@ Example: `/SetExp 2.0`, then `/GetExp` to check.
 |---|---|
 | ✅ `/create "name" <TID> <count> <0\|1>` | Gives an item to the character. `TID` = item ID; the last number makes it untradable (1) |
 | ✅ `/additem <TID> [count]` | Adds an item to your own inventory (ArchCore addition, not in the panel) |
+| ✅ `/simloot <monster TID> <count> [drop rate] [gold rate]` | Simulates the loot of a number of monsters and lists the items obtained (ArchCore addition, not in the panel) |
 | ✅ `/speed <1-10>` | Multiplies your movement speed (ArchCore addition, not in the panel) |
 | ✅ `/weather [clear\|rain\|snow]` | Everyone's weather, or weather and game hour (ArchCore addition, not in the panel) |
 | ✅ `/shrine [open\|close <n>]` | Shrines' state, forced opening or closing of a battle (ArchCore addition, not in the panel) |
@@ -288,7 +290,100 @@ no client-side check. `AntiCheat.*` settings: see [[Configuration|EN-Configurati
 - **Review.** `/anomalies "name"`: number of anomalies in the database and in the current window, then
   the last ten (date, type, detail, sanction).
 
-## 6. Good practice
+## 6. SOAP interface (AzerothCore and TrinityCore tools)
+
+The world server can receive administration commands over **SOAP**, with the same protocol as
+AzerothCore and TrinityCore: their web panels, Discord bots and scripts (PHP `SoapClient`,
+Python `acore-soap`, cURL…) work unchanged. Method `executeCommand`, element `command`, any
+namespace (`urn:AC`, `urn:TC`, `urn:ArchCore`…), HTTP Basic authentication with a game account.
+
+### Enabling
+
+In `config/world.conf` (or through environment variables, see [[Configuration|EN-Configuration]]):
+
+```ini
+SOAP.Enabled = 1
+SOAP.IP = "127.0.0.1"
+SOAP.Port = 7878
+SOAP.MinGmLevel = 3
+```
+
+When the world starts, the log shows `[soap] en écoute sur http://127.0.0.1:7878`. The account that
+connects needs a GM level of at least `SOAP.MinGmLevel` (`account.gm_level`, see section 1); each
+command also requires its own level, exactly as in game.
+
+### Security
+
+- Credentials travel **in clear text** (HTTP Basic, no encryption). Keep `SOAP.IP = "127.0.0.1"`, or
+  open the port only behind a firewall, a private network or an SSH tunnel
+  (`ssh -L 7878:127.0.0.1:7878 server`). Never open 7878 to the Internet.
+- Use an account dedicated to the tool, with a strong password and only the GM level it needs.
+- One request per connection, 64 KB body at most, 10 s to send it. Each command is written to the
+  server log (`[soap] account (IP, MJ n) : command`, then the result) and to the `log_gm` table of the
+  logs database (character 0, name `SOAP <IP address>`); passwords of `account create` and
+  `account set password` are replaced by `***` there.
+
+### Responses
+
+| Case | HTTP | Body |
+|---|---|---|
+| Command succeeded | 200 | `<ns1:executeCommandResponse><result>…</result>`; each line ends with `&#xD;` + line feed, like the AzerothCore console |
+| Command refused or failed (syntax, rights, unknown command, empty) | 500 | `SOAP-ENV:Fault`, `faultcode` `SOAP-ENV:Client`, `faultstring` and `detail` = message |
+| Missing or wrong credentials, unknown or banned account | 401 | Fault `HTTP Error: 401 Unauthorized` (+ `WWW-Authenticate: Basic`) |
+| GM level below `SOAP.MinGmLevel` | 403 | Fault `HTTP Error: 403 Forbidden` |
+
+`ns1` echoes the request namespace, and so do `xsi` and `xsd` (1999 by default, like gSOAP).
+
+### Example with curl
+
+```sh
+curl -s -u admin:Password -H "Content-Type: text/xml; charset=utf-8" http://127.0.0.1:7878/ \
+  -d '<?xml version="1.0" encoding="utf-8"?><SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ns1="urn:AC"><SOAP-ENV:Body><ns1:executeCommand><command>server info</command></ns1:executeCommand></SOAP-ENV:Body></SOAP-ENV:Envelope>'
+```
+
+In Windows PowerShell, call `curl.exe` (not the `curl` alias) and put the envelope in a file
+(`--data-binary "@request.xml"`) to avoid quoting issues. Response:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/" xmlns:SOAP-ENC="http://schemas.xmlsoap.org/soap/encoding/" xmlns:xsi="http://www.w3.org/1999/XMLSchema-instance" xmlns:xsd="http://www.w3.org/1999/XMLSchema" xmlns:ns1="urn:AC"><SOAP-ENV:Body SOAP-ENV:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"><ns1:executeCommandResponse><result>ArchCore rev. 0.2.0 (windows, Release)&#xD;
+Connected players: 1. Characters in world: 1.&#xD;
+Connection peak: 2.&#xD;
+Server uptime: 1 Hour(s) 5 Minute(s) 12 Second(s)&#xD;
+</result></ns1:executeCommandResponse></SOAP-ENV:Body></SOAP-ENV:Envelope>
+```
+
+### Commands
+
+A command is written with or without a leading `.` or `/`, case-insensitive. The AzerothCore
+management commands reply with their original English texts, which tools parse:
+
+| Command | Level | Effect |
+|---|---|---|
+| `account create <account> <password> [email]` | 3 | Creates an account (letters, digits, `_ - .`, 32 characters at most; password of 64 at most). The email is accepted and ignored. Reply `Account created: <account>` |
+| `account set password <account> <pwd> [<pwd>]` | 3 | Changes the password (the second one, if given, must match). Reply `The password was changed` |
+| `account set gmlevel <account> <level> [realm]` | 3 | GM level of the account (never above your own; the realm, `-1` in AzerothCore, is ignored). A player in game gets it at once |
+| `account onlinelist` | 1 | Table of online players: account, character, IP, level, GM level (`Empty list` when nobody) |
+| `ban account <account> <duration> [reason]` | 3 | Bans the account (`account_banned`, author `SOAP <account>`) and disconnects its characters. Duration: `1d2h30m10s`, a number of seconds, `-1` or `0` for no end |
+| `unban account <account>` | 3 | Lifts the current bans |
+| `kick <character> [reason]` | 2 | Disconnects a player in game, without waiting for a reconnection. Reply `Player <name> kicked.` |
+| `announce <text>` / `notify <text>` | 2 | Announcement to every player in game (no output, like AzerothCore) |
+| `server info` | 1 | Version, `Connected players: n. Characters in world: n.`, connection peak, uptime |
+| `server shutdown <delay>\|cancel`, `server restart <delay>\|cancel` | 3 | `/announce_restart` countdown (delay in seconds or `1h30m`); the server only stops at the end with `World.ExitOnRestart = 1` |
+| `commands` / `help` | 0 | Commands allowed to the account |
+
+Any other command goes through the in-game GM command interpreter (sections 3 and 4), without the
+`/`: `SetExp 2`, `GetExp`, `chatban "Name" 10`, `money 1000 "Name"`, `move -479091,-66202 "Name"`,
+`announce_restart 5`, `siege`, `simloot 450 100`… Those acting on the GM's own character (`speed`,
+`additem`, `invincible`, `durability`, `recast`, `questreset`, `last_refine`, and `kill`, `level`,
+`money`, `charisma`, `move` without a character name) reply with a "commande réservée au jeu" Fault.
+Levels are changed with `GM.CommandLevel.<command>`; for a console command, words separated by dots:
+`GM.CommandLevel.account.create = 3`.
+
+Commands run under the world lock, like a player packet: they do not hold the game loop longer than
+a command typed in game. A started command runs to its end even if the client disconnects.
+
+## 7. Good practice
 
 - Keep GM accounts separate from play accounts, with a strong password.
 - Try a command on a test character before using it on a player.

@@ -774,6 +774,21 @@ pub fn parse_portals(text: &str) -> Vec<(u32, String, [f64; 3])> {
     out
 }
 
+/// Sphères d'alchimie d'un fichier obj*.ini : objets qui portent l'événement de raffinage (fonction 26), avec leur
+/// position.
+pub fn parse_refinery_objects(text: &str) -> Vec<(u32, [f64; 3])> {
+    let mut out = Vec::new();
+    for s in parse_ini(text).iter().filter(|s| is_uint(&s.id)) {
+        let Some(p) = s.first("Position") else { continue };
+        if !s.all("Function").iter().any(|f| f.trim() == "26") {
+            continue;
+        }
+        let p: Vec<f64> = p.split(',').map(|x| js_number(x, 0.0)).collect();
+        out.push((s.id.parse().unwrap(), [p.first().copied().unwrap_or(0.0), p.get(1).copied().unwrap_or(0.0), p.get(2).copied().unwrap_or(0.0)]));
+    }
+    out
+}
+
 /// Prix des trajets de TeleportFee.txt : (départ, arrivée, prix) ; un couple répété garde sa dernière ligne.
 pub fn parse_teleport_fees(text: &str) -> Vec<(String, String, i64)> {
     let (h, rows) = parse_tsv(text);
@@ -965,6 +980,10 @@ pub fn parse_monster_ai(text: &str) -> Vec<(u32, String, serde_json::Value)> {
 /// SkillMastery_High.txt (arbre 1) ou SkillMastery_Heroic.txt (arbre 2) : une ligne par classe (son TID seul en
 /// colonne 0), puis ses compétences (TID en colonne 1, nom, ConditionA à C « TID;points », ConditionD
 /// « total; »). Rend (classe, compétence, exigences, total).
+///
+/// Une classe peut avoir plusieurs arbres (Berserker, TID 4, dans SkillMastery_Heroic.txt d'Archonia) : une ligne
+/// porte alors le numéro de l'arbre en colonne 1, sans nom, et ses compétences sont décalées d'une colonne (TID en
+/// colonne 2), comme le lit `FUN_14022a510` d'Archonia.
 pub fn parse_masteries(text: &str) -> Vec<(u32, u32, Vec<(u32, u32)>, i64)> {
     let (_, rows) = parse_tsv(text);
     let mut class = None;
@@ -976,14 +995,19 @@ pub fn parse_masteries(text: &str) -> Vec<(u32, u32, Vec<(u32, u32)>, i64)> {
             class = cell(0).parse::<u32>().ok();
             continue;
         }
-        let (Some(class), Ok(skill)) = (class, cell(1).parse::<u32>()) else { continue };
-        let requires = (3..=5)
+        // Ligne d'arbre (numéro seul) : pas une compétence.
+        if !cell(1).is_empty() && cell(2).is_empty() && (3..=6).all(|i| cell(i).is_empty()) {
+            continue;
+        }
+        let off = usize::from(cell(1).is_empty());
+        let (Some(class), Ok(skill)) = (class, cell(1 + off).parse::<u32>()) else { continue };
+        let requires = (3 + off..=5 + off)
             .filter_map(|i| {
                 let mut p = cell(i).split(';');
                 Some((p.next()?.trim().parse().ok()?, p.next()?.trim().parse().ok()?))
             })
             .collect();
-        let total = cell(6).split(';').next().and_then(|t| t.trim().parse().ok()).unwrap_or(0);
+        let total = cell(6 + off).split(';').next().and_then(|t| t.trim().parse().ok()).unwrap_or(0);
         out.push((class, skill, requires, total));
     }
     out
@@ -1602,28 +1626,37 @@ async fn import_all(db: &Databases, src: &Source) -> anyhow::Result<()> {
     // ---------------------------------------------------------------- TeleportPoint.ini, obj*.ini, TeleportFee.txt (portails)
     if src.exists("TeleportPoint.ini") {
         let points = parse_teleport_points(&src.read("TeleportPoint.ini")?);
+        // Numéro d'un point : son rang dans le fichier, à partir de 1 (comme au chargement du client).
         let out: Vec<Vec<Value>> = points
             .iter()
-            .map(|p| {
+            .enumerate()
+            .map(|(i, p)| {
                 let list = |l: &Vec<String>| serde_json::to_string(l).unwrap();
                 vec![
+                    v(i as i64 + 1),
                     v(p.name.clone()), v(p.target_type), v(p.pos[0]), v(p.pos[1]), v(p.pos[2]), v(p.radius_min), v(p.radius_max),
                     v(p.region_type), v(p.special_type), v(p.use_type), v(list(&p.groups)), v(list(&p.target_groups)),
                 ]
             })
             .collect();
-        let n = replace(db, "teleport_point", "INSERT INTO teleport_point (name,target_type,pos_x,pos_y,pos_z,radius_min,radius_max,region_type,special_type,use_type,point_groups,target_groups) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", out).await?;
+        let n = replace(db, "teleport_point", "INSERT INTO teleport_point (point_id,name,target_type,pos_x,pos_y,pos_z,radius_min,radius_max,region_type,special_type,use_type,point_groups,target_groups) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", out).await?;
         let mut files: Vec<String> = std::fs::read_dir(&src.0)?
             .filter_map(|e| e.ok().and_then(|e| e.file_name().to_str().map(str::to_string)))
             .filter(|n| n.starts_with("obj") && n.ends_with(".ini"))
             .collect();
         files.sort();
         let mut portals: std::collections::BTreeMap<u32, (String, [f64; 3])> = std::collections::BTreeMap::new();
+        let mut spheres: std::collections::BTreeMap<u32, [f64; 3]> = std::collections::BTreeMap::new();
         for f in &files {
-            for (object, point, pos) in parse_portals(&src.read(f)?) {
+            let text = src.read(f)?;
+            for (object, point, pos) in parse_portals(&text) {
                 portals.insert(object, (point, pos));
             }
+            spheres.extend(parse_refinery_objects(&text));
         }
+        let out: Vec<Vec<Value>> = spheres.iter().map(|(id, pos)| vec![v(*id), v(pos[0]), v(pos[1]), v(pos[2])]).collect();
+        let s = replace(db, "refinery_object", "INSERT INTO refinery_object (object_id,pos_x,pos_y,pos_z) VALUES (?,?,?,?)", out).await?;
+        println!("✓ refinery_object : {s} sphère(s) d'alchimie");
         let out: Vec<Vec<Value>> = portals.iter().map(|(id, (point, pos))| vec![v(*id), v(point.clone()), v(pos[0]), v(pos[1]), v(pos[2])]).collect();
         let m = replace(db, "teleport_object", "INSERT INTO teleport_object (object_id,point,pos_x,pos_y,pos_z) VALUES (?,?,?,?,?)", out).await?;
         let fees = if src.exists("TeleportFee.txt") { parse_teleport_fees(&src.read("TeleportFee.txt")?) } else { Vec::new() };
@@ -1801,6 +1834,8 @@ mod tests {
         assert_eq!((pts[1].target_type, pts[1].pos), (1, [10.0, 20.0, 30.0]));
         let obj = "[19990004]\nPosition=-762800.0,1600.0,-578820.0\nFunction=19\nPointName=Leurre\nFunction=8\nEventID=1\nPointName=Village\nTeleportEnd=0\n[abc]\nPosition=0,0,0\nFunction=8\nPointName=X\n";
         assert_eq!(parse_portals(obj), vec![(19_990_004, "Village".to_string(), [-762800.0, 1600.0, -578820.0])]);
+        let spheres = "[139264002]\nTID=201\nPosition=-360200.000000,8429.980469,77400.000000\nFunction=26\nEventID=7\n[139264003]\nPosition=1,2,3\nFunction=8\nPointName=X\n";
+        assert_eq!(parse_refinery_objects(spheres), vec![(139_264_002, [-360200.0, 8429.980469, 77400.0])]);
         let fees = parse_teleport_fees("start_portal\tfinish_portal\tcost\r\nA\tB\t500 \r\nA\tB\t700\r\nB\tA\t\r\n");
         assert_eq!(fees, vec![("A".to_string(), "B".to_string(), 700)]);
         assert_eq!(parse_bank_slot_prices("Slot\tPrice\t\r\n1\t1000000\t# commentaire\r\n2\t-1\t\r\n"), vec![(1, 1_000_000), (2, -1)]);
@@ -1841,6 +1876,16 @@ mod tests {
                     1722\t\t\t\t\t\t\r\n\
                     \t1237\tCourage\t1189;1\t1236;3\t\t30;\r\n";
         assert_eq!(parse_masteries(high), vec![(96, 526, vec![], 0), (96, 558, vec![(525, 2), (527, 2)], 0), (1722, 1237, vec![(1189, 1), (1236, 3)], 30)]);
+        let berserker = "Class TID	Skill TID	Skill Name	ConditionA	ConditionB	ConditionC	ConditionD	
+                         4							
+	0						
+		1472	A				
+		1471	B	1467;3			19;
+                         	1						
+		4426	C	4422;3			19;
+							
+";
+        assert_eq!(parse_masteries(berserker), vec![(4, 1472, vec![], 0), (4, 1471, vec![(1467, 3)], 19), (4, 4426, vec![(4422, 3)], 19)]);
     }
 
     #[test]

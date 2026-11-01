@@ -79,8 +79,9 @@ Remplie par `archcore import` à partir des tables du client.
 | `siege_binding` | `obj*.ini` (événement 19, types 3 à 7) | 27 points de résurrection des sièges : région, type (3 assaillants, 4 défense intérieure, 7 défense extérieure, 5 et 6 Archlord), position |
 | `siege_war` | `SiegeWar.txt` | 5 châteaux (0 Rensphere à 4 Drayger) : régions du château et des abords, durées du combat, des Yeux d'Archon et du carving, délais de déclaration et de candidature, écart entre deux sièges, heure de début, compétence du carving |
 | `siege_war_object` | `SiegeWarObject.txt` | 2 objets d'assaut (9 camp, 10 catapulte) : réparations, coût, durée, objets requis (JSON) |
-| `teleport_point` | `TeleportPoint.ini` | 301 points de téléportation : rayon d'arrivée, races admises, groupes (arrivée, destinations) |
+| `teleport_point` | `TeleportPoint.ini` | 301 points de téléportation : numéro (rang dans le fichier, à partir de 1), rayon d'arrivée, races admises, groupes (arrivée, destinations) |
 | `teleport_object` | `obj*.ini` (événement 8) | 291 portails : objet, point porté, position |
+| `refinery_object` | `obj*.ini` (événement 26) | 20 sphères d'alchimie : objet, position (raffinage à 1600 unités au plus) |
 | `teleport_fee` | `TeleportFee.txt` | 227 prix de trajet (départ, arrivée) |
 | `bank_slot_price` | `bankslotprice.txt` | Prix des pages de banque en plus (-1 : pas en vente contre de l'or) |
 | `character_customize` | `charactercustomizelist.txt` | Coiffures (1) et visages (2) par modèle : numéro (champs 20 et 21 d'AGPMCHARACTER), nom, `Case` (0 création et coiffeur, 1 coiffeur, 2 création), niveau exigé, prix en or ou en objets, ordre du fichier |
