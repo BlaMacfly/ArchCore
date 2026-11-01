@@ -146,8 +146,10 @@ pile de potions et 1000 pièces, se reconnecte et les retrouve, puis les retire 
 `sim portal` (compte MJ `gmtest`) se place à 2500 unités du portail d'Anchorville et s'y adresse : le
 serveur le fait courir puis donne l'accord ; trajet payant (100 pièces) vers le Repaire de l'éclaireur, refus
 d'un trajet non relié, retour payant (500 pièces) à Anchorville. `sim trade` place GmTest (MJ) et SimA au même endroit : GmTest propose une pile
-de potions et 500 pièces, SimA 100 pièces ; l'objet proposé ne peut pas être détruit ; verrous, échange
-(SimA reçoit la pile, l'argent est ajusté des deux côtés), puis une seconde demande refusée. `sim party`
+de potions (refusée sur la grille Ex, puis posée sur la case visée 0,1,2) et 500 pièces, SimA 100 pièces ;
+demandeur lu au champ 2 de l'op 3 ; l'objet proposé ne peut pas être détruit ; verrous (ops 16 / 18 avec le
+CID), déverrouillage de GmTest seul (le verrou de SimA reste, son « prêt » attend), échange (SimA reçoit la
+pile, l'argent est ajusté des deux côtés), puis une seconde demande refusée par l'op 5. `sim party`
 (SimA et SimB) vérifie le refus d'une invitation à un nom inconnu, l'invitation et l'acceptation (groupe et
 liste des membres chez les deux), la discussion de groupe, le réglage de l'expérience par le chef (refusé à
 l'autre), le passage de chef puis l'exclusion, qui dissout le groupe. `sim guild` (GmTest chef, SimA) refuse
@@ -288,7 +290,10 @@ ARCHCORE_CONF_DIR=config/test archcore sim evolution [compteA mdpA persoA compte
 (forme 272, dégâts +26 / +28) et un Passport ; potion bue (op 4, op 19 à 600 000 ms, dégâts majorés, op 11 chez les
 deux), seconde potion refusée (op 27 code 4), Passport refusé ; SimA revient en jeu et reçoit GmTest par l'op 0 (TID
 d'origine, bit 0) puis l'op 11 ; fin de durée au bout de 8 s (op 12 chez les deux, dégâts d'origine) ; GmTest revient,
-boit une potion et l'annule (op 13 → op 12). `sim evolution` (GmTest MJ, SimScion Scion du compte `test`, posé chez
+boit une potion et l'annule (op 13 → op 12). Sous la forme d'araignée, une Short Sword se porte puis se range (AGPMITEM
+op 2, statuts 3 et 2) et l'échange demandé à SimA est refusé (op 5, rien chez SimA). Enfin, Mutation niveau 1 posée en
+base, GmTest la lance sur un Ver vert : op 11 (forme de la liste du niveau), aucun coup sur l'animal, op 12 au bout de
+7 s, seconde Mutation sans effet pendant l'immunité. `sim evolution` (GmTest MJ, SimScion Scion du compte `test`, posé chez
 Gilliwen, sans forme ni compétence d'évolution au départ) : niveau 20 et or par le MJ, Slayer et Orbiter of Evolution
 apprises, Power Stunner refusée (code 5) ; Slayer of Evolution (facteurs du Slayer, FOR 83, op 4, op 26 → 1722 chez
 les deux), Orbiter of Evolution (op 27 → 1724 puis op 26 → 1723), forme active relancée refusée, reconnexion (TID

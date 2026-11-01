@@ -406,12 +406,15 @@ Stored in `character_items.option_tids`.
   client finds them itself for the tooltip.
 - **Triggered options** (`skill_type` column, read by `Archonia.exe` with no client-side computation): 1 critical
   hit (chance `skill_rate`, damage `Critical` as a percentage of a normal hit; without a chance, `Critical` adds to
-  critical damage; without `skill_type`, `Critical` alone is a chance), 2 stuns the target of a landed hit (chance,
+  critical damage; without `skill_type`, `Critical` alone also adds to it, as the client's character window
+  counts it, despite the « Critical Hit Rate » description of option 13822), 2 stuns the target of a landed hit (chance,
   `stun_time`, or else `duration`, in ms), 3 turns a received hit into HP (chance, share `damage_convert_hp`),
   4 regeneration (`regen_hp`, `regen_mp` every 10 s, in combat too), 5 wounds the target (chance; damage from the
   column of its element every second for `dot_damage_time`, which overrides `duration`; this damage is not added
   to the factors), 6 evasion (`evade_rate`: chance to avoid a monster hit, result 7). `Ignore_Physical_Defense_Rate`
-  and `Ignore_Attribute_Defense_Rate` add to the ignored defense (Skills section). The stun goes out in the
+  and `Ignore_Attribute_Defense_Rate` add to the ignored defense, `Critical_Defense_Rate` to the critical hit
+  resistance (Skills section); `StunResistance` is read but neither played nor shown (no option fills it; the
+  client's window only shows the skills' share). The stun goes out in the
   monster's state (AGPMCHARACTER op 1, field 17), the wound in its HP (op 1); no effect packet announces them.
 
 ## Item conversion (types 0x16 and 0x38, AgpmItemConvert and AgpmEventItemConvert)
@@ -648,6 +651,22 @@ blocking a monster's hit, as does `point.physical_block` (80 % at most): result 
 normal attacks, the player evades (result 7). `convert_type` 1 or 2 turns a hit taken into HP or MP given
 back (chance `skill_rate`, otherwise `special_status_rate`; share `damage_convert_hp` or
 `damage_convert_mp` of the damage): result 1, then the player's factors (op 1, field 7).
+
+**Resistances.** `critical_defence_percent2` (Skill_Const2.txt; skills with `defense_melee_attack` 4 such as
+Sword Stopper, and Natural Warrior; not Counter Attack, whose tooltip does not mention it) and the
+`Critical_Defense_Rate` option make up the target's critical hit resistance: it is subtracted from the attacker's
+critical hit chance (deduced rule; a debuff such as Defence Breaker makes it negative). The stun resistance
+(`stun_resistance` in SKILL_CONST, a column filed after `FACTOR_MAGNIFY`: Free Will, Stun Protection 100,
+Terrifying Nemesis negative) is only shown: no game rule is known, stuns follow the protection (state 8).
+
+**Secondary stats (AGPMSKILL op 3).** On entering the game and on every change of their effects (effect applied,
+removed or expired, purge, death, passive learned or upgraded), the player alone receives AGPMSKILL **op 3**:
+field 2 = « base » mini (type 3, their ID), field 9 = memory block of **220 bytes** (u32 length), zero except
+eight little-endian i32: 0x08 critical rate, 0x0c critical damage, 0x2c and 0x3c hit taken turned into HP
+(chance, share), 0xa4 ignored defense, 0xa8 ignored elemental resistance, 0xb0 critical hit resistance, 0xbc stun
+resistance. These are the **skills'** shares only (passives included): `Archonia.exe` copies the block without
+checking its length and adds the worn equipment's options itself for the lines of the character window (except
+the stun resistance, skills only). The client has no other handling for op 3 and does not answer it.
 
 **Damage reflection (counter attack).** `defense_melee_attack` 2 (Counter Attack, a berserker passive: 2 % at
 level 1, 11 % at level 10) sends the damage of a monster's hit that lands or is blocked back to its author,
@@ -943,26 +962,36 @@ items still drop on the ground for the killer.
 ## Trading between players (type 0x07, AgpmPrivateTrade)
 
 2 flag bytes: op, CID, other player's CID, IID, TID, money (INT64), origin and destination slots, argument.
+The client always sends its own CID in field 1; the fields read on reception are those of the reference client.
 
 | Op | Direction | Role |
 |---|---|---|
 | 1 | client | A asks B to trade (field 2); both get action status 7 |
-| 3 | server | B receives the request (field 1 = A) |
-| 4 / 25 | client | B accepts / refuses |
+| 3 | server | B receives the request: field 2 = A (the only one the client reads), field 1 = B |
+| 4 / 5 | client | B accepts / refuses ("No": op 5) |
 | 6 | server | Start, to each (field 1 = self, field 2 = the other) |
-| 9 / 10 | client | Put / take back the item with the given IID (field 3) |
+| 9 | client | Put the item with the given IID (field 3): origin slot (field 6), targeted trade grid slot (field 7, taken if free, else the first free one), kind (field 8: 0 grid, 1 special item, 2 Ex grid, refused) |
+| 10 | client | Take back the item with the given IID (field 3) |
 | 23 / 24 | client, server | Money offered (field 5); the other gets op 24 |
-| 16, 17, 18, 19 | | Lock (self ← 16, other ← 17), unlock (18 / 19) |
+| 16, 17, 18, 19 | | Lock (self ← 16, field 1 = self; other ← 17), unlock (self ← 18, field 1 = self; other ← 19) |
 | 20 | server | Both sides are locked |
 | 21, 22 | | Ready (self ← 21, other ← 22); both ready: exchange |
-| 0 | server | Result (field 8 = 8: done) |
-| 5 | | Cancel, on both sides |
+| 0 | server | Result (field 1 = self, field 8 = 8: done) |
+| 5 | | Cancel, on both sides (field 1 = self) |
+| 25 | server | The target refuses trades (`Option_Trade_Off_User`, see below) |
+| 26 / 27 | server | Chantra coins: not in episode 8, never sent |
 
 An item put in the trade goes, for its owner, to status 6 (trade grid: 1 × 3 × 4) through AGPMITEM op 2;
 the other player receives it through AGPMITEM op 0, status 6, owner = the first one. It stays in the database
 and the inventory until the exchange, and can be neither moved, used nor destroyed. On exchange, the server
 checks the money and the inventory space, transfers the items (AGPMITEM op 1 for the old owner, op 0
 status 2 for the new one) and the money (AGPMCHARACTER field 8). A disconnection cancels the trade.
+
+Unlocking only lifts one's own lock: the client releases its "Lock" button on click only, and a lock lifted by
+the server would leave it a wrong button. The partner sees the offer change, and the exchange waits for both
+locks again. The client never sends op 25; if received, it counts as a cancel (like op 5). Murderers: request
+refused (op 5) at the requester's level 1 or either player's level 2 (the client then hides the trade menu),
+acceptance refused at the accepting player's level 1.
 
 ## Quests (types 0x13 and 0x3E)
 
@@ -1216,9 +1245,18 @@ or evolved (code 3, which opens a window, is never sent); cooldown or level ("Le
 into view gets op 0 with the **original TID** and bit 0, the equipment, then op 11. End: duration over
 (`Item.TransformMaxDurationMs` shortens it), op 13, death → op 12 to everyone and original factors; nothing is saved.
 While transformed (except for the ArchLord): skills, teleport scrolls, Potions of Quickness and Beam, portals, Shrines,
-NPC dialogs and shops, stylist, equipment changes (mounts included) are refused; the form's race applies to
-player-versus-player rules. **Mutation** (`transform_target` 4 skill): the target, a player, takes a form drawn from
-`creature_tid` for the level's duration (7 s); monsters are not changed.
+NPC dialogs and shops, stylist, mounts, private trade (AGPMPRIVATETRADE op 1 → op 5 when either side is transformed)
+are refused. Equipment changes (AGPMITEM op 2, status 3 or 2) go through the ordinary check on the factors: the
+FACTOR_TYPE mini (race, gender, class) stays the original one, and the original race applies to player-versus-player
+rules; while transformed or evolved, the server only sends removals the client accepts (`FUN_1401bca10` without
+level, against the form when evolved), otherwise the item stays worn (op 2 status 3). Under a creature form
+(CharacterDataTable Type 8), a player attacks nobody and is attacked by no player; a form without 0x20000 is not the
+target of an enemy skill. **Mutation** (`transform_target` 4 skill): the target takes a form drawn from
+`creature_tid` for the level's duration (7 s). On a **monster**, the same packets as for a player: op 11 (monster's
+CID, form TID) to those who see it, op 11 after its view (OPT_VIEW op 1 with the original TID) for whoever discovers
+it, op 12 at the end; it stops (OPT_CHAR_MOVE stop), neither hits nor casts, and can be neither attacked nor targeted
+under an animal form. Then the target is immune for 30 s (SKILL_SPEC `downtime_duration`, deduced meaning;
+`Skill.DowntimeSeconds`).
 
 **Dragon Scion evolution**: Slayer, Orbiter and Summoner of Evolution (1189, 1192, 1195, `transform_target` 5), cast
 on oneself (AGPMSKILL op 7, action 1). When the cast ends: form's factors (op 1), **AGPMSKILL op 4** (effect without

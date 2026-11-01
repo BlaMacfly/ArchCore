@@ -18,8 +18,17 @@
 //!             en PV ou en PM (chance « skill_rate », sinon « special_status_rate » ; part « damage_convert_* ») ;
 //!             defense_melee_attack 2 (contre-attaque) renvoie à son auteur, avec la chance « skill_rate », les
 //!             dégâts d'un coup de monstre reçu.
+//!             Résistance aux critiques (« critical_defence_percent2 » de Skill_Const2, sauf la contre-attaque ;
+//!             « Critical_Defense_Rate » des options) : ôtée de la chance de coup critique de l'assaillant (déduit).
+//!             Résistance à l'étourdissement (« stun_resistance » de SKILL_CONST, « StunResistance » des options) :
+//!             seulement affichée, aucune règle de jeu connue (l'étourdissement suit « stun_protect »).
 //!   Paquets : AGPMSKILL op 4 (effet ajouté : identifiant de la compétence, porteur, champ 8 = mini SKILL_BUFF
 //!             TID, durée, TID du lanceur) et op 5 (effet retiré : TID), aux joueurs qui voient le porteur.
+//!             AGPMSKILL op 3 (porteur, champ 9 = bloc de 220 octets) au joueur seul, à l'entrée en jeu et à chaque
+//!             changement : part des compétences de ses caractéristiques secondaires (i32 en 0x08 taux critique,
+//!             0x0c dégâts critiques, 0x2c et 0x3c coup reçu changé en PV, 0xa4 défense ignorée, 0xa8 résistance
+//!             ignorée, 0xb0 résistance aux critiques, 0xbc à l'étourdissement), sans l'équipement, que le client
+//!             ajoute lui-même.
 //! ```
 //! Sur un joueur, les effets s'ajoutent aux facteurs (modèle + équipement) ; sur un monstre, ils modifient
 //! sa défense, ses dégâts et ses vitesses d'attaque et de déplacement.
@@ -36,6 +45,8 @@ pub const MAX_EFFECTS: usize = 32;
 const BASE_CHARACTER: i64 = 3;
 
 pub mod op {
+    /// Données de combat des compétences (champ 9) ; le client n'a pas d'autre traitement pour cette opération.
+    pub const UPDATE_ATTACH_DATA: i64 = 3;
     pub const ADD_BUFF: i64 = 4;
     pub const REMOVE_BUFF: i64 = 5;
 }
@@ -149,6 +160,10 @@ pub struct Mods {
     pub to_mp: f64,
     /// Chance d'échapper à l'étourdissement (pour cent).
     pub stun_protect: f64,
+    /// Résistance aux critiques (pour cent, ôtée de la chance de coup critique de l'assaillant).
+    pub crit_resist: f64,
+    /// Résistance à l'étourdissement (« stun_resistance », « StunResistance ») : affichée, pas jouée.
+    pub stun_resist: f64,
     /// Contre-attaque : chance (pour cent) de renvoyer à son auteur les dégâts d'un coup reçu.
     pub counter: f64,
     /// Défense ignorée par les coups du porteur (pour cent) : défense physique, résistances élémentaires.
@@ -242,6 +257,8 @@ impl Mods {
         self.to_mp_rate += o.to_mp_rate;
         self.to_mp += o.to_mp;
         self.stun_protect += o.stun_protect;
+        self.crit_resist += o.crit_resist;
+        self.stun_resist += o.stun_resist;
         self.counter += o.counter;
         self.ignore_defense += o.ignore_defense;
         self.ignore_resist += o.ignore_resist;
@@ -410,9 +427,12 @@ pub fn lift_status(effects: &mut [Effect], bits: u64) -> bool {
     lifted
 }
 
-/// Coup critique sur un coup réussi : (résultat, dégâts).
-pub fn critical(rng: &mut impl rand::Rng, m: &Mods, outcome: i64, damage: i32) -> (i64, i32) {
-    if outcome != result::SUCCESS || m.crit_rate <= 0.0 || rng.gen_range(0.0..100.0) >= m.crit_rate {
+/// Coup critique sur un coup réussi : (résultat, dégâts). `resist` : résistance aux critiques de la cible, ôtée
+/// de la chance de l'assaillant (règle déduite : la fenêtre du personnage montre les deux en pour cent, côte à côte ;
+/// le client n'en dit pas plus).
+pub fn critical(rng: &mut impl rand::Rng, m: &Mods, resist: f64, outcome: i64, damage: i32) -> (i64, i32) {
+    let rate = m.crit_rate - resist;
+    if outcome != result::SUCCESS || rate <= 0.0 || rng.gen_range(0.0..100.0) >= rate {
         return (outcome, damage);
     }
     (result::CRITICAL, (damage as f64 * m.crit_dmg.max(100.0) / 100.0).round() as i32)
@@ -552,6 +572,44 @@ pub fn remove_packet(owner: u32, e: &Effect) -> Vec<u8> {
     build_packet(k, &Fields::new(k).with(0, op::REMOVE_BUFF).with(1, e.skill_id).with(2, base(owner)).with(8, vec![Value::Bytes(buff)]))
 }
 
+/// Longueur du bloc des données de combat des compétences (champ 9 d'AGPMSKILL) : le client en copie toujours
+/// 220 octets, sans vérifier la longueur.
+pub const ATTACH_LEN: usize = 220;
+/// Décalages dans ce bloc (i32) des valeurs que lit la fenêtre du personnage, dans l'ordre de `attach_values`.
+pub const ATTACH_OFFSETS: [usize; 8] = [0x08, 0x0c, 0x2c, 0x3c, 0xa4, 0xa8, 0xb0, 0xbc];
+
+/// Part des compétences des caractéristiques secondaires : taux et dégâts critiques, coup reçu changé en PV
+/// (chance, part), défense et résistances ignorées, résistance aux critiques, à l'étourdissement.
+pub fn attach_values(m: &Mods) -> [i32; 8] {
+    [m.crit_rate, m.crit_dmg, m.to_hp_rate, m.to_hp, m.ignore_defense, m.ignore_resist, m.crit_resist, m.stun_resist].map(|v| v.round() as i32)
+}
+
+/// Bloc de 220 octets : les valeurs à leurs décalages, le reste à zéro.
+pub fn attach_block(values: &[i32; 8]) -> Vec<u8> {
+    let mut b = vec![0u8; ATTACH_LEN];
+    for (off, v) in ATTACH_OFFSETS.iter().zip(values) {
+        b[*off..*off + 4].copy_from_slice(&v.to_le_bytes());
+    }
+    b
+}
+
+/// AGPMSKILL op 3 : données de combat des compétences de `owner` (champ 9), que le client range telles quelles.
+pub fn attach_packet(owner: u32, values: &[i32; 8]) -> Vec<u8> {
+    let k = &schema::SKILL;
+    build_packet(k, &Fields::new(k).with(0, op::UPDATE_ATTACH_DATA).with(2, base(owner)).with(9, attach_block(values)))
+}
+
+/// Envoie au joueur la part des compétences de ses caractéristiques secondaires (effets, passives comprises,
+/// sans l'équipement : le client ajoute lui-même les options de ses objets), si elle a changé ou si `force`.
+pub fn sync_attach(p: &mut super::Player, force: bool) {
+    let values = attach_values(&total(&p.skills.effects));
+    if !force && values == p.skills.attach_sent {
+        return;
+    }
+    p.skills.attach_sent = values;
+    p.send_raw(attach_packet(p.ch.id, &values));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -631,15 +689,47 @@ mod tests {
     fn critiques() {
         let mut rng = rand::rngs::StdRng::seed_from_u64(7);
         let sure = Mods { crit_rate: 100.0, crit_dmg: 180.0, ..Default::default() };
-        assert_eq!(critical(&mut rng, &sure, result::SUCCESS, 10), (result::CRITICAL, 18));
-        assert_eq!(critical(&mut rng, &sure, result::MISS, 0), (result::MISS, 0));
-        assert_eq!(critical(&mut rng, &Mods::default(), result::SUCCESS, 10), (result::SUCCESS, 10));
+        assert_eq!(critical(&mut rng, &sure, 0.0, result::SUCCESS, 10), (result::CRITICAL, 18));
+        assert_eq!(critical(&mut rng, &sure, 0.0, result::MISS, 0), (result::MISS, 0));
+        assert_eq!(critical(&mut rng, &Mods::default(), 0.0, result::SUCCESS, 10), (result::SUCCESS, 10));
         // Dégâts critiques sous 100 % : jamais moins qu'un coup normal.
         let weak = Mods { crit_rate: 100.0, crit_dmg: 10.0, ..Default::default() };
-        assert_eq!(critical(&mut rng, &weak, result::SUCCESS, 10), (result::CRITICAL, 10));
+        assert_eq!(critical(&mut rng, &weak, 0.0, result::SUCCESS, 10), (result::CRITICAL, 10));
         let rare = Mods { crit_rate: 3.0, crit_dmg: 120.0, ..Default::default() };
-        let n = (0..10_000).filter(|_| critical(&mut rng, &rare, result::SUCCESS, 10).0 == result::CRITICAL).count();
+        let n = (0..10_000).filter(|_| critical(&mut rng, &rare, 0.0, result::SUCCESS, 10).0 == result::CRITICAL).count();
         assert!((200..400).contains(&n), "{n} critiques sur 10 000 à 3 %");
+    }
+
+    #[test]
+    fn resistance_aux_critiques() {
+        let mut rng = rand::rngs::StdRng::seed_from_u64(13);
+        let sure = Mods { crit_rate: 100.0, crit_dmg: 150.0, ..Default::default() };
+        assert_eq!(critical(&mut rng, &sure, 100.0, result::SUCCESS, 10), (result::SUCCESS, 10), "résistance égale à la chance");
+        let half = Mods { crit_rate: 30.0, ..sure };
+        let n = (0..10_000).filter(|_| critical(&mut rng, &half, 20.0, result::SUCCESS, 10).0 == result::CRITICAL).count();
+        assert!((850..1150).contains(&n), "30 % moins 20 % : {n} critiques sur 10 000");
+        // Résistance négative (affaiblissement de la cible) : la chance augmente.
+        let n = (0..10_000).filter(|_| critical(&mut rng, &half, -20.0, result::SUCCESS, 10).0 == result::CRITICAL).count();
+        assert!((4700..5300).contains(&n), "30 % plus 20 % : {n} critiques sur 10 000");
+    }
+
+    #[test]
+    fn bloc_des_competences() {
+        let m = Mods { crit_rate: 3.0, crit_dmg: 120.0, to_hp_rate: 5.0, to_hp: 10.0, ignore_defense: 4.0, ignore_resist: 2.0, crit_resist: 16.0, stun_resist: -5.0, defense: 9.0, ..Default::default() };
+        let v = attach_values(&m);
+        assert_eq!(v, [3, 120, 5, 10, 4, 2, 16, -5]);
+        let p = archcore_net::decode_packet(&schema::SKILL, &attach_packet(0x5000_0001, &v)).unwrap();
+        assert_eq!(p.int(0), Some(op::UPDATE_ATTACH_DATA));
+        let owner = archcore_net::decode_mini(&mini::SKILL_BASE, p.bytes(2).unwrap()).unwrap();
+        assert_eq!((owner.int(0), owner.int(1)), (Some(BASE_CHARACTER), Some(0x5000_0001)));
+        let b = p.bytes(9).expect("bloc du champ 9");
+        assert_eq!(b.len(), ATTACH_LEN);
+        let at = |off: usize| i32::from_le_bytes(b[off..off + 4].try_into().unwrap());
+        assert_eq!((at(0x08), at(0x0c), at(0x2c), at(0x3c)), (3, 120, 5, 10));
+        assert_eq!((at(0xa4), at(0xa8), at(0xb0), at(0xbc)), (4, 2, 16, -5));
+        let rest: u32 = (0..ATTACH_LEN).step_by(4).filter(|o| !ATTACH_OFFSETS.contains(o)).map(|o| at(o).unsigned_abs()).sum();
+        assert_eq!(rest, 0, "le reste du bloc est nul");
+        assert!(p.int(1).is_none() && p.list(8).is_none(), "ni compétence ni effets");
     }
 
     #[test]

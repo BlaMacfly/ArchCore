@@ -3,7 +3,8 @@
 //! Le client demande un changement de place par AGPMITEM op 2 : statut 3 pour équiper un objet de
 //! l'inventaire, statut 2 (et la case voulue au champ 7) pour ranger un objet porté ou déplacer un objet
 //! dans l'inventaire. Avant d'équiper, le serveur vérifie le niveau, la race, la classe et le sexe exigés
-//! (itemdatatable.txt) ; l'objet déjà porté sur la même partie du corps retourne dans l'inventaire, et une
+//! (itemdatatable.txt), contre les facteurs : ceux d'origine sous métamorphose, ceux de la forme sous évolution ; sous
+//! l'une ou l'autre, le retrait refait ce contrôle sans le niveau (`may_take_off`, voir `morph.rs`) ; l'objet déjà porté sur la même partie du corps retourne dans l'inventaire, et une
 //! arme à deux mains libère aussi l'autre main. Le porteur reçoit les mises à jour (op 2), ceux qui le voient
 //! l'ajout (op 0, statut 3) ou le retrait (op 1) ; ses facteurs sont recalculés : dégâts et défense
 //! physiques, précision, PV, vitesse et portée d'attaque de l'arme.
@@ -30,8 +31,9 @@ pub mod part {
     pub const RIDE: i64 = 14;
     pub const LANCER: i64 = 15;
 }
-/// « Kind » d'une arme.
+/// « Kind » d'une arme, d'une monture.
 pub const KIND_WEAPON: i64 = 2;
+pub const KIND_MOUNT: i64 = 0x20;
 
 /// Raison d'un refus, ou rien si le personnage peut porter l'objet.
 pub fn check(e: &EquipData, level: i64, race: i64, class: i64, gender: i64) -> Result<(), &'static str> {
@@ -48,6 +50,17 @@ pub fn check(e: &EquipData, level: i64, race: i64, class: i64, gender: i64) -> R
         return Err("réservé à l'autre sexe");
     }
     Ok(())
+}
+
+/// Contrôle du retrait d'un objet porté sous métamorphose ou évolution (`FUN_1401bca10` d'Archonia, appelé sans
+/// niveau par le retrait et par tout ce qui fait quitter son emplacement à un objet porté) : race, classe et sexe des
+/// facteurs, c'est-à-dire ceux d'origine sous métamorphose et ceux de la forme sous évolution. Une monture y échappe.
+/// Hors transformation, rien n'est contrôlé.
+pub fn may_take_off(e: &EquipData, transformed: bool, race: i64, class: i64, gender: i64) -> Result<(), &'static str> {
+    if !transformed || e.kind == KIND_MOUNT {
+        return Ok(());
+    }
+    check(e, i64::MAX, race, class, gender)
 }
 
 /// Partie où poser l'objet : la sienne, ou le second anneau si le premier est pris et l'autre libre.
@@ -166,7 +179,8 @@ pub fn refresh_factors(ctx: &WorldCtx, st: &mut WorldState, sid: u32) {
     p.send(c, Fields::new(c).with(0, 1).with(1, p.ch.id).with(7, factors_mini(&p.factors)));
 }
 
-/// Comme `refresh_factors`, sans rien envoyer : modèle (la forme évoluée du Dragon Scion, `evolution.rs`) et croissance au
+/// Comme `refresh_factors`, sans envoyer les facteurs (seule la part des compétences des caractéristiques secondaires
+/// part, si elle a changé, à un joueur en jeu) : modèle (la forme évoluée du Dragon Scion, `evolution.rs`) et croissance au
 /// niveau de `p.ch`, équipement, bonus d'une potion de métamorphose (`morph.rs`), effets.
 pub fn recompute_factors(ctx: &WorldCtx, p: &mut Player) {
     let Some(tpl) = ctx.templates.get(p.current_tid()).or_else(|| ctx.templates.get(p.ch.template_id)) else { return };
@@ -195,6 +209,10 @@ pub fn recompute_factors(ctx: &WorldCtx, p: &mut Player) {
     f.point[POINT_HP] = f.point[POINT_HP].min(f.point_max[0]);
     f.point[1] = f.point[1].min(f.point_max[1]);
     p.factors = f;
+    // Part des compétences des caractéristiques secondaires (AGPMSKILL op 3), si les effets l'ont changée.
+    if p.in_game {
+        super::effects::sync_attach(p, false);
+    }
 }
 
 /// Envoie \`plain\` aux joueurs qui voient \`sid\` (pas à lui).
@@ -232,14 +250,6 @@ pub async fn on_item_update(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &P
     let worn_part = player.inventory.equipment.iter().find(|(_, i)| i.iid == iid).map(|(part, _)| *part);
     match (status, worn_part) {
         (item_status::EQUIP, None) => equip(ctx, st, sid, iid, false).await.map(|_| ()),
-        // Métamorphose : aucun changement d'équipement (morph.rs) ; l'objet reste porté.
-        (item_status::INVENTORY, Some(_)) if player.form.morph.is_some() => {
-            send_system(st, sid, "Vous ne pouvez pas changer d'équipement sous métamorphose.");
-            if let Some(item) = st.players[&sid].inventory.equipment.values().find(|i| i.iid == iid) {
-                st.players[&sid].send_raw(item_update(item, st.players[&sid].ch.id, item_status::EQUIP));
-            }
-            Ok(())
-        }
         (item_status::INVENTORY, Some(at)) => unequip(ctx, st, sid, at, wanted_grid(p), false).await.map(|_| ()),
         (item_status::INVENTORY, None) => move_in_bag(ctx, st, sid, iid, wanted_grid(p)).await,
         _ => {
@@ -274,10 +284,11 @@ pub async fn equip(ctx: &WorldCtx, st: &mut WorldState, sid: u32, iid: u32, quie
         refused(st, "Cet objet ne se porte pas.");
         return Ok(false);
     };
-    // Métamorphose : aucun changement d'équipement (morph.rs).
-    if p.form.morph.is_some() {
+    // Métamorphose : équipement permis (contrôle ordinaire, sur les facteurs d'origine), sauf une monture : refus
+    // d'ArchCore, le client ne refuse rien (morph.rs).
+    if p.form.morph.is_some() && e.kind == KIND_MOUNT {
         info!("[équipement] {} : {} refusé sous métamorphose", p.ch.name, data.name);
-        refused(st, "Vous ne pouvez pas changer d'équipement sous métamorphose.");
+        refused(st, "Vous ne pouvez pas monter sous métamorphose.");
         return Ok(false);
     }
     let f = &p.factors;
@@ -322,9 +333,25 @@ pub async fn equip(ctx: &WorldCtx, st: &mut WorldState, sid: u32, iid: u32, quie
     Ok(true)
 }
 
-/// Range dans l'inventaire l'objet porté sur `at` ; `quiet` : inventaire plein sans message. Rend vrai si l'objet est
-/// rangé.
+/// Range dans l'inventaire l'objet porté sur `at` ; `quiet` : refus et inventaire plein sans message. Sous
+/// métamorphose ou évolution, un objet que les facteurs n'admettent plus (forme évoluée) reste porté (`may_take_off`).
+/// Rend vrai si l'objet est rangé.
 pub async fn unequip(ctx: &WorldCtx, st: &mut WorldState, sid: u32, at: i64, wanted: Option<Grid>, quiet: bool) -> anyhow::Result<bool> {
+    let p = &st.players[&sid];
+    let worn = p.inventory.equipment.get(&at).cloned();
+    let transformed = p.form.morph.is_some() || p.form.evolved.is_some();
+    if let Some((item, d)) = worn.as_ref().and_then(|i| Some((i, ctx.catalog.get(i.tid)?))) {
+        let f = &p.factors;
+        let kept = d.equip.as_ref().map(|e| may_take_off(e, transformed, f.ftype[0] as i64, f.ftype[2] as i64, f.ftype[1] as i64));
+        if let Some(Err(why)) = kept {
+            info!("[équipement] {} : retrait de {} refusé sous sa forme ({why})", p.ch.name, d.name);
+            if !quiet {
+                send_system(st, sid, &format!("Vous ne pouvez pas retirer {} sous cette forme : {why}.", d.name));
+                p.send_raw(item_update(item, p.ch.id, item_status::EQUIP));
+            }
+            return Ok(false);
+        }
+    }
     let player = st.players.get_mut(&sid).unwrap();
     let cid = player.ch.id;
     let Some(item) = player.inventory.unequip(&ctx.db, at, wanted).await? else {
@@ -441,6 +468,18 @@ mod tests {
         assert_eq!(check(&e, 3, 1, 4, 1), Err("classe non admise"));
         assert_eq!(check(&EquipData { gender: 2, ..e.clone() }, 3, 1, 1, 1), Err("réservé à l'autre sexe"));
         assert_eq!(check(&e, 3, 2, 1, 2), Ok(()));
+    }
+
+    #[test]
+    fn retrait_sous_une_forme() {
+        // Épée de Knight (classe 1, races 1 et 2) ; forme évoluée du Scion de classe 9 ou personnage métamorphosé.
+        let e = EquipData { races: vec![1, 2], level: 50, ..weapon(1) };
+        assert_eq!(may_take_off(&e, false, 4, 9, 1), Ok(()), "hors transformation : rien n'est contrôlé");
+        assert_eq!(may_take_off(&e, true, 1, 1, 1), Ok(()), "sans niveau : le niveau 50 ne compte pas");
+        assert_eq!(may_take_off(&e, true, 4, 1, 1), Err("race non admise"), "forme évoluée d'une autre race");
+        assert_eq!(may_take_off(&e, true, 1, 9, 1), Err("classe non admise"));
+        let horse = EquipData { part: part::RIDE, kind: KIND_MOUNT, races: vec![1], ..Default::default() };
+        assert_eq!(may_take_off(&horse, true, 4, 9, 1), Ok(()), "monture : pas de contrôle");
     }
 
     #[test]

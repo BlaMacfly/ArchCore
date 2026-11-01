@@ -556,7 +556,7 @@ pub async fn attack_step(ctx: &WorldCtx, st: &mut WorldState, sid: u32, target: 
     let parts = {
         let mut rng = rand::thread_rng();
         let (outcome, damage) = combat::strike(&mut rng, &attacker, &defender);
-        let (outcome, damage) = crate::world::effects::critical(&mut rng, &crate::world::effects::of_player(p), outcome, damage);
+        let (outcome, damage) = crate::world::effects::critical(&mut rng, &crate::world::effects::of_player(p), crate::world::effects::of_player(t).crit_resist, outcome, damage);
         let mut parts = vec![(combat::RESULT_PHYSICAL, damage)];
         if damage > 0 {
             let chance = combat::spirit_chance(true, attacker.level, defender.level);

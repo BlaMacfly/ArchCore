@@ -152,8 +152,9 @@
   normal hit rate bounded after a target change or a resume; packet rate per connection
   (`AntiCheat.MaxPacketsPerSecond`), floods disconnected; `log_anomaly` table, `log`, `kick` or `ban` sanctions beyond a
   threshold, `/anomalies`, `/move x,z "name"` to place a player. Duplication audit: refining with the same item listed
-  twice (ingredients counted twice) closed; trade cancelled if an offered item changed since it was offered, unlocking
-  also unlocks the partner, a request cannot be accepted by its author; offered items can no longer be converted, sold,
+  twice (ingredients counted twice) closed; trade cancelled if an offered item changed since it was offered, after an
+  unlock the exchange waits for both locks again (the partner keeps its own, as in the reference client), a request
+  cannot be accepted by its author; offered items can no longer be converted, sold,
   refined or put in the guild warehouse; ground gold beyond the cap left on the ground; second world entry on one
   connection. Validated with the simulator on 29 October 2026 (`cheat` scenario, and the existing ones), to be confirmed
   in game.
@@ -168,11 +169,19 @@
   player and those who see them (view: op 0 with the original TID, bit 0 of field 18, then op 11), op 12 when the
   duration ends, on cancellation (client op 13) or on death; AGPMITEM op 4, op 19 (shared 10 min cooldown), op 27 code 4
   when mounted, transformed or evolved, code 2 in a siege zone; form lost on logout, cooldown kept per session. Client
-  refusals repeated (skills, scrolls, Potions of Quickness and Beam, portals, Shrines, NPCs, stylist), except for the
-  ArchLord; equipment frozen while transformed (client check `FUN_1401bfa10` on an unidentified template flag); form's
-  race for player-versus-player rules. Mutation (`transform_target` 4) on players only: form drawn from
-  `creature_tid` for 7 s, no cancellation. `Item.TransformMaxDurationMs` shortens the duration (simulator). Validated
-  with the simulator on 1 November 2026 (`morph` scenario), to be confirmed in game.
+  refusals repeated (skills, scrolls, Potions of Quickness and Beam, portals, Shrines, NPCs, stylist, private trade when
+  either side is transformed), except for the ArchLord; equipment allowed with the ordinary check on the original
+  factors (`FUN_1401bca10`), removal checked without level while transformed or evolved (refused under an evolved form
+  that does not allow the item), mounts still refused while transformed (ArchCore's choice); original race for
+  player-versus-player rules. Creature form (CharacterDataTable Type 8: Mutation animals, potions 408 to 416): the
+  player attacks nobody and no player attacks them; form without 0x20000: not the target of an enemy skill. Mutation
+  (`transform_target` 4): form drawn from `creature_tid` for 7 s, no cancellation, on a player or a monster (no
+  summons, siege objects or boss-window bosses); the monster stops, its AI waits for the end, it can be neither
+  attacked nor targeted under an animal form (op 11 / op 12 to those who see it, op 11 after its view); then 30 s of
+  immunity (SKILL_SPEC `downtime_duration`, deduced meaning, `Skill.DowntimeSeconds`). `Item.TransformMaxDurationMs`
+  shortens the duration (simulator). Validated with the simulator on 1 November 2026 (`morph` scenario: equipment and
+  trade while transformed, Mutation of a Green Worm), to be confirmed in game; on the ArchRust side, still to do:
+  equipment not redrawn during the form, trade menu, animal target.
 - Dragon Scion evolution (`world/evolution.rs`): Slayer, Orbiter and Summoner of Evolution (1189, 1192, 1195), learnt
   from the Dragon Scion skill masters from level 20; casting → AGPMSKILL op 4 (effect without duration) then
   AGPMCHARACTER op 26 (1722, 1723, 1732); from one form to another, op 27 then op 26; casting the active form again is
@@ -181,6 +190,14 @@
   reset item refused; form saved (`characters.evolution_tid`), kept on death and restored on entry (form's TID, bit 2
   of field 18). Validated with the simulator on 1 November 2026 (`evolution` scenario), to be confirmed in game; the
   ArchRust client still has to handle these packets.
+- Secondary stats of the character window (`world/effects.rs`): AGPMSKILL op 3, field 9 (220-byte block: critical
+  rate and damage, hit taken turned into HP, ignored defense and resistance, critical hit and stun resistance) sent
+  to the player on entering the game and on every change of their effects, skills' share only (passives included):
+  the client adds the items' share itself. Critical hit resistance (`critical_defence_percent2`,
+  `Critical_Defense_Rate` option) subtracted from the attacker's critical hit chance (deduced rule); stun resistance
+  (`stun_resistance`, `StunResistance`) read, only shown; an option with `Critical` and no `skill_type` (13822)
+  counts as critical damage, as in the client. Validated in the simulator on 1 November 2026 (`ignore` scenario), to
+  be confirmed in game with the ArchRust window.
 - ArchRust client ([own repository](https://github.com/BlaMacfly/ArchRust)): combat (attacking, hits, death, resurrection, loot), parties, other
   players, inventory and equipment, NPCs (dialog, shop, bank and buying pages, quests), skills (trainers,
   casting, shortcut bar), teleport portals (original window and loading screen, confirmation of player-versus-player zones, "Return",

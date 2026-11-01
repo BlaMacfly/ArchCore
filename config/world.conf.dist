@@ -193,6 +193,15 @@ Item.ArmorWearChance = 10
 
 Item.TransformMaxDurationMs = 0
 
+#    Skill.DowntimeSeconds
+#        Immunité de la cible après une Mutation, en secondes : une nouvelle Mutation
+#        ne la touche pas avant. -1 : la durée de SKILL_SPEC (colonne
+#        « downtime_duration », 30) ; 0 : aucune immunité. Le sens de cette colonne
+#        est déduit (le client la lit sans s'en servir) : choix d'ArchCore.
+#        Défaut : -1
+
+Skill.DowntimeSeconds = -1
+
 #    Auction.MaxSales
 #        Ventes au plus par personnage dans la maison des ventes (1 à 100 : la boîte
 #        de ventes du client a 100 cases). La limite du serveur d'origine n'est pas

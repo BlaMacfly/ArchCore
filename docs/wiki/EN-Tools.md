@@ -144,8 +144,10 @@ potion stack and 1000 coins, reconnects and finds them, then withdraws them and 
 `sim portal` (GM account `gmtest`) stands 2500 units from the Anchorville portal and addresses it: the
 server makes it run then grants; paid trip (100 coins) to the Scout's Grounds, unlinked trip refused, paid
 return (500 coins) to Anchorville. `sim trade` puts GmTest (GM) and SimA at the same spot: GmTest offers
-a potion stack and 500 coins, SimA 100 coins; the offered item cannot be destroyed; locks, exchange (SimA
-receives the stack, money is adjusted on both sides), then a second request refused. `sim party` (SimA and
+a potion stack (refused on the Ex grid, then put on the targeted slot 0,1,2) and 500 coins, SimA 100 coins;
+requester read from field 2 of op 3; the offered item cannot be destroyed; locks (ops 16 / 18 with the CID),
+GmTest alone unlocks (SimA's lock stays, its "ready" waits), exchange (SimA receives the stack, money is
+adjusted on both sides), then a second request refused with op 5. `sim party` (SimA and
 SimB) checks that inviting an unknown name is refused, the invitation and acceptance (party and member list
 on both sides), party chat, the leader setting experience sharing (refused to the other), the leader handover,
 then the kick, which disbands the party. `sim guild` (GmTest master, SimA) refuses a name with a space,
@@ -283,7 +285,10 @@ ARCHCORE_CONF_DIR=config/test archcore sim evolution [accountA passA charA accou
 damage +26 / +28) and a Passport; potion drunk (op 4, op 19 at 600,000 ms, higher damage, op 11 for both), second potion
 refused (op 27 code 4), Passport refused; SimA comes back and gets GmTest through op 0 (original TID, bit 0) then op 11;
 end of duration after 8 s (op 12 for both, original damage); GmTest comes back, drinks a potion and cancels it (op 13 →
-op 12). `sim evolution` (GmTest GM, SimScion a Scion of the `test` account, placed at Gilliwen's, with no form nor
+op 12). Under the spider form, a Short Sword is worn then put away (AGPMITEM op 2, statuses 3 and 2) and the trade
+asked of SimA is refused (op 5, nothing for SimA). Last, with Mutation level 1 set in the database, GmTest casts it on a
+Green Worm: op 11 (form from the level's list), no hit on the animal, op 12 after 7 s, second Mutation without effect
+during the immunity. `sim evolution` (GmTest GM, SimScion a Scion of the `test` account, placed at Gilliwen's, with no form nor
 evolution skill at start): level 20 and gold from the GM, Slayer and Orbiter of Evolution learnt, Power Stunner refused
 (code 5); Slayer of Evolution (Slayer factors, STR 83, op 4, op 26 → 1722 for both), Orbiter of Evolution (op 27 → 1724
 then op 26 → 1723), active form cast again refused, reconnection (TID 1723, field 18 = 4, op 4 on entry, GM's view),

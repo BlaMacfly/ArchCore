@@ -156,8 +156,9 @@
   paquets par connexion (`AntiCheat.MaxPacketsPerSecond`), inondation déconnectée ; table `log_anomaly`, sanctions
   `log`, `kick` ou `ban` au-delà d'un seuil, `/anomalies`, `/move x,z "nom"` pour poser un joueur. Audit des
   duplications : raffinage avec un même objet cité deux fois (ingrédients comptés double) fermé ; échange annulé si un
-  objet proposé a changé depuis sa proposition, déverrouillage qui déverrouille aussi le partenaire, demande non
-  acceptable par son auteur ; objets proposés ni convertis, ni vendus, ni raffinés, ni déposés à l'entrepôt ; or au
+  objet proposé a changé depuis sa proposition, échange qui attend de nouveau les deux verrous après un
+  déverrouillage (le partenaire garde le sien, comme le client de référence), demande non acceptable par son auteur ;
+  objets proposés ni convertis, ni vendus, ni raffinés, ni déposés à l'entrepôt ; or au
   sol laissé au-delà du plafond ; seconde entrée en jeu sur une même connexion. Validé au simulateur le
   29 octobre 2026 (scénario `cheat`, et les scénarios existants), à confirmer en jeu.
 - Retour de test n° 1 (29 octobre 2026), côté serveur : portées d'usage des PNJ et des objets alignées sur le code
@@ -171,11 +172,19 @@
   et à ceux qui le voient (vue : op 0 au TID d'origine, bit 0 du champ 18, puis op 11), op 12 à la fin de la durée, à
   l'annulation (op 13 du client) ou à la mort ; AGPMITEM op 4, op 19 (recharge commune de 10 min), op 27 code 4 à cheval,
   transformé ou évolué, code 2 en zone de siège ; forme perdue à la déconnexion, recharge propre à la session. Refus
-  du client répétés (compétences, parchemins, Potions of Quickness et Beam, portails, Shrines, PNJ, coiffeur), sauf
-  pour l'ArchLord ; équipement figé pendant la métamorphose (contrôle du client `FUN_1401bfa10` sur un drapeau de
-  modèle non établi) ; race de la forme pour le combat entre joueurs. Mutation (`transform_target` 4) sur les joueurs
-  seulement : forme tirée dans `creature_tid` pour 7 s, sans annulation. `Item.TransformMaxDurationMs` abrège la durée
-  (simulateur). Validé au simulateur le 1er novembre 2026 (scénario `morph`), à confirmer en jeu.
+  du client répétés (compétences, parchemins, Potions of Quickness et Beam, portails, Shrines, PNJ, coiffeur, échange
+  privé si l'un des deux est métamorphosé), sauf pour l'ArchLord ; équipement permis avec le contrôle ordinaire sur les
+  facteurs d'origine (`FUN_1401bca10`), retrait contrôlé sans niveau sous métamorphose ou évolution (refusé sous une
+  forme évoluée qui n'admet pas l'objet), monture toujours refusée sous métamorphose (choix d'ArchCore) ; race
+  d'origine pour le combat entre joueurs. Forme de créature (Type 8 de CharacterDataTable : animaux de la Mutation,
+  potions 408 à 416) : le joueur n'attaque personne et aucun joueur ne l'attaque ; forme sans 0x20000 : pas la cible
+  d'une compétence sur ennemi. Mutation (`transform_target` 4) : forme tirée dans `creature_tid` pour 7 s, sans
+  annulation, sur un joueur ou un monstre (ni invocation, ni objet de siège, ni boss de la fenêtre des boss) ; le
+  monstre s'arrête, son IA attend la fin, il n'est ni attaquable ni ciblable sous une forme d'animal (op 11 / op 12 à
+  ceux qui le voient, op 11 après sa vue) ; immunité ensuite de 30 s (`downtime_duration` de SKILL_SPEC, sens déduit,
+  `Skill.DowntimeSeconds`). `Item.TransformMaxDurationMs` abrège la durée (simulateur). Validé au simulateur le
+  1er novembre 2026 (scénario `morph` : équipement et échange sous métamorphose, Mutation d'un Ver vert), à confirmer
+  en jeu ; côté ArchRust, à reprendre : équipement non redessiné pendant la forme, menu d'échange, cible d'animal.
 - Évolution du Dragon Scion (`world/evolution.rs`) : Slayer, Orbiter et Summoner of Evolution (1189, 1192, 1195),
   apprises chez les maîtres du Dragon Scion dès le niveau 20 ; lancement → AGPMSKILL op 4 (effet sans durée) puis
   AGPMCHARACTER op 26 (1722, 1723, 1732) ; d'une forme à l'autre, op 27 puis op 26 ; forme active relancée refusée ;
@@ -184,6 +193,14 @@
   d'oubli des compétences refusé ; forme enregistrée (`characters.evolution_tid`), gardée à la mort et rendue à
   l'entrée (TID de la forme, bit 2 du champ 18). Validé au simulateur le 1er novembre 2026 (scénario `evolution`), à
   confirmer en jeu ; le client ArchRust doit encore traiter ces paquets.
+- Caractéristiques secondaires de la fenêtre du personnage (`world/effects.rs`) : AGPMSKILL op 3, champ 9 (bloc de
+  220 octets : taux et dégâts critiques, coup reçu changé en PV, défense et résistance ignorées, résistance aux
+  critiques et à l'étourdissement) envoyé au joueur à l'entrée en jeu et à chaque changement de ses effets, part des
+  compétences seule (passives comprises) : le client ajoute lui-même celle des objets. Résistance aux critiques
+  (`critical_defence_percent2`, option `Critical_Defense_Rate`) ôtée de la chance de coup critique de l'assaillant
+  (règle déduite) ; résistance à l'étourdissement (`stun_resistance`, `StunResistance`) lue, affichée seulement ;
+  option à `Critical` sans `skill_type` (13822) comptée en dégâts critiques, comme le client. Validé au simulateur le
+  1er novembre 2026 (scénario `ignore`), à confirmer en jeu avec la fenêtre d'ArchRust.
 - Client ArchRust ([dépôt à part](https://github.com/BlaMacfly/ArchRust)) : combat (attaque, coups, mort, résurrection, butin), groupes, autres
   joueurs, inventaire et équipement, PNJ (dialogue, boutique, banque et achat de pages, quêtes), compétences
   (instructeurs, lancement, barre de raccourcis), portails de téléportation (fenêtre et chargement d'origine, confirmation des zones de combat entre joueurs,

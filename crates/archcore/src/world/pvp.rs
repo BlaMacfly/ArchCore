@@ -5,7 +5,9 @@
 //! et un niveau 20 au moins des deux côtés (message 25) ; pas de coup sur son groupe en zone libre, ni sur un ami
 //! (même guilde, guilde alliée) en zone de combat (message 20) ; un meurtrier de 100 points ou plus ne force plus
 //! d'attaque ; une cible invincible donne le message 17. Dans les Battlegrounds (régions 110-114, 123-125, 175,
-//! 176) et dans un Shrine en combat (`shrine.rs`), seules des races différentes se battent, sans Ctrl.
+//! 176) et dans un Shrine en combat (`shrine.rs`), seules des races différentes se battent, sans Ctrl (race d'origine
+//! sous métamorphose). Un joueur sous une forme de créature (Type 8, `morph.rs`) n'attaque personne et n'est attaqué
+//! par aucun joueur.
 //!
 //! Une attaque forcée fait des deux joueurs des ennemis l'un pour l'autre (op 2, mode de la zone), pour 5 minutes
 //! prolongées à chaque coup ; le premier ennemi donne le message 3 (« en combat »), le dernier retiré le 4.
@@ -134,6 +136,10 @@ pub fn check(ctx: &WorldCtx, st: &WorldState, sid: u32, tsid: u32, forced: bool)
     if sid == tsid || !c.in_game || c.dead || !a.in_game || a.dead {
         return Err(Refusal(None));
     }
+    // Forme d'animal (Type 8 de CharacterDataTable, morph.rs) : pas d'attaque d'un joueur, ni sur un joueur.
+    if super::morph::harmless(st, sid) || super::morph::harmless(st, tsid) {
+        return Err(Refusal(None));
+    }
     let now = Instant::now();
     if c.invincible_until.is_some_and(|u| now < u) || super::effects::active_status(&c.skills.effects, now) & super::effects::status::UNTOUCHABLE != 0 {
         return Err(Refusal(Some(code::TARGET_INVINCIBLE)));
@@ -141,13 +147,13 @@ pub fn check(ctx: &WorldCtx, st: &WorldState, sid: u32, tsid: u32, forced: bool)
     if super::guild::battle::enemies(st, a.ch.id, c.ch.id) {
         return Ok(());
     }
-    // Battlegrounds : races différentes seulement (race de la forme sous métamorphose, morph.rs).
+    // Battlegrounds : races différentes seulement (race d'origine sous métamorphose : facteurs, morph.rs).
     if in_battleground(ctx, st, sid) && in_battleground(ctx, st, tsid) {
-        return if super::morph::race(ctx, a) != super::morph::race(ctx, c) { Ok(()) } else { Err(Refusal(None)) };
+        return if a.factors.ftype[0] != c.factors.ftype[0] { Ok(()) } else { Err(Refusal(None)) };
     }
     // Shrine en combat (shrine.rs) : de même, entre joueurs du même Shrine.
     if let (Some(x), Some(y)) = (super::shrine::active_shrine(ctx, st, sid), super::shrine::active_shrine(ctx, st, tsid)) {
-        return if x == y && super::morph::race(ctx, a) != super::morph::race(ctx, c) { Ok(()) } else { Err(Refusal(None)) };
+        return if x == y && a.factors.ftype[0] != c.factors.ftype[0] { Ok(()) } else { Err(Refusal(None)) };
     }
     // Siège en cours (siege/war.rs) : guildes de camps opposés sans Ctrl, jamais dans un même camp ; les autres joueurs
     // suivent les règles ordinaires.
@@ -371,7 +377,7 @@ pub fn strike(st: &mut WorldState, sid: u32, tsid: u32, target: u32, forced: boo
     let (outcome, parts) = {
         let mut rng = rand::thread_rng();
         let (outcome, damage) = combat::strike(&mut rng, &attacker, &defender);
-        let (outcome, damage) = super::effects::critical(&mut rng, &super::effects::of_player(p), outcome, damage);
+        let (outcome, damage) = super::effects::critical(&mut rng, &super::effects::of_player(p), super::effects::of_player(t).crit_resist, outcome, damage);
         let mut parts = vec![(combat::RESULT_PHYSICAL, damage)];
         if damage > 0 {
             let chance = combat::spirit_chance(true, attacker.level, defender.level);

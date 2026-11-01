@@ -745,13 +745,24 @@ pub async fn enter_world_opts(cfg: &Config, user: &str, pass: &str, char_name: &
 async fn client(user: &str, pass: &str, char_name: &str, commands: &[String]) -> anyhow::Result<()> {
     let cfg = crate::config::load()?;
     let mut w = enter_world(&cfg, user, pass, char_name, "").await?;
-    let commands: Vec<String> = if commands.is_empty() { vec!["/GetExp".into()] } else { commands.to_vec() };
+    let defaulted = commands.is_empty();
+    let commands: Vec<String> = if defaulted { vec!["/GetExp".into()] } else { commands.to_vec() };
     let ch = &schema::CHATTING;
     for command in &commands {
         w.world
             .send(ch, Fields::new(ch).with(0, 0).with(1, w.cid).with(2, chat_type::NORMAL).with(6, crate::tools::to_cp1252(command)))
             .await?;
-        let mut replies = vec![w.world.expect_where(|q| q.ptype == ch.id, 5000, &format!("réponse à {command}")).await?];
+        let first = w.world.expect_where(|q| q.ptype == ch.id, 5000, &format!("réponse à {command}")).await;
+        // Sans commande donnée, /GetExp n'est qu'une sonde : un compte sans droits MJ n'a pas de réponse (gm.rs).
+        let first = match first {
+            Err(_) if defaulted => {
+                println!("  {command}");
+                println!("    (pas de réponse : compte sans droits MJ)");
+                continue;
+            }
+            r => r?,
+        };
+        let mut replies = vec![first];
         while let Ok(more) = w.world.expect_where(|q| q.ptype == ch.id, 300, "suite").await {
             replies.push(more);
         }
@@ -1933,6 +1944,8 @@ async fn private_trade(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &st
     let say = |cid: u32, text: &str| Fields::new(ch).with(0, 0).with(1, cid).with(2, chat_type::NORMAL).with(6, crate::tools::to_cp1252(text));
     let t = |op: i64| Fields::new(tr).with(0, op);
     let is_t = |op: i64| move |q: &Recv| q.is(tr, Some(op));
+    let cell = |g: [i64; 3]| build_mini(&mini::ITEM_GRID, &Fields::new(&mini::ITEM_GRID).with(0, g[0]).with(1, g[1]).with(2, g[2]));
+    let grid_of = |r: &Recv| r.fields().bytes(7).and_then(|b| decode_mini(&mini::ITEM_GRID, b).ok()).map(|g| [g.int(0).unwrap_or(0), g.int(1).unwrap_or(0), g.int(2).unwrap_or(0)]);
 
     step(&format!("{ca} et {cb} entrent en jeu au même endroit"));
     let mut a = enter_world(&cfg, ua, pa, ca, "A-").await?;
@@ -1954,17 +1967,24 @@ async fn private_trade(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &st
 
     step("demande et acceptation");
     a.world.send(tr, t(1).with(1, acid).with(2, bcid)).await?;
+    // Comme le client de référence le lit : demandeur au champ 2, destinataire au champ 1.
     let ask = b.world.expect_where(is_t(3), 3000, "demande reçue").await?;
-    anyhow::ensure!(ask.int(1) == Some(acid), "demandeur {:?}", ask.int(1));
+    anyhow::ensure!(ask.int(2) == Some(acid) && ask.int(1) == Some(bcid), "demandeur {:?}, destinataire {:?}", ask.int(2), ask.int(1));
     b.world.send(tr, t(4).with(1, bcid)).await?;
     a.world.expect_where(is_t(6), 3000, "début chez A").await?;
     b.world.expect_where(is_t(6), 3000, "début chez B").await?;
-    println!("  ✓ échange ouvert");
+    println!("  ✓ échange ouvert (op 3 : demandeur au champ 2)");
 
-    step("A propose une pile et 500 pièces, B 100 pièces");
-    a.world.send(tr, t(9).with(1, acid).with(3, iid)).await?;
-    a.world.expect_where(|q| q.is(it, Some(2)) && q.int(2) == Some(iid) && q.int(1) == Some(6), 3000, "pile dans la grille de A").await?;
-    b.world.expect_where(|q| q.is(it, Some(0)) && q.int(2) == Some(iid) && q.int(1) == Some(6) && q.int(4) == Some(acid), 3000, "pile vue par B").await?;
+    step("A propose une pile (case visée 0,1,2) et 500 pièces, B 100 pièces");
+    // Grille Ex (genre 2) : hors épisode 8, refusée.
+    a.world.send(tr, t(9).with(1, acid).with(3, iid).with(7, cell([0, 0, 0])).with(8, 2)).await?;
+    anyhow::ensure!(a.world.expect_where(|q| q.is(it, Some(2)) && q.int(2) == Some(iid) && q.int(1) == Some(6), 800, "").await.is_err(), "pile posée sur la grille Ex");
+    println!("  ✓ grille Ex refusée");
+    a.world.send(tr, t(9).with(1, acid).with(3, iid).with(7, cell([0, 1, 2])).with(8, 0)).await?;
+    let put = a.world.expect_where(|q| q.is(it, Some(2)) && q.int(2) == Some(iid) && q.int(1) == Some(6), 3000, "pile dans la grille de A").await?;
+    anyhow::ensure!(grid_of(&put) == Some([0, 1, 2]), "case chez A {:?}", grid_of(&put));
+    let seen = b.world.expect_where(|q| q.is(it, Some(0)) && q.int(2) == Some(iid) && q.int(1) == Some(6) && q.int(4) == Some(acid), 3000, "pile vue par B").await?;
+    anyhow::ensure!(grid_of(&seen) == Some([0, 1, 2]), "case vue par B {:?}", grid_of(&seen));
     a.world.send(tr, t(23).with(1, acid).with(5, 500)).await?;
     b.world.expect_where(|q| q.is(tr, Some(24)) && q.int(5) == Some(500), 3000, "argent de A vu par B").await?;
     b.world.send(tr, t(23).with(1, bcid).with(5, 100)).await?;
@@ -1974,12 +1994,28 @@ async fn private_trade(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &st
     anyhow::ensure!(a.world.expect_where(|q| q.is(it, Some(1)) && q.int(2) == Some(iid), 800, "").await.is_err(), "objet proposé détruit");
     println!("  ✓ propositions vues des deux côtés ; l'objet proposé reste intouchable");
 
-    step("verrous, puis échange");
+    step("verrous, déverrouillage de A seul, puis échange");
     a.world.send(tr, t(16).with(1, acid)).await?;
+    let own = a.world.expect_where(is_t(16), 3000, "verrou de A").await?;
+    anyhow::ensure!(own.int(1) == Some(acid), "op 16 : CID {:?}", own.int(1));
     b.world.expect_where(is_t(17), 3000, "A verrouillé").await?;
     b.world.send(tr, t(16).with(1, bcid)).await?;
     a.world.expect_where(is_t(20), 3000, "prêt à échanger (A)").await?;
     b.world.expect_where(is_t(20), 3000, "prêt à échanger (B)").await?;
+    // A déverrouille : B garde son verrou (le client ne relâche son bouton qu'au clic).
+    a.world.send(tr, t(18).with(1, acid)).await?;
+    let own = a.world.expect_where(is_t(18), 3000, "déverrouillage de A").await?;
+    anyhow::ensure!(own.int(1) == Some(acid), "op 18 : CID {:?}", own.int(1));
+    b.world.expect_where(is_t(19), 3000, "A déverrouillé").await?;
+    anyhow::ensure!(b.world.expect_where(is_t(18), 800, "").await.is_err(), "verrou de B levé par le serveur");
+    // Prêt de B refusé tant que A n'est pas de nouveau verrouillé.
+    b.world.send(tr, t(21).with(1, bcid)).await?;
+    anyhow::ensure!(a.world.expect_where(is_t(22), 800, "").await.is_err(), "B prêt sans le verrou de A");
+    a.world.send(tr, t(16).with(1, acid)).await?;
+    b.world.expect_where(is_t(17), 3000, "A de nouveau verrouillé").await?;
+    a.world.expect_where(is_t(20), 3000, "de nouveau prêt à échanger (A)").await?;
+    b.world.expect_where(is_t(20), 3000, "de nouveau prêt à échanger (B)").await?;
+    println!("  ✓ ops 16 / 18 avec le CID ; verrou de B intact après le déverrouillage de A");
     a.world.send(tr, t(21).with(1, acid)).await?;
     b.world.expect_where(is_t(22), 3000, "A prêt").await?;
     b.world.send(tr, t(21).with(1, bcid)).await?;
@@ -1992,10 +2028,10 @@ async fn private_trade(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &st
     anyhow::ensure!(am.int(8) == Some(9600) && bm.int(8) == Some(700), "argent A {:?}, B {:?}", am.int(8), bm.int(8));
     println!("  ✓ B a reçu {} potion(s) ; A : 9600 pièces, B : 700", o(got.int(5)));
 
-    step("refus d'une seconde demande");
+    step("refus d'une seconde demande (« No » : op 5, comme le client)");
     a.world.send(tr, t(1).with(1, acid).with(2, bcid)).await?;
     b.world.expect_where(is_t(3), 3000, "seconde demande").await?;
-    b.world.send(tr, t(25).with(1, bcid)).await?;
+    b.world.send(tr, t(5).with(1, bcid)).await?;
     a.world.expect_where(is_t(5), 3000, "annulation chez A").await?;
     b.world.expect_where(is_t(5), 3000, "annulation chez B").await?;
     println!("  ✓ refusée, échange annulé des deux côtés");

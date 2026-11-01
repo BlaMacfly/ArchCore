@@ -812,6 +812,11 @@ fn enter_world(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle) {
     // Monture portée : AgpmRide op 2, une fois ses objets connus du client ; effet de l'évolution du Scion (op 4).
     ride::on_enter(st, sid);
     evolution::on_enter(st, sid);
+    // Part des compétences des caractéristiques secondaires (AGPMSKILL op 3, champ 9), passives comprises.
+    if let Some(p) = st.players.get_mut(&sid) {
+        effects::sync_attach(p, true);
+    }
+    let Some(p) = st.players.get(&sid) else { return };
     let mv = &schema::OPT_CHAR_MOVE;
     p.send(mv, Fields::new(mv).with(0, p.ch.id).with(1, pos).with(2, pos).with(5, MOVE_STOP_SYNC).with(6, 0));
     let sent = send_nearby_npcs(ctx, st, sid, pos);
@@ -895,6 +900,10 @@ pub fn sync_monsters(ctx: &WorldCtx, st: &mut WorldState, sid: u32, pos: Vec3) -
             // Invocation : son état spécial puis l'op 0 d'AgpmSummons, après la vue (summons.rs).
             for extra in st.summons.view_extras(m.cid, st.monsters.status(m.cid, now)) {
                 p.sess.send_raw(extra);
+            }
+            // Mutation : op 11 après la vue, le TID d'origine y étant (morph.rs).
+            if let Some(morph) = st.monsters.morph_view(m.cid) {
+                p.sess.send_raw(morph);
             }
             added += 1;
         }

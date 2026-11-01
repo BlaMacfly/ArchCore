@@ -68,7 +68,7 @@ fn mine(q: &Recv, me: i64) -> bool {
 }
 
 /// Va chez les Vers verts ; rend les vers vivants en vue, les plus valides d'abord.
-async fn worms(w: &mut InWorld) -> anyhow::Result<Vec<i64>> {
+pub(super) async fn worms(w: &mut InWorld) -> anyhow::Result<Vec<i64>> {
     // Téléportation par le MJ : la validation du serveur refuse une position lointaine donnée par le client, et la
     // marche depuis le village est plus longue que l'attente des monstres en vue.
     let ch = &schema::CHATTING;
@@ -247,7 +247,14 @@ pub async fn divide(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) 
     println!("  ✓ effet posé sur {ca} et sur {cb}");
 
     step(&format!("un Ver vert frappe {cb}"));
-    let worm = worms(&mut b).await?[0];
+    // Un ver déjà en vue de B ; sinon repérage par le MJ (`worms` téléporte par /move, refusé sans réponse à un joueur
+    // sans droits).
+    let near = |p: Vec3| (((p.x - HUNT.x) as f64).powi(2) + ((p.z - HUNT.z) as f64).powi(2)).sqrt() <= 3000.0;
+    let seen = b.monsters.iter().filter(|m| m.name == "Green Worm" && m.hp > 0 && near(m.pos)).max_by_key(|m| m.hp).map(|m| m.cid as i64);
+    let worm = match seen {
+        Some(w) => w,
+        None => worms(&mut a).await?[0],
+    };
     b.world.send(act, Fields::new(act).with(0, b.cid).with(1, worm).with(6, 1)).await?;
     b.world.expect_where(|q| q.is(act, None) && q.int(0) == Some(bcid), 15_000, "premier coup").await?;
     let here = b.monsters.iter().find(|m| m.cid as i64 == worm).map(|m| m.pos).unwrap_or(HUNT);
@@ -353,6 +360,13 @@ pub async fn ignore(user: &str, pass: &str, char_name: &str) -> anyhow::Result<(
     gm(&mut w, "/recast").await?;
     w.world.send(k, cast_fields(stunner, me)).await?;
     w.world.expect_where(|q| q.is(k, Some(4)) && q.int(1) == Some(stunner), 10_000, "effet").await?;
+    // Part des compétences des caractéristiques secondaires : AGPMSKILL op 3, bloc de 220 octets au champ 9.
+    let attach = w.world.expect_where(|q| q.is(k, Some(3)) && skill_owner(q, 2) == Some(me), 3000, "AGPMSKILL op 3").await?;
+    let block = attach.fields().bytes(9).unwrap_or_default().to_vec();
+    anyhow::ensure!(block.len() == 220, "bloc de {} octets (attendu 220)", block.len());
+    let at = |o: usize| i32::from_le_bytes([block[o], block[o + 1], block[o + 2], block[o + 3]]);
+    anyhow::ensure!(at(0xa8) > 0 && at(0xa4) == 0, "résistance ignorée {} et défense ignorée {} dans le bloc", at(0xa8), at(0xa4));
+    println!("  ✓ AGPMSKILL op 3 : résistance ignorée {} % (0xa8)", at(0xa8));
     let q = hunt(&mut w, water, 120, "part d'eau").await?;
     let after = q.fields().bytes(3).and_then(|f| shown_damage(f, WATER)).unwrap_or(0);
     anyhow::ensure!(after == 4, "part d'eau {after} sous Stunner (attendu 2 × 3 × 74 % = 4)");

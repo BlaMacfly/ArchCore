@@ -16,9 +16,12 @@
 //!            « *_Percent » sont toujours en pour cent. Le client ajoute lui-même les options aux facteurs de
 //!            l'objet pour l'affichage ; ceux du personnage viennent du serveur, qui ajoute les options portées.
 //!            Options à déclenchement (« skill_type ») : 1 critique, 2 étourdissement, 3 coup reçu changé en PV,
-//!            4 régénération, 5 blessure, 6 esquive ; avec « Ignore_Physical_Defense_Rate » et
-//!            « Ignore_Attribute_Defense_Rate », elles forment les effets de combat de l'équipement (`Gear`), joués
-//!            par le combat. Les colonnes bonus_*, on_hit_*… ne sont pas appliquées.
+//!            4 régénération, 5 blessure, 6 esquive ; « Critical » sans « skill_type » s'ajoute aux dégâts
+//!            critiques. Avec « Ignore_Physical_Defense_Rate », « Ignore_Attribute_Defense_Rate »,
+//!            « Critical_Defense_Rate » (résistance aux critiques) et « StunResistance » (lue, mais ni jouée ni
+//!            affichée : la fenêtre du client n'en montre que la part des compétences ; aucune option ne la remplit),
+//!            elles forment les effets de combat de l'équipement (`Gear`), joués par le combat. Les colonnes
+//!            bonus_*, on_hit_*… ne sont pas appliquées.
 //!   Options liées : un objet unique cite des groupes (« Link_id » d'itemdatatable.txt) ; chaque groupe donne
 //!            l'option dont « Level_min » ≤ niveau du porteur ≤ « Level_max », ajoutée comme les autres.
 //!   Réseau : AGPMITEM champ 20, mini-paquet de 5 UINT16 (TID des options).
@@ -397,7 +400,7 @@ pub struct Wound {
 /// Effets de combat de l'équipement porté : options à déclenchement, défense ignorée, compétences des runes.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Gear {
-    /// Critiques, coups reçus changés en PV, esquive, défense ignorée.
+    /// Critiques, coups reçus changés en PV, esquive, défense ignorée, résistance aux critiques.
     pub mods: super::effects::Mods,
     /// Étourdissements de la cible d'un coup : (chance, durée en ms).
     pub stuns: Vec<(f64, u64)>,
@@ -452,12 +455,16 @@ impl OptionCatalog {
                     }
                 }
                 trigger::EVADE => g.mods.dodge += o.stat("evade_rate").max(o.stat("dodge_rate")),
-                // Sans « skill_type », « Critical » seul donne une chance de coup critique (« Critical Hit Rate +1% »).
-                0 if crit > 0.0 => g.mods.crit_rate += crit,
+                // Sans « skill_type », « Critical » s'ajoute aux dégâts critiques, comme le compte la fenêtre du
+                // personnage du client (le lecteur de la table range « Critical » à part de la chance), malgré la
+                // description « Critical Hit Rate +1% » de l'option 13822.
+                0 if crit > 0.0 => g.mods.crit_dmg += crit,
                 _ => {}
             }
             g.mods.ignore_defense += o.stat("Ignore_Physical_Defense_Rate");
             g.mods.ignore_resist += o.stat("Ignore_Attribute_Defense_Rate");
+            g.mods.crit_resist += o.stat("Critical_Defense_Rate");
+            g.mods.stun_resist += o.stat("StunResistance");
         }
         g
     }
@@ -574,7 +581,7 @@ mod tests {
 
     #[test]
     fn options_a_declenchement() {
-        let table = "tid\tDescription\tType\tPhysicalDamage\tPoisonDamage\tskill_type\tduration\tskill_rate\tCritical\tstun_time\tdamage_convert_hp\tregen_hp\tregen_mp\tdot_damage_time\tevade_rate\tdodge_rate\tIgnore_Physical_Defense_Rate\r\n\
+        let table = "tid\tDescription\tType\tPhysicalDamage\tPoisonDamage\tskill_type\tduration\tskill_rate\tCritical\tstun_time\tdamage_convert_hp\tregen_hp\tregen_mp\tdot_damage_time\tevade_rate\tdodge_rate\tIgnore_Physical_Defense_Rate\tCritical_Defense_Rate\tStunResistance\r\n\
             2151\t1% chance on hit to strike your target for 110% damage.\t22\t\t\t1\t\t1\t110\r\n\
             890\tIncreases Critical Hit Damage by +50%\t145\t\t\t1\t\t\t50\r\n\
             2161\t1% chance on hit to stun your target for 1 sec.\t23\t\t\t2\t\t1\t\t1000\r\n\
@@ -584,10 +591,13 @@ mod tests {
             2325\tpoison wound\t39\t\t60\t5\t6000\t4\t\t\t\t\t\t6000\r\n\
             2253\tDodge +4%\t42\t\t\t6\t\t\t\t\t\t\t\t\t4\t4\r\n\
             13822\tCritical Hit Rate +1%\t55\t\t\t\t\t\t1\r\n\
-            50\tIgnore Defense +5%\t60\t3\t\t\t\t\t\t\t\t\t\t\t\t\t5\r\n";
+            50\tIgnore Defense +5%\t60\t3\t\t\t\t\t\t\t\t\t\t\t\t\t5\r\n\
+            8121\tCritical Hit Resistance +1%\t162\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t1\r\n\
+            60\tStun Resistance +3%\t70\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t3\r\n";
         let c = OptionCatalog::parse(table, "", "");
-        let g = c.gear(&[2151, 890, 2161, 2171, 2181, 888, 2325, 2253, 13822, 50]);
-        assert_eq!((g.mods.crit_rate, g.mods.crit_dmg), (2.0, 160.0), "1 % + 1 % de chance ; 110 % puis +50 %");
+        let g = c.gear(&[2151, 890, 2161, 2171, 2181, 888, 2325, 2253, 13822, 50, 8121, 60]);
+        assert_eq!((g.mods.crit_rate, g.mods.crit_dmg), (1.0, 161.0), "1 % de chance ; 110 %, +50 %, puis +1 % (13822, sans skill_type)");
+        assert_eq!((g.mods.crit_resist, g.mods.stun_resist), (1.0, 3.0));
         assert_eq!(g.stuns, vec![(1.0, 1000)]);
         assert_eq!((g.mods.to_hp_rate, g.mods.to_hp), (4.0, 10.0));
         assert_eq!((g.regen_hp, g.regen_mp), (20, 200));

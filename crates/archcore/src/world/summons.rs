@@ -770,7 +770,7 @@ fn choose(ctx: &WorldCtx, st: &WorldState, s: &Summon, m: &Monster, osid: u32) -
     // Cible du maître : monstre vivant et attaquable (pas l'une de ses invocations), ou joueur qu'il peut attaquer.
     let master = p.attack.and_then(|a| {
         if let Some(t) = st.monsters.get(a.target).filter(|t| t.is_alive() && combat::dist2d(t.pos, at) <= ASSIST_RANGE) {
-            let ok = st.monsters.stats_for(t).is_attackable() && may_attack(ctx, st, osid, t.cid, a.forced).is_ok() && super::siege::war::may_hit(ctx, st, osid, t.cid);
+            let ok = st.monsters.attackable(t) && may_attack(ctx, st, osid, t.cid, a.forced).is_ok() && super::siege::war::may_hit(ctx, st, osid, t.cid);
             return ok.then_some(a.target);
         }
         st.by_cid.get(&a.target).filter(|t| super::pvp::check(ctx, st, osid, **t, a.forced).is_ok()).map(|_| a.target)
@@ -806,7 +806,7 @@ fn trap_target(st: &WorldState, s: &Summon, m: &Monster) -> Option<u32> {
     }
     st.monsters
         .near(m.pos, range + 500.0)
-        .filter(|t| t.is_alive() && t.owner.is_none() && st.monsters.stats_of(t.tid).is_attackable() && super::siege::war::may_hit_auto(st, t.cid))
+        .filter(|t| t.is_alive() && t.owner.is_none() && st.monsters.attackable(t) && super::siege::war::may_hit_auto(st, t.cid))
         .filter(|t| combat::dist2d(t.pos, m.pos) <= range + st.monsters.stats_of(t.tid).hit_range as f64 + REACH_TOLERANCE)
         .min_by(|a, b| (a.target != Some(s.owner)).cmp(&(b.target != Some(s.owner))).then(combat::dist2d(a.pos, m.pos).total_cmp(&combat::dist2d(b.pos, m.pos))))
         .map(|t| t.cid)

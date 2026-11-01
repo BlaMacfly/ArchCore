@@ -37,8 +37,9 @@ const ACTION_STATUS_DEAD: i64 = 2;
 pub const DEFAULT_HIT_RANGE: i32 = 100;
 
 /// Bits du type de personnage (« Type » de CharacterDataTable.txt) : 0x4 monstre, 0x8 créature d'ambiance
-/// (coqs, poules…), 0x10 garde, puis ceux-ci.
+/// (coqs, poules… ; aussi les animaux de la Mutation, `morph.rs`), 0x10 garde, puis ceux-ci.
 pub mod char_type {
+    pub const CREATURE: i64 = 0x8;
     pub const ATTACKABLE: i64 = 0x1_0000;
     pub const TARGETABLE: i64 = 0x2_0000;
 }
@@ -195,6 +196,13 @@ pub struct Monster {
     pub owner: Option<u32>,
 }
 
+/// Forme prise par un monstre sous la Mutation d'un joueur (`morph.rs`) : TID de la forme, fin.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MonsterMorph {
+    pub tid: u32,
+    pub ends_at: Instant,
+}
+
 impl Monster {
     pub fn is_alive(&self) -> bool {
         self.life == Life::Alive
@@ -266,6 +274,9 @@ pub struct MonsterRegistry {
     /// Points d'apparition des guerres de siège (`monster_spawn.siege_war` 1 : objets, 2 : gardes) : leurs monstres ne
     /// sont pas montrés hors du combat de siège de leur château (`siege/`).
     pub siege_spawns: HashMap<u32, u8>,
+    /// Mutations en cours (`morph.rs`) et fin de l'immunité qui les suit (`downtime` de SKILL_SPEC), par CID.
+    pub morphs: HashMap<u32, MonsterMorph>,
+    pub morph_immune: HashMap<u32, Instant>,
     by_cid: HashMap<u32, usize>,
     grid: HashMap<(i64, i64), Vec<usize>>,
 }
@@ -519,12 +530,34 @@ impl MonsterRegistry {
         self.casts.remove(&cid);
         self.custom.remove(&cid);
         self.fixed_status.remove(&cid);
+        self.morphs.remove(&cid);
+        self.morph_immune.remove(&cid);
         Some(m)
     }
 
     /// Caractéristiques d'une créature : les siennes (invocation), sinon celles de son modèle.
     pub fn stats_for(&self, m: &Monster) -> MonsterStats {
         self.custom.get(&m.cid).cloned().unwrap_or_else(|| self.stats_of(m.tid))
+    }
+
+    /// Type de personnage d'une créature : celui de sa forme sous une Mutation (`morph.rs`), sinon le sien.
+    pub fn char_type_of(&self, m: &Monster) -> i64 {
+        match self.morphs.get(&m.cid) {
+            Some(f) => self.stats_of(f.tid).char_type,
+            None => self.stats_for(m).char_type,
+        }
+    }
+
+    /// Un joueur peut la prendre pour cible et l'attaquer, compte tenu de sa forme : un monstre changé en animal
+    /// (Type 8, ni 0x10000 ni 0x20000) ne l'est plus pendant la Mutation.
+    pub fn attackable(&self, m: &Monster) -> bool {
+        MonsterStats { char_type: self.char_type_of(m), ..Default::default() }.is_attackable()
+    }
+
+    /// Op 11 d'un monstre sous Mutation, à envoyer après sa vue (le client ne garde son TID d'origine que s'il l'a
+    /// reçu par l'op 11).
+    pub fn morph_view(&self, cid: u32) -> Option<Vec<u8>> {
+        self.morphs.get(&cid).map(|f| super::morph::transform_packet(cid, f.tid))
     }
 
     /// Créature invoquée (vivante ou non) : CID de son maître.
@@ -683,6 +716,28 @@ mod tests {
         assert!(!MonsterStats { char_type: 65_540, ..s }.is_attackable(), "attaquable mais pas ciblable");
         let f = monster_factors(1, &s, 100);
         assert_eq!((f.status[7], f.status[8], f.status[9], f.point[0], f.point_max[0]), (1, 450, 3850, 100, 136));
+    }
+
+    #[test]
+    fn forme_sous_mutation() {
+        let m = spawn_point(&point(1, 0.0, 0.0, 1, 0.0), MONSTER_CID_BASE, &|_, _| false).remove(0);
+        let mut reg = MonsterRegistry::from_monsters(vec![m.clone()]);
+        reg.stats.insert(450, MonsterStats { char_type: 0x30004, ..Default::default() });
+        // 101 Rooster (Type 8), 673 Big Rage (0x30004).
+        reg.stats.insert(101, MonsterStats { char_type: 8, ..Default::default() });
+        reg.stats.insert(673, MonsterStats { char_type: 0x30004, ..Default::default() });
+        assert!(reg.attackable(&m) && reg.morph_view(m.cid).is_none());
+        let ends_at = Instant::now();
+        reg.morphs.insert(m.cid, MonsterMorph { tid: 101, ends_at });
+        assert_eq!(reg.char_type_of(&m), 8);
+        assert!(!reg.attackable(&m), "animal : ni attaquable ni ciblable");
+        let p = decode_packet(&schema::CHARACTER, &reg.morph_view(m.cid).unwrap()).unwrap();
+        assert_eq!((p.int(0), p.int(1), p.int(2)), (Some(11), Some(MONSTER_CID_BASE as i64), Some(101)));
+        reg.morphs.insert(m.cid, MonsterMorph { tid: 673, ends_at });
+        assert!(reg.attackable(&m), "Big Rage reste attaquable");
+        reg.morph_immune.insert(m.cid, ends_at);
+        reg.remove(m.cid);
+        assert!(reg.morphs.is_empty() && reg.morph_immune.is_empty(), "forme et immunité oubliées au retrait");
     }
 
     #[test]

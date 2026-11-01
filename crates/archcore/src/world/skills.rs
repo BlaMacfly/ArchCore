@@ -22,7 +22,8 @@
 //! sphère autour de la cible ou du lanceur, rayon `area_r` ; boîte vers la cible, `area_f1` × `area_f2`),
 //! sur les monstres voisins ; effets durables, dégâts sur la durée et soins (`effects.rs`) ; passives,
 //! appliquées tant que la compétence est connue ; états spéciaux (étourdissement, sommeil…), posés sur la
-//! cible selon leur chance, et effets de combat (critiques, blocage, dégâts changés en PV ou PM, contre-attaque).
+//! cible selon leur chance, et effets de combat (critiques, blocage, dégâts changés en PV ou PM, contre-attaque,
+//! résistances aux critiques et à l'étourdissement, `effects.rs`).
 //! Les compétences amies visent leur lanceur ; celles de groupe (zone 303 de SKILL_SPEC), aussi les membres de
 //! son groupe dans leur rayon `area_r`. Maîtrises : une compétence des arbres supérieur et héroïque
 //! (SkillMastery_High.txt, SkillMastery_Heroic.txt) ne s'apprend qu'avec les compétences qu'elle exige à leur
@@ -349,6 +350,13 @@ fn combat_mods(c: &serde_json::Value, sp: &Spec) -> Mods {
     if sp.defense_melee_attack == 2 {
         m.counter += rate;
     }
+    // Résistance aux critiques (Skill_Const2) : compétences de defense_melee_attack 4, et Natural Warrior sans
+    // valeur, dont l'infobulle l'annonce ; la contre-attaque (2) a la colonne remplie sans l'annoncer (déduit).
+    if sp.defense_melee_attack != 2 {
+        m.crit_resist += num("percent2.critical_defence_percent2");
+    }
+    // Résistance à l'étourdissement (SKILL_CONST, colonne rangée après FACTOR_MAGNIFY) : affichée seulement.
+    m.stun_resist += num("magnify.stun_resistance");
     // Défense ignorée : montants de Skill_Const2.txt (colonnes après FACTOR_PERCENT2, d'où le préfixe).
     if sp.reflect_melee_attack > 2 {
         if sp.reflect_melee_attack & reflect::IGNORE_DEFENSE != 0 {
@@ -436,6 +444,11 @@ pub struct SkillTemplate {
     /// Transformation (colonne `transform_target` de SKILL_SPEC) : 4 Mutation de la cible (`morph.rs`), 5 évolution du
     /// Scion (`evolution.rs`) ; 0 : aucune.
     pub transform_target: i64,
+    /// Colonnes `downtime_id` et `downtime_duration` de SKILL_SPEC : catégorie de contrôle (6 la Mutation, 7 les
+    /// étourdissements de zone, 8 Antimagic…) et durée, lue comme des secondes d'immunité de la cible après la fin de
+    /// l'effet (déduit : le client les lit sans s'en servir). Seule la Mutation s'en sert (`morph.rs`).
+    pub downtime_id: i64,
+    pub downtime_secs: u64,
     /// Niveau n à l'indice n - 1.
     pub levels: Vec<SkillLevel>,
 }
@@ -585,6 +598,8 @@ impl SkillCatalog {
                     game_effect: int("game_effect"),
                     ride: int("ride") != 0,
                     transform_target: int("transform_target"),
+                    downtime_id: int("downtime_id"),
+                    downtime_secs: int("downtime_duration").max(0) as u64,
                     levels: Vec::new(),
                 },
             );
@@ -690,6 +705,8 @@ pub struct PlayerSkills {
     pub effects: Vec<Effect>,
     /// États spéciaux annoncés aux clients.
     pub status_sent: u64,
+    /// Part des compétences des caractéristiques secondaires envoyée au joueur (AGPMSKILL op 3, `effects::sync_attach`).
+    pub attach_sent: [i32; 8],
 }
 
 impl PlayerSkills {
@@ -999,7 +1016,13 @@ fn request_cast(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) {
     if t.is_product() {
         return super::product::request_cast(ctx, st, sid, owned, target, now);
     }
-    let alive = st.monsters.get(target).is_some_and(|m| m.is_alive() && st.monsters.stats_of(m.tid).is_attackable());
+    // Forme d'animal (Type 8, morph.rs ; l'ArchLord seul lance encore des compétences sous métamorphose) : rien
+    // d'offensif.
+    if t.offensive() && super::morph::harmless(st, sid) {
+        debug!("[compétence] {name} : {} refusée sous une forme d'animal", t.name);
+        return stop(st, sid);
+    }
+    let alive = st.monsters.get(target).is_some_and(|m| m.is_alive() && st.monsters.attackable(m));
     // Objet de siège : seulement pendant le combat, selon le camp et l'ordre d'attaque (siege/war.rs).
     if alive && t.offensive() && !super::siege::war::may_hit(ctx, st, sid, target) {
         debug!("[compétence] {name} : objet de siège {target:#x} pas attaquable maintenant");
@@ -1012,8 +1035,13 @@ fn request_cast(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) {
             return;
         }
     }
-    // Autre joueur visé par une compétence offensive : règles du combat entre joueurs (pvp.rs).
+    // Autre joueur visé par une compétence offensive : pas sous une forme qui n'est pas ciblable (sans 0x20000,
+    // morph.rs), puis règles du combat entre joueurs (pvp.rs).
     let foe = match st.by_cid.get(&target).copied().filter(|t2| *t2 != sid && t.offensive() && !alive) {
+        Some(tsid) if super::morph::untargetable(st, tsid) => {
+            debug!("[compétence] {name} : {} vise un joueur sous une forme qui n'est pas ciblable", t.name);
+            return;
+        }
         Some(tsid) => match super::pvp::check(ctx, st, sid, tsid, forced) {
             Ok(()) => true,
             Err(r) => {
@@ -1182,8 +1210,13 @@ async fn complete(ctx: &WorldCtx, st: &mut WorldState, sid: u32, cast: Cast, now
         }
         return Ok(());
     }
-    // Cibles : la cible désignée, puis les monstres de la zone.
-    let primary = st.monsters.get(cast.target).filter(|m| m.is_alive()).map(|m| (m.cid, m.pos));
+    // Forme d'animal prise pendant l'incantation (morph.rs) : rien d'offensif.
+    if super::morph::harmless(st, sid) {
+        return Ok(());
+    }
+    // Cibles : la cible désignée (toujours attaquable : une Mutation a pu la changer en animal), puis les monstres de
+    // la zone.
+    let primary = st.monsters.get(cast.target).filter(|m| m.is_alive() && st.monsters.attackable(m)).map(|m| (m.cid, m.pos));
     let center = match (t.area(), primary) {
         (Area::Sphere { around_target: true }, Some((_, pos))) | (Area::Line, Some((_, pos))) => pos,
         _ => me,
@@ -1197,7 +1230,7 @@ async fn complete(ctx: &WorldCtx, st: &mut WorldState, sid: u32, cast: Cast, now
             .monsters
             .near(center, radius)
             // Les invocations ne sont touchées que désignées (règles du combat entre joueurs envers leur maître).
-            .filter(|m| m.is_alive() && m.owner.is_none() && !targets.contains(&m.cid) && st.monsters.stats_of(m.tid).is_attackable() && super::siege::war::may_hit(ctx, st, sid, m.cid))
+            .filter(|m| m.is_alive() && m.owner.is_none() && !targets.contains(&m.cid) && st.monsters.attackable(m) && super::siege::war::may_hit(ctx, st, sid, m.cid))
             .filter(|m| in_area(t.area(), m.pos, center, me, toward, lv))
             .map(|m| (combat::dist2d(m.pos, center), m.cid))
             .collect();
@@ -1210,7 +1243,7 @@ async fn complete(ctx: &WorldCtx, st: &mut WorldState, sid: u32, cast: Cast, now
     // compétence de zone, les joueurs de la zone qu'on peut attaquer sans Ctrl (ennemis déclarés, guildes hostiles…).
     let mut foes: Vec<u32> = Vec::new();
     if let Some(tsid) = st.by_cid.get(&cast.target).copied().filter(|t2| *t2 != sid) {
-        if super::pvp::check(ctx, st, sid, tsid, cast.forced).is_ok() {
+        if !super::morph::untargetable(st, tsid) && super::pvp::check(ctx, st, sid, tsid, cast.forced).is_ok() {
             foes.push(tsid);
         }
     }
@@ -1276,6 +1309,10 @@ async fn hit_monster(ctx: &WorldCtx, st: &mut WorldState, sid: u32, owned: &Owne
     debug!("[compétence] {} → {} : {total} dégât(s), {hp}/{} PV", t.name, m.name, m.max_hp);
     if hp == 0 {
         return combat::kill(ctx, st, sid, cid, now).await;
+    }
+    // Mutation : le monstre prend une forme d'animal pour la durée du niveau, passif (morph.rs).
+    if t.is_mutation() {
+        super::morph::mutate_monster(ctx, st, cid, &lv.creature_tids, lv.duration_ms, super::morph::downtime(ctx, t), now);
     }
     if lv.dispel != 0 {
         let n = purge_monster(ctx, st, cid, lv.dispel, now);
@@ -1348,8 +1385,8 @@ async fn hit_player(ctx: &WorldCtx, st: &mut WorldState, sid: u32, owned: &Owned
         add_player_effect(ctx, st, tsid, Effect { caster_sid: sid, ..new_effect(owned, lv, caster_tid, status, None, now) });
     }
     // Mutation : la cible prend une forme d'animal pour la durée du niveau (morph.rs).
-    if !shielded && ctx.skills.get(owned.tid).is_some_and(|t| t.is_mutation()) {
-        super::morph::mutate(ctx, st, tsid, &lv.creature_tids, lv.duration_ms, now).await?;
+    if let Some(t) = ctx.skills.get(owned.tid).filter(|t| !shielded && t.is_mutation()) {
+        super::morph::mutate(ctx, st, tsid, &lv.creature_tids, lv.duration_ms, super::morph::downtime(ctx, t), now).await?;
     }
     Ok(())
 }
@@ -1999,6 +2036,8 @@ mod tests {
             game_effect: 0,
             ride: false,
             transform_target: 0,
+            downtime_id: 0,
+            downtime_secs: 0,
             levels: vec![SkillLevel::from_consts(&consts), SkillLevel { require_level: 7, require_point: 1, upgrade_cost: 480, ..SkillLevel::from_consts(&consts) }],
         }
     }
@@ -2204,6 +2243,16 @@ mod tests {
         assert_eq!((lethal.mods.ignore_defense, lethal.mods.ignore_resist, lethal.mods.block), (5.0, 0.0, 0.0));
         let stunner = SkillLevel::with_spec(&serde_json::json!({ "percent2.ignore_attribute_defence_percent2": "10" }), &Spec { reflect_melee_attack: 8, ..Default::default() });
         assert_eq!(stunner.mods.ignore_resist, 10.0);
+        // Résistance aux critiques : Sword Stopper (defense_melee_attack 4), Natural Warrior (sans valeur), pas la
+        // contre-attaque (2) ; résistance à l'étourdissement de Free Will et de Terrifying Nemesis (affaiblissement).
+        let crit = serde_json::json!({ "percent2.critical_defence_percent2": "4" });
+        let stopper = SkillLevel::with_spec(&crit, &Spec { defense_melee_attack: 4, ..Default::default() });
+        let natural = SkillLevel::with_spec(&crit, &Spec::default());
+        let counter = SkillLevel::with_spec(&crit, &Spec { defense_melee_attack: 2, ..Default::default() });
+        assert_eq!((stopper.mods.crit_resist, natural.mods.crit_resist, counter.mods.crit_resist), (4.0, 4.0, 0.0));
+        let free = SkillLevel::from_consts(&serde_json::json!({ "magnify.stun_resistance": "100" }));
+        let nemesis = SkillLevel::from_consts(&serde_json::json!({ "magnify.stun_resistance": "-5" }));
+        assert_eq!((free.mods.stun_resist, nemesis.mods.stun_resist, free.mods.stun_protect), (100.0, -5.0, 0.0));
         // Divine Protection (divide 17 : élémentaires) et Martyr's Mark (18 : physiques), sans partage sans le bit 16.
         let c = serde_json::json!({ "divide_rate": "40", "duration": "660000" });
         let divine = SkillLevel::with_spec(&c, &Spec { divide: 17, ..Default::default() });

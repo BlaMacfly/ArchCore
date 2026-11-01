@@ -289,7 +289,12 @@ pub fn dist2d(a: Vec3, b: Vec3) -> f64 {
 pub fn on_action(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) {
     let target = p.int(1).unwrap_or(0) as u32;
     let forced = p.int(6).unwrap_or(0) != 0;
-    let alive = st.monsters.get(target).is_some_and(|m| m.is_alive() && st.monsters.stats_of(m.tid).is_attackable());
+    // Forme d'animal (Type 8, morph.rs) : n'attaque personne.
+    if super::morph::harmless(st, sid) {
+        debug!("[combat] #{sid} : pas d'attaque sous une forme d'animal");
+        return;
+    }
+    let alive = st.monsters.get(target).is_some_and(|m| m.is_alive() && st.monsters.attackable(m));
     // Objet de siège : seulement pendant le combat, selon le camp et l'ordre d'attaque (siege/war.rs).
     if alive && !super::siege::war::may_hit(ctx, st, sid, target) {
         debug!("[combat] #{sid} : objet de siège {target:#x} pas attaquable maintenant");
@@ -410,6 +415,13 @@ pub(super) fn broadcast(st: &WorldState, sids: &[u32], plain: &[u8]) {
 }
 
 async fn attack_step(ctx: &WorldCtx, st: &mut WorldState, sid: u32, now: Instant) -> anyhow::Result<()> {
+    // Métamorphose (morph.rs) : sous une forme d'animal, plus de coups ; un monstre changé en animal par une Mutation
+    // n'est plus attaquable.
+    let Some(target) = st.players.get(&sid).and_then(|p| p.attack).map(|a| a.target) else { return Ok(()) };
+    if super::morph::harmless(st, sid) || st.monsters.get(target).is_some_and(|m| m.is_alive() && !st.monsters.attackable(m)) {
+        st.players.get_mut(&sid).unwrap().attack = None;
+        return Ok(());
+    }
     let Some(p) = st.players.get(&sid) else { return Ok(()) };
     let Some(attack) = p.attack else { return Ok(()) };
     if !p.in_game || p.dead || now < attack.ready_at {
@@ -440,7 +452,7 @@ async fn attack_step(ctx: &WorldCtx, st: &mut WorldState, sid: u32, now: Instant
     let (outcome, parts) = {
         let mut rng = rand::thread_rng();
         let (outcome, damage) = strike(&mut rng, &attacker, &defender);
-        let (outcome, damage) = super::effects::critical(&mut rng, &super::effects::of_player(p), outcome, damage);
+        let (outcome, damage) = super::effects::critical(&mut rng, &super::effects::of_player(p), st.monsters.mods(m.cid).crit_resist, outcome, damage);
         let mut parts = vec![(RESULT_PHYSICAL, damage)];
         if damage > 0 {
             let chance = spirit_chance(true, attacker.level, m.level as i32);
@@ -526,6 +538,9 @@ pub(super) async fn kill(ctx: &WorldCtx, st: &mut WorldState, killer_sid: u32, c
     target.target = None;
     st.monsters.engaged.remove(&cid);
     st.monsters.effects.remove(&cid);
+    // Mutation : la forme se perd sans op 12, l'immunité aussi (morph.rs).
+    st.monsters.morphs.remove(&cid);
+    st.monsters.morph_immune.remove(&cid);
     // Compétences de l'IA : relances et lancements comptés repartent de zéro à la réapparition.
     st.monsters.skill_state.remove(&cid);
     st.monsters.casts.remove(&cid);

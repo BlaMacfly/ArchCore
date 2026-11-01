@@ -52,6 +52,7 @@ défaut, avec un avertissement dans le journal ; une clé inconnue (faute de fra
 | `Item.WeaponWearChance` | `10` | Probabilité (%) qu'un coup qui blesse use d'un point l'arme qui le porte (choix d'ArchCore ; 0 : pas d'usure) |
 | `Item.ArmorWearChance` | `10` | Probabilité (%) qu'un coup reçu qui blesse use d'un point une pièce d'armure portée tirée au hasard (choix d'ArchCore) |
 | `Item.TransformMaxDurationMs` | `0` | Durée au plus (ms) d'une potion de métamorphose ; 0 : celle de l'objet (« Polymorph Dur »). Sert au simulateur |
+| `Skill.DowntimeSeconds` | `-1` | Immunité (s) de la cible après une Mutation ; -1 : `downtime_duration` de SKILL_SPEC (30), 0 : aucune. Sens de la colonne déduit : choix d'ArchCore |
 | `World.TimeSpeed` | `6` | Vitesse du temps du jeu envoyée au client (AGPMTIMER champ 0) : 6 comme Archonia, une journée en 4 h réelles ; 1 = heure réelle |
 | `World.TimeStart` | `-1` | Heure du jeu au démarrage du serveur (0 à 23), la même pour tous ; -1 = horloge de la machine × vitesse, identique d'un démarrage à l'autre. Voir [[Protocole réseau|FR-Protocole-reseau]] |
 | `World.WeatherAuto` | `0` | 1 = météo automatique (pluie, neige ou temps clair tirés pour tout le monde) ; 0 = seulement `/weather` (choix d'ArchCore) |

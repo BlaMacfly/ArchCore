@@ -416,13 +416,16 @@ l'objet est créé : butin d'un monstre (niveau de la source = niveau du monstre
   n'est envoyé : le client les retrouve lui-même pour l'infobulle.
 - **Options à déclenchement** (colonne `skill_type`, lue par `Archonia.exe` sans calcul côté client) : 1 coup
   critique (chance `skill_rate`, dégâts `Critical` en pour cent d'un coup normal ; sans chance, `Critical`
-  s'ajoute aux dégâts critiques ; sans `skill_type`, `Critical` seul est une chance), 2 étourdissement de la
+  s'ajoute aux dégâts critiques ; sans `skill_type`, `Critical` seul s'y ajoute aussi, comme le compte la fenêtre du
+  personnage du client, malgré la description « Critical Hit Rate » de l'option 13822), 2 étourdissement de la
   cible d'un coup qui touche (chance, `stun_time` ou à défaut `duration` en ms), 3 coup reçu changé en PV
   (chance, part `damage_convert_hp`), 4 régénération (`regen_hp`, `regen_mp` toutes les 10 s, en combat aussi),
   5 blessure de la cible (chance ; dégâts de la colonne de leur élément chaque seconde pendant
   `dot_damage_time`, qui remplace `duration` ; ces dégâts ne s'ajoutent pas aux facteurs), 6 esquive
   (`evade_rate` : chance d'éviter un coup de monstre, résultat 7). `Ignore_Physical_Defense_Rate` et
-  `Ignore_Attribute_Defense_Rate` s'ajoutent à la défense ignorée (section Compétences). L'étourdissement
+  `Ignore_Attribute_Defense_Rate` s'ajoutent à la défense ignorée, `Critical_Defense_Rate` à la résistance aux
+  critiques (section Compétences) ; `StunResistance` est lue mais ni jouée ni affichée (aucune option ne la
+  remplit ; la fenêtre du client n'en montre que la part des compétences). L'étourdissement
   part dans l'état du monstre (AGPMCHARACTER op 1, champ 17), la blessure dans ses PV (op 1) ; aucun paquet
   d'effet ne les annonce.
 
@@ -676,6 +679,24 @@ Defense Hold) ajoute `skill_rate` à la chance de bloquer un coup de monstre, de
 joueur esquive (résultat 7). `convert_type` 1 ou 2 change un coup reçu en PV ou en PM rendus (chance
 `skill_rate`, sinon `special_status_rate` ; part `damage_convert_hp` ou `damage_convert_mp` des
 dégâts) : résultat 1, puis les facteurs du joueur (op 1, champ 7).
+
+**Résistances.** `critical_defence_percent2` (Skill_Const2.txt ; compétences de `defense_melee_attack` 4 comme
+Sword Stopper, et Natural Warrior ; pas Counter Attack, dont l'infobulle ne l'annonce pas) et l'option
+`Critical_Defense_Rate` forment la résistance aux critiques de la cible : elle est ôtée de la chance de coup
+critique de l'assaillant (règle déduite ; un affaiblissement comme Defence Breaker la rend négative). La
+résistance à l'étourdissement (`stun_resistance` de SKILL_CONST, colonne rangée après `FACTOR_MAGNIFY` : Free
+Will, Stun Protection 100, Terrifying Nemesis négative) n'est qu'affichée : aucune règle de jeu n'est connue,
+l'étourdissement suit la protection (état 8).
+
+**Caractéristiques secondaires (AGPMSKILL op 3).** À l'entrée en jeu et à chaque changement de ses effets
+(effet posé, retiré ou échu, purge, mort, passive apprise ou améliorée), le joueur reçoit seul AGPMSKILL
+**op 3** : champ 2 = mini « base » (type 3, son identifiant), champ 9 = bloc mémoire de **220 octets** (longueur
+en u32), nul sauf huit i32 petit-boutistes : 0x08 taux critique, 0x0c dégâts critiques, 0x2c et 0x3c coup reçu
+changé en PV (chance, part), 0xa4 défense ignorée, 0xa8 résistance élémentaire ignorée, 0xb0 résistance aux
+critiques, 0xbc résistance à l'étourdissement. Ce sont les parts des **compétences** seules (passives comprises) :
+`Archonia.exe` copie le bloc sans en vérifier la longueur et y ajoute lui-même les options de l'équipement porté
+pour les lignes de la fenêtre du personnage (sauf la résistance à l'étourdissement, compétences seules). Le client
+n'a pas d'autre traitement pour l'op 3 et n'y répond pas.
 
 **Renvoi des dégâts (contre-attaque).** `defense_melee_attack` 2 (Counter Attack, passive des berserkers :
 2 % au niveau 1, 11 % au niveau 10) renvoie à son auteur, avec la chance `skill_rate`, les dégâts d'un coup
@@ -985,21 +1006,25 @@ d'origine ne la décrit pas. L'or et les objets tombent encore au sol pour le tu
 ## Échange entre joueurs (type 0x07, AgpmPrivateTrade)
 
 Drapeaux 2 : op, CID, CID de l'autre joueur, IID, TID, argent (INT64), cases d'origine et de destination,
-argument.
+argument. Le client envoie toujours son propre CID au champ 1 ; les champs lus à la réception sont ceux du
+client de référence.
 
 | Op | Sens | Rôle |
 |---|---|---|
 | 1 | client | A demande un échange à B (champ 2) ; tous deux passent au statut d'action 7 |
-| 3 | serveur | B reçoit la demande (champ 1 = A) |
-| 4 / 25 | client | B accepte / refuse |
+| 3 | serveur | B reçoit la demande : champ 2 = A (seul lu par le client), champ 1 = B |
+| 4 / 5 | client | B accepte / refuse (« No » : op 5) |
 | 6 | serveur | Début, à chacun (champ 1 = soi, champ 2 = l'autre) |
-| 9 / 10 | client | Mettre / reprendre l'objet d'IID donné (champ 3) |
+| 9 | client | Mettre l'objet d'IID donné (champ 3) : case d'origine (champ 6), case visée de la grille (champ 7, prise si libre, sinon la première libre), genre (champ 8 : 0 grille, 1 objet particulier, 2 grille Ex refusée) |
+| 10 | client | Reprendre l'objet d'IID donné (champ 3) |
 | 23 / 24 | client, serveur | Argent proposé (champ 5) ; l'autre reçoit op 24 |
-| 16, 17, 18, 19 | | Verrouiller (soi ← 16, l'autre ← 17), déverrouiller (18 / 19) |
+| 16, 17, 18, 19 | | Verrouiller (soi ← 16, champ 1 = soi ; l'autre ← 17), déverrouiller (soi ← 18, champ 1 = soi ; l'autre ← 19) |
 | 20 | serveur | Les deux côtés sont verrouillés |
 | 21, 22 | | Prêt (soi ← 21, l'autre ← 22) ; tous deux prêts : échange |
-| 0 | serveur | Résultat (champ 8 = 8 : échange fait) |
-| 5 | | Annulation, des deux côtés |
+| 0 | serveur | Résultat (champ 1 = soi, champ 8 = 8 : échange fait) |
+| 5 | | Annulation, des deux côtés (champ 1 = soi) |
+| 25 | serveur | La cible refuse les échanges (`Option_Trade_Off_User`, voir plus bas) |
+| 26 / 27 | serveur | Pièces Chantra : pas dans l'épisode 8, jamais envoyées |
 
 Un objet mis dans l'échange passe, chez son propriétaire, au statut 6 (grille d'échange : 1 × 3 × 4) par
 AGPMITEM op 2 ; l'autre le reçoit par AGPMITEM op 0, statut 6, propriétaire = le premier. Il reste en base
@@ -1007,6 +1032,12 @@ et dans l'inventaire jusqu'à l'échange, et ne peut être ni déplacé, ni util
 serveur vérifie l'argent et la place dans les inventaires, transfère les objets (AGPMITEM op 1 chez l'ancien
 propriétaire, op 0 statut 2 chez le nouveau) et l'argent (AGPMCHARACTER champ 8). Une déconnexion annule
 l'échange.
+
+Déverrouiller ne lève que son propre verrou : le client ne relâche son bouton « Lock » qu'au clic, et un
+verrou levé par le serveur lui laisserait un bouton faux. Le partenaire voit l'offre changer, et l'échange
+attend de nouveau les deux verrous. Le client n'envoie jamais l'op 25 ; reçue, elle vaut une annulation
+(comme l'op 5). Meurtriers : demande refusée (op 5) au palier 1 du demandeur ou au palier 2 de l'un des deux
+(le client cache alors le menu d'échange), acceptation refusée au palier 1 de celui qui accepte.
 
 ## Quêtes (types 0x13 et 0x3E)
 
@@ -1269,9 +1300,18 @@ ou évolué (le code 3, qui ouvre une fenêtre, n'est jamais envoyé) ; recharge
 Un joueur qui arrive en vue reçoit l'op 0 avec le **TID d'origine** et le bit 0, son équipement, puis l'op 11. Fin :
 durée écoulée (`Item.TransformMaxDurationMs` l'abrège), op 13, mort → op 12 à tous et facteurs d'origine ; rien n'est
 enregistré. Sous métamorphose (sauf l'ArchLord) : compétences, parchemins de téléportation, Potions of Quickness et
-Beam, portails, Shrines, dialogues et boutiques de PNJ, coiffeur, changements d'équipement (monture comprise) refusés ;
-la race de la forme vaut pour le combat entre joueurs. **Mutation** (compétence de `transform_target` 4) : la cible,
-un joueur, prend pour la durée du niveau (7 s) une forme tirée dans `creature_tid` ; les monstres ne sont pas changés.
+Beam, portails, Shrines, dialogues et boutiques de PNJ, coiffeur, monture, échange privé (AGPMPRIVATETRADE op 1 → op 5
+si l'un des deux est métamorphosé) refusés. L'équipement change (AGPMITEM op 2, statut 3 ou 2) avec le contrôle ordinaire
+sur les facteurs : le mini FACTOR_TYPE (race, sexe, classe) reste celui d'origine, et c'est la race d'origine qui vaut
+pour le combat entre joueurs ; sous métamorphose ou évolution, le serveur n'envoie que les retraits que le client
+accepte (`FUN_1401bca10` sans niveau, contre la forme sous évolution), sinon l'objet reste porté (op 2 statut 3).
+Sous une forme de créature (Type 8 de CharacterDataTable), un joueur n'attaque personne et n'est attaqué par aucun
+joueur ; une forme sans 0x20000 n'est pas la cible d'une compétence sur ennemi. **Mutation** (compétence de
+`transform_target` 4) : la cible prend pour la durée du niveau (7 s) une forme tirée dans `creature_tid`. Sur un
+**monstre**, mêmes paquets que pour un joueur : op 11 (CID du monstre, TID de la forme) à ceux qui le voient, op 11
+après sa vue (OPT_VIEW op 1 au TID d'origine) pour qui le découvre, op 12 à la fin ; il s'arrête (OPT_CHAR_MOVE
+arrêt), ne frappe ni ne lance rien, et n'est ni attaquable ni ciblable sous une forme d'animal. Ensuite, la cible est
+immunisée 30 s (`downtime_duration` de SKILL_SPEC, sens déduit ; `Skill.DowntimeSeconds`).
 
 **Évolution du Dragon Scion** : Slayer, Orbiter et Summoner of Evolution (1189, 1192, 1195, `transform_target` 5),
 lancées sur soi (AGPMSKILL op 7, action 1). Au bout de l'incantation : facteurs de la forme (op 1), **AGPMSKILL op 4**

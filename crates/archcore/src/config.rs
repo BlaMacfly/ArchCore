@@ -71,6 +71,9 @@ pub struct WorldConfig {
     /// Métamorphose (`world/morph.rs`) : durée au plus d'une potion de métamorphose, en millisecondes
     /// (`Item.TransformMaxDurationMs`, 0 : la durée de l'objet, « Polymorph Dur »). Sert au simulateur.
     pub item_transform_max_ms: u64,
+    /// Immunité qui suit une Mutation (`world/morph.rs`), en secondes (`Skill.DowntimeSeconds`) : -1 la durée de
+    /// SKILL_SPEC (`downtime_duration`, 30), 0 aucune. Le sens de la colonne est déduit : choix d'ArchCore.
+    pub skill_downtime_secs: i64,
     /// Horloge du monde (`world/nature.rs`) : vitesse du temps du jeu (`World.TimeSpeed`, 6 comme Archonia : une journée
     /// en 4 h réelles) et heure du jeu au démarrage du serveur (`World.TimeStart`, 0 à 23 ; -1 : heure tirée de
     /// l'horloge de la machine, identique d'un démarrage à l'autre).
@@ -312,6 +315,7 @@ impl Default for WorldConfig {
             item_weapon_wear_chance: 10.0,
             item_armor_wear_chance: 10.0,
             item_transform_max_ms: 0,
+            skill_downtime_secs: -1,
             time_speed: 6,
             time_start: -1,
             weather_auto: false,
@@ -602,6 +606,7 @@ fn read_world(s: &Settings, cfg: &mut Config) {
         item_weapon_wear_chance: s.parse("Item.WeaponWearChance", d.item_weapon_wear_chance),
         item_armor_wear_chance: s.parse("Item.ArmorWearChance", d.item_armor_wear_chance),
         item_transform_max_ms: s.parse("Item.TransformMaxDurationMs", d.item_transform_max_ms),
+        skill_downtime_secs: s.parse("Skill.DowntimeSeconds", d.skill_downtime_secs).max(-1),
         time_speed: s.parse("World.TimeSpeed", d.time_speed).max(1),
         time_start: s.parse("World.TimeStart", d.time_start).clamp(-1, 23),
         weather_auto: s.flag("World.WeatherAuto", d.weather_auto),
@@ -764,6 +769,7 @@ pub fn to_values(cfg: &Config, which: Which) -> Vec<(String, String)> {
             put("Item.WeaponWearChance", fmt_num(w.item_weapon_wear_chance));
             put("Item.ArmorWearChance", fmt_num(w.item_armor_wear_chance));
             put("Item.TransformMaxDurationMs", w.item_transform_max_ms.to_string());
+            put("Skill.DowntimeSeconds", w.skill_downtime_secs.to_string());
             put("World.TimeZone", w.time_zone.name().into());
             put("World.TimeSpeed", w.time_speed.to_string());
             put("World.TimeStart", w.time_start.to_string());

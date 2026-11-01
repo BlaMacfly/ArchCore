@@ -15,19 +15,35 @@
 //!         qu'il rend à l'op 12, que s'il l'a reçu par l'op 11).
 //!   Fin : durée écoulée, annulation (client → AGPMCHARACTER op 13, champ 1 = son CID), mort → op 12 (CID) à tous,
 //!         facteurs d'origine. Rien n'est enregistré : la forme se perd à la déconnexion.
-//!   Mutation (compétence de `transform_target` 4) : la cible, un joueur, prend 7 s (« duration ») une forme tirée au
-//!         hasard dans `creature_tid` du niveau ; sans bonus ; l'annulation lui est refusée.
+//!   Mutation (compétence de `transform_target` 4) : la cible prend 7 s (« duration ») une forme tirée au hasard dans
+//!         `creature_tid` du niveau ; sans bonus. Un joueur ne peut pas l'annuler. Un monstre (vivant, attaquable ; ni
+//!         invocation, ni objet ou garde de siège, ni boss de la fenêtre des boss : choix prudent d'ArchCore) garde la
+//!         forme dans `MonsterRegistry::morphs` : op 11 (CID du monstre) à ceux qui le voient, op 11 après sa vue pour
+//!         qui le découvre, op 12 à la fin ; pendant la forme il s'arrête et son IA attend (ni coup, ni compétence, ni
+//!         poursuite, ni promenade), PV et agresseurs gardés ; sa mort efface la forme sans op 12.
+//!         Ensuite, immunité de la cible (joueur ou monstre) contre une nouvelle Mutation : `downtime_duration` de
+//!         SKILL_SPEC (30, lu en secondes après la fin de la forme ; `downtime_id` 6 en est la catégorie), réglable par
+//!         `Skill.DowntimeSeconds`. Ce sens est déduit : le client lit ces colonnes sans s'en servir.
 //! ```
 //! Pendant la métamorphose (règles du client répétées par le serveur ; l'ArchLord y échappe, sauf pour une nouvelle
 //! potion) : compétences, parchemins de téléportation, Potions of Quickness et Beam (type 12, sous-type 1 ou 2), portails,
-//! inscription aux Shrines, dialogues et boutiques de PNJ, coiffeur, monture refusés ; attaques normales permises. La
-//! classe reste celle d'origine (facteurs), la race est celle de la forme pour le combat entre joueurs (`race`).
-//! Équipement (`FUN_1401bfa10` d'Archonia) : sous métamorphose ou évolution, le client contrôle un changement de place
-//! d'objet (hors montures, « Kind » 0x20) contre la race, la classe et le sexe du modèle courant, si ce modèle porte un
-//! drapeau dont le sens n'est pas établi. Faute de certitude pour les formes de monstres, ArchCore refuse tout
-//! changement d'équipement pendant la métamorphose ; sous évolution, l'équipement se contrôle contre la forme (facteurs).
+//! inscription aux Shrines, dialogues et boutiques de PNJ, coiffeur, échange privé (si l'un des deux est métamorphosé,
+//! `trade.rs`) refusés ; attaques normales permises. Race, classe et sexe restent ceux d'origine (facteurs, mini
+//! FACTOR_TYPE) : c'est la race d'origine que comparent les Battlegrounds et les Shrines (`FUN_14017fbf0` prend le modèle
+//! d'origine).
+//! Type de la forme (colonne `Type` de CharacterDataTable, `form_type`) : sous une forme de créature (bit 8 : animaux
+//! de la Mutation, potions 408 à 416), un joueur n'attaque personne et aucun joueur ne l'attaque (`harmless`,
+//! `FUN_1402d8e80`) ; une forme sans 0x20000 n'est pas la cible d'une compétence sur ennemi (`untargetable`,
+//! `FUN_1402f8e20`). Un monstre changé en animal n'est ni attaquable ni ciblable (`MonsterRegistry::attackable`) ; 673
+//! Big Rage (0x30004) le reste.
+//! Équipement (`FUN_1401bca10` d'Archonia et ses appelants) : permis sous métamorphose, avec le contrôle ordinaire
+//! (niveau, race, classe, sexe des facteurs, donc d'origine) ; sous métamorphose ou évolution, un objet porté ne quitte
+//! sa place que si les facteurs l'admettent (sans niveau : `equipment::may_take_off`), ce qui ne refuse quelque chose
+//! que sous une forme évoluée d'une autre race ou classe. Les montures (« Kind » 0x20) échappent à ces contrôles ; sous
+//! métamorphose, ArchCore refuse quand même d'en monter une (le client ne refuse rien).
 
 use super::items::{item_count, item_remove, InventoryItem};
+use super::monsters::{char_type, MonsterMorph};
 use super::{send_system, Player, WorldCtx, WorldState};
 use crate::character::{factors_mini, Factors, POINT_HP};
 use crate::{debug, info};
@@ -71,6 +87,8 @@ pub const USABLE_INIT_SKILL: i64 = 27;
 pub const POTION_REUSE: Duration = Duration::from_millis(600_000);
 /// Durée de la Mutation quand son niveau n'en donne pas.
 pub const MUTATION_DURATION: Duration = Duration::from_millis(7000);
+/// Drapeau de déplacement « arrêté ».
+const MOVE_STOP: i64 = 0x04;
 
 /// Bonus d'une potion (ItemTransformTable.txt), ajoutés aux facteurs ; négatifs possibles (course du squelette).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -143,6 +161,8 @@ pub struct Form {
     pub morph: Option<Morph>,
     pub evolved: Option<super::evolution::Evolved>,
     pub potion_ready_at: Option<Instant>,
+    /// Fin de l'immunité qui suit une Mutation subie (`downtime`).
+    pub immune_until: Option<Instant>,
 }
 
 impl Form {
@@ -157,9 +177,32 @@ pub fn restricted(st: &WorldState, sid: u32) -> bool {
     st.players.get(&sid).is_some_and(|p| p.form.morph.is_some()) && !super::archlord::is_lord(st, sid)
 }
 
-/// Race du joueur pour les règles qui en dépendent (combat entre joueurs) : celle de la forme sous métamorphose.
-pub fn race(ctx: &WorldCtx, p: &Player) -> i32 {
-    p.form.morph.and_then(|m| ctx.templates.get(m.tid)).map(|t| t.race).filter(|r| *r > 0).unwrap_or(p.factors.ftype[0])
+/// Type de personnage (colonne `Type` de CharacterDataTable) de la forme d'un joueur métamorphosé ; `None` hors
+/// métamorphose.
+pub fn form_type(st: &WorldState, p: &Player) -> Option<i64> {
+    p.form.morph.map(|m| st.monsters.stats_of(m.tid).char_type)
+}
+
+/// Le joueur est sous une forme de créature (bit 8 : animaux de la Mutation, potions 408 à 416) : il n'attaque
+/// personne et aucun joueur ne l'attaque (`FUN_1402d8e80` d'Archonia).
+pub fn harmless(st: &WorldState, sid: u32) -> bool {
+    st.players.get(&sid).and_then(|p| form_type(st, p)).is_some_and(|t| t & char_type::CREATURE != 0)
+}
+
+/// Le joueur est sous une forme qui n'est pas ciblable (sans 0x20000) : une compétence sur ennemi ne le vise pas
+/// (`FUN_1402f8e20`, qui lit le type du modèle courant).
+pub fn untargetable(st: &WorldState, sid: u32) -> bool {
+    st.players.get(&sid).and_then(|p| form_type(st, p)).is_some_and(|t| t & char_type::TARGETABLE == 0)
+}
+
+/// Immunité qui suit une Mutation (`downtime_duration` de SKILL_SPEC, ou `Skill.DowntimeSeconds`).
+pub fn downtime(ctx: &WorldCtx, t: &super::skills::SkillTemplate) -> Duration {
+    downtime_of(ctx.config.world.skill_downtime_secs, t.downtime_secs)
+}
+
+/// `configured` : `Skill.DowntimeSeconds` (-1 : la durée de la compétence, `skill_secs`).
+pub fn downtime_of(configured: i64, skill_secs: u64) -> Duration {
+    Duration::from_secs(if configured < 0 { skill_secs } else { configured as u64 })
 }
 
 /// AGPMCHARACTER op 11 : `cid` prend la forme `tid`.
@@ -286,7 +329,7 @@ pub fn on_cancel(ctx: &WorldCtx, st: &mut WorldState, sid: u32, packet: &Packet)
     }
 }
 
-/// Fin des métamorphoses échues et de celles des morts (boucle du monde).
+/// Fin des métamorphoses échues et de celles des morts, puis des Mutations de monstres (boucle du monde).
 pub fn step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) {
     let due: Vec<(u32, &'static str)> = st
         .players
@@ -303,6 +346,7 @@ pub fn step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) {
     for (sid, why) in due {
         restore(ctx, st, sid, why);
     }
+    monster_step(st, now);
 }
 
 /// Forme tirée pour une Mutation : un TID de la liste du niveau que le serveur connaît.
@@ -311,22 +355,88 @@ pub fn pick_form(ctx: &WorldCtx, tids: &[u32], rng: &mut impl rand::Rng) -> Opti
     known.choose(rng).copied()
 }
 
+/// Durée d'une Mutation : « duration » du niveau, 7 s à défaut.
+fn mutation_life(duration_ms: u64) -> Duration {
+    if duration_ms > 0 { Duration::from_millis(duration_ms) } else { MUTATION_DURATION }
+}
+
 /// Mutation sur le joueur `tsid` : forme tirée dans `creature_tid`, pour `duration` (« duration » du niveau, 7 s à
-/// défaut). Un cavalier descend d'abord (sinon rien) ; un joueur déjà transformé ou évolué, ou l'ArchLord, n'est pas
-/// touché. Rend vrai si la forme est posée.
-pub async fn mutate(ctx: &WorldCtx, st: &mut WorldState, tsid: u32, tids: &[u32], duration_ms: u64, now: Instant) -> anyhow::Result<bool> {
+/// défaut), puis `downtime` d'immunité. Un cavalier descend d'abord (sinon rien) ; un joueur déjà transformé ou évolué,
+/// encore immunisé, ou l'ArchLord, n'est pas touché. Rend vrai si la forme est posée.
+#[allow(clippy::too_many_arguments)]
+pub async fn mutate(ctx: &WorldCtx, st: &mut WorldState, tsid: u32, tids: &[u32], duration_ms: u64, downtime: Duration, now: Instant) -> anyhow::Result<bool> {
     let Some(v) = st.players.get(&tsid) else { return Ok(false) };
     if v.dead || v.form.morph.is_some() || v.form.evolved.is_some() || super::archlord::is_lord(st, tsid) {
+        return Ok(false);
+    }
+    if v.form.immune_until.is_some_and(|t| now < t) {
+        debug!("[métamorphose] {} : immunisé contre la Mutation", v.ch.name);
         return Ok(false);
     }
     let Some(tid) = pick_form(ctx, tids, &mut rand::thread_rng()) else { return Ok(false) };
     if super::ride::is_mounted(&v.inventory) && !super::equipment::force_unequip(ctx, st, tsid, super::equipment::part::RIDE).await? {
         return Ok(false);
     }
-    let life = if duration_ms > 0 { Duration::from_millis(duration_ms) } else { MUTATION_DURATION };
+    let life = mutation_life(duration_ms);
+    if let Some(v) = st.players.get_mut(&tsid) {
+        v.form.immune_until = Some(now + life + downtime);
+    }
     start(ctx, st, tsid, Morph { tid, source: Source::Mutation, ends_at: Some(now + life), bonus: Bonus::default() });
     info!("[métamorphose] {} : Mutation en {tid} pour {} ms", st.players[&tsid].ch.name, life.as_millis());
     Ok(true)
+}
+
+/// Le monstre `cid` peut subir une Mutation : vivant, attaquable sous sa forme du moment, pas déjà transformé ni
+/// immunisé ; ni invocation, ni objet ou garde de siège, ni boss de la fenêtre des boss (aucune donnée ne les distingue :
+/// choix prudent d'ArchCore).
+pub fn monster_mutable(ctx: &WorldCtx, st: &WorldState, cid: u32, now: Instant) -> bool {
+    let Some(m) = st.monsters.get(cid) else { return false };
+    m.is_alive()
+        && m.owner.is_none()
+        && st.monsters.attackable(m)
+        && !st.monsters.morphs.contains_key(&cid)
+        && !st.monsters.morph_immune.get(&cid).is_some_and(|t| now < *t)
+        && !st.monsters.siege_spawns.contains_key(&m.spawn_id)
+        && !ctx.bosses.tracks(m.tid)
+}
+
+/// Mutation sur le monstre `cid` : forme tirée dans `creature_tid` pour la durée du niveau, puis `downtime`
+/// d'immunité. Il s'arrête, son incantation tombe, son IA attend la fin (`ai.rs`) ; ses PV et ses agresseurs restent.
+/// Op 11 à ceux qui le voient. Rend vrai si la forme est posée.
+#[allow(clippy::too_many_arguments)]
+pub fn mutate_monster(ctx: &WorldCtx, st: &mut WorldState, cid: u32, tids: &[u32], duration_ms: u64, downtime: Duration, now: Instant) -> bool {
+    if !monster_mutable(ctx, st, cid, now) {
+        return false;
+    }
+    let Some(tid) = pick_form(ctx, tids, &mut rand::thread_rng()) else { return false };
+    let life = mutation_life(duration_ms);
+    st.monsters.morphs.insert(cid, MonsterMorph { tid, ends_at: now + life });
+    st.monsters.morph_immune.insert(cid, now + life + downtime);
+    st.monsters.casts.remove(&cid);
+    let watchers = super::combat::viewers(st, cid);
+    // Arrêt sur place, comme au début d'un coup.
+    if st.monsters.walking.remove(&cid).is_some() {
+        let pos = st.monsters.get(cid).map(|m| m.pos).unwrap_or_default();
+        let mv = &schema::OPT_CHAR_MOVE;
+        let stop = build_packet(mv, &Fields::new(mv).with(0, cid).with(1, pos).with(2, pos).with(5, MOVE_STOP).with(6, 0));
+        super::combat::broadcast(st, &watchers, &stop);
+    }
+    super::combat::broadcast(st, &watchers, &transform_packet(cid, tid));
+    let name = st.monsters.get(cid).map(|m| m.name.clone()).unwrap_or_default();
+    info!("[métamorphose] {name} ({cid:#x}) : Mutation en {tid} pour {} ms", life.as_millis());
+    true
+}
+
+/// Fin des Mutations de monstres échues : op 12 à ceux qui les voient. Un monstre mort perd sa forme sans op 12
+/// (`combat::kill`) : son cadavre retiré, il réapparaît sous son modèle.
+pub fn monster_step(st: &mut WorldState, now: Instant) {
+    let due: Vec<u32> = st.monsters.morphs.iter().filter(|(_, f)| now >= f.ends_at).map(|(c, _)| *c).collect();
+    for cid in due {
+        st.monsters.morphs.remove(&cid);
+        let watchers = super::combat::viewers(st, cid);
+        super::combat::broadcast(st, &watchers, &restore_packet(cid));
+        debug!("[métamorphose] {cid:#x} reprend son apparence");
+    }
 }
 
 #[cfg(test)]
@@ -358,6 +468,27 @@ mod tests {
         assert_eq!((f.point_max[0], f.point[POINT_HP], f.defense_point[0], f.damage_min[0], f.damage_max[0]), (1100, 400, 60, 210, 232));
         Bonus { movement_run: -1000, atk_speed: -12, max_hp: -2000, ..Default::default() }.apply(&mut f);
         assert_eq!((f.status[9], f.attack[2], f.point_max[0], f.point[POINT_HP]), (4000, 48, 1, 1), "négatifs : PV bornés à 1");
+    }
+
+    #[test]
+    fn immunite_apres_mutation() {
+        assert_eq!(downtime_of(-1, 30), Duration::from_secs(30), "durée de SKILL_SPEC");
+        assert_eq!(downtime_of(0, 30), Duration::ZERO, "désactivée");
+        assert_eq!(downtime_of(5, 30), Duration::from_secs(5));
+        assert_eq!((mutation_life(0), mutation_life(3000)), (MUTATION_DURATION, Duration::from_millis(3000)));
+    }
+
+    #[test]
+    fn fin_de_la_mutation_d_un_monstre() {
+        use crate::world::monsters::{MonsterRegistry, SpawnPoint};
+        let p = SpawnPoint { id: 1, tid: 450, name: "Ver vert".into(), level: 1, count: 2, pos: archcore_net::Vec3::new(0.0, 0.0, 0.0), degree_x: 0.0, radius: 0.0, max_hp: 136, respawn_sec: 8, respawn_max_sec: 0, ai_tid: 0 };
+        let mut st = WorldState { monsters: MonsterRegistry::from_points(&[p], &|_, _| false), ..Default::default() };
+        let (a, b) = (st.monsters.monsters[0].cid, st.monsters.monsters[1].cid);
+        let now = Instant::now();
+        st.monsters.morphs.insert(a, MonsterMorph { tid: 101, ends_at: now });
+        st.monsters.morphs.insert(b, MonsterMorph { tid: 101, ends_at: now + Duration::from_secs(7) });
+        monster_step(&mut st, now);
+        assert!(!st.monsters.morphs.contains_key(&a) && st.monsters.morphs.contains_key(&b), "seule la forme échue tombe");
     }
 
     #[test]

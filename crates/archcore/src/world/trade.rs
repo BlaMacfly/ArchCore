@@ -1,22 +1,35 @@
-//! Échange entre joueurs (AGPMPRIVATETRADE, 0x07).
+//! Échange entre joueurs (AGPMPRIVATETRADE, 0x07), tel que le client de référence l'envoie et le lit.
 //!
 //! ```text
-//!   A → op 1 (champ 2 = CID de B)        B ← op 3 (A demande) ; tous deux passent au statut d'action 7
-//!   B → op 4 (accepte) / op 25 (refuse)  A, B ← op 6 (début, champ 1 = soi, 2 = l'autre) / op 5 (fin)
-//!   → op 9 (IID au champ 3) : objet mis dans la grille d'échange (1 × 3 × 4) : soi ← AGPMITEM op 2 statut 6,
-//!     l'autre ← AGPMITEM op 0 statut 6 (propriétaire = soi) ; op 10 le reprend
+//!   A → op 1 (champ 2 = CID de B)        B ← op 3 (champ 1 = soi, champ 2 = A, seul lu par le client) ;
+//!                                        tous deux passent au statut d'action 7
+//!   B → op 4 (accepte) / op 5 (refuse)   A, B ← op 6 (début, champ 1 = soi, 2 = l'autre) / op 5 (fin, champ 1 = soi)
+//!   → op 9 (IID au champ 3, case visée au champ 7, genre de grille au champ 8) : objet mis dans la grille
+//!     d'échange (1 × 3 × 4) : soi ← AGPMITEM op 2 statut 6, l'autre ← AGPMITEM op 0 statut 6
+//!     (propriétaire = soi) ; op 10 le reprend
 //!   → op 23 (montant au champ 5) : soi ← op 23, l'autre ← op 24
-//!   → op 16 verrouille (soi ← 16, l'autre ← 17 ; tous deux verrouillés ← 20) ; op 18 déverrouille (18 / 19)
+//!   → op 16 verrouille (soi ← 16 avec son CID au champ 1, l'autre ← 17 ; tous deux verrouillés ← 20) ;
+//!     op 18 déverrouille (soi ← 18 avec son CID, l'autre ← 19)
 //!   → op 21 prêt (soi ← 21, l'autre ← 22) ; tous deux prêts : échange des objets et de l'argent, op 0
 //!     (résultat, champ 8 = 8) à chacun, statut d'action 0
 //!   → op 5 annule : objets rendus, op 5 aux deux
+//!   cible qui refuse les échanges (options, « Block Trade ») : auteur ← op 25 (`Option_Trade_Off_User`)
 //! ```
 //! Les objets restent dans l'inventaire de leur propriétaire (et en base) jusqu'à l'échange : rien n'est
 //! perdu si un joueur se déconnecte, l'échange est alors annulé.
 //!
-//! Contre les arnaques : seul le joueur sollicité accepte la demande (op 4) ; déverrouiller (op 18) déverrouille
-//! aussi le partenaire, qui doit revoir l'offre ; un objet proposé qui a changé depuis (quantité consommée,
-//! conversion, options, durabilité) annule l'échange ; un second « prêt » est sans effet.
+//! Le client n'envoie jamais l'op 25 (refuser une demande envoie l'op 5) : reçue, elle est tenue pour une
+//! annulation, sans risque puisque l'op 5 permet déjà la même chose à tout moment. Grille Ex (genre 2 de
+//! l'op 9) et pièces Chantra (ops 26 / 27) ne sont pas de l'épisode 8 : refusées, jamais envoyées.
+//!
+//! Contre les arnaques : seul le joueur sollicité accepte la demande (op 4) ; déverrouiller (op 18) ne touche
+//! qu'à son propre verrou, comme le client qui ne relâche son bouton « Lock » qu'au clic, mais l'échange exige
+//! de nouveau les deux verrous et le partenaire voit l'offre changer ; un objet proposé qui a changé depuis
+//! (quantité consommée, conversion, options, durabilité) annule l'échange ; un second « prêt » est sans effet.
+//! Meurtriers, comme le client : demande refusée au palier 1 du demandeur ou au palier 2 de l'un des deux
+//! (menu d'échange caché), acceptation refusée au palier 1 de celui qui accepte.
+//! Comme le client (menu d'échange inactif), pas d'échange si l'un des deux est métamorphosé, sauf l'ArchLord
+//! (`morph.rs`) : demande annulée (op 5), et acceptation aussi si une Mutation est survenue entre-temps.
 
 use super::combat;
 use super::items::{item_remove, item_status, item_update, stored_status, Grid};
@@ -34,6 +47,13 @@ const ACTION_STATUS_TRADE: i64 = 7;
 const MAX_TRADE_DISTANCE: f64 = 1500.0;
 /// Résultat envoyé à la fin d'un échange réussi.
 const RESULT_DONE: i64 = 8;
+/// Op 9, champ 8 : genre de grille visée (0 grille ordinaire, 1 objet particulier posé sur la grille ordinaire,
+/// 2 grille Ex, absente de l'épisode 8).
+const GRID_KIND_EX: i64 = 2;
+/// Palier de meurtrier qui interdit de demander ou d'accepter un échange (pénalité du client).
+const MURDERER_PENALTY_LEVEL: usize = 1;
+/// Palier de meurtrier de l'un des deux qui cache le menu d'échange.
+const MURDERER_HIDDEN_LEVEL: usize = 2;
 
 pub mod op {
     pub const RESULT: i64 = 0;
@@ -54,6 +74,9 @@ pub mod op {
     pub const UPDATE_MONEY: i64 = 23;
     pub const TARGET_UPDATE_MONEY: i64 = 24;
     pub const REFUSE: i64 = 25;
+    /// Pièces Chantra de soi / de l'autre : hors épisode 8.
+    pub const UPDATE_CC: i64 = 26;
+    pub const TARGET_UPDATE_CC: i64 = 27;
 }
 
 /// Échange en cours, côté d'un joueur.
@@ -80,6 +103,21 @@ impl Trade {
         let (l, r, c) = TRADE_GRID;
         (0..l).flat_map(|a| (0..r).flat_map(move |b| (0..c).map(move |d| [a, b, d]))).find(|g| !self.items.values().any(|x| x == g))
     }
+
+    /// Case où poser un objet : celle visée par le client (op 9, champ 7) si elle est dans la grille et libre,
+    /// sinon la première libre.
+    pub fn slot_for(&self, wanted: Option<Grid>) -> Option<Grid> {
+        let (l, r, c) = TRADE_GRID;
+        let inside = |g: &Grid| g[0] < l && g[1] < r && g[2] < c;
+        wanted.filter(|g| inside(g) && !self.items.values().any(|x| x == g)).or_else(|| self.free_slot())
+    }
+}
+
+/// Demande d'échange interdite aux meurtriers (points de meurtrier du demandeur et de la cible) : palier 1 du
+/// demandeur (pénalité), ou palier 2 de l'un des deux (le client cache alors le menu d'échange).
+pub fn murderer_refuses(requester: u32, target: u32) -> bool {
+    let (a, b) = (super::pvp::murderer_level(requester), super::pvp::murderer_level(target));
+    a >= MURDERER_PENALTY_LEVEL || a.max(b) >= MURDERER_HIDDEN_LEVEL
 }
 
 /// Un objet proposé à l'échange ne peut être ni déplacé, ni utilisé, ni détruit.
@@ -113,13 +151,15 @@ pub async fn on_packet(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet
     match p.int(0).unwrap_or(-1) {
         op::REQUEST => request(st, sid, p.int(2).unwrap_or(0) as u32),
         op::CONFIRM => confirm(st, sid),
+        // Op 25 : jamais envoyée par le client (voir l'en-tête), tenue pour une annulation.
         op::CANCEL | op::REFUSE => cancel(st, sid),
-        op::ADD => add(ctx, st, sid, p.int(3).unwrap_or(0) as u32),
+        op::ADD => add(ctx, st, sid, p.int(3).unwrap_or(0) as u32, super::bank::grid_of(p.bytes(7)), p.int(8).unwrap_or(0)),
         op::REMOVE => take_back(st, sid, p.int(3).unwrap_or(0) as u32),
         op::UPDATE_MONEY => money(st, sid, p.int(5).unwrap_or(0)),
         op::LOCK => lock(st, sid),
         op::UNLOCK => unlock(st, sid),
         op::READY => ready(ctx, st, sid).await?,
+        op::UPDATE_CC | op::TARGET_UPDATE_CC => info!("[échange] #{sid} pièces Chantra (op {}) : hors épisode 8, ignoré", p.int(0).unwrap_or(-1)),
         other => warn!("[échange] #{sid} op {other} inattendu"),
     }
     Ok(())
@@ -144,9 +184,14 @@ fn request(st: &mut WorldState, sid: u32, target_cid: u32) {
         let cid = me.ch.id;
         return send(st, sid, packet(op::REFUSE, Some(target_cid), Some(cid)));
     }
-    // Meurtrier (palier 1 et plus, d'après le client) : pas d'échange entre joueurs.
-    if super::pvp::murderer_level(me.ch.murderer) >= 1 || super::pvp::murderer_level(other.ch.murderer) >= 1 {
+    // Meurtrier, comme le client : demandeur au palier 1, ou l'un des deux au palier 2.
+    if murderer_refuses(me.ch.murderer, other.ch.murderer) {
         info!("[échange] demande de {} à {} refusée : meurtrier", me.ch.name, other.ch.name);
+        return cancel(st, sid);
+    }
+    // Métamorphose de l'un des deux (sauf l'ArchLord) : le client n'ouvre pas l'échange (morph.rs).
+    if super::morph::restricted(st, sid) || super::morph::restricted(st, target) {
+        info!("[échange] demande de {} à {} refusée : métamorphose", me.ch.name, other.ch.name);
         return cancel(st, sid);
     }
     let near = combat::dist2d(me.ch.pos(), other.ch.pos()) <= MAX_TRADE_DISTANCE;
@@ -159,13 +204,23 @@ fn request(st: &mut WorldState, sid: u32, target_cid: u32) {
         st.players.get_mut(&a).unwrap().trade = Some(Trade { peer: b, awaiting: true, requester: a == sid, ..Default::default() });
         action_status(st, a, ACTION_STATUS_TRADE);
     }
-    send(st, target, packet(op::REQUEST_CONFIRM, Some(cid), Some(target_cid)));
+    // Le client lit le demandeur au champ 2 ; le champ 1 porte, comme ailleurs, le personnage du destinataire.
+    send(st, target, packet(op::REQUEST_CONFIRM, Some(target_cid), Some(cid)));
     info!("[échange] {} propose un échange à {}", names.0, names.1);
 }
 
 fn confirm(st: &mut WorldState, sid: u32) {
     // Seul le joueur sollicité accepte : l'auteur de la demande ne peut pas ouvrir l'échange à sa place.
     let Some(peer) = st.players[&sid].trade.as_ref().filter(|t| t.awaiting && !t.requester).map(|t| t.peer) else { return cancel(st, sid) };
+    // Métamorphose survenue depuis la demande (Mutation) : pas d'échange.
+    if super::morph::restricted(st, sid) || super::morph::restricted(st, peer) {
+        return cancel(st, sid);
+    }
+    // Meurtrier au palier 1 : le client répond « non » (op 5) au lieu d'accepter.
+    if super::pvp::murderer_level(st.players[&sid].ch.murderer) >= MURDERER_PENALTY_LEVEL {
+        info!("[échange] acceptation de {} refusée : meurtrier", st.players[&sid].ch.name);
+        return cancel(st, sid);
+    }
     for s in [sid, peer] {
         if let Some(t) = st.players.get_mut(&s).and_then(|p| p.trade.as_mut()) {
             t.awaiting = false;
@@ -205,14 +260,19 @@ fn end_side(st: &mut WorldState, sid: u32, peer: Option<u32>) {
     action_status(st, sid, 0);
 }
 
-fn add(ctx: &WorldCtx, st: &mut WorldState, sid: u32, iid: u32) {
+/// Op 9 : `wanted` = case visée de la grille d'échange (champ 7), `kind` = genre de grille (champ 8).
+fn add(ctx: &WorldCtx, st: &mut WorldState, sid: u32, iid: u32, wanted: Option<Grid>, kind: i64) {
     let Some((mine, _)) = sides(st, sid) else { return cancel(st, sid) };
     let p = &st.players[&sid];
     let Some(item) = p.inventory.get(iid).cloned() else { return };
     if mine.locked || mine.items.contains_key(&iid) {
         return;
     }
-    let Some(grid) = mine.free_slot() else {
+    if kind == GRID_KIND_EX {
+        info!("[échange] {} vise la grille Ex : hors épisode 8, refusé", p.ch.name);
+        return;
+    }
+    let Some(grid) = mine.slot_for(wanted) else {
         send_system(st, sid, "La grille d'échange est pleine.");
         return;
     };
@@ -267,7 +327,9 @@ fn lock(st: &mut WorldState, sid: u32) {
         return;
     }
     st.players.get_mut(&sid).unwrap().trade.as_mut().unwrap().locked = true;
-    send(st, sid, packet(op::LOCK, None, None));
+    // Le client pose son propre verrou sur le personnage du champ 1.
+    let cid = st.players[&sid].ch.id;
+    send(st, sid, packet(op::LOCK, Some(cid), None));
     send(st, mine.peer, packet(op::TARGET_LOCKED, None, None));
     if theirs.locked {
         send(st, sid, packet(op::ACTIVE_READY, None, None));
@@ -281,17 +343,11 @@ fn unlock(st: &mut WorldState, sid: u32) {
         return;
     }
     st.players.get_mut(&sid).unwrap().trade.as_mut().unwrap().locked = false;
-    send(st, sid, packet(op::UNLOCK, None, None));
+    let cid = st.players[&sid].ch.id;
+    send(st, sid, packet(op::UNLOCK, Some(cid), None));
     send(st, mine.peer, packet(op::TARGET_UNLOCKED, None, None));
-    // L'offre va pouvoir changer : le partenaire devra la revoir et verrouiller de nouveau (sinon un objet retiré
-    // après son verrou passerait sans son accord).
-    if theirs.locked {
-        if let Some(t) = st.players.get_mut(&mine.peer).and_then(|p| p.trade.as_mut()) {
-            t.locked = false;
-        }
-        send(st, mine.peer, packet(op::UNLOCK, None, None));
-        send(st, sid, packet(op::TARGET_UNLOCKED, None, None));
-    }
+    // Le verrou du partenaire reste posé : son client ne relâcherait pas le bouton « Lock » (relâché au clic
+    // seulement). Il voit l'offre changer, et l'échange attend que les deux soient de nouveau verrouillés.
 }
 
 async fn ready(ctx: &WorldCtx, st: &mut WorldState, sid: u32) -> anyhow::Result<()> {
@@ -446,6 +502,36 @@ mod tests {
         }
         assert_eq!(t.items[&11], [0, 2, 3]);
         assert!(t.free_slot().is_none(), "12 cases");
+    }
+
+    #[test]
+    fn case_visee() {
+        use archcore_net::packet::mini_payload;
+        use archcore_net::schema::mini;
+        let mut t = Trade::default();
+        let cell = |g: [i64; 3]| {
+            let s = &mini::ITEM_GRID;
+            archcore_net::build_mini(s, &Fields::new(s).with(0, g[0]).with(1, g[1]).with(2, g[2]))
+        };
+        // Case visée de l'op 9 (champ 7) : prise si elle est dans la grille et libre.
+        let wanted = super::super::bank::grid_of(Some(mini_payload(&cell([0, 2, 1]))));
+        assert_eq!(t.slot_for(wanted), Some([0, 2, 1]));
+        t.items.insert(1, [0, 2, 1]);
+        assert_eq!(t.slot_for(wanted), Some([0, 0, 0]), "case occupée : première libre");
+        assert_eq!(t.slot_for(Some([0, 3, 0])), Some([0, 0, 0]), "hors grille (3 lignes)");
+        assert_eq!(t.slot_for(Some([1, 0, 0])), Some([0, 0, 0]), "un seul sac");
+        assert_eq!(super::super::bank::grid_of(Some(mini_payload(&cell([-1, -1, -1])))), None, "0xFFFF : au choix du serveur");
+        assert_eq!(t.slot_for(None), Some([0, 0, 0]));
+    }
+
+    #[test]
+    fn meurtriers() {
+        // Paliers : 40, 60 et 100 points.
+        assert!(!murderer_refuses(39, 59), "palier 1 de la cible seulement : demande admise");
+        assert!(murderer_refuses(40, 0), "palier 1 du demandeur");
+        assert!(murderer_refuses(0, 60), "palier 2 de la cible : menu caché");
+        assert!(murderer_refuses(100, 100));
+        assert!(!murderer_refuses(0, 0));
     }
 
     #[test]

@@ -99,7 +99,8 @@ pub fn preemptive_step(st: &mut WorldState, now: Instant) {
     let mut engage = Vec::new();
     for cid in watched {
         let Some(m) = st.monsters.get(cid) else { continue };
-        if !m.is_alive() || st.monsters.engaged.contains(&cid) || !m.aggro.is_empty() {
+        // Sous Mutation (morph.rs) : passif.
+        if !m.is_alive() || st.monsters.engaged.contains(&cid) || !m.aggro.is_empty() || st.monsters.morphs.contains_key(&cid) {
             continue;
         }
         let Some(pre) = st.monsters.ai_of(cid).and_then(|a| a.preemptive.as_ref()) else { continue };
@@ -214,12 +215,14 @@ pub fn walk_step(map: &WorldMap, st: &mut WorldState, now: Instant) {
         let view = super::monsters::MonsterRegistry::view_packet(&st.monsters, m);
         // Invocation : son état spécial et l'op 0 d'AgpmSummons suivent la vue (summons.rs).
         let extras = st.summons.view_extras(cid, st.monsters.status(cid, now));
+        // Mutation : op 11 après la vue (morph.rs).
+        let morph = st.monsters.morph_view(cid);
         let mv = &schema::OPT_CHAR_MOVE;
         let fields = Fields::new(mv).with(0, cid).with(1, next).with(2, w.dest).with(5, if arrived { 0x04 } else if w.fast { combat::MOVE_FAST } else { 0 }).with(6, 0);
         for p in st.players.values_mut().filter(|p| p.in_game) {
             if super::sector::sees(p.view_pos, next) && p.seen_monsters.insert(cid) {
                 p.send_raw(view.clone());
-                for e in &extras {
+                for e in extras.iter().chain(&morph) {
                     p.send_raw(e.clone());
                 }
                 if !arrived {
@@ -244,7 +247,7 @@ pub fn patrol_step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) {
             break;
         }
         let Some(m) = st.monsters.get(cid) else { continue };
-        if !m.is_alive() || m.target.is_some() || !m.aggro.is_empty() || m.roam <= 0.0 || now < m.patrol_at || now < m.ready_at {
+        if !m.is_alive() || m.target.is_some() || !m.aggro.is_empty() || m.roam <= 0.0 || now < m.patrol_at || now < m.ready_at || st.monsters.morphs.contains_key(&cid) {
             continue;
         }
         if st.monsters.status(cid, now) & status::NO_MOVE != 0 {
@@ -296,6 +299,10 @@ fn monster_step(ctx: &WorldCtx, st: &mut WorldState, cid: u32, now: Instant) -> 
     };
     if !m.is_alive() || m.owner.is_some() {
         disengage(st, cid);
+        return None;
+    }
+    // Mutation (morph.rs) : ni coup, ni compétence, ni poursuite jusqu'à la fin de la forme ; agresseurs gardés.
+    if st.monsters.morphs.contains_key(&cid) {
         return None;
     }
     let stats = st.monsters.stats_of(m.tid);
