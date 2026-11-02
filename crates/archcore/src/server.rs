@@ -102,12 +102,18 @@ pub async fn run(mode: &str) -> anyhow::Result<()> {
         if config.world.soap.enabled {
             crate::soap::serve(&config.world.soap, Arc::new(crate::world::console::SoapBackend(w.clone()))).await?;
         }
+        // ArchBot : personnages pilotés par le serveur (module facultatif, config/archbot.conf).
+        #[cfg(feature = "archbot")]
+        crate::archbot::start(w.clone()).await?;
     }
 
     // Serveur prêt : la mesure des requêtes lentes commence (le chargement du monde n'est pas compté).
     crate::db::set_slow_query_ms(config.database.slow_query_ms);
     tokio::signal::ctrl_c().await?;
     info!("arrêt…");
+    // ArchBot : les bots quittent le monde (positions et progression enregistrées) avant la fermeture des bases.
+    #[cfg(feature = "archbot")]
+    crate::archbot::shutdown().await;
     db.close().await;
     Ok(())
 }

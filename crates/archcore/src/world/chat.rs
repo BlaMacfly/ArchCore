@@ -191,6 +191,12 @@ pub async fn on_chatting(world: &Arc<World>, st: &mut WorldState, sid: u32, p: &
     let (cid, name) = (player.ch.id, player.ch.name.clone());
     info!("[chat] {name} (type {kind}) : {full}");
 
+    // ArchBot : commandes « /bot … », chuchotements et messages de groupe adressés aux bots (module facultatif).
+    #[cfg(feature = "archbot")]
+    if crate::archbot::chat::on_chat(world, st, sid, kind, &full, p.text(5).as_deref()).await? {
+        return Ok(());
+    }
+
     // Préfixes d'Archonia (groupe, guilde, cris) avant les commandes MJ ; jamais dans un chuchotement.
     let prefix = if kind == chat_type::WHISPER { None } else { split_prefix(&full) };
     let text = prefix.map(|(_, rest)| rest.to_string()).unwrap_or_else(|| full.clone());

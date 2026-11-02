@@ -289,6 +289,13 @@ pub fn dist2d(a: Vec3, b: Vec3) -> f64 {
 pub fn on_action(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) {
     let target = p.int(1).unwrap_or(0) as u32;
     let forced = p.int(6).unwrap_or(0) != 0;
+    start_attack(ctx, st, sid, target, forced);
+}
+
+/// Le joueur `sid` prend `target` pour cible, avec les règles du paquet du client (monstre vivant et attaquable,
+/// joueur permis par le combat entre joueurs, cadence de l'anti-triche). Sert aussi aux personnages pilotés par
+/// le serveur (ArchBot).
+pub(crate) fn start_attack(ctx: &WorldCtx, st: &mut WorldState, sid: u32, target: u32, forced: bool) {
     // Forme d'animal (Type 8, morph.rs) : n'attaque personne.
     if super::morph::harmless(st, sid) {
         debug!("[combat] #{sid} : pas d'attaque sous une forme d'animal");

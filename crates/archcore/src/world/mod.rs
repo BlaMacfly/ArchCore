@@ -616,7 +616,7 @@ impl Connection for WorldConn {
 }
 
 /// Retire un joueur du monde : échange annulé, groupe quitté, position enregistrée.
-pub(super) async fn remove_player(ctx: &WorldCtx, st: &mut WorldState, sid: u32) {
+pub(crate) async fn remove_player(ctx: &WorldCtx, st: &mut WorldState, sid: u32) {
     // Un échange en cours est annulé : les objets n'ont pas quitté les inventaires.
     trade::cancel(st, sid);
     // Le groupe perd ce membre (et se dissout s'il ne reste qu'un joueur).
@@ -681,13 +681,22 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
         s.close();
         return Ok(());
     };
-    let mut ch = CharacterRow::from_row(&row);
+    let gm_level: i64 = col(&acc, "gm_level");
+    if !admit(ctx, st, s, account, gm_level, &row).await? {
+        s.close();
+    }
+    Ok(())
+}
+
+/// Charge un personnage déjà authentifié (sa ligne `characters`) dans le monde, sur la session `s`, prêt pour
+/// `ENTER_WORLD`. Rend faux si son modèle est inconnu. Sert à l'entrée ordinaire (`game_enter`) et aux
+/// personnages pilotés par le serveur (ArchBot), qui n'ont ni clé d'authentification ni connexion.
+pub(crate) async fn admit(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, account: Account, gm_level: i64, row: &mysql_async::Row) -> anyhow::Result<bool> {
+    let mut ch = CharacterRow::from_row(row);
     let Some(tpl) = ctx.templates.get(ch.template_id) else {
         crate::error!("[world] template {} inconnu", ch.template_id);
-        s.close();
-        return Ok(());
+        return Ok(false);
     };
-    let gm_level: i64 = col(&acc, "gm_level");
     let mut inventory = Inventory::load(&ctx.db, ch.id).await?;
     // Objets Cash encore dans l'inventaire ordinaire : rangés dans l'inventaire Cash (items.rs).
     let sorted = inventory.sort_cash(&ctx.db, &ctx.catalog).await?;
@@ -819,10 +828,11 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
         },
     );
     st.by_cid.insert(cid, s.id());
-    Ok(())
+    Ok(true)
 }
 
-fn enter_world(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle) {
+/// `ENTER_WORLD` : le personnage chargé par `admit` entre en jeu (paquets d'entrée, vue, présence…).
+pub(crate) fn enter_world(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle) {
     let sid = s.id();
     let Some(p) = st.players.get(&sid) else {
         warn!("[world] #{sid} ENTER_WORLD sans personnage");

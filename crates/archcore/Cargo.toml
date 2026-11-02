@@ -12,8 +12,16 @@ repository.workspace = true
 name = "archcore"
 path = "src/main.rs"
 
+[features]
+# ArchBot : bots autonomes et compagnons (module dans modules/ArchBot, voir son README). Retirer la feature des
+# défauts, ou construire avec --no-default-features, pour un serveur sans bots.
+default = ["archbot"]
+archbot = ["dep:archbot"]
+
 [dependencies]
 archcore-net.workspace = true
+# Moteur d'ArchBot (dépôt BlaMacfly/ArchBot cloné dans modules/ArchBot).
+archbot = { path = "../../modules/ArchBot", optional = true }
 anyhow.workspace = true
 tokio.workspace = true
 async-trait.workspace = true

@@ -134,6 +134,11 @@ mod usables;
 mod title;
 mod wanted;
 
+/// ArchBot : scénario `archcore sim bots` (module facultatif, dépôt ArchBot cloné dans modules/ArchBot).
+#[cfg(feature = "archbot")]
+#[path = "../../../../modules/ArchBot/archcore/sim_bots.rs"]
+mod bots;
+
 /// Valeur facultative affichée sans « Some(…) ».
 fn o<T: std::fmt::Display>(v: Option<T>) -> String {
     v.map(|x| x.to_string()).unwrap_or_else(|| "-".into())
@@ -143,6 +148,8 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
     let a = |i: usize, d: &str| args.get(i).cloned().unwrap_or_else(|| d.to_string());
     match args.first().map(String::as_str) {
         Some("client") => client(&a(1, "test"), &a(2, "test"), &a(3, "Testeur"), args.get(4..).unwrap_or_default()).await,
+        #[cfg(feature = "archbot")]
+        Some("bots") => Box::pin(bots::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), args.get(4..).unwrap_or_default())).await,
         Some("move") => movement(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "simb"), &a(5, "simb"), &a(6, "SimB")).await,
         Some("shop") => shop(&a(1, "sima"), &a(2, "sima"), &a(3, "SimA")).await,
         Some("addon") => {

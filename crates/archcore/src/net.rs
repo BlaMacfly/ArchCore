@@ -117,6 +117,8 @@ struct SessionInner {
     closed: AtomicBool,
     /// Extensions ArchRust négociées sur cette connexion (`None` : client d'origine).
     ext: Mutex<Option<crate::ext::Agreement>>,
+    /// Session détachée : aucun client derrière (bots d'ArchBot) ; tout envoi est sans effet.
+    detached: bool,
 }
 
 /// Poignée vers une connexion : envoi de paquets (chiffrés une fois le handshake terminé), fermeture.
@@ -124,6 +126,29 @@ struct SessionInner {
 pub struct SessionHandle(Arc<SessionInner>);
 
 impl SessionHandle {
+    /// Session sans connexion TCP, pour un personnage piloté par le serveur (bots d'ArchBot) : un identifiant
+    /// de session ordinaire, aucun chiffrement, et les paquets qu'on lui envoie sont ignorés sans être construits
+    /// plus loin que l'appel. Elle n'est jamais « fermée » : c'est l'hôte du bot qui le retire du monde.
+    pub fn detached(server: &'static str) -> SessionHandle {
+        let (tx, _rx) = mpsc::unbounded_channel::<Out>();
+        SessionHandle(Arc::new(SessionInner {
+            id: NEXT_SESSION_ID.fetch_add(1, Ordering::Relaxed),
+            server,
+            remote: "détachée".into(),
+            ip: String::new(),
+            crypto: Mutex::new(CryptoSession::default()),
+            tx,
+            closed: AtomicBool::new(false),
+            ext: Mutex::new(None),
+            detached: true,
+        }))
+    }
+
+    /// Vrai pour une session détachée (voir [`SessionHandle::detached`]).
+    pub fn is_detached(&self) -> bool {
+        self.0.detached
+    }
+
     pub fn id(&self) -> u32 {
         self.0.id
     }
@@ -168,11 +193,14 @@ impl SessionHandle {
 
     /// Construit et envoie un paquet principal selon un schéma.
     pub fn send(&self, schema: &Schema, fields: Fields) {
+        if self.0.detached {
+            return;
+        }
         self.send_raw(build_packet(schema, &fields));
     }
 
     fn send_plain(&self, plain: Vec<u8>, encrypt: bool) {
-        if self.is_closed() {
+        if self.0.detached || self.is_closed() {
             return;
         }
         if self.0.server == "world" {
@@ -251,6 +279,7 @@ async fn run_session(name: &'static str, socket: TcpStream, remote: String, ip: 
         tx,
         closed: AtomicBool::new(false),
         ext: Mutex::new(None),
+        detached: false,
     }));
     let id = session.id();
     info!("[{name}] #{id} connecté depuis {}", session.0.remote);

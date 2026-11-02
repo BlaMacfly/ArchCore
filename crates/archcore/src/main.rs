@@ -34,6 +34,13 @@ mod soap;
 mod tools;
 mod world;
 
+/// ArchBot : personnages pilotés par le serveur (bots autonomes et compagnons). Module facultatif, dont le code
+/// vit dans le dépôt ArchBot cloné dans `modules/ArchBot` (voir son README) et se compile ici avec la feature
+/// `archbot` ; sans le module, le serveur se construit et tourne comme avant.
+#[cfg(feature = "archbot")]
+#[path = "../../../modules/ArchBot/archcore/mod.rs"]
+mod archbot;
+
 const USAGE: &str = "usage : archcore [login|world|all] | config | db-init | db-check | import | content | decrypt | i18n | sim | re (voir le wiki, page Outils)";
 
 #[tokio::main]

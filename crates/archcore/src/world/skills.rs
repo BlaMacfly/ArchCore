@@ -661,6 +661,11 @@ impl SkillCatalog {
         self.skills.get(&tid)
     }
 
+    /// Toutes les compétences du catalogue (ordre quelconque).
+    pub fn all(&self) -> impl Iterator<Item = &SkillTemplate> {
+        self.skills.values()
+    }
+
     /// Compétences de l'ArchLord (`skill_type` 9), par TID croissant.
     pub fn archlord_skills(&self) -> Vec<u32> {
         let mut v: Vec<u32> = self.skills.values().filter(|t| t.archlord_only()).map(|t| t.tid).collect();
@@ -1024,6 +1029,13 @@ fn request_cast(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) {
         .and_then(|b| b.int(1))
         .unwrap_or(0) as u32;
     let forced = action.as_ref().and_then(|a| a.int(4)).unwrap_or(0) != 0;
+    start_cast(ctx, st, sid, skill_id, target, forced)
+}
+
+/// Lance la compétence `skill_id` (identifiant de session) du joueur `sid` sur `target` (CID d'un monstre, d'un
+/// joueur, ou le sien), avec tous les contrôles du paquet du client. Sert aussi aux personnages pilotés par le
+/// serveur (ArchBot).
+pub(crate) fn start_cast(ctx: &WorldCtx, st: &mut WorldState, sid: u32, skill_id: u32, target: u32, forced: bool) {
     let now = Instant::now();
     let Some(player) = st.players.get(&sid) else { return };
     if !player.in_game || player.dead {

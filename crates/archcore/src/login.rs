@@ -484,8 +484,15 @@ impl LoginConn {
     /// les objets de `Item1`…`Item4` (`TID` ou `TID;quantité`) dans le premier sac, en piles limitées
     /// à la taille de pile de l'objet.
     async fn give_starting_items(&self, character_id: u32, tid: u32) -> anyhow::Result<()> {
+        give_starting_items(&self.svc.db, character_id, tid).await
+    }
+}
+
+/// Équipement de départ du modèle `tid` donné au personnage `character_id` (voir `LoginConn::give_starting_items`) ;
+/// sert aussi aux personnages créés par le serveur (ArchBot).
+pub(crate) async fn give_starting_items(db: &Databases, character_id: u32, tid: u32) -> anyhow::Result<()> {
+    {
         use crate::world::items::{stored_status, EquipData, INSERT_ITEM, INVENTORY};
-        let db = &self.svc.db;
         let Some(row) = db.world.first("SELECT data FROM character_data_table WHERE tid = ?", (tid,)).await? else {
             return Ok(());
         };
@@ -522,7 +529,9 @@ impl LoginConn {
         info!("[login] équipement de départ du personnage {character_id} : {given:?}");
         Ok(())
     }
+}
 
+impl LoginConn {
     async fn delete_char(&mut self, s: &SessionHandle, p: &Packet) -> anyhow::Result<()> {
         if !self.require_account(s) {
             return Ok(());

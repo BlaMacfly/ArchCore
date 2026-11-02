@@ -25,3 +25,6 @@ target/
 config/auth.conf
 config/world.conf
 config/*/
+
+# Modules facultatifs clonés à part (ArchBot…) / optional modules cloned apart
+/modules/
