@@ -832,6 +832,29 @@ impl Inventory {
         Ok(None)
     }
 
+    /// Requête qui retire `n` exemplaires de l'objet `iid` (inventaire, Cash, sac du familier) : quantité diminuée, ou
+    /// ligne supprimée s'il n'en reste rien. À joindre à une transaction, puis à reporter par `consumed`.
+    pub fn consume_sql(&self, iid: u32, n: i64) -> Option<(&'static str, Params)> {
+        let item = self.get_usable(iid)?;
+        Some(if item.count > n {
+            ("UPDATE character_items SET count = ? WHERE id = ?", (item.count - n, iid).into())
+        } else {
+            ("DELETE FROM character_items WHERE id = ? AND character_id = ?", (iid, self.character_id).into())
+        })
+    }
+
+    /// Reporte en mémoire un retrait enregistré par `consume_sql` : rend la pile restante, ou `None` s'il n'en reste rien.
+    pub fn consumed(&mut self, iid: u32, n: i64) -> Option<InventoryItem> {
+        let item = self.holder(iid)?.get_mut(&iid)?;
+        if item.count > n {
+            item.count -= n;
+            return Some(item.clone());
+        }
+        self.holder(iid).map(|m| m.remove(&iid));
+        self.in_use.remove(&iid);
+        None
+    }
+
     /// Enregistre les options et les sockets tirés pour l'objet `iid` de l'inventaire (ou de l'inventaire Cash, du sac
     /// du familier).
     pub async fn set_generated(&mut self, db: &Databases, iid: u32, options: &[u16], sockets: u8) -> anyhow::Result<()> {
@@ -933,6 +956,20 @@ mod tests {
         let (item, created) = inv.apply_placement(191, 1, Placement::Slot([0, 0, 1]), 42);
         assert_eq!((item.iid, item.grid, created), (42, [0, 0, 1], true));
         assert_eq!(inv.items.len(), 2);
+    }
+
+    #[test]
+    fn retrait_en_transaction() {
+        let mut inv = Inventory { character_id: 1, ..Default::default() };
+        let item = |iid: u32, count: i64| InventoryItem { iid, tid: 11256, count, grid: [0, 0, 0], conv: Default::default(), options: Vec::new(), durability: DURABILITY_FULL };
+        inv.cash.insert(5, item(5, 2));
+        inv.in_use.insert(5);
+        assert!(inv.consume_sql(5, 1).is_some_and(|(q, _)| q.starts_with("UPDATE")));
+        assert_eq!(inv.consumed(5, 1).map(|i| i.count), Some(1), "pile de l'inventaire Cash diminuée");
+        assert!(inv.consume_sql(5, 1).is_some_and(|(q, _)| q.starts_with("DELETE")));
+        assert_eq!(inv.consumed(5, 1), None);
+        assert!(inv.cash.is_empty() && inv.in_use.is_empty(), "objet retiré, plus allumé");
+        assert!(inv.consume_sql(5, 1).is_none());
     }
 
     #[test]

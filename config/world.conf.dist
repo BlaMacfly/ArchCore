@@ -307,6 +307,26 @@ Recall.ExcludedItems = 4817
 
 Social.MinIntervalMs = 1000
 
+#    Bank.SecretSafeMaxExtraPages
+#        Secret Safe (objets d'usage 21) : nombre de pages de banque en plus (au-delà
+#        de la première) au-delà duquel l'objet est refusé (1 à 3). La deuxième page
+#        doit avoir été achetée contre de l'or ; les pages 3 et 4 ne s'ouvrent qu'avec
+#        cet objet. 3 : le refus du client (4 pages) ; le texte de l'objet 3916
+#        annonce 3 pages (valeur 2). Choix d'ArchCore.
+#        Défaut : 3
+
+Bank.SecretSafeMaxExtraPages = 3
+
+#    Convert.LuckyScrollBonus
+#        Fortune Manual (objets d'usage 25 allumés dans l'inventaire Cash) : points
+#        de pour cent ajoutés à la chance d'un sertissage de pierre d'esprit ou de
+#        rune et d'un renforcement (0 à 100) ; un exemplaire est consommé par
+#        tentative tant que la valeur n'est pas nulle. Valeur d'origine inconnue :
+#        0, l'objet s'allume sans effet.
+#        Défaut : 0
+
+Convert.LuckyScrollBonus = 0
+
 #    ReturnToLogin.LoginAddress
 #        Retour à la sélection des personnages (« Select Character ») : adresse
 #        « hôte:port » du serveur de connexion donnée au client. Vide : le client

@@ -71,6 +71,8 @@ défaut, avec un avertissement dans le journal ; une clé inconnue (faute de fra
 | `Recall.AllowInCombat` | `0` | 1 = rappel permis en combat, du lanceur comme du membre ; toujours refusé au mort, en siège en guerre, dans un Shrine en combat, dans la Battle Square et dans les régions sans résurrection (choix prudent d'ArchCore) |
 | `Recall.ExcludedItems` | `4817` | TID des objets d'usage 15 qui ne rappellent pas (Bead of Nothernland, description sans rapport) |
 | `Social.MinIntervalMs` | `1000` | Délai minimal entre deux actions sociales d'un joueur ; une action plus rapprochée est ignorée (anti-inondation, choix d'ArchCore) |
+| `Bank.SecretSafeMaxExtraPages` | `3` | Secret Safe (usage 21) : pages de banque en plus (1 à 3) au-delà desquelles il est refusé ; 3 = le refus du client (4 pages), le texte de l'objet 3916 annonce 3 pages (2). Choix d'ArchCore |
+| `Convert.LuckyScrollBonus` | `0` | Fortune Manual (usage 25) allumé : points de pour cent ajoutés à la réussite d'un sertissage de pierre ou de rune et d'un renforcement (0 à 100), un exemplaire consommé par tentative ; valeur d'origine inconnue, 0 : sans effet |
 | `ReturnToLogin.LoginAddress` | vide | Adresse « hôte:port » du serveur de connexion donnée au client pour revenir à la sélection des personnages ; vide : le client reprend celle où il s'est connecté |
 | `ReturnToLogin.KeySeconds` | `60` | Durée de validité de la clé à usage unique du retour à la sélection des personnages |
 | `Shrine.Enabled` | `1` | Combats de Shrine selon l'horaire de la table `shrine` ; `0` : seulement par `/shrine open` |

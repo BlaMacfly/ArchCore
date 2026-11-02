@@ -73,6 +73,23 @@ pub fn in_range(npc: &Npc, p: &Player, range: f64) -> bool {
     npc_distance(npc, at.x as f64, at.z as f64) <= range + RANGE_TOLERANCE
 }
 
+/// Le joueur est resté à moins de `range` (plus la marge) du point (x, z) : fenêtre ouverte à distance par un objet
+/// (`/safekeeper`, `/merchant`, `consumables.rs`), valable tant qu'il ne s'éloigne pas de l'endroit de l'ouverture.
+pub fn near_point(p: &Player, at: (f64, f64), range: f64) -> bool {
+    let now = super::presence::position_now(p, Instant::now());
+    let (dx, dz) = (now.x as f64 - at.0, now.z as f64 - at.1);
+    (dx * dx + dz * dz).sqrt() <= range + RANGE_TOLERANCE
+}
+
+/// PNJ le plus proche du joueur, n'importe où, qui a la fonction d'événement `function` (`/safekeeper`, `/merchant`).
+pub fn nearest_with<'a>(npcs: &'a NpcRegistry, p: &Player, function: i64) -> Option<&'a Npc> {
+    let at = super::presence::position_now(p, Instant::now());
+    npcs.npcs
+        .iter()
+        .filter(|n| n.events.iter().any(|e| e.function == function))
+        .min_by(|a, b| npc_distance(a, at.x as f64, at.z as f64).total_cmp(&npc_distance(b, at.x as f64, at.z as f64)))
+}
+
 /// PNJ à portée `range` du joueur (même mesure que `in_range`).
 pub fn npcs_in_range<'a>(npcs: &'a NpcRegistry, p: &Player, range: f64) -> impl Iterator<Item = &'a Npc> + 'a {
     npcs.near(super::presence::position_now(p, Instant::now()), range + RANGE_TOLERANCE)

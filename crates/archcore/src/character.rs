@@ -287,6 +287,9 @@ pub struct CharacterRow {
     /// Chaîne « skill init » (AGPMCHARACTER champ 19) : vide tant que l'oubli des compétences chez le maître reste permis,
     /// « 1 » une fois fait (`world/consumables.rs`).
     pub skill_init: String,
+    /// Signature (AGPMCHARACTER champ 27, 16 octets au plus) prise par `/nick` avec une Signature of Glory
+    /// (`world/consumables.rs`) ; vide : aucune.
+    pub signature: String,
 }
 
 impl CharacterRow {
@@ -319,6 +322,7 @@ impl CharacterRow {
             murderer_until: col(r, "murderer_until"),
             evolution_tid: col(r, "evolution_tid"),
             skill_init: col(r, "skill_init"),
+            signature: col(r, "signature"),
         }
     }
 
@@ -478,6 +482,8 @@ pub struct CharView {
     pub transform: i64,
     /// Champ 19 : chaîne « skill init » (`CharacterRow::skill_init`).
     pub skill_init: String,
+    /// Champ 27 : signature (`CharacterRow::signature`).
+    pub signature: String,
 }
 
 /// Secondes Unix actuelles.
@@ -506,6 +512,7 @@ impl From<&CharacterRow> for CharView {
             murderer_left: (c.murderer_until - unix_now()).clamp(0, 7200),
             transform: 0,
             skill_init: c.skill_init.clone(),
+            signature: c.signature.clone(),
         }
     }
 }
@@ -542,7 +549,7 @@ pub fn character_packet(ch: &CharView, factors: &Factors, op: i64) -> Vec<u8> {
         .with(24, 0)
         .with(25, ch.criminal_left)
         .with(26, ch.murderer_left)
-        .with(27, "")
+        .with(27, ch.signature.as_str())
         .with(29, 0);
     build_packet(s, &fields)
 }

@@ -27,6 +27,15 @@
 //! client (`Archonia.exe`), seules les pierres de type 1 à 5 (magie, eau, feu, terre, air) et de rang 1 à 5 se
 //! sertissent : celles qu'Archonia ajoute (6 poison, 7 foudre, 8 glace, 100 à 106 caractéristiques), sans rang,
 //! sont refusées (résultat 2).
+//!
+//! Release of Agreement (usage 28) : le client le glisse sur un équipement serti et envoie l'op 12 (champ 1 CID, 2 IID de
+//! l'équipement, 3 IID de l'objet). Comme le texte de l'objet : pierres et runes serties détruites ; choix d'ArchCore
+//! (réponse d'origine inconnue) : sockets et renforcement gardés, un exemplaire consommé, état renvoyé par l'op 0 ; un
+//! refus ne renvoie rien. Même contrôle que le client : objet de l'inventaire qui reçoit des sockets, sauf la partie 17,
+//! avec au moins un sertissage.
+//! Fortune Manual (usage 25) allumé dans l'inventaire Cash (`consumables::toggle_lit`) : `Convert.LuckyScrollBonus` points
+//! de pour cent en plus sur la réussite d'un sertissage de pierre ou de rune et d'un renforcement, un exemplaire
+//! consommé par tentative ; 0 par défaut (valeur d'origine inconnue) : sans effet ni consommation.
 
 /// Nombre de niveaux de renforcement et de rangs de pierre.
 pub const MAX_LEVEL: usize = 16;
@@ -339,6 +348,30 @@ pub mod op {
     pub const RESPONSE_SOCKET: i64 = 6;
     pub const RESPONSE_SPIRIT_STONE: i64 = 7;
     pub const RESPONSE_RUNE: i64 = 8;
+    /// Release of Agreement posé sur un équipement (champ 3 = IID de l'objet).
+    pub const REQUEST_SOCKET_INITIALIZE: i64 = 12;
+}
+
+/// Partie du corps que le Release of Agreement refuse (contrôle du client).
+const SOCKET_INIT_EXCLUDED_PART: i64 = 17;
+
+/// Le Release of Agreement s'applique à cet équipement : il reçoit des sockets (hors partie 17) et a une pierre sertie.
+pub fn socket_init_allowed(e: &EquipData, c: &ItemConvert) -> bool {
+    socket_category(e).is_some() && e.part != SOCKET_INIT_EXCLUDED_PART && !c.filled.is_empty()
+}
+
+/// État après un Release of Agreement : sertissages retirés, sockets et renforcement gardés.
+pub fn socket_initialized(c: &ItemConvert) -> ItemConvert {
+    ItemConvert { filled: Vec::new(), ..c.clone() }
+}
+
+/// Tirage de 0 à 99 dont le premier nombre (celui de la réussite) est baissé de `bonus` (Fortune Manual).
+pub fn lucky_roll(bonus: u32, mut roll: impl FnMut() -> u32) -> impl FnMut() -> u32 {
+    let mut first = true;
+    move || {
+        let r = roll();
+        if std::mem::take(&mut first) { r.saturating_sub(bonus) } else { r }
+    }
 }
 
 /// AGPMITEMCONVERT de l'état d'un objet : op 0 (ajout) ou une réponse, avec son résultat et le TID ajouté.
@@ -542,6 +575,7 @@ pub async fn on_packet(ctx: &super::WorldCtx, st: &mut super::WorldState, sid: u
         }
         Some(op::REQUEST_SOCKET) => add_socket(ctx, st, sid, iid).await,
         Some(op::REQUEST_PHYSICAL) => physical(ctx, st, sid, iid, other).await,
+        Some(op::REQUEST_SOCKET_INITIALIZE) => socket_initialize(ctx, st, sid, iid, other).await,
         other => {
             crate::debug!("[conversion] #{sid} AGPMITEMCONVERT op {other:?} (ignoré)");
             Ok(())
@@ -587,14 +621,61 @@ async fn save(ctx: &super::WorldCtx, p: &mut super::Player, iid: u32, conv: &Ite
     Ok(())
 }
 
-/// Consomme un exemplaire de `iid` (pierre, potion) et le signale au client.
+/// Consomme un exemplaire de `iid` (pierre, potion, Fortune Manual de l'inventaire Cash) et le signale au client.
 async fn consume_one(ctx: &super::WorldCtx, p: &mut super::Player, iid: u32) -> anyhow::Result<()> {
-    use super::items::{item_count, item_remove};
     let cid = p.ch.id;
     match p.inventory.consume(&ctx.db, iid, 1).await? {
-        Some(left) => p.send_raw(item_count(&left, cid)),
-        None => p.send_raw(item_remove(iid, Some(cid))),
+        Some(left) => p.send_raw(p.inventory.count_packet(&left, cid)),
+        None => p.send_raw(super::items::item_remove(iid, Some(cid))),
     }
+    Ok(())
+}
+
+/// Fortune Manual allumé et bonus réglé : (IID à consommer, points ajoutés à la chance de réussite).
+fn lucky(ctx: &super::WorldCtx, p: &super::Player) -> Option<(u32, u32)> {
+    let bonus = ctx.config.world.convert_lucky_scroll_bonus;
+    if bonus == 0 {
+        return None;
+    }
+    super::consumables::lit_item(ctx, p, super::consumables::USABLE_LUCKY_SCROLL).map(|i| (i.iid, bonus))
+}
+
+/// Un exemplaire du Fortune Manual consommé après une tentative qu'il a aidée.
+async fn spend_luck(ctx: &super::WorldCtx, p: &mut super::Player, luck: Option<(u32, u32)>) -> anyhow::Result<()> {
+    if let Some((iid, bonus)) = luck {
+        consume_one(ctx, p, iid).await?;
+        crate::info!("[conversion] {} : Fortune Manual consommé (+{bonus} points de réussite)", p.ch.name);
+    }
+    Ok(())
+}
+
+/// Release of Agreement `release_iid` (inventaire ou inventaire Cash) posé sur l'équipement `iid` de l'inventaire.
+async fn socket_initialize(ctx: &super::WorldCtx, st: &mut super::WorldState, sid: u32, iid: u32, release_iid: u32) -> anyhow::Result<()> {
+    let Some(p) = st.players.get_mut(&sid) else { return Ok(()) };
+    let cid = p.ch.id;
+    let (Some(item), Some(release)) = (p.inventory.get(iid).cloned(), p.inventory.get_usable(release_iid).cloned()) else { return Ok(()) };
+    let is_release = ctx.catalog.get(release.tid).is_some_and(|d| d.usable_type == super::consumables::USABLE_SOCKET_INIT);
+    let Some(e) = ctx.catalog.get(item.tid).and_then(|d| d.equip.as_ref()) else { return Ok(()) };
+    if p.dead || !is_release || !socket_init_allowed(e, &item.conv) {
+        crate::info!("[conversion] {} : Release of Agreement refusé sur l'objet {iid}", p.ch.name);
+        return Ok(());
+    }
+    let conv = socket_initialized(&item.conv);
+    let Some(used) = p.inventory.consume_sql(release_iid, 1) else { return Ok(()) };
+    ctx.db
+        .characters
+        .atomic(vec![("UPDATE character_items SET convert_level = ?, socket_count = ?, socket_tids = ? WHERE id = ?", (conv.level, conv.sockets, conv.filled_column(), iid).into()), used])
+        .await?;
+    if let Some(i) = p.inventory.items.get_mut(&iid) {
+        i.conv = conv.clone();
+    }
+    match p.inventory.consumed(release_iid, 1) {
+        Some(left) => p.send_raw(p.inventory.count_packet(&left, cid)),
+        None => p.send_raw(super::items::item_remove(release_iid, Some(cid))),
+    }
+    p.send_raw(state_packet(op::ADD, cid, iid, &conv, None, None));
+    p.send_raw(super::recovery::used_packet(release.tid, cid, std::time::Duration::ZERO));
+    crate::info!("[conversion] {} libère l'objet {iid} : {} sertissage(s) détruit(s), {} socket(s) gardé(s)", p.ch.name, item.conv.filled.len(), conv.sockets);
     Ok(())
 }
 
@@ -616,7 +697,8 @@ async fn spirit_stone(ctx: &super::WorldCtx, st: &mut super::WorldState, sid: u3
     };
     let s = ctx.convert.stones[rank];
     let rate = if is_weapon(e) { s.weapon_rate } else { s.armor_rate };
-    let ok = rand::thread_rng().gen_range(0..100) < rate;
+    let luck = lucky(ctx, p);
+    let ok = rand::thread_rng().gen_range(0..100) < rate + luck.map(|l| l.1).unwrap_or(0);
     let mut conv = item.conv.clone();
     if ok {
         conv.sockets = sockets_of(e, &conv);
@@ -626,6 +708,7 @@ async fn spirit_stone(ctx: &super::WorldCtx, st: &mut super::WorldState, sid: u3
     let result = if ok { stone_result::SUCCESS } else { stone_result::FAILED };
     p.send_raw(state_packet(op::RESPONSE_SPIRIT_STONE, cid, iid, &conv, Some(result), Some(stone.tid)));
     consume_one(ctx, p, stone_iid).await?;
+    spend_luck(ctx, p, luck).await?;
     crate::info!("[conversion] {} sertit la pierre {} dans l'objet {iid} : {}", p.ch.name, stone.tid, if ok { "réussi" } else { "échec" });
     Ok(())
 }
@@ -647,9 +730,10 @@ async fn rune(ctx: &super::WorldCtx, st: &mut super::WorldState, sid: u32, iid: 
         }
     };
     let cat = socket_category(e).unwrap_or(Category::Other);
+    let luck = lucky(ctx, p);
     let outcome = {
         let mut rng = rand::thread_rng();
-        rune_roll(&ctx.convert, rune, cat, conv.filled.len(), || rng.gen_range(0..100))
+        rune_roll(&ctx.convert, rune, cat, conv.filled.len(), lucky_roll(luck.map(|l| l.1).unwrap_or(0), || rng.gen_range(0..100)))
     };
     match outcome {
         rune_result::SUCCESS => conv.filled.push(rune_item.tid),
@@ -671,6 +755,7 @@ async fn rune(ctx: &super::WorldCtx, st: &mut super::WorldState, sid: u32, iid: 
         }
     }
     consume_one(ctx, p, rune_iid).await?;
+    spend_luck(ctx, p, luck).await?;
     crate::info!("[conversion] {} sertit la rune {} dans l'objet {iid} : résultat {outcome}", p.ch.name, rune_item.tid);
     Ok(())
 }
@@ -745,10 +830,12 @@ async fn physical(ctx: &super::WorldCtx, st: &mut super::WorldState, sid: u32, i
         }
     };
     consume_one(ctx, p, catalyst_iid).await?;
+    let luck = lucky(ctx, p);
     let outcome = {
         let mut rng = rand::thread_rng();
-        physical_roll(&ctx.convert, rank, item.conv.level as usize + 1, || rng.gen_range(0..100))
+        physical_roll(&ctx.convert, rank, item.conv.level as usize + 1, lucky_roll(luck.map(|l| l.1).unwrap_or(0), || rng.gen_range(0..100)))
     };
+    spend_luck(ctx, p, luck).await?;
     let mut conv = item.conv.clone();
     match outcome {
         result::SUCCESS => conv.level += 1,
@@ -772,6 +859,24 @@ mod tests {
 
     fn weapon(rank: i64) -> EquipData {
         EquipData { kind: super::super::equipment::KIND_WEAPON, physical_rank: rank, min_socket: 1, min_damage: 10, max_damage: 12, ..Default::default() }
+    }
+
+    #[test]
+    fn release_of_agreement_et_fortune_manual() {
+        let set = ItemConvert { level: 3, sockets: 4, filled: vec![201, 4609] };
+        assert!(socket_init_allowed(&weapon(3), &set));
+        assert!(!socket_init_allowed(&weapon(3), &ItemConvert { filled: vec![], ..set.clone() }), "rien de serti");
+        let cash_head = EquipData { kind: KIND_ARMOR, part: 17, ..Default::default() };
+        assert!(!socket_init_allowed(&cash_head, &set), "partie 17");
+        assert!(!socket_init_allowed(&EquipData { kind: 32, ..Default::default() }, &set), "monture : pas de sockets");
+        assert_eq!(socket_initialized(&set), ItemConvert { level: 3, sockets: 4, filled: vec![] }, "sockets et renforcement gardés");
+        // Bonus du Fortune Manual : seul le premier tirage (la réussite) est baissé.
+        let mut seq = [50u32, 50].into_iter();
+        let mut roll = lucky_roll(10, move || seq.next().unwrap());
+        assert_eq!((roll(), roll()), (40, 50));
+        let t = ConvertTable::parse(TABLE);
+        let helped = physical_roll(&t, 3, 1, lucky_roll(100, || 99));
+        assert_eq!(helped, result::SUCCESS, "bonus de 100 : réussite assurée");
     }
 
     #[test]

@@ -19,8 +19,16 @@
 //! perdu si un joueur se déconnecte, l'échange est alors annulé.
 //!
 //! Le client n'envoie jamais l'op 25 (refuser une demande envoie l'op 5) : reçue, elle est tenue pour une
-//! annulation, sans risque puisque l'op 5 permet déjà la même chose à tout moment. Grille Ex (genre 2 de
-//! l'op 9) et pièces Chantra (ops 26 / 27) ne sont pas de l'épisode 8 : refusées, jamais envoyées.
+//! annulation, sans risque puisque l'op 5 permet déjà la même chose à tout moment. Les pièces Chantra (ops 26 / 27)
+//! sont ignorées (boutique Chantra laissée de côté).
+//!
+//! Objets liés (« BoundType » 1, lié dès l'obtention, comme le courrier et la maison des ventes) et grille Ex (épisode 8,
+//! `PrivateTradeGridEx` de `[UI_PrivateTrade]`) : l'op 9 de genre 2 y pose un Marvel Scroll of Release (usage 35) de
+//! l'inventaire Cash, un seul par échange (soi ← AGPMITEM op 1 puis op 0 au statut 14, case 1,1,1 ; l'autre ne le voit
+//! pas). Un objet lié ne se propose qu'avec un parchemin posé, un seul par échange, et jamais s'il est d'événement
+//! (texte du parchemin). L'échange fait consomme un parchemin posé ; annulé, il revient à l'inventaire Cash
+//! (op 1 puis op 0 au statut 51). Le parchemin ne se reprend pas (l'op 10 ne vise que la grille ordinaire).
+//! « BoundType » 2 (lié en s'équipant) n'est pas suivi par objet : un tel objet s'échange librement.
 //!
 //! Contre les arnaques : seul le joueur sollicité accepte la demande (op 4) ; déverrouiller (op 18) ne touche
 //! qu'à son propre verrou, comme le client qui ne relâche son bouton « Lock » qu'au clic, mais l'échange exige
@@ -32,7 +40,7 @@
 //! (`morph.rs`) : demande annulée (op 5), et acceptation aussi si une Mutation est survenue entre-temps.
 
 use super::combat;
-use super::items::{item_remove, item_status, item_update, stored_status, Grid};
+use super::items::{item_remove, item_status, item_update, stored_status, Grid, InventoryItem};
 use super::{send_system, WorldCtx, WorldState};
 use crate::{info, warn};
 use archcore_net::schema;
@@ -48,8 +56,13 @@ const MAX_TRADE_DISTANCE: f64 = 1500.0;
 /// Résultat envoyé à la fin d'un échange réussi.
 const RESULT_DONE: i64 = 8;
 /// Op 9, champ 8 : genre de grille visée (0 grille ordinaire, 1 objet particulier posé sur la grille ordinaire,
-/// 2 grille Ex, absente de l'épisode 8).
+/// 2 grille Ex : Marvel Scroll of Release).
 const GRID_KIND_EX: i64 = 2;
+/// AGPMITEM champ 1 : statut d'un objet posé sur la grille Ex, et sa case (celle que pose la référence, choix).
+pub const STATUS_TRADE_OPTION_GRID: i64 = 14;
+const OPTION_GRID_CELL: Grid = [1, 1, 1];
+/// « BoundType » d'un objet lié dès l'obtention.
+pub const BOUND_ON_ACQUIRE: i64 = 1;
 /// Palier de meurtrier qui interdit de demander ou d'accepter un échange (pénalité du client).
 const MURDERER_PENALTY_LEVEL: usize = 1;
 /// Palier de meurtrier de l'un des deux qui cache le menu d'échange.
@@ -74,7 +87,7 @@ pub mod op {
     pub const UPDATE_MONEY: i64 = 23;
     pub const TARGET_UPDATE_MONEY: i64 = 24;
     pub const REFUSE: i64 = 25;
-    /// Pièces Chantra de soi / de l'autre : hors épisode 8.
+    /// Pièces Chantra de soi / de l'autre : ignorées (boutique Chantra laissée de côté).
     pub const UPDATE_CC: i64 = 26;
     pub const TARGET_UPDATE_CC: i64 = 27;
 }
@@ -96,6 +109,10 @@ pub struct Trade {
     pub offered: BTreeMap<u32, super::items::InventoryItem>,
     /// Auteur de la demande : lui ne peut pas l'accepter à la place de l'autre.
     pub requester: bool,
+    /// Marvel Scroll of Release posé sur la grille Ex (IID, inventaire Cash).
+    pub option_item: Option<u32>,
+    /// Objet lié proposé grâce au parchemin (un seul par échange).
+    pub bound_item: Option<u32>,
 }
 
 impl Trade {
@@ -120,9 +137,26 @@ pub fn murderer_refuses(requester: u32, target: u32) -> bool {
     a >= MURDERER_PENALTY_LEVEL || a.max(b) >= MURDERER_HIDDEN_LEVEL
 }
 
-/// Un objet proposé à l'échange ne peut être ni déplacé, ni utilisé, ni détruit.
+/// Un objet proposé à l'échange (ou le parchemin de la grille Ex) ne peut être ni déplacé, ni utilisé, ni détruit.
 pub fn is_offered(st: &WorldState, sid: u32, iid: u32) -> bool {
-    st.players.get(&sid).and_then(|p| p.trade.as_ref()).is_some_and(|t| t.items.contains_key(&iid))
+    st.players.get(&sid).and_then(|p| p.trade.as_ref()).is_some_and(|t| t.items.contains_key(&iid) || t.option_item == Some(iid))
+}
+
+/// Pourquoi un objet ne se propose pas, vu sa liaison (`bound` : « BoundType » 1), s'il est d'événement et ce qui est déjà
+/// posé (`t`) ; sinon `None`.
+pub fn bound_refusal(t: &Trade, bound: bool, event: bool) -> Option<&'static str> {
+    if !bound {
+        return None;
+    }
+    if event {
+        Some("un objet d'événement lié ne s'échange pas")
+    } else if t.option_item.is_none() {
+        Some("un objet lié ne s'échange qu'avec un Marvel Scroll of Release posé")
+    } else if t.bound_item.is_some() {
+        Some("un seul objet lié par échange")
+    } else {
+        None
+    }
 }
 
 fn packet(op: i64, cid: Option<u32>, target: Option<u32>) -> Fields {
@@ -163,7 +197,7 @@ pub async fn on_packet(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet
         op::LOCK => lock(st, sid),
         op::UNLOCK => unlock(st, sid),
         op::READY => ready(ctx, st, sid).await?,
-        op::UPDATE_CC | op::TARGET_UPDATE_CC => info!("[échange] #{sid} pièces Chantra (op {}) : hors épisode 8, ignoré", p.int(0).unwrap_or(-1)),
+        op::UPDATE_CC | op::TARGET_UPDATE_CC => info!("[échange] #{sid} pièces Chantra (op {}) : ignoré (boutique Chantra laissée de côté)", p.int(0).unwrap_or(-1)),
         other => warn!("[échange] #{sid} op {other} inattendu"),
     }
     Ok(())
@@ -252,6 +286,11 @@ fn end_side(st: &mut WorldState, sid: u32, peer: Option<u32>) {
         return;
     };
     let cid = p.ch.id;
+    // Parchemin de la grille Ex rendu à l'inventaire Cash.
+    if let Some(scroll) = trade.option_item.and_then(|iid| p.inventory.cash.get(&iid)) {
+        p.send_raw(item_remove(scroll.iid, Some(cid)));
+        p.send_raw(super::items::item_add_of(scroll, cid, item_status::CASH_INVENTORY, None));
+    }
     for iid in trade.items.keys() {
         if let Some(item) = st.players[&sid].inventory.get(*iid) {
             st.players[&sid].send_raw(item_update(item, cid, item_status::INVENTORY));
@@ -268,12 +307,18 @@ fn end_side(st: &mut WorldState, sid: u32, peer: Option<u32>) {
 fn add(ctx: &WorldCtx, st: &mut WorldState, sid: u32, iid: u32, wanted: Option<Grid>, kind: i64) {
     let Some((mine, _)) = sides(st, sid) else { return cancel(st, sid) };
     let p = &st.players[&sid];
-    let Some(item) = p.inventory.get(iid).cloned() else { return };
-    if mine.locked || mine.items.contains_key(&iid) {
+    if mine.locked || mine.items.contains_key(&iid) || mine.option_item == Some(iid) {
         return;
     }
     if kind == GRID_KIND_EX {
-        info!("[échange] {} vise la grille Ex : hors épisode 8, refusé", p.ch.name);
+        return put_option(ctx, st, sid, iid);
+    }
+    let Some(item) = p.inventory.get(iid).cloned() else { return };
+    let data = ctx.catalog.get(item.tid);
+    let bound = data.is_some_and(|d| d.bound_type == BOUND_ON_ACQUIRE);
+    if let Some(why) = bound_refusal(&mine, bound, data.is_some_and(|d| d.event_item)) {
+        info!("[échange] {} propose l'objet {} : refusé ({why})", p.ch.name, item.tid);
+        send_system(st, sid, &format!("Échange : {why}."));
         return;
     }
     let Some(grid) = mine.slot_for(wanted) else {
@@ -284,6 +329,9 @@ fn add(ctx: &WorldCtx, st: &mut WorldState, sid: u32, iid: u32, wanted: Option<G
     let t = st.players.get_mut(&sid).unwrap().trade.as_mut().unwrap();
     t.items.insert(iid, grid);
     t.offered.insert(iid, item.clone());
+    if bound {
+        t.bound_item = Some(iid);
+    }
     let shown = super::items::InventoryItem { grid, ..item.clone() };
     st.players[&sid].send_raw(item_update(&shown, cid, item_status::TRADE_GRID));
     if let Some(peer) = st.players.get(&mine.peer) {
@@ -294,6 +342,22 @@ fn add(ctx: &WorldCtx, st: &mut WorldState, sid: u32, iid: u32, wanted: Option<G
     }
     let name = ctx.catalog.get(item.tid).map(|d| d.name.as_str()).unwrap_or("?");
     info!("[échange] {} propose {} × {name}", st.players[&sid].ch.name, item.count);
+}
+
+/// Op 9 de genre 2 : Marvel Scroll of Release de l'inventaire Cash posé sur la grille Ex (un par échange).
+fn put_option(ctx: &WorldCtx, st: &mut WorldState, sid: u32, iid: u32) {
+    let p = &st.players[&sid];
+    let Some(scroll) = p.inventory.cash.get(&iid).cloned() else { return };
+    let is_scroll = ctx.catalog.get(scroll.tid).is_some_and(|d| d.usable_type == super::consumables::USABLE_PRIVATE_TRADE_OPTION);
+    if !is_scroll || p.trade.as_ref().is_some_and(|t| t.option_item.is_some()) {
+        info!("[échange] {} : objet {} refusé sur la grille Ex", p.ch.name, scroll.tid);
+        return;
+    }
+    let cid = p.ch.id;
+    p.send_raw(item_remove(iid, Some(cid)));
+    p.send_raw(super::items::item_add_of(&InventoryItem { grid: OPTION_GRID_CELL, ..scroll.clone() }, cid, STATUS_TRADE_OPTION_GRID, Some(OPTION_GRID_CELL)));
+    info!("[échange] {} pose un Marvel Scroll of Release ({}) sur la grille Ex", p.ch.name, scroll.tid);
+    st.players.get_mut(&sid).unwrap().trade.as_mut().unwrap().option_item = Some(iid);
 }
 
 /// Op 10 : l'objet revient dans le sac, sur la case `wanted` si elle est libre (sinon à sa case d'origine).
@@ -309,6 +373,9 @@ async fn take_back(ctx: &WorldCtx, st: &mut WorldState, sid: u32, iid: u32, want
     let t = p.trade.as_mut().unwrap();
     t.items.remove(&iid);
     t.offered.remove(&iid);
+    if t.bound_item == Some(iid) {
+        t.bound_item = None;
+    }
     let moved = match wanted.filter(|g| p.inventory.is_free(*g)) {
         Some(g) => p.inventory.move_to(&ctx.db, iid, g).await?,
         None => None,
@@ -409,6 +476,9 @@ fn check(st: &WorldState, a: u32, b: u32) -> Option<&'static str> {
     if pa.inventory.free_count() + ta.items.len() < tb.items.len() {
         return Some("inventaire plein");
     }
+    if ta.option_item.is_some_and(|iid| !pa.inventory.cash.contains_key(&iid)) {
+        return Some("parchemin disparu");
+    }
     None
 }
 
@@ -455,6 +525,13 @@ async fn execute(ctx: &WorldCtx, st: &mut WorldState, a: u32, b: u32) -> anyhow:
     for i in 0..2 {
         stmts.push((super::SAVE_MONEY, (money[i], cids[i]).into()));
     }
+    // Marvel Scroll of Release posé : un exemplaire consommé.
+    let scrolls = [ta.option_item, tb.option_item];
+    for i in 0..2 {
+        if let Some(sql) = scrolls[i].and_then(|iid| inv[i].consume_sql(iid, 1)) {
+            stmts.push(sql);
+        }
+    }
     if let Err(e) = ctx.db.characters.atomic(stmts).await {
         send_system(st, a, "Échange annulé : erreur du serveur.");
         send_system(st, b, "Échange annulé : erreur du serveur.");
@@ -465,6 +542,12 @@ async fn execute(ctx: &WorldCtx, st: &mut WorldState, a: u32, b: u32) -> anyhow:
     // Trace dans la base des journaux : ce que chacun a donné.
     let given = |side: usize| moved.iter().filter(|(from, _)| *from == side).map(|(_, i)| (i.iid, i.tid, i.count)).collect::<Vec<_>>();
     crate::journal::trade(&ctx.db, (cid_a, &st.players[&a].ch.name), (cid_b, &st.players[&b].ch.name), ta.gold, tb.gold, &given(0), &given(1));
+    let mut scroll_left: Vec<(usize, u32, Option<InventoryItem>)> = Vec::new();
+    for i in 0..2 {
+        if let Some(iid) = scrolls[i] {
+            scroll_left.push((i, iid, inv[i].consumed(iid, 1)));
+        }
+    }
     let [inv_a, inv_b] = inv;
     for (sid, inventory) in [(a, inv_a), (b, inv_b)] {
         let p = st.players.get_mut(&sid).unwrap();
@@ -480,6 +563,14 @@ async fn execute(ctx: &WorldCtx, st: &mut WorldState, a: u32, b: u32) -> anyhow:
             receiver.send_raw(c);
         }
         st.players[&sids[from]].send_raw(item_remove(item.iid, Some(cids[from])));
+    }
+    for (i, iid, left) in scroll_left {
+        let p = &st.players[&sids[i]];
+        p.send_raw(item_remove(iid, Some(cids[i])));
+        if let Some(left) = left {
+            p.send_raw(super::items::item_add_of(&left, cids[i], item_status::CASH_INVENTORY, None));
+        }
+        info!("[échange] {} : Marvel Scroll of Release consommé", p.ch.name);
     }
     for (i, me) in sids.into_iter().enumerate() {
         let p = st.players.get_mut(&me).unwrap();
@@ -536,6 +627,27 @@ mod tests {
         assert_eq!(t.slot_for(Some([1, 0, 0])), Some([0, 0, 0]), "un seul sac");
         assert_eq!(super::super::bank::grid_of(Some(mini_payload(&cell([-1, -1, -1])))), None, "0xFFFF : au choix du serveur");
         assert_eq!(t.slot_for(None), Some([0, 0, 0]));
+    }
+
+    #[test]
+    fn objets_lies_et_grille_ex() {
+        let mut t = Trade::default();
+        assert_eq!(bound_refusal(&t, false, false), None, "objet ordinaire");
+        assert_eq!(bound_refusal(&t, false, true), None, "objet d'événement non lié");
+        assert!(bound_refusal(&t, true, false).is_some_and(|w| w.contains("Marvel")), "sans parchemin");
+        t.option_item = Some(9);
+        assert_eq!(bound_refusal(&t, true, false), None, "parchemin posé");
+        assert!(bound_refusal(&t, true, true).is_some(), "objet d'événement lié");
+        t.bound_item = Some(3);
+        assert!(bound_refusal(&t, true, false).is_some_and(|w| w.contains("un seul")));
+        assert_eq!(bound_refusal(&t, false, false), None);
+        let p = archcore_net::decode_packet(
+            &schema::ITEM,
+            &super::super::items::item_add_of(&InventoryItem { iid: 9, tid: 11256, count: 2, grid: OPTION_GRID_CELL, conv: Default::default(), options: vec![], durability: -1 }, 42, STATUS_TRADE_OPTION_GRID, Some(OPTION_GRID_CELL)),
+        )
+        .unwrap();
+        assert_eq!((p.int(0), p.int(1), p.int(2), p.int(3), p.int(4)), (Some(0), Some(14), Some(9), Some(11256), Some(42)));
+        assert!(p.bytes(7).is_some(), "case de la grille Ex");
     }
 
     #[test]

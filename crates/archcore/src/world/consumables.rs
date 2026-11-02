@@ -35,6 +35,30 @@
 //!             niveau, rien sous le niveau 6 ni après une mort en combat entre joueurs. Désactivée par défaut (0) :
 //!             Archonia masque ces textes (`IsExpPenalty` rend 0) ; l'épisode 8 annonçait 3 % et 10 %.
 //! ```
+//!   Return Orb (usage 13) : AGPMSKILL op 13 (champ 1 = identifiant de la compétence, champ 2 = propriétaire ; pas d'IID
+//!             d'orbe, le serveur prend le premier objet d'usage 13 de l'inventaire, puis de l'inventaire Cash). Refus (message
+//!             système) : mort, évolution du Scion, compétence qui ne s'oublie pas (comme ci-dessous), prérequis d'une
+//!             autre compétence apprise (condition de son arbre de maîtrise remplie avant, plus après), aucune orbe. Sinon
+//!             la compétence (tous ses niveaux) est retirée (op 1), les points (et points héroïques) recalculés, une orbe
+//!             consommée (op 4) ; pas d'or rendu (le texte de l'objet ne parle que des points). L'op 3 sur l'orbe ne fait
+//!             rien : le bouton « Reset Selected » de la fenêtre des compétences envoie l'op 13.
+//!   Objets allumés de l'inventaire Cash sans compétence (Fortune Manual 25, Talisman of Protection 19) : l'op 3 les
+//!             allume (un seul par usage) ou les éteint, l'op 23 les éteint ; AGPMITEM op 26 (mini Cash « en cours
+//!             d'utilisation »), état non enregistré. Le Fortune Manual sert aux conversions (`convert.rs`). Le talisman
+//!             reste sans effet : ArchCore ne fait rien perdre à la mort, comme les données d'origine (pvpitemdroptable.txt
+//!             à 0 partout, réglage « bPCDropItemOnDeath » à 0, texte « Holding items will not be dropped even in case of
+//!             PK death » à l'entrée des zones de combat) ; les messages PvP 8 et 23 ne partent donc jamais.
+//!   Feux d'artifice (usage 22, `FIREWORKS`) : un exemplaire consommé, recharge « Use Interval », op 4 (TID, CID, 18
+//!             recharge) au joueur et à ceux qui le voient (le client joue l'effet de l'objet). Les autres objets de
+//!             l'usage 22 sont des paquets de la boutique : sans effet.
+//!   Commandes de discussion (`chat_command`), seulement avec l'objet (inventaire ou inventaire Cash), hors recharge
+//!             (« Use Interval », 30 min, par TID) : `/go Nom` (Gate of Phantom, Jumper's Illusion : téléporté près d'un
+//!             joueur en jeu), `/safekeeper` (Safe Keeper 4923 : banque ouverte par le gardien le plus proche, à distance)
+//!             et `/merchant` (Merchant 4924 : boutique du marchand le plus proche, à distance) ; refus du mort, sous
+//!             métamorphose et là où le rappel de groupe est refusé (`party::recall_refusal`, pour la cible de `/go`
+//!             aussi). `/nick texte` (Signature of Glory) : signature de 16 octets au plus (AGPMCHARACTER champ 27,
+//!             `characters.signature`), envoyée au joueur et à ceux qui le voient (op 1), puis avec le personnage ;
+//!             `/nick` seul l'efface. Un exemplaire consommé, op 4 et « Objet … utilisé » (texte `JumpItemUsed`).
 //! Choix d'ArchCore (règles du serveur d'origine inconnues) : l'or rendu, les compétences gardées, l'unité des bonus,
 //! les effets d'objet perdus à la mort et à la déconnexion comme les autres effets, l'objet à durée qui ne s'use pas
 //! (son temps de vie, « RemainTime » / « ExpireTime » de l'exemplaire, n'est pas décompté).
@@ -51,6 +75,47 @@ use std::time::{Duration, Instant};
 /// Types d'usage (« Type » d'un objet d'« ItemType » 1) traités ici.
 pub const USABLE_REVERSE_ORB: i64 = 14;
 pub const USABLE_INIT_SKILL: i64 = super::morph::USABLE_INIT_SKILL;
+/// Return Orb, Bead of Returning (« SKILLROLLBACK_SCROLL ») : une compétence oubliée (AGPMSKILL op 13).
+pub const USABLE_SKILL_ROLLBACK: i64 = 13;
+/// Talisman of Protection (« ANTI_DROP ») : objet Cash allumé, sans effet (voir l'en-tête).
+pub const USABLE_ANTI_DROP: i64 = 19;
+/// Secret Safe (« ADD_BANK_SLOT ») : page de banque en plus (`bank.rs`).
+pub const USABLE_ADD_BANK_SLOT: i64 = 21;
+/// Feux d'artifice et paquets de la boutique (« USE_EFFECT »).
+pub const USABLE_USE_EFFECT: i64 = 22;
+/// Gate of Phantom, Jumper's Illusion, Safe Keeper, Merchant (« JUMP ») : commandes `/go`, `/safekeeper`, `/merchant`.
+pub const USABLE_JUMP: i64 = 24;
+/// Fortune Manual (« LUCKY_SCROLL ») : objet Cash allumé, bonus aux conversions (`convert.rs`).
+pub const USABLE_LUCKY_SCROLL: i64 = 25;
+/// Signature of Glory (« NICK ») : commande `/nick`.
+pub const USABLE_NICK: i64 = 26;
+/// Release of Agreement (« SOCKET_INIT ») : pierres serties retirées (AGPMITEMCONVERT op 12, `convert.rs`).
+pub const USABLE_SOCKET_INIT: i64 = 28;
+/// Marvel Scroll of Release (« PRIVATE_TRADE_OPTION ») : grille Ex de l'échange (`trade.rs`).
+pub const USABLE_PRIVATE_TRADE_OPTION: i64 = 35;
+/// Types d'usage sans compétence qu'`ItemUse` retient quand même.
+const USABLE_WITHOUT_SKILL: [i64; 12] = [
+    USABLE_REVERSE_ORB,
+    USABLE_INIT_SKILL,
+    super::party::USABLE_RECALL_PARTY,
+    USABLE_SKILL_ROLLBACK,
+    USABLE_ANTI_DROP,
+    USABLE_ADD_BANK_SLOT,
+    USABLE_USE_EFFECT,
+    USABLE_JUMP,
+    USABLE_LUCKY_SCROLL,
+    USABLE_NICK,
+    USABLE_SOCKET_INIT,
+    USABLE_PRIVATE_TRADE_OPTION,
+];
+/// Feux d'artifice de l'usage 22 (Small firecracker, Middle Fireworks Shine 1-3, Unique Fireworks Heart, Bead of Love) ;
+/// les autres objets de l'usage 22 sont des paquets de la boutique, laissés sans effet (14720 et 65462 sont d'Archonia).
+pub const FIREWORKS: [u32; 11] = [4606, 6261, 6262, 6263, 6264, 6478, 6479, 6480, 6481, 9024, 11004];
+/// Objets de l'usage 24 propres à `/safekeeper` et `/merchant` ; les autres servent à `/go`.
+pub const SAFE_KEEPER_ITEM: u32 = 4923;
+pub const MERCHANT_ITEM: u32 = 4924;
+/// Signature (AGPMCHARACTER champ 27, CHAR[16]) : octets au plus.
+pub const SIGNATURE_MAX_BYTES: usize = 16;
 
 /// Opérations AGPMITEM propres à ce module.
 pub mod item_op {
@@ -130,7 +195,7 @@ impl ItemUse {
             .filter(|(_, t)| **t > 0)
             .map(|(i, t)| (*t as u32, levels.get(i).or(levels.first()).copied().unwrap_or(1).max(1) as u32))
             .collect();
-        if skills.is_empty() && !matches!(usable_type, USABLE_REVERSE_ORB | USABLE_INIT_SKILL | super::party::USABLE_RECALL_PARTY) {
+        if skills.is_empty() && !USABLE_WITHOUT_SKILL.contains(&usable_type) {
             return None;
         }
         let ms = |k: &str| num(k).max(0.0) as u64;
@@ -457,18 +522,25 @@ pub fn skill_remove_packet(owner: u32, s: &Owned) -> Vec<u8> {
 /// Retire les compétences oubliables du joueur : en base, au client (op 1), points et passives recalculés. Rend les
 /// compétences retirées.
 async fn forget_all(ctx: &WorldCtx, st: &mut WorldState, sid: u32) -> anyhow::Result<Vec<Owned>> {
-    let Some(p) = st.players.get_mut(&sid) else { return Ok(Vec::new()) };
-    let (gone, kept): (Vec<Owned>, Vec<Owned>) = p.skills.list.iter().copied().partition(|s| forgettable(&ctx.skills, s));
+    let Some(p) = st.players.get(&sid) else { return Ok(Vec::new()) };
+    let gone: Vec<Owned> = p.skills.list.iter().copied().filter(|s| forgettable(&ctx.skills, s)).collect();
+    remove_skills(ctx, st, sid, &gone).await?;
+    Ok(gone)
+}
+
+/// Retire des compétences au joueur : en base, au client (op 1), points et passives recalculés.
+async fn remove_skills(ctx: &WorldCtx, st: &mut WorldState, sid: u32, gone: &[Owned]) -> anyhow::Result<()> {
+    let Some(p) = st.players.get_mut(&sid) else { return Ok(()) };
     if gone.is_empty() {
-        return Ok(gone);
+        return Ok(());
     }
     let cid = p.ch.id;
     let stmts: Vec<(&str, mysql_async::Params)> =
         gone.iter().map(|s| ("DELETE FROM character_skills WHERE character_id = ? AND skill_tid = ?", (cid, s.tid).into())).collect();
     ctx.db.characters.atomic(stmts).await?;
-    p.skills.list = kept;
+    p.skills.list.retain(|s| !gone.iter().any(|g| g.id == s.id));
     p.skills.cast = None;
-    for s in &gone {
+    for s in gone {
         p.send_raw(skill_remove_packet(cid, s));
     }
     skills::refresh_points(&ctx.skills, &p.skills, &mut p.factors);
@@ -478,7 +550,7 @@ async fn forget_all(ctx: &WorldCtx, st: &mut WorldState, sid: u32) -> anyhow::Re
     } else {
         skills::send_points(p);
     }
-    Ok(gone)
+    Ok(())
 }
 
 /// Gem of origin utilisée (AGPMITEM op 3, usage 27) : toutes les compétences oubliées, un exemplaire consommé.
@@ -571,6 +643,304 @@ pub async fn town_penalty(ctx: &WorldCtx, st: &mut WorldState, sid: u32) -> anyh
     info!("[combat] {name} perd {loss} point(s) d'expérience en ressuscitant au village ({pct} %)");
     send_system(st, sid, &format!("Vous perdez {loss} point(s) d'expérience."));
     Ok(())
+}
+
+
+// ---------------------------------------------------------------------------------------------
+// Return Orb : une compétence oubliée
+// ---------------------------------------------------------------------------------------------
+
+/// AGPMSKILL op 13 (« REQUEST_SKILL_ROLLBACK ») : champ 1 = identifiant de la compétence, champ 2 = propriétaire.
+pub const SKILL_ROLLBACK: i64 = 13;
+
+/// Autre compétence apprise qui dépend de `target` : celle dont la condition de son arbre de maîtrise (compétences
+/// exigées, niveaux de la classe, total) est remplie avec `target` et ne le serait plus sans elle. Rend son TID.
+pub fn rollback_dependent(catalog: &SkillCatalog, skills: &skills::PlayerSkills, class_col: Option<usize>, target: &Owned) -> Option<u32> {
+    let without = skills::PlayerSkills { list: skills.list.iter().copied().filter(|s| s.id != target.id).collect(), ..Default::default() };
+    without.list.iter().find_map(|s| {
+        let m = catalog.mastery(s.tid, class_col)?;
+        (skills::mastery_unmet(catalog, skills, m).is_none() && skills::mastery_unmet(catalog, &without, m).is_some()).then_some(s.tid)
+    })
+}
+
+/// Première Return Orb du joueur (usage 13) : inventaire, puis inventaire Cash, comme le client la cherche.
+fn rollback_orb(ctx: &WorldCtx, p: &Player) -> Option<InventoryItem> {
+    let orb = |i: &&InventoryItem| ctx.catalog.get(i.tid).is_some_and(|d| d.usable_type == USABLE_SKILL_ROLLBACK);
+    p.inventory.items.values().find(orb).or_else(|| p.inventory.cash.values().find(orb)).cloned()
+}
+
+/// AGPMSKILL op 13 : la compétence `skill_id` oubliée contre une Return Orb.
+pub async fn skill_rollback(ctx: &WorldCtx, st: &mut WorldState, sid: u32, skill_id: u32) -> anyhow::Result<()> {
+    let Some(p) = st.players.get(&sid) else { return Ok(()) };
+    let name = p.ch.name.clone();
+    let class_col = skills::class_column(p.factors.ftype[0], p.factors.ftype[2]);
+    let target = p.skills.by_id(skill_id).copied();
+    let orb = rollback_orb(ctx, p);
+    let skill_name = |tid: u32| ctx.skills.get(tid).map(|t| t.name.clone()).unwrap_or_else(|| format!("compétence {tid}"));
+    let refusal = if !p.in_game || p.dead {
+        Some("mort".to_string())
+    } else if p.form.evolved.is_some() {
+        Some("pendant l'évolution".into())
+    } else {
+        match target {
+            None => Some(format!("compétence {skill_id} inconnue")),
+            Some(s) if !forgettable(&ctx.skills, &s) => Some(format!("{} ne s'oublie pas", skill_name(s.tid))),
+            Some(s) => match rollback_dependent(&ctx.skills, &p.skills, class_col, &s) {
+                Some(other) => Some(format!("{} est exigée par {}", skill_name(s.tid), skill_name(other))),
+                None if orb.is_none() => Some("il faut une Return Orb".into()),
+                None => None,
+            },
+        }
+    };
+    if let Some(why) = refusal {
+        info!("[compétence] {name} : Return Orb refusée ({why})");
+        send_system(st, sid, &format!("Impossible d'oublier cette compétence : {why}."));
+        return Ok(());
+    }
+    let (Some(target), Some(orb)) = (target, orb) else { return Ok(()) };
+    remove_skills(ctx, st, sid, &[target]).await?;
+    let p = st.players.get_mut(&sid).unwrap();
+    let cid = p.ch.id;
+    consume_one(ctx, p, orb.iid).await?;
+    p.send_raw(super::recovery::used_packet(orb.tid, cid, Duration::ZERO));
+    let (points, heroic) = (p.factors.dirt[skills::DIRT_SKILL_POINT], p.factors.dirt[skills::DIRT_HEROIC_POINT]);
+    let label = skill_name(target.tid);
+    info!("[compétence] {name} oublie {label} (niveau {}) par une Return Orb : {points} point(s), {heroic} point(s) héroïque(s)", target.level);
+    send_system(st, sid, &format!("{label} oubliée : {points} point(s) de compétence à répartir."));
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------------------------
+// Objets allumés de l'inventaire Cash (Fortune Manual, Talisman of Protection)
+// ---------------------------------------------------------------------------------------------
+
+/// Usages des objets allumés sans compétence.
+pub fn lit_usage(usable: i64) -> bool {
+    matches!(usable, USABLE_LUCKY_SCROLL | USABLE_ANTI_DROP)
+}
+
+/// Objet allumé de l'usage `usable` dans l'inventaire Cash du joueur.
+pub fn lit_item(ctx: &WorldCtx, p: &Player, usable: i64) -> Option<InventoryItem> {
+    p.inventory.in_use.iter().filter_map(|iid| p.inventory.cash.get(iid)).find(|i| ctx.catalog.get(i.tid).is_some_and(|d| d.usable_type == usable)).cloned()
+}
+
+/// AGPMITEM op 3 sur un Fortune Manual ou un Talisman of Protection de l'inventaire Cash : allumé (l'autre objet allumé
+/// du même usage s'éteint), ou éteint s'il l'était.
+pub fn toggle_lit(ctx: &WorldCtx, st: &mut WorldState, sid: u32, item: &InventoryItem, usable: i64) {
+    let Some(p) = st.players.get(&sid) else { return };
+    if !p.inventory.cash.contains_key(&item.iid) {
+        debug!("[objet] {} : objet {} hors de l'inventaire Cash, pas allumé", p.ch.name, item.tid);
+        return;
+    }
+    let other = lit_item(ctx, p, usable).filter(|o| o.iid != item.iid);
+    let p = st.players.get_mut(&sid).unwrap();
+    let cid = p.ch.id;
+    let label = ctx.catalog.get(item.tid).map(|d| d.name.clone()).unwrap_or_default();
+    if p.inventory.in_use.remove(&item.iid) {
+        p.send_raw(super::items::use_time_packet(item.iid, cid, false));
+        info!("[objet] {} éteint {label}", p.ch.name);
+        return;
+    }
+    if let Some(o) = other {
+        p.inventory.in_use.remove(&o.iid);
+        p.send_raw(super::items::use_time_packet(o.iid, cid, false));
+    }
+    p.inventory.in_use.insert(item.iid);
+    p.send_raw(super::items::use_time_packet(item.iid, cid, true));
+    info!("[objet] {} allume {label}", p.ch.name);
+}
+
+/// AGPMITEM op 23 : éteint un Fortune Manual ou un Talisman of Protection allumé. Rend vrai si l'objet en était un.
+pub fn stop_lit(ctx: &WorldCtx, st: &mut WorldState, sid: u32, iid: u32) -> bool {
+    let Some(p) = st.players.get_mut(&sid) else { return false };
+    let lit = p.inventory.cash.get(&iid).is_some_and(|i| ctx.catalog.get(i.tid).is_some_and(|d| lit_usage(d.usable_type)));
+    if !lit || !p.inventory.in_use.remove(&iid) {
+        return lit;
+    }
+    p.send_raw(super::items::use_time_packet(iid, p.ch.id, false));
+    info!("[objet] {} éteint l'objet {iid}", p.ch.name);
+    true
+}
+
+// ---------------------------------------------------------------------------------------------
+// Feux d'artifice
+// ---------------------------------------------------------------------------------------------
+
+/// Feu d'artifice utilisé (AGPMITEM op 3, usage 22) : un exemplaire consommé, op 4 au joueur et à ceux qui le voient.
+pub async fn use_firework(ctx: &WorldCtx, st: &mut WorldState, sid: u32, item: &InventoryItem, u: &ItemUse, now: Instant) -> anyhow::Result<()> {
+    let Some(p) = st.players.get_mut(&sid) else { return Ok(()) };
+    let (cid, name) = (p.ch.id, p.ch.name.clone());
+    let label = ctx.catalog.get(item.tid).map(|d| d.name.clone()).unwrap_or_default();
+    if let Some(left) = p.uses.left(item.tid, &[], now) {
+        p.send_raw(failed_packet(item.tid, cid));
+        send_system(st, sid, &format!("{label} n'est pas encore prêt ({} s).", left.as_secs().max(1)));
+        return Ok(());
+    }
+    if u.reuse_ms > 0 {
+        p.uses.item_ready.insert(item.tid, now + Duration::from_millis(u.reuse_ms));
+    }
+    consume_one(ctx, p, item.iid).await?;
+    super::combat::send_around(st, sid, &super::recovery::used_packet(item.tid, cid, Duration::from_millis(u.reuse_ms)));
+    info!("[objet] {name} lance {label}");
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------------------------
+// Commandes des objets : /go, /safekeeper, /merchant, /nick
+// ---------------------------------------------------------------------------------------------
+
+/// Commande de discussion propre à un objet.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ItemCommand {
+    Go,
+    SafeKeeper,
+    Merchant,
+    Nick,
+}
+
+impl ItemCommand {
+    pub fn parse(cmd: &str) -> Option<Self> {
+        match cmd.to_lowercase().as_str() {
+            "go" => Some(ItemCommand::Go),
+            "safekeeper" => Some(ItemCommand::SafeKeeper),
+            "merchant" => Some(ItemCommand::Merchant),
+            "nick" => Some(ItemCommand::Nick),
+            _ => None,
+        }
+    }
+
+    /// L'objet d'usage `usable` et de TID `tid` permet cette commande.
+    pub fn accepts(self, usable: i64, tid: u32) -> bool {
+        match self {
+            ItemCommand::Go => usable == USABLE_JUMP && tid != SAFE_KEEPER_ITEM && tid != MERCHANT_ITEM,
+            ItemCommand::SafeKeeper => usable == USABLE_JUMP && tid == SAFE_KEEPER_ITEM,
+            ItemCommand::Merchant => usable == USABLE_JUMP && tid == MERCHANT_ITEM,
+            ItemCommand::Nick => usable == USABLE_NICK,
+        }
+    }
+
+    fn needs(self) -> &'static str {
+        match self {
+            ItemCommand::Go => "un Gate of Phantom",
+            ItemCommand::SafeKeeper => "un Safe Keeper",
+            ItemCommand::Merchant => "un Merchant",
+            ItemCommand::Nick => "une Signature of Glory",
+        }
+    }
+}
+
+/// Signature acceptée pour `/nick` : 16 octets au plus une fois codée, sans caractère de contrôle ni « " # \ ». Vide :
+/// la signature est effacée.
+pub fn valid_signature(text: &str) -> bool {
+    archcore_net::text::encode(text).len() <= SIGNATURE_MAX_BYTES && !text.chars().any(|c| c.is_control() || matches!(c, '"' | '#' | '\\'))
+}
+
+/// AGPMCHARACTER op 1 : signature (champ 27) du personnage.
+pub fn signature_packet(cid: u32, text: &str) -> Vec<u8> {
+    let c = &schema::CHARACTER;
+    build_packet(c, &Fields::new(c).with(0, 1).with(1, cid).with(27, text))
+}
+
+/// Objet du joueur qui permet la commande (inventaire, puis inventaire Cash) ; celui qui n'est pas en recharge d'abord.
+fn command_item(ctx: &WorldCtx, p: &Player, cmd: ItemCommand, now: Instant) -> Option<InventoryItem> {
+    let all: Vec<&InventoryItem> = p.inventory.items.values().chain(p.inventory.cash.values()).filter(|i| ctx.catalog.get(i.tid).is_some_and(|d| cmd.accepts(d.usable_type, i.tid))).collect();
+    all.iter().find(|i| p.uses.left(i.tid, &[], now).is_none()).or(all.first()).map(|i| (*i).clone())
+}
+
+/// Commandes `/go`, `/safekeeper`, `/merchant`, `/nick` tapées dans la discussion. Rend vrai si le texte en était une.
+pub async fn chat_command(ctx: &WorldCtx, st: &mut WorldState, sid: u32, text: &str) -> anyhow::Result<bool> {
+    let body = text.trim().trim_start_matches('/');
+    let (word, rest) = body.split_once(char::is_whitespace).map(|(c, r)| (c, r.trim())).unwrap_or((body, ""));
+    let Some(cmd) = ItemCommand::parse(word) else { return Ok(false) };
+    let now = Instant::now();
+    let Some(p) = st.players.get(&sid) else { return Ok(false) };
+    let name = p.ch.name.clone();
+    let Some(item) = command_item(ctx, p, cmd, now) else {
+        send_system(st, sid, &format!("Il faut {} pour la commande /{}.", cmd.needs(), word.to_lowercase()));
+        return Ok(true);
+    };
+    let label = ctx.catalog.get(item.tid).map(|d| d.name.clone()).unwrap_or_default();
+    let target = rest.trim_matches('"').trim();
+    let mut refusal = if !p.in_game || p.dead {
+        Some("mort".to_string())
+    } else if let Some(left) = p.uses.left(item.tid, &[], now) {
+        Some(format!("{label} n'est pas encore prêt ({} s)", left.as_secs().max(1)))
+    } else if cmd != ItemCommand::Nick && super::morph::restricted(st, sid) {
+        Some("sous métamorphose".into())
+    } else if cmd != ItemCommand::Nick {
+        super::party::recall_refusal(ctx, st, sid, now)
+    } else if !valid_signature(target) {
+        Some(format!("signature de {SIGNATURE_MAX_BYTES} caractères au plus, sans \" # \\"))
+    } else {
+        None
+    };
+    // `/go` : un autre joueur en jeu, là où l'on peut le rejoindre.
+    let mut dest = None;
+    if refusal.is_none() && cmd == ItemCommand::Go {
+        refusal = match st.by_name(target).filter(|t| *t != sid) {
+            None => Some(format!("{target} n'est pas en jeu")),
+            Some(tsid) => match super::party::recall_refusal(ctx, st, tsid, now) {
+                Some(why) => Some(format!("{target} est hors d'atteinte ({why})")),
+                None => {
+                    let t = &st.players[&tsid];
+                    dest = Some(super::presence::position_now(t, now));
+                    (!t.in_game).then(|| format!("{target} n'est pas en jeu"))
+                }
+            },
+        };
+    }
+    let npc = match cmd {
+        ItemCommand::SafeKeeper => super::npc_events::nearest_with(&ctx.npcs, p, super::npcs::event_function::BANK),
+        ItemCommand::Merchant => super::npc_events::nearest_with(&ctx.npcs, p, super::npcs::event_function::NPC_TRADE),
+        _ => None,
+    };
+    if refusal.is_none() && matches!(cmd, ItemCommand::SafeKeeper | ItemCommand::Merchant) && npc.is_none() {
+        refusal = Some("aucun PNJ ne la propose".into());
+    }
+    if let Some(why) = refusal {
+        info!("[objet] {name} : /{} refusé ({why})", word.to_lowercase());
+        send_system(st, sid, &format!("Commande /{} impossible : {why}.", word.to_lowercase()));
+        return Ok(true);
+    }
+    let reuse = ctx.catalog.uses.get(&item.tid).map(|u| u.reuse_ms).unwrap_or(0);
+    let p = st.players.get_mut(&sid).unwrap();
+    let cid = p.ch.id;
+    if cmd == ItemCommand::Nick {
+        ctx.db.characters.exec("UPDATE characters SET signature = ? WHERE id = ?", (target.to_string(), cid)).await?;
+        p.ch.signature = target.to_string();
+    }
+    if reuse > 0 {
+        p.uses.item_ready.insert(item.tid, now + Duration::from_millis(reuse));
+    }
+    consume_one(ctx, p, item.iid).await?;
+    p.send_raw(super::recovery::used_packet(item.tid, cid, Duration::from_millis(reuse)));
+    send_system(st, sid, &format!("Objet {label} utilisé."));
+    match cmd {
+        ItemCommand::Go => {
+            if st.players.get(&sid).is_some_and(|p| p.trade.is_some()) {
+                super::trade::cancel(st, sid);
+            }
+            let to = dest.unwrap_or_default();
+            info!("[objet] {name} rejoint {target} par {label}");
+            super::teleport(ctx, st, sid, to.x as f64, Some(to.y as f64), to.z as f64).await?;
+        }
+        ItemCommand::SafeKeeper => {
+            if let Some(npc) = npc {
+                super::bank::open_remote(st, sid, npc);
+            }
+        }
+        ItemCommand::Merchant => {
+            if let Some(npc) = npc {
+                info!("[objet] {name} ouvre à distance la boutique de {}", npc.name);
+                super::npc_trade::open_remote(ctx, st, sid, npc);
+            }
+        }
+        ItemCommand::Nick => {
+            super::combat::send_around(st, sid, &signature_packet(cid, target));
+            info!("[objet] {name} prend la signature « {target} »");
+        }
+    }
+    Ok(true)
 }
 
 #[cfg(test)]
@@ -675,6 +1045,48 @@ mod tests {
         assert_eq!(town_penalty_pct(3.0, 0.0, 50, 3, false), 3.0);
         assert_eq!(town_penalty_pct(3.0, 10.0, 50, 0, true), 0.0, "mort en combat entre joueurs");
         assert_eq!(town_penalty_pct(3.0, 10.0, 5, 0, false), 0.0, "sous le niveau 6");
+    }
+
+    #[test]
+    fn return_orb_et_prerequis() {
+        let mut catalog = SkillCatalog::default();
+        let lv = skills::SkillLevel::default();
+        for tid in [1, 2, 3] {
+            catalog.insert(skills::SkillTemplate { tid, levels: vec![lv.clone(), lv.clone(), lv.clone()], ..Default::default() });
+        }
+        // 2 exige 1 au niveau 2 ; 3 n'exige rien.
+        catalog.insert_mastery(2, skills::Mastery { requires: vec![(1, 2)], ..Default::default() });
+        let owned = |id: u32, tid: u32, level: u32| Owned { id, tid, level, ready_at: None, exp: 0 };
+        let learned = skills::PlayerSkills { list: vec![owned(10, 1, 2), owned(11, 2, 1), owned(12, 3, 1)], ..Default::default() };
+        assert_eq!(rollback_dependent(&catalog, &learned, None, &learned.list[0]), Some(2), "prérequis d'une compétence apprise");
+        assert_eq!(rollback_dependent(&catalog, &learned, None, &learned.list[1]), None);
+        assert_eq!(rollback_dependent(&catalog, &learned, None, &learned.list[2]), None);
+        // Condition déjà non remplie avant (base importée) : le retrait ne la casse pas.
+        let broken = skills::PlayerSkills { list: vec![owned(10, 1, 1), owned(11, 2, 1)], ..Default::default() };
+        assert_eq!(rollback_dependent(&catalog, &broken, None, &broken.list[0]), None);
+    }
+
+    #[test]
+    fn commandes_des_objets() {
+        assert_eq!(ItemCommand::parse("GO"), Some(ItemCommand::Go));
+        assert_eq!(ItemCommand::parse("safekeeper"), Some(ItemCommand::SafeKeeper));
+        assert_eq!(ItemCommand::parse("goto"), None);
+        assert!(ItemCommand::Go.accepts(USABLE_JUMP, 4568) && ItemCommand::Go.accepts(USABLE_JUMP, 6493));
+        assert!(!ItemCommand::Go.accepts(USABLE_JUMP, SAFE_KEEPER_ITEM) && !ItemCommand::Go.accepts(USABLE_NICK, 4875));
+        assert!(ItemCommand::SafeKeeper.accepts(USABLE_JUMP, 4923) && !ItemCommand::SafeKeeper.accepts(USABLE_JUMP, 4924));
+        assert!(ItemCommand::Merchant.accepts(USABLE_JUMP, 4924));
+        assert!(ItemCommand::Nick.accepts(USABLE_NICK, 4875));
+        assert!(valid_signature("Héros du Nord") && valid_signature("") && valid_signature("abcdefghijklmnop"));
+        assert!(!valid_signature("abcdefghijklmnopq"), "17 octets");
+        assert!(!valid_signature("a#b") && !valid_signature("a\"b") && !valid_signature("a\tb"));
+        let p = archcore_net::decode_packet(&schema::CHARACTER, &signature_packet(42, "Héros")).unwrap();
+        assert_eq!((p.int(0), p.int(1), p.text(27).as_deref()), (Some(1), Some(42), Some("Héros")));
+        // Usages sans compétence retenus : Return Orb, Secret Safe, feux, objets de commande, Marvel Scroll.
+        for t in ["13", "19", "21", "22", "24", "25", "26", "28", "35"] {
+            assert!(ItemUse::from_raw(&serde_json::json!({"ItemType":"1","Type":t})).is_some(), "usage {t}");
+        }
+        assert!(FIREWORKS.contains(&4606) && !FIREWORKS.contains(&14720) && !FIREWORKS.contains(&65462));
+        assert!(lit_usage(USABLE_LUCKY_SCROLL) && lit_usage(USABLE_ANTI_DROP) && !lit_usage(USABLE_NICK));
     }
 
     #[test]

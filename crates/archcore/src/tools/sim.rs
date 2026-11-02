@@ -47,6 +47,9 @@
 //!   archcore sim consumables [compte] [mdp] [perso]           consommables, GmTest (MJ) : Scorching Stew (effet, recharge, refus op 5), talisman de Janus,
 //!                                                             Reverse Orb (op 5 vivant, résurrection sur place op 4 + op 18, refus op 27 code 3),
 //!                                                             oubli chez le maître (op 8 → op 1, or rendu, op 23, op 9), Gem of origin (consumables.rs)
+//!   archcore sim usables [A… B…]                              objets sans compétence, GmTest (MJ) + SimA : Return Orb (AGPMSKILL op 13), Secret Safe,
+//!                                                             /safekeeper, /merchant, Release of Agreement (op 12), feu d'artifice vu par SimA,
+//!                                                             Fortune Manual et talisman (op 26), /nick (champ 27), /go (usables.rs)
 //!   archcore sim chat [A… B…]                                 préfixes d'Archonia en type 0 (« /p », « /g », « /s »), commande inconnue sans réponse, « /race » avec Race Trumpet (chat.rs)
 //!   archcore sim channel [A… B…]                              salons de discussion : création, nom pris, entrée, message, mot de passe, invitation, recherche, sortie (channel.rs)
 //!   archcore sim customize [A… B…]                            coiffeur Gladiol : ouverture, refus faute d'or, achat d'une coiffure vue par SimA, coiffure d'origine remise (customize.rs)
@@ -127,6 +130,7 @@ mod repair;
 mod ride;
 mod summons;
 mod tax;
+mod usables;
 mod title;
 mod wanted;
 
@@ -175,6 +179,7 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         Some("summons") => Box::pin(summons::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmEffets"))).await,
         Some("petbag") => Box::pin(pet_bag::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("consumables") => Box::pin(consumables::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
+        Some("usables") => Box::pin(usables::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("morph") => Box::pin(morph::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("evolution") => Box::pin(evolution::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "test"), &a(5, "test"), &a(6, "SimScion"))).await,
         Some("ride") => Box::pin(ride::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "SimDepart"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
@@ -219,7 +224,7 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         Some("ignore") => Box::pin(competences::ignore(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("rune") => Box::pin(competences::rune(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("trigger") => Box::pin(competences::trigger(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
-        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol|bag|skill|effects|status|bank|portal|pvp|reconnect|lastrefine|product|guild|guildlead|guildbattle|guildrelation|guildwarehouse|guildmark|guildstage|gm|buddy|mail|repair|ride|morph|evolution|auction|itemset|nature|summons|petbag|consumables|chat|channel|customize|wanted|shrine|battlesquare|boss|siege|archlord|tax|title|cheat|recall|social|quickbelt|returnlogin|trade|party|quest|mobskill|counter|partyskill|mastery [arguments]"),
+        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol|bag|skill|effects|status|bank|portal|pvp|reconnect|lastrefine|product|guild|guildlead|guildbattle|guildrelation|guildwarehouse|guildmark|guildstage|gm|buddy|mail|repair|ride|morph|evolution|auction|itemset|nature|summons|petbag|consumables|usables|chat|channel|customize|wanted|shrine|battlesquare|boss|siege|archlord|tax|title|cheat|recall|social|quickbelt|returnlogin|trade|party|quest|mobskill|counter|partyskill|mastery [arguments]"),
     }
 }
 
@@ -2007,10 +2012,10 @@ async fn private_trade(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &st
     println!("  ✓ échange ouvert (op 3 : demandeur au champ 2)");
 
     step("A propose une pile (case visée 0,1,2) et 500 pièces, B 100 pièces");
-    // Grille Ex (genre 2) : hors épisode 8, refusée.
+    // Grille Ex (genre 2) : seul un Marvel Scroll of Release de l'inventaire Cash y va.
     a.world.send(tr, t(9).with(1, acid).with(3, iid).with(7, cell([0, 0, 0])).with(8, 2)).await?;
-    anyhow::ensure!(a.world.expect_where(|q| q.is(it, Some(2)) && q.int(2) == Some(iid) && q.int(1) == Some(6), 800, "").await.is_err(), "pile posée sur la grille Ex");
-    println!("  ✓ grille Ex refusée");
+    anyhow::ensure!(a.world.expect_where(|q| q.is(it, None) && q.int(2) == Some(iid) && matches!(q.int(1), Some(6 | 14)), 800, "").await.is_err(), "pile posée sur la grille Ex");
+    println!("  ✓ pile refusée sur la grille Ex");
     a.world.send(tr, t(9).with(1, acid).with(3, iid).with(7, cell([0, 1, 2])).with(8, 0)).await?;
     let put = a.world.expect_where(|q| q.is(it, Some(2)) && q.int(2) == Some(iid) && q.int(1) == Some(6), 3000, "pile dans la grille de A").await?;
     anyhow::ensure!(grid_of(&put) == Some([0, 1, 2]), "case chez A {:?}", grid_of(&put));
@@ -2067,6 +2072,65 @@ async fn private_trade(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &st
     a.world.expect_where(|q| q.is(tr, Some(0)), 3000, "résultat chez A").await?;
     anyhow::ensure!(am.int(8) == Some(9600) && bm.int(8) == Some(700), "argent A {:?}, B {:?}", am.int(8), bm.int(8));
     println!("  ✓ B a reçu {} potion(s) ; A : 9600 pièces, B : 700", o(got.int(5)));
+
+    step("objets liés : refusés sans Marvel Scroll of Release, parchemin rendu à l'annulation, un seul objet lié");
+    const LETTERS: [i64; 2] = [735, 736]; // Rembrandt's Letter, Letter Left with Luciano : « BoundType » 1
+    const MARVEL: i64 = 11256;
+    let mut bound = Vec::new();
+    for tid in LETTERS {
+        a.world.send(ch, say(a.cid, &format!("/create \"{ca}\" {tid} 1"))).await?;
+        bound.push(a.world.expect_where(|q| q.is(it, None) && q.int(3) == Some(tid) && q.int(1) == Some(2), 3000, "lettre créée").await?.int(2).unwrap_or(0));
+    }
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    a.world.send(ch, say(a.cid, &format!("/create \"{ca}\" {MARVEL} 1"))).await?;
+    let scroll = a.world.expect_where(|q| q.is(it, None) && q.int(3) == Some(MARVEL) && q.int(1) == Some(51), 3000, "parchemin dans l'inventaire Cash").await?.int(2).unwrap_or(0);
+    let system = |q: &Recv| q.ptype == ch.id && q.int(2) == Some(chat_type::WHOLE_WORLD);
+    for round in 0..2 {
+        a.world.send(tr, t(1).with(1, acid).with(2, bcid)).await?;
+        b.world.expect_where(is_t(3), 3000, "demande reçue").await?;
+        b.world.send(tr, t(4).with(1, bcid)).await?;
+        a.world.expect_where(is_t(6), 3000, "début chez A").await?;
+        b.world.expect_where(is_t(6), 3000, "début chez B").await?;
+        if round == 0 {
+            a.world.send(tr, t(9).with(1, acid).with(3, bound[0]).with(8, 0)).await?;
+            let why = a.world.expect_where(system, 3000, "refus de l'objet lié").await?;
+            anyhow::ensure!(why.fields().text(6).is_some_and(|t| t.contains("Marvel")), "refus : {:?}", why.fields().text(6));
+        }
+        a.world.send(tr, t(9).with(1, acid).with(3, scroll).with(8, 2)).await?;
+        a.world.expect_where(|q| q.is(it, Some(1)) && q.int(2) == Some(scroll), 3000, "parchemin retiré de l'inventaire Cash").await?;
+        a.world.expect_where(|q| q.is(it, Some(0)) && q.int(2) == Some(scroll) && q.int(1) == Some(14), 3000, "parchemin sur la grille Ex (statut 14)").await?;
+        if round == 0 {
+            a.world.send(tr, t(5).with(1, acid)).await?;
+            a.world.expect_where(|q| q.is(it, Some(1)) && q.int(2) == Some(scroll), 3000, "parchemin repris").await?;
+            a.world.expect_where(|q| q.is(it, Some(0)) && q.int(2) == Some(scroll) && q.int(1) == Some(51), 3000, "parchemin rendu (statut 51)").await?;
+            a.world.expect_where(is_t(5), 3000, "annulation chez A").await?;
+            b.world.expect_where(is_t(5), 3000, "annulation chez B").await?;
+            println!("  ✓ lettre liée refusée sans parchemin ; parchemin posé (op 1 puis op 0 statut 14), rendu à l'annulation (statut 51)");
+        }
+    }
+    a.world.send(tr, t(9).with(1, acid).with(3, bound[0]).with(8, 0)).await?;
+    a.world.expect_where(|q| q.is(it, Some(2)) && q.int(2) == Some(bound[0]) && q.int(1) == Some(6), 3000, "lettre proposée").await?;
+    b.world.expect_where(|q| q.is(it, Some(0)) && q.int(2) == Some(bound[0]) && q.int(1) == Some(6), 3000, "lettre vue par B").await?;
+    a.world.send(tr, t(9).with(1, acid).with(3, bound[1]).with(8, 0)).await?;
+    let why = a.world.expect_where(system, 3000, "refus de la seconde lettre").await?;
+    anyhow::ensure!(why.fields().text(6).is_some_and(|t| t.contains("un seul")), "refus : {:?}", why.fields().text(6));
+    for (w, cid) in [(&mut a, acid), (&mut b, bcid)] {
+        w.world.send(tr, t(16).with(1, cid)).await?;
+    }
+    a.world.expect_where(is_t(20), 3000, "prêt à échanger (A)").await?;
+    b.world.expect_where(is_t(20), 3000, "prêt à échanger (B)").await?;
+    a.world.send(tr, t(21).with(1, acid)).await?;
+    b.world.expect_where(is_t(22), 3000, "A prêt").await?;
+    b.world.send(tr, t(21).with(1, bcid)).await?;
+    b.world.expect_where(|q| q.is(it, Some(0)) && q.int(2) == Some(bound[0]) && q.int(4) == Some(bcid) && q.int(1) == Some(2), 3000, "lettre reçue par B").await?;
+    a.world.expect_where(|q| q.is(it, Some(1)) && q.int(2) == Some(bound[0]), 3000, "lettre partie de chez A").await?;
+    a.world.expect_where(|q| q.is(it, Some(1)) && q.int(2) == Some(scroll), 3000, "parchemin consommé").await?;
+    a.world.expect_where(|q| q.is(tr, Some(0)), 3000, "résultat chez A").await?;
+    println!("  ✓ une seule lettre liée ; échangée avec le parchemin, consommé");
+    for (w, item) in [(&mut b, bound[0]), (&mut a, bound[1])] {
+        w.world.send(it, Fields::new(it).with(0, 21).with(2, item)).await?;
+        w.world.expect_where(|q| q.is(it, Some(1)) && q.int(2) == Some(item), 3000, "lettre détruite").await?;
+    }
 
     step("refus d'une seconde demande (« No » : op 5, comme le client)");
     a.world.send(tr, t(1).with(1, acid).with(2, bcid)).await?;

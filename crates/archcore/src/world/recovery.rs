@@ -6,8 +6,8 @@
 //! Une utilisation consomme un exemplaire (pile diminuée par op 2, ou objet retiré par op 1) et se confirme
 //! par op 4 : TID au champ 3, utilisateur aux champs 4 et 12, délai de réutilisation (ms) au champ 18.
 //!
-//! Les autres consommables (compétence d'objet, orbe de résurrection, Gem of origin) passent par `consumables.rs`, les
-//! orbes de rappel du groupe (usage 15) par `party.rs`.
+//! Les autres consommables (compétence d'objet, orbe de résurrection, Gem of origin, objets allumés, feux d'artifice)
+//! passent par `consumables.rs`, le Secret Safe par `bank.rs`, les orbes de rappel du groupe (usage 15) par `party.rs`.
 //!
 //! Hors combat (aucun coup donné ni reçu depuis 10 s), un joueur vivant regagne toutes les 10 s 1,5 % de ses
 //! PV et PM maximum, plus son taux de récupération, plus 5. Les options de régénération de son équipement
@@ -183,6 +183,20 @@ pub async fn use_item(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet,
     // Gem of origin : oubli de toutes les compétences (consumables.rs).
     if catalog.get(item.tid).is_some_and(|d| d.usable_type == super::consumables::USABLE_INIT_SKILL) {
         return super::consumables::use_skill_init_item(ctx, st, sid, &item).await;
+    }
+    // Consommables sans compétence : Secret Safe (bank.rs), objets allumés et feux d'artifice (consumables.rs). Les
+    // autres (Return Orb, objets de commande, Release of Agreement, Marvel Scroll) servent ailleurs : l'op 3 est sans effet.
+    match catalog.get(item.tid).map(|d| d.usable_type).unwrap_or(0) {
+        super::consumables::USABLE_ADD_BANK_SLOT => return super::bank::use_secret_safe(ctx, st, sid, &item).await,
+        u if super::consumables::lit_usage(u) => {
+            super::consumables::toggle_lit(ctx, st, sid, &item, u);
+            return Ok(());
+        }
+        super::consumables::USABLE_USE_EFFECT if super::consumables::FIREWORKS.contains(&item.tid) => {
+            let u = catalog.uses.get(&item.tid).cloned().unwrap_or_default();
+            return super::consumables::use_firework(ctx, st, sid, &item, &u, now).await;
+        }
+        _ => {}
     }
     // Summoning Orb, Bead of Summoning : rappel du groupe (party.rs).
     if catalog.get(item.tid).is_some_and(|d| d.usable_type == super::party::USABLE_RECALL_PARTY) {

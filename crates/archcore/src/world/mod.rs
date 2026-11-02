@@ -175,6 +175,8 @@ pub struct Account {
 pub struct OpenShop {
     pub npc_cid: u32,
     pub items: Vec<ShopItem>,
+    /// Boutique ouverte à distance (`/merchant`) : position (x, z) du joueur à l'ouverture.
+    pub remote_at: Option<(f64, f64)>,
 }
 
 #[derive(Clone, Debug, PartialEq)]

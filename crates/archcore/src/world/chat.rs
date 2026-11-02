@@ -7,7 +7,8 @@
 //! Archonia envoie tout en type 0, le mode de la barre de discussion ajoutant son préfixe au texte : « /p » groupe,
 //! « /g » guilde, « /s » cri local ; le joueur tape aussi « /race », « /scream » et « /warn » (`split_prefix`). Ces
 //! préfixes sont lus avant les commandes MJ ; une commande inconnue d'un joueur sans droits est ignorée sans réponse.
-//! Seul le chuchotement arrive dans son type (5, nom de la cible).
+//! Seul le chuchotement arrive dans son type (5, nom de la cible). Les commandes des objets (`/go`, `/safekeeper`,
+//! `/merchant`, `/nick`) passent par `consumables::chat_command`, avant les commandes MJ.
 //!
 //! Cris (choix d'ArchCore, le client n'en dit que les objets et l'affichage) :
 //! * `/s` : AGPMCHATTING type 1 « [Shout] » aux joueurs à moins de `Chat.ShoutRange` (0 : deux fois la vue) ;
@@ -195,6 +196,10 @@ pub async fn on_chatting(world: &Arc<World>, st: &mut WorldState, sid: u32, p: &
     let text = prefix.map(|(_, rest)| rest.to_string()).unwrap_or_else(|| full.clone());
     // Commandes de l'ArchLord (/archlord, /guardactivate…) avant les commandes MJ (archlord.rs).
     if prefix.is_none() && text.starts_with('/') && super::archlord::chat_command(&world.ctx, st, sid, &text).await? {
+        return Ok(());
+    }
+    // Commandes des objets (/go, /safekeeper, /merchant, /nick : consumables.rs).
+    if prefix.is_none() && text.starts_with('/') && super::consumables::chat_command(&world.ctx, st, sid, &text).await? {
         return Ok(());
     }
     if prefix.is_none() && text.starts_with('/') && gm::execute(world, st, sid, &text).await? {

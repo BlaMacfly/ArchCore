@@ -420,7 +420,11 @@ pub async fn on_item_packet(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &P
         Some(super::equipment::REQUEST_DESTROY_ITEM) => super::equipment::destroy(ctx, st, sid, p.int(2).unwrap_or(0) as u32).await,
         Some(super::bank::REQUEST_BUY_BANK_SLOT) => super::bank::buy_slot(ctx, st, sid).await,
         Some(super::items::item_op::UNUSE) => {
-            super::summons::stop_item(ctx, st, sid, p.int(2).unwrap_or(0) as u32);
+            // Fortune Manual, Talisman of Protection (consumables.rs), sinon familier.
+            let iid = p.int(2).unwrap_or(0) as u32;
+            if !super::consumables::stop_lit(ctx, st, sid, iid) {
+                super::summons::stop_item(ctx, st, sid, iid);
+            }
             Ok(())
         }
         Some(super::items::item_op::CHANGE_AUTO_PICK) => super::pet_bag::on_auto_pick(ctx, st, sid, p).await,

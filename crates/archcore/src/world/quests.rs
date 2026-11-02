@@ -6,7 +6,8 @@
 //!   AGPMQUEST (0x13), relevé dans le client x64 :
 //!     client → op 0 accepter (champ 2 = PNJ, absent pour une quête « personnelle », champ 4 = TID)
 //!            ← op 1 (champ 4 = TID, champ 6 = 1 réussi / 0 refusé) ; le client l'inscrit au journal
-//!     client → op 2 (ou 15) terminer (champ 4 = TID, champ 7 = récompense choisie)
+//!     client → op 2 (ou 15) terminer (champ 4 = TID, champ 7 = rang de la récompense choisie à partir de 0,
+//!            -1 sans choix ; un rang hors des choix d'une quête qui en a est refusé)
 //!            ← op 3 (champ 4, champ 6) ; récompenses (expérience, argent, objets)
 //!     client → op 6 abandonner (champ 4) ← op 7 (champ 4, champ 6)
 //!     ← op 10 progression : mini QUEST_INFO (TID, monstres A et B tués, objectifs remplis) ; le client
@@ -324,7 +325,7 @@ pub async fn on_packet(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet
     let tid = p.int(4).unwrap_or(0) as u32;
     match p.int(0).unwrap_or(-1) {
         op::ACCEPT => accept(ctx, st, sid, tid, p.bytes(2)).await?,
-        op::COMPLETE | op::COMPLETE_SELECT => complete(ctx, st, sid, tid, p.bytes(2), p.int(7).unwrap_or(0)).await?,
+        op::COMPLETE | op::COMPLETE_SELECT => complete(ctx, st, sid, tid, p.bytes(2), p.int(7).unwrap_or(-1)).await?,
         op::CANCEL => cancel(ctx, st, sid, tid).await?,
         other => warn!("[quête] #{sid} op {other} non géré"),
     }
@@ -385,6 +386,15 @@ async fn cancel(ctx: &WorldCtx, st: &mut WorldState, sid: u32, tid: u32) -> anyh
     Ok(())
 }
 
+/// Récompense au choix d'une quête : rang `choice` à partir de 0 (champ 7 de l'op 2, -1 sans choix, comme le clic
+/// d'Archonia). Quête sans choix : aucune ; rang hors des bornes d'une quête à choix : refus.
+pub fn reward_choice(choices: &[(u32, i64)], choice: i64) -> Result<Option<(u32, i64)>, ()> {
+    if choices.is_empty() {
+        return Ok(None);
+    }
+    usize::try_from(choice).ok().and_then(|i| choices.get(i)).copied().map(Some).ok_or(())
+}
+
 async fn complete(ctx: &WorldCtx, st: &mut WorldState, sid: u32, tid: u32, event: Option<&[u8]>, choice: i64) -> anyhow::Result<()> {
     let p = &st.players[&sid];
     let (Some(q), Some(a)) = (ctx.quests.get(tid), p.quests.active(tid).copied()) else {
@@ -392,9 +402,11 @@ async fn complete(ctx: &WorldCtx, st: &mut WorldState, sid: u32, tid: u32, event
         return Ok(());
     };
     let have = q.item.map(|(item, _)| held(p, item)).unwrap_or(0);
-    let chosen = if q.choices.is_empty() { None } else { q.choices.get(if choice >= 1 { choice as usize - 1 } else { 0 }).copied() };
-    let rewards: Vec<(u32, i64)> = q.gifts.iter().copied().chain(chosen).collect();
-    let why = if !q.objectives_met(&a, have) {
+    let chosen = reward_choice(&q.choices, choice);
+    let rewards: Vec<(u32, i64)> = q.gifts.iter().copied().chain(chosen.ok().flatten()).collect();
+    let why = if chosen.is_err() {
+        Some("choix de récompense invalide")
+    } else if !q.objectives_met(&a, have) {
         Some("objectifs non remplis")
     } else if q.complete_level > 0 && p.ch.level < q.complete_level {
         Some("niveau")
@@ -516,6 +528,17 @@ pub async fn on_kill(ctx: &WorldCtx, st: &mut WorldState, sid: u32, monster: u32
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn recompense_au_choix() {
+        let choices = [(10, 1), (11, 2), (12, 3)];
+        assert_eq!(reward_choice(&choices, 0), Ok(Some((10, 1))), "rang à partir de 0");
+        assert_eq!(reward_choice(&choices, 2), Ok(Some((12, 3))));
+        assert_eq!(reward_choice(&choices, 3), Err(()), "hors des bornes");
+        assert_eq!(reward_choice(&choices, -1), Err(()), "aucun choix pour une quête qui en a");
+        assert_eq!(reward_choice(&[], -1), Ok(None));
+        assert_eq!(reward_choice(&[], 5), Ok(None), "quête sans choix : champ ignoré");
+    }
 
     fn shattered_roots() -> QuestTemplate {
         let d = serde_json::json!({ "Need_Level_Min": "120", "Need_Level_Max": "120", "Complete_ItemTid": "15513", "Complete_ItemCount": "50",

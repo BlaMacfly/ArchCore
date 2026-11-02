@@ -672,6 +672,42 @@ choices: the normal attack, ArchLord skills and production skills stay; the mast
 the next levels' `skill_upgrade_cost` (not the taxes paid), the gem only gives the points back; spent charisma is not
 refunded.
 
+**Return Orb** (usage 13). The skill window's "Reset Selected" button sends AGPMSKILL **op 13** (1 skill ID, 2 owner
+"base" mini; no orb IID); double-clicking the orb sends op 3, without effect. Refused (system message): dead, Scion
+evolution, a skill that cannot be forgotten (normal attack, ArchLord, production), a prerequisite of another learnt skill
+(condition of its mastery tree met before and no longer after), no orb. Otherwise: AGPMSKILL op 1 (all its levels),
+factors (skill and heroic points given back), one orb used (inventory, then Cash inventory), op 4; no gold refunded.
+
+**Secret Safe** (usage 21): AGPMITEM op 3 → one more bank page without a keeper or gold (AGPMCHARACTER op 1 field 23,
+AGPMSYSTEMMESSAGE 30, op 4); refused when page 2 is not bought (client text 723 as a message) or at the
+`Bank.SecretSafeMaxExtraPages` cap (message 29). Pages 3 and 4 (price -1) only open this way.
+
+**Release of Agreement** (usage 28): dragged onto an equipment, AGPMITEMCONVERT **op 12** (1 CID, 2 equipment IID, 3
+item IID). Inventory item that takes sockets (not part 17), with something set: stones and runes removed, sockets and
+reinforcement kept (ArchCore's choice), item used up, AGPMITEMCONVERT op 0 (state), op 4; a refusal sends nothing
+(original reply unknown).
+
+**Item commands** (chat, only with the item in the inventory or the Cash inventory, outside its "Use Interval"
+cooldown, 30 min per TID): `/go Name` (Gate of Phantom, Jumper's Illusion) teleports next to a player in game;
+`/safekeeper` (Safe Keeper 4923) opens the bank through the nearest keeper (AGPMEVENTBANK op 1 with its event);
+`/merchant` (Merchant 4924) the nearest merchant's shop (ordinary 0x32 list). Windows opened from afar stay valid while
+the player stays near where they were opened. Refused: dead, transformed, a region or state where the party recall is
+refused (also for the `/go` target). `/nick text` (Signature of Glory): signature of at most 16 bytes (no `"`, `#`,
+`\`), AGPMCHARACTER op 1 **field 27** to the player and those around, saved (`characters.signature`), then in the
+character's op 0; `/nick` alone clears it. Each time: item used up, op 4 (cooldown), "Item … used" message (text
+`JumpItemUsed`).
+
+**Fireworks** (usage 22: Small firecracker, Middle Fireworks Shine 1-3, Unique Fireworks Heart, Bead of Love): one
+used up, AGPMITEM op 4 (3 TID, 4 CID, 18 cooldown) to the player and those who see them; "Use Interval" cooldown
+(op 5 otherwise). The other usage 22 items (Chantra shop packages) have no effect.
+
+**Switched-on items** of the Cash inventory without a skill: Fortune Manual (usage 25) and Talisman of Protection (usage
+19). Op 3: switched on (one per usage) or off; op 23: off; AGPMITEM op 26 (Cash mini, "in use" byte), not saved.
+While on, the Fortune Manual adds `Convert.LuckyScrollBonus` percentage points to the success of a stone or rune
+setting and of a reinforcement, one used up per attempt (0 by default: no effect). The talisman has no effect: no item
+is lost on death, as in the original data (pvpitemdroptable.txt all 0, AGPMCONFIG "bPCDropItemOnDeath" 0, text
+"Holding items will not be dropped even in case of PK death"); AgpmPvP op 18 codes 8 and 23 are never sent.
+
 **Experience loss**: on town resurrection (AGPMCHARACTER op 9), `Death.ExpPenaltyPercent` of the level's experience
 (`Death.ExpPenaltyRoguePercent` for a level 3 murderer), never below the start of the level; nothing below level 6
 nor after a death in player-versus-player combat. Off by default: Archonia hides the episode 8 texts (3 % in town, 5 %
@@ -1112,7 +1148,7 @@ The client always sends its own CID in field 1; the fields read on reception are
 | 3 | server | B receives the request: field 2 = A (the only one the client reads), field 1 = B |
 | 4 / 5 | client | B accepts / refuses ("No": op 5) |
 | 6 | server | Start, to each (field 1 = self, field 2 = the other) |
-| 9 | client | Put the item with the given IID (field 3): origin slot (field 6), targeted trade grid slot (field 7, taken if free, else the first free one), kind (field 8: 0 grid, 1 special item, 2 Ex grid, refused) |
+| 9 | client | Put the item with the given IID (field 3): origin slot (field 6), targeted trade grid slot (field 7, taken if free, else the first free one), kind (field 8: 0 grid, 1 special item, 2 Ex grid: Marvel Scroll of Release from the Cash inventory, see below) |
 | 10 | client | Take back the item with the given IID (field 3): arrival status (field 5, 2 = bag), trade slot (field 6), bag arrival slot (field 7, taken if free, else the original slot) |
 | 23 / 24 | client, server | Money offered (field 5); the other gets op 24 |
 | 16, 17, 18, 19 | | Lock (self ← 16, field 1 = self; other ← 17), unlock (self ← 18, field 1 = self; other ← 19) |
@@ -1121,7 +1157,7 @@ The client always sends its own CID in field 1; the fields read on reception are
 | 0 | server | Result (field 1 = self, field 8 = 8: done) |
 | 5 | | Cancel, on both sides (field 1 = self) |
 | 25 | server | The target refuses trades (`Option_Trade_Off_User`, see below) |
-| 26 / 27 | server | Chantra coins: not in episode 8, never sent |
+| 26 / 27 | server | Chantra coins: ignored (Chantra shop left aside), never sent |
 
 An item put in the trade goes, for its owner, to status 6 (trade grid: 1 × 3 × 4) through AGPMITEM op 2;
 the other player receives it through AGPMITEM op 0, status 6, owner = the first one. It stays in the database
@@ -1134,6 +1170,15 @@ the server would leave it a wrong button. The partner sees the offer change, and
 locks again. The client never sends op 25; if received, it counts as a cancel (like op 5). Murderers: request
 refused (op 5) at the requester's level 1 or either player's level 2 (the client then hides the trade menu),
 acceptance refused at the accepting player's level 1.
+
+**Bound items and Ex grid** (episode 8: `PrivateTradeGridEx` of `[UI_PrivateTrade]`). An item bound on pick-up
+("BoundType" 1, as for mail and the auction house) can only be offered with a Marvel Scroll of Release (usage 35) put
+on the Ex grid, one bound item per trade, and never a bound event item (refusal: system message). Op 9 kind 2 puts the
+scroll, taken from the Cash inventory, one per trade: self ← AGPMITEM op 1 then op 0 with **status 14** (slot 1,1,1,
+the reference's one: to be confirmed in game); the other player does not see it. It cannot be taken back (op 10 only
+targets the ordinary grid): on cancel it comes back (op 1 then op 0 with status 51); a completed trade uses one up
+(op 1, or op 0 of the remaining stack). "BoundType" 2 (bound on equip) is not tracked per item: such an item trades
+freely.
 
 ## Quests (types 0x13 and 0x3E)
 
@@ -1152,7 +1197,7 @@ three flag blocks.
 |---|---|---|
 | 0 | client | Take the quest of field 4 (NPC event in field 2, absent for a self quest) |
 | 1 | server | Answer: field 4 = TID, field 6 = 1 (success) or 0; the client adds it to its journal |
-| 2, 15 | client | Complete (field 7 = chosen reward) |
+| 2, 15 | client | Complete (field 7 = rank of the chosen reward from 0, -1 without a choice, as Archonia's click sends it; a rank outside the choices of a quest that has some: op 3 refused) |
 | 3 | server | Answer (fields 4 and 6) |
 | 4 | server | Journal quest (mini), on entering the world |
 | 5 | server | Flags of completed quests, on entering the world: fields 8, 9, 10 of 0x800 bytes; quest TID is bit TID % 16,384 of block TID / 16,384 (byte bit / 8, lowest bit first) |

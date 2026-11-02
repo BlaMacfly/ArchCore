@@ -250,6 +250,25 @@
   `characters.title_changed_at` ; `/title`. Validé au simulateur le 2 novembre 2026 (scénario `title`), à confirmer en
   jeu avec les fenêtres d'ArchRust ; moment d'envoi des listes, consommation des coûts et sens de la constante 2 de
   l'op 2 choisis par ArchCore (le serveur d'origine est absent).
+- Consommables restants de l'épisode 8 (`world/consumables.rs`, `bank.rs`, `convert.rs`, `trade.rs`) : Return Orb
+  (usage 13, bouton « Reset Selected » : AGPMSKILL op 13 → compétence retirée par l'op 1, points et points héroïques
+  rendus, orbe consommée de l'inventaire puis de l'inventaire Cash ; refus des compétences qui ne s'oublient pas et des
+  prérequis d'une autre compétence apprise) ; Secret Safe (usage 21 : pages 3 et 4 de la banque sans gardien ni or,
+  après la page 2 achetée, plafond `Bank.SecretSafeMaxExtraPages`, messages 29 et 30) ; Release of Agreement (usage
+  28, AGPMITEMCONVERT op 12 : pierres et runes retirées, sockets et renforcement gardés, op 0) ; commandes `/go`,
+  `/safekeeper`, `/merchant` (usage 24, banque et boutique du PNJ le plus proche ouvertes à distance) et `/nick`
+  (usage 26, signature du champ 27, `characters.signature`), seulement avec l'objet, recharge de 30 min ; feux
+  d'artifice (usage 22, op 4 aux voisins ; paquets de la boutique Chantra écartés) ; Fortune Manual (usage 25, allumé
+  dans l'inventaire Cash, bonus `Convert.LuckyScrollBonus` à 0 par défaut, valeur d'origine inconnue) ; Talisman of
+  Protection (usage 19, s'allume sans effet : aucune perte d'objets à la mort, comme les données d'origine —
+  pvpitemdroptable.txt à 0, « bPCDropItemOnDeath » à 0, texte du client « Holding items will not be dropped even in
+  case of PK death ») ; grille Ex de l'échange, qui est bien de l'épisode 8 (Marvel Scroll of Release, usage 35,
+  op 9 de genre 2) et objets liés (« BoundType » 1) refusés à l'échange sans parchemin, un seul par échange. Validé au
+  simulateur le 2 novembre 2026 (scénarios `usables` et `trade`), à confirmer en jeu : affichage de la signature,
+  effet des feux chez les voisins, réponse aux ops 13 et 12, case de la grille Ex. Écartés : livres de compétences
+  (11, aucune compétence dans les données), Map of Asylum (16, rien au serveur), Plastic Surgeon Coupon (32), parchemins
+  de quête (33) ; Sentence Combination (23) : effet inconnu. Côté ArchRust : bouton « Reset Selected » (op 13),
+  glisser du Release of Agreement (op 12), grille Ex, refus local `BankSlotFull`.
 - Client ArchRust ([dépôt à part](https://github.com/BlaMacfly/ArchRust)) : combat (attaque, coups, mort, résurrection, butin), groupes, autres
   joueurs, inventaire et équipement, PNJ (dialogue, boutique, banque et achat de pages, quêtes), compétences
   (instructeurs, lancement, barre de raccourcis), portails de téléportation (fenêtre et chargement d'origine, confirmation des zones de combat entre joueurs,

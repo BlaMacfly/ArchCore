@@ -246,6 +246,24 @@
   simulator on 2 November 2026 (`title` scenario), to be confirmed in game with ArchRust's windows; when the lists are
   sent, when costs are taken and the meaning of op 2's constant 2 are ArchCore's choices (the original server is
   missing).
+- Remaining episode 8 consumables (`world/consumables.rs`, `bank.rs`, `convert.rs`, `trade.rs`): Return Orb (usage
+  13, "Reset Selected" button: AGPMSKILL op 13 → skill removed with op 1, skill and heroic points given back, orb used
+  from the inventory then the Cash inventory; skills that cannot be forgotten and prerequisites of another learnt
+  skill are refused); Secret Safe (usage 21: bank pages 3 and 4 without a keeper or gold, once page 2 is bought, cap
+  `Bank.SecretSafeMaxExtraPages`, messages 29 and 30); Release of Agreement (usage 28, AGPMITEMCONVERT op 12: stones
+  and runes removed, sockets and reinforcement kept, op 0); `/go`, `/safekeeper`, `/merchant` commands (usage 24, bank
+  and shop of the nearest NPC opened from afar) and `/nick` (usage 26, signature in field 27, `characters.signature`),
+  only with the item, 30 min cooldown; fireworks (usage 22, op 4 to those around; Chantra shop packages left out);
+  Fortune Manual (usage 25, switched on in the Cash inventory, bonus `Convert.LuckyScrollBonus` 0 by default, original
+  value unknown); Talisman of Protection (usage 19, switches on without effect: no item loss on death, as in the
+  original data — pvpitemdroptable.txt all 0, "bPCDropItemOnDeath" 0, client text "Holding items will not be dropped
+  even in case of PK death"); the trade's Ex grid, which is episode 8 after all (Marvel Scroll of Release, usage 35,
+  op 9 kind 2) and bound items ("BoundType" 1) refused in a trade without a scroll, one per trade. Validated with the
+  simulator on 2 November 2026 (`usables` and `trade` scenarios), to be confirmed in game: signature display, firework
+  effect for those around, replies to ops 13 and 12, Ex grid slot. Left out: skill books (11, no skill in the data), Map
+  of Asylum (16, nothing on the server), Plastic Surgeon Coupon (32), quest scrolls (33); Sentence Combination (23):
+  effect unknown. ArchRust side: "Reset Selected" button (op 13), dragging the Release of Agreement (op 12), Ex grid,
+  local `BankSlotFull` refusal.
 - ArchRust client ([own repository](https://github.com/BlaMacfly/ArchRust)): combat (attacking, hits, death, resurrection, loot), parties, other
   players, inventory and equipment, NPCs (dialog, shop, bank and buying pages, quests), skills (trainers,
   casting, shortcut bar), teleport portals (original window and loading screen, confirmation of player-versus-player zones, "Return",

@@ -697,6 +697,44 @@ maître porte au champ 7 « déjà fait » (1). Choix d'ArchCore : l'attaque nor
 celles de production restent ; le maître rend `skill_cost` du niveau 1 et `skill_upgrade_cost` des suivants (sans les
 taxes payées), la gemme ne rend que les points ; le charisme dépensé n'est pas rendu.
 
+**Return Orb** (usage 13). Le bouton « Reset Selected » de la fenêtre des compétences envoie AGPMSKILL **op 13** (1
+identifiant de la compétence, 2 mini « base » du propriétaire ; pas d'IID d'orbe) ; un double-clic sur l'orbe envoie
+l'op 3, sans effet. Refus (message système) : mort, évolution du Scion, compétence qui ne s'oublie pas (attaque normale,
+ArchLord, production), prérequis d'une autre compétence apprise (condition de son arbre de maîtrise remplie avant et
+plus après), aucune orbe. Sinon : AGPMSKILL op 1 (tous ses niveaux), facteurs (points et points héroïques rendus), une
+orbe consommée (inventaire, puis inventaire Cash), op 4 ; pas d'or rendu.
+
+**Secret Safe** (usage 21) : AGPMITEM op 3 → une page de banque en plus sans gardien ni or (AGPMCHARACTER op 1 champ 23,
+AGPMSYSTEMMESSAGE 30, op 4) ; refus si la deuxième page n'est pas achetée (texte 723 du client en message) ou au plafond
+`Bank.SecretSafeMaxExtraPages` (message 29). Les pages 3 et 4 (prix -1) ne s'ouvrent qu'ainsi.
+
+**Release of Agreement** (usage 28) : glissé sur un équipement, AGPMITEMCONVERT **op 12** (1 CID, 2 IID de
+l'équipement, 3 IID de l'objet). Objet de l'inventaire qui reçoit des sockets (hors partie 17), avec un sertissage :
+pierres et runes retirées, sockets et renforcement gardés (choix d'ArchCore), objet consommé, AGPMITEMCONVERT op 0
+(état), op 4 ; un refus ne renvoie rien (réponse d'origine inconnue).
+
+**Commandes des objets** (discussion, seulement avec l'objet dans l'inventaire ou l'inventaire Cash, hors recharge
+« Use Interval », 30 min par TID) : `/go Nom` (Gate of Phantom, Jumper's Illusion) téléporte près d'un joueur en jeu ;
+`/safekeeper` (Safe Keeper 4923) ouvre la banque par le gardien le plus proche (AGPMEVENTBANK op 1 avec son
+événement) ; `/merchant` (Merchant 4924) la boutique du marchand le plus proche (liste 0x32 ordinaire). Fenêtres
+ouvertes à distance valables tant que le joueur reste près de l'endroit de l'ouverture. Refus : mort, métamorphose,
+région ou état où le rappel de groupe est refusé (aussi pour la cible de `/go`). `/nick texte` (Signature of Glory) :
+signature de 16 octets au plus (sans `"`, `#`, `\`), AGPMCHARACTER op 1 **champ 27** au joueur et à ses voisins, en base
+(`characters.signature`), puis dans l'op 0 du personnage ; `/nick` seul l'efface. Chaque fois : objet consommé, op 4
+(recharge), message « Objet … utilisé » (texte `JumpItemUsed`).
+
+**Feux d'artifice** (usage 22 : Small firecracker, Middle Fireworks Shine 1-3, Unique Fireworks Heart, Bead of Love) :
+un exemplaire consommé, AGPMITEM op 4 (3 TID, 4 CID, 18 recharge) au joueur et à ceux qui le voient ; recharge
+« Use Interval » (op 5 sinon). Les autres objets de l'usage 22 (paquets de la boutique Chantra) restent sans effet.
+
+**Objets allumés** de l'inventaire Cash sans compétence : Fortune Manual (usage 25) et Talisman of Protection (usage 19).
+Op 3 : allumé (un seul par usage) ou éteint ; op 23 : éteint ; AGPMITEM op 26 (mini Cash, octet « en cours
+d'utilisation »), non enregistré. Allumé, le Fortune Manual ajoute `Convert.LuckyScrollBonus` points de pour cent à la
+réussite d'un sertissage de pierre ou de rune et d'un renforcement, un exemplaire consommé par tentative (0 par
+défaut : sans effet). Le talisman reste sans effet : aucune perte d'objets à la mort, comme les données d'origine
+(pvpitemdroptable.txt à 0, AGPMCONFIG « bPCDropItemOnDeath » à 0, texte « Holding items will not be dropped even in case
+of PK death ») ; AgpmPvP op 18 codes 8 et 23 jamais envoyés.
+
 **Perte d'expérience** : à la résurrection au village (AGPMCHARACTER op 9), `Death.ExpPenaltyPercent` de
 l'expérience du niveau (`Death.ExpPenaltyRoguePercent` pour un meurtrier de palier 3), sans descendre sous le début du
 niveau ; rien sous le niveau 6 ni après une mort en combat entre joueurs. Désactivée par défaut : Archonia masque
@@ -1161,7 +1199,7 @@ client de référence.
 | 3 | serveur | B reçoit la demande : champ 2 = A (seul lu par le client), champ 1 = B |
 | 4 / 5 | client | B accepte / refuse (« No » : op 5) |
 | 6 | serveur | Début, à chacun (champ 1 = soi, champ 2 = l'autre) |
-| 9 | client | Mettre l'objet d'IID donné (champ 3) : case d'origine (champ 6), case visée de la grille (champ 7, prise si libre, sinon la première libre), genre (champ 8 : 0 grille, 1 objet particulier, 2 grille Ex refusée) |
+| 9 | client | Mettre l'objet d'IID donné (champ 3) : case d'origine (champ 6), case visée de la grille (champ 7, prise si libre, sinon la première libre), genre (champ 8 : 0 grille, 1 objet particulier, 2 grille Ex : Marvel Scroll of Release de l'inventaire Cash, voir plus bas) |
 | 10 | client | Reprendre l'objet d'IID donné (champ 3) : statut d'arrivée (champ 5, 2 = sac), case d'échange (champ 6), case d'arrivée du sac (champ 7, prise si libre, sinon la case d'origine) |
 | 23 / 24 | client, serveur | Argent proposé (champ 5) ; l'autre reçoit op 24 |
 | 16, 17, 18, 19 | | Verrouiller (soi ← 16, champ 1 = soi ; l'autre ← 17), déverrouiller (soi ← 18, champ 1 = soi ; l'autre ← 19) |
@@ -1170,7 +1208,7 @@ client de référence.
 | 0 | serveur | Résultat (champ 1 = soi, champ 8 = 8 : échange fait) |
 | 5 | | Annulation, des deux côtés (champ 1 = soi) |
 | 25 | serveur | La cible refuse les échanges (`Option_Trade_Off_User`, voir plus bas) |
-| 26 / 27 | serveur | Pièces Chantra : pas dans l'épisode 8, jamais envoyées |
+| 26 / 27 | serveur | Pièces Chantra : ignorées (boutique Chantra laissée de côté), jamais envoyées |
 
 Un objet mis dans l'échange passe, chez son propriétaire, au statut 6 (grille d'échange : 1 × 3 × 4) par
 AGPMITEM op 2 ; l'autre le reçoit par AGPMITEM op 0, statut 6, propriétaire = le premier. Il reste en base
@@ -1184,6 +1222,15 @@ verrou levé par le serveur lui laisserait un bouton faux. Le partenaire voit l'
 attend de nouveau les deux verrous. Le client n'envoie jamais l'op 25 ; reçue, elle vaut une annulation
 (comme l'op 5). Meurtriers : demande refusée (op 5) au palier 1 du demandeur ou au palier 2 de l'un des deux
 (le client cache alors le menu d'échange), acceptation refusée au palier 1 de celui qui accepte.
+
+**Objets liés et grille Ex** (épisode 8 : `PrivateTradeGridEx` de `[UI_PrivateTrade]`). Un objet lié dès l'obtention
+(« BoundType » 1, comme pour le courrier et la maison des ventes) ne se propose qu'avec un Marvel Scroll of Release
+(usage 35) posé sur la grille Ex, un seul objet lié par échange, et jamais un objet lié d'événement (refus : message
+système). L'op 9 de genre 2 pose le parchemin, pris dans l'inventaire Cash, un par échange : soi ← AGPMITEM op 1 puis
+op 0 au **statut 14** (case 1,1,1, celle de la référence : à confirmer en jeu) ; l'autre ne le voit pas. Il ne se
+reprend pas (l'op 10 ne vise que la grille ordinaire) : annulé, il revient (op 1 puis op 0 au statut 51) ; l'échange
+fait en consomme un (op 1, ou op 0 de la pile restante). « BoundType » 2 (lié en s'équipant) n'est pas suivi par
+objet : un tel objet s'échange librement.
 
 ## Quêtes (types 0x13 et 0x3E)
 
@@ -1202,7 +1249,7 @@ résultat, récompense choisie, trois blocs de drapeaux.
 |---|---|---|
 | 0 | client | Prendre la quête du champ 4 (événement du PNJ au champ 2, absent pour une quête personnelle) |
 | 1 | serveur | Réponse : champ 4 = TID, champ 6 = 1 (réussi) ou 0 ; le client l'inscrit au journal |
-| 2, 15 | client | Terminer (champ 7 = récompense choisie) |
+| 2, 15 | client | Terminer (champ 7 = rang de la récompense choisie à partir de 0, -1 sans choix, comme le clic d'Archonia ; rang hors des choix d'une quête qui en a : op 3 refusé) |
 | 3 | serveur | Réponse (champs 4 et 6) |
 | 4 | serveur | Quête du journal (mini), à l'entrée en jeu |
 | 5 | serveur | Drapeaux des quêtes terminées, à l'entrée en jeu : champs 8, 9, 10 de 0x800 octets ; la quête TID est le bit TID % 16 384 du bloc TID / 16 384 (octet bit / 8, bit de poids faible d'abord) |

@@ -1003,6 +1003,8 @@ pub async fn on_packet(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet
             }
         }
         Some(op::CAST) => request_cast(ctx, st, sid, p),
+        // Bouton « Reset Selected » : une compétence oubliée contre une Return Orb (consumables.rs).
+        Some(super::consumables::SKILL_ROLLBACK) => super::consumables::skill_rollback(ctx, st, sid, p.int(1).unwrap_or(0) as u32).await?,
         other => debug!("[compétence] #{sid} AGPMSKILL op {other:?} (ignoré)"),
     }
     Ok(())

@@ -9,7 +9,8 @@
 //!   client → op 3 : vente de l'objet d'inventaire d'IID donné ← op 3, résultat 0 (réussi), 1 (trop d'argent)
 //! ```
 //! L'achat paie en plus la taxe de la région du joueur (`tax.rs`), qui va à la recette de la région ; la vente n'est pas
-//! taxée.
+//! taxée. `/merchant` (objet Merchant, `consumables.rs`) ouvre à distance la boutique du marchand le plus proche, valable
+//! tant que le joueur reste à portée de l'endroit où il l'a ouverte.
 //!
 //! Boutique des Shrines (épisode 8) : un objet peut coûter en plus de l'or des points de charisme (« NPC Charisma
 //! Price ») et des Shrine Coins (« NPC Shrine Coin », objets TID 53000, toutes les piles de l'inventaire comptées), le
@@ -141,11 +142,26 @@ fn open(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) {
         warn!("[boutique] #{sid} {} trop loin de {}", player.ch.name, npc.name);
         return;
     }
+    send_shop(ctx, st, sid, npc, event, &base, None);
+}
+
+/// Ouvre à distance (`/merchant`, `consumables.rs`) la boutique du marchand `npc` : la même liste qu'auprès de lui,
+/// valable tant que le joueur reste à portée de l'endroit où il l'a ouverte.
+pub fn open_remote(ctx: &WorldCtx, st: &mut WorldState, sid: u32, npc: &super::npcs::Npc) {
+    let Some(event) = npc.events.iter().find(|e| e.function == event_function::NPC_TRADE) else { return };
+    let Some(player) = st.players.get(&sid) else { return };
+    let at = super::presence::position_now(player, std::time::Instant::now());
+    let base = Fields::new(&mini::EVENT_BASE).with(0, 3).with(1, npc.cid).with(2, event.event_id).with(3, event_function::NPC_TRADE);
+    send_shop(ctx, st, sid, npc, event, &base, Some((at.x as f64, at.z as f64)));
+}
+
+/// Envoie la liste de la boutique de `npc` ; `remote_at` : ouverte à distance depuis cette position.
+fn send_shop(ctx: &WorldCtx, st: &mut WorldState, sid: u32, npc: &super::npcs::Npc, event: &super::npcs::NpcEvent, base: &Fields, remote_at: Option<(f64, f64)>) {
     let template: i64 = event.param("Template").and_then(|v| v.trim().parse().ok()).unwrap_or(0);
     // Une boutique déjà ouverte est retirée du client avant d'en envoyer une nouvelle copie.
     close(st, sid);
     let player = st.players.get_mut(&sid).unwrap();
-    let event_base = build_mini(&mini::EVENT_BASE, &base);
+    let event_base = build_mini(&mini::EVENT_BASE, base);
     let mut items = Vec::new();
     for entry in ctx.catalog.shop(template) {
         let Some(data) = ctx.catalog.get(entry.tid) else { continue };
@@ -172,7 +188,7 @@ fn open(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) {
         "[boutique] {} ouvre la boutique de {} (modèle {template}, {} objet(s), demande : source {}/{}, événement {}, fonction {})",
         player.ch.name, npc.name, items.len(), v(0), v(1), v(2), v(3)
     );
-    player.shop = Some(OpenShop { npc_cid: npc.cid, items });
+    player.shop = Some(OpenShop { npc_cid: npc.cid, items, remote_at });
 }
 
 /// Retire du client les objets de la dernière boutique ouverte.
@@ -195,7 +211,11 @@ fn active_shop(ctx: &WorldCtx, st: &WorldState, sid: u32) -> Option<(u32, String
     let p = st.players.get(&sid)?;
     let shop = p.shop.as_ref()?;
     let npc = ctx.npcs.get(shop.npc_cid)?;
-    in_range(npc, p, range::NPC_TRADE).then(|| (npc.cid, npc.name.clone()))
+    let near = match shop.remote_at {
+        Some(at) => super::npc_events::near_point(p, at, range::NPC_TRADE),
+        None => in_range(npc, p, range::NPC_TRADE),
+    };
+    near.then(|| (npc.cid, npc.name.clone()))
 }
 
 async fn buy(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> anyhow::Result<()> {

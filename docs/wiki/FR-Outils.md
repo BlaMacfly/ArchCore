@@ -146,10 +146,12 @@ pile de potions et 1000 pièces, se reconnecte et les retrouve, puis les retire 
 `sim portal` (compte MJ `gmtest`) se place à 2500 unités du portail d'Anchorville et s'y adresse : le
 serveur le fait courir puis donne l'accord ; trajet payant (100 pièces) vers le Repaire de l'éclaireur, refus
 d'un trajet non relié, retour payant (500 pièces) à Anchorville. `sim trade` place GmTest (MJ) et SimA au même endroit : GmTest propose une pile
-de potions (refusée sur la grille Ex, puis posée sur la case visée 0,1,2) et 500 pièces, SimA 100 pièces ;
+de potions (refusée sur la grille Ex, réservée au Marvel Scroll of Release, puis posée sur la case visée 0,1,2) et 500 pièces, SimA 100 pièces ;
 demandeur lu au champ 2 de l'op 3 ; l'objet proposé ne peut pas être détruit ; verrous (ops 16 / 18 avec le
 CID), déverrouillage de GmTest seul (le verrou de SimA reste, son « prêt » attend), échange (SimA reçoit la
-pile, l'argent est ajusté des deux côtés), puis une seconde demande refusée par l'op 5. `sim party`
+pile, l'argent est ajusté des deux côtés) ; lettres liées (735, 736) : refusées sans parchemin, Marvel Scroll of Release
+(11256) posé sur la grille Ex (op 1 puis op 0 statut 14) et rendu à l'annulation (statut 51), une seule lettre liée
+par échange, échangée avec le parchemin, consommé ; puis une seconde demande refusée par l'op 5. `sim party`
 (SimA et SimB) vérifie le refus d'une invitation à un nom inconnu, l'invitation et l'acceptation (groupe et
 liste des membres chez les deux), la discussion de groupe, le réglage de l'expérience par le chef (refusé à
 l'autre), le passage de chef puis l'exclusion, qui dissout le groupe. `sim guild` (GmTest chef, SimA) refuse
@@ -349,6 +351,23 @@ nouveau, second orbe refusé pendant la recharge (op 18 puis op 27 code 3), reto
 sans événement) : Dual Slash retirée (AGPMSKILL op 1), 560 pièces rendues, op 23 « 1 », op 9 résultat 0 ; seconde
 demande, puis une autre après reconnexion (chaîne relue en base) : résultat 1. Gem of origin (4876) : Dual Slash, remise
 en base, retirée (op 1), op 4. Compétences, argent et chaîne de GmTest rétablis à la fin.
+
+## Test des objets sans compétence (Return Orb, Secret Safe, commandes, feux, objets allumés)
+
+```bash
+ARCHCORE_CONF_DIR=config/test archcore sim usables [compteA mdpA persoA compteB mdpB persoB]
+```
+
+GmTest (MJ) part avec Dual Slash au niveau 2, sans page de banque en plus et une Bastard Sword +1 à deux sockets sertis ;
+SimA est posé à côté. Return Orb (1171) : AGPMSKILL op 13 sur l'attaque normale refusé, sur Dual Slash → op 1, orbe
+consommée (op 4), puis refus sans orbe. Secret Safe (3916) refusé sans deuxième page ; `/safekeeper` (4923) ouvre la
+banque à distance (AGPMEVENTBANK op 1), la page 2 s'y achète (op 22) ; deux Secret Safe ouvrent les pages 3 et 4
+(champ 23 = 2, 3, message 30), le troisième est refusé (message 29). `/merchant` (4924) : liste d'une boutique. Release
+of Agreement (4877) : AGPMITEMCONVERT op 12 → op 0 (+1, 2 sockets, rien de serti), objet consommé ; second essai sans
+effet. Small firecracker (4606) : op 4 chez GmTest et chez SimA, second refusé (op 5). Fortune Manual (4569) et
+Talisman of Protection (1842) : op 26 allumé puis éteint (op 3, op 23). `/nick` : 17 caractères refusés, « Héros » vu
+des deux (champ 27) et en base, « Il faut » sans objet. `/go` : joueur absent refusé, GmTest éloigné rejoint SimA,
+recharge. Compétences, argent, pages de banque et signature de GmTest rétablis à la fin.
 
 ## Test du rappel de groupe, des actions sociales, de la barre de raccourcis et du retour à la sélection
 

@@ -71,6 +71,8 @@ unknown key (typo) is reported.
 | `Recall.AllowInCombat` | `0` | 1 = recall allowed in combat, for the caster and for the member; always refused when dead, in a siege at war, in a Shrine during a battle, in the Battle Square and in regions without resurrection (careful ArchCore choice) |
 | `Recall.ExcludedItems` | `4817` | TIDs of usage 15 items that do not recall (Bead of Nothernland, unrelated description) |
 | `Social.MinIntervalMs` | `1000` | Minimum delay between two social actions of a player; a closer one is ignored (anti-flood, ArchCore's choice) |
+| `Bank.SecretSafeMaxExtraPages` | `3` | Secret Safe (usage 21): extra bank pages (1 to 3) beyond which it is refused; 3 = the client's refusal (4 pages), item 3916's text announces 3 pages (2). ArchCore's choice |
+| `Convert.LuckyScrollBonus` | `0` | Switched-on Fortune Manual (usage 25): percentage points added to the success of a stone or rune setting and of a reinforcement (0 to 100), one used up per attempt; original value unknown, 0: no effect |
 | `ReturnToLogin.LoginAddress` | empty | "host:port" address of the login server given to the client to go back to character selection; empty: the client uses the one it logged in to |
 | `ReturnToLogin.KeySeconds` | `60` | Lifetime of the single-use key for going back to character selection |
 | `Shrine.Enabled` | `1` | Shrine battles on the `shrine` table's schedule; `0`: only through `/shrine open` |

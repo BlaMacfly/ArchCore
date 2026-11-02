@@ -10,6 +10,12 @@
 //!   Page en plus : AGPMITEM op 22 (CID au champ 4), payée sur l'argent porté au prix de bankslotprice.txt
 //!            (-1 : pas en vente contre de l'or) ← AGPMCHARACTER op 1 champs 8 et 23, message système 30
 //!            (page ajoutée) ou 29 (banque déjà au maximum).
+//!   Secret Safe (objet d'usage 21, AGPMITEM op 3) : une page en plus sans gardien ni or, un exemplaire consommé ;
+//!            refus si la deuxième page n'est pas ouverte (texte 723 du client) ou au plafond
+//!            (`Bank.SecretSafeMaxExtraPages`, 3 pages en plus ; message 29). Les pages 3 et 4, pas en vente contre de
+//!            l'or (-1), ne s'ouvrent qu'ainsi. ← AGPMCHARACTER op 1 champ 23, message 30, AGPMITEM op 4.
+//!   À distance : `/safekeeper` (objet Safe Keeper, `consumables.rs`) ouvre la fenêtre par le gardien le plus proche,
+//!            valable tant que le joueur reste à moins du double de la portée d'ouverture de l'endroit où il l'a ouverte.
 //! ```
 //! En base : `account_bank` (argent, pages) ; les objets sont des lignes de `character_items` au statut 2,
 //! rattachées au personnage qui les a déposés et passées à celui qui les retire.
@@ -83,6 +89,8 @@ pub struct Bank {
     pub items: BTreeMap<u32, InventoryItem>,
     /// Gardien auprès duquel la fenêtre est ouverte.
     pub keeper: Option<u32>,
+    /// Fenêtre ouverte à distance (`/safekeeper`) : position (x, z) du joueur à l'ouverture.
+    pub remote_at: Option<(f64, f64)>,
 }
 
 impl Bank {
@@ -111,7 +119,7 @@ impl Bank {
                 (iid, InventoryItem { iid, tid: col(r, "template_id"), count: col(r, "count"), grid: [col(r, "layer"), col(r, "row_idx"), col(r, "col_idx")], conv: super::items::convert_of(r), options: super::items::options_of(r), durability: super::items::durability_of(r) })
             })
             .collect();
-        Ok(Bank { account_id, money, extra_slots, items, keeper: None })
+        Ok(Bank { account_id, money, extra_slots, items, keeper: None, remote_at: None })
     }
 
     /// Pages ouvertes.
@@ -162,14 +170,30 @@ pub fn on_packet(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) {
         return;
     }
     player.bank.keeper = Some(npc.cid);
+    player.bank.remote_at = None;
     info!("[banque] {} ouvre sa banque auprès de {}", player.ch.name, npc.name);
     let s = &schema::EVENT_BANK;
     player.send(s, Fields::new(s).with(0, op::GRANT).with(1, build_mini(&mini::EVENT_BASE, &base)).with(2, player.ch.id));
 }
 
-/// La fenêtre de la banque est ouverte et le gardien à portée.
+/// Ouvre la banque à distance (`/safekeeper`) par le gardien `npc` : AGPMEVENTBANK op 1 avec son événement.
+pub fn open_remote(st: &mut WorldState, sid: u32, npc: &super::npcs::Npc) {
+    let Some(player) = st.players.get_mut(&sid) else { return };
+    let at = super::presence::position_now(player, std::time::Instant::now());
+    player.bank.keeper = Some(npc.cid);
+    player.bank.remote_at = Some((at.x as f64, at.z as f64));
+    let base = build_mini(&mini::EVENT_BASE, &Fields::new(&mini::EVENT_BASE).with(0, 3).with(1, npc.cid).with(3, event_function::BANK));
+    info!("[banque] {} ouvre sa banque à distance (gardien {})", player.ch.name, npc.name);
+    let s = &schema::EVENT_BANK;
+    player.send(s, Fields::new(s).with(0, op::GRANT).with(1, base).with(2, player.ch.id));
+}
+
+/// La fenêtre de la banque est ouverte et le gardien à portée (ou, ouverte à distance, le joueur resté sur place).
 pub fn at_keeper(ctx: &WorldCtx, st: &WorldState, sid: u32) -> bool {
     let Some(p) = st.players.get(&sid) else { return false };
+    if let Some(at) = p.bank.remote_at {
+        return super::npc_events::near_point(p, at, range::BANK * 2.0);
+    }
     let Some(npc) = p.bank.keeper.and_then(|cid| ctx.npcs.get(cid)) else { return false };
     // Fenêtre déjà ouverte : le double de la portée d'ouverture.
     in_range(npc, p, range::BANK * 2.0)
@@ -361,6 +385,50 @@ pub async fn buy_slot(ctx: &WorldCtx, st: &mut WorldState, sid: u32) -> anyhow::
     Ok(())
 }
 
+/// Pourquoi le Secret Safe n'ouvre pas de page à un compte qui en a `extra` en plus (plafond `max`), sinon `None` :
+/// deuxième page pas encore achetée (`Some(None)`, texte 723 du client), ou plafond atteint (`Some(Some(29))`).
+pub fn secret_safe_refusal(extra: i64, max: i64) -> Option<Option<i64>> {
+    if extra <= 0 {
+        return Some(None);
+    }
+    (extra >= max.min(BANK_GRID.0 - 1)).then_some(Some(message::BANK_SLOT_IS_MAX))
+}
+
+/// Secret Safe utilisé (AGPMITEM op 3, usage 21) : une page en plus, sans gardien ni or, un exemplaire consommé.
+pub async fn use_secret_safe(ctx: &WorldCtx, st: &mut WorldState, sid: u32, item: &InventoryItem) -> anyhow::Result<()> {
+    let p = st.players.get_mut(&sid).unwrap();
+    let extra = p.bank.extra_slots.max(0);
+    match secret_safe_refusal(extra, ctx.config.world.bank_secret_safe_max_extra_pages) {
+        Some(None) => {
+            info!("[banque] {} : Secret Safe refusé (deuxième page pas encore achetée)", p.ch.name);
+            send_system(st, sid, "Il faut d'abord ouvrir la deuxième page de la banque contre de l'or.");
+            return Ok(());
+        }
+        Some(Some(code)) => {
+            info!("[banque] {} : Secret Safe refusé ({} page(s) en plus, plafond)", p.ch.name, extra);
+            system_message(st, sid, code);
+            return Ok(());
+        }
+        None => {}
+    }
+    let (cid, account_id) = (p.ch.id, p.bank.account_id);
+    let Some(used) = p.inventory.consume_sql(item.iid, 1) else { return Ok(()) };
+    ctx.db.characters.atomic(vec![("UPDATE account_bank SET extra_slots = ? WHERE account_id = ?", (extra + 1, account_id).into()), used]).await?;
+    match p.inventory.consumed(item.iid, 1) {
+        Some(left) => p.send_raw(p.inventory.count_packet(&left, cid)),
+        None => p.send_raw(item_remove(item.iid, Some(cid))),
+    }
+    p.bank.extra_slots = extra + 1;
+    p.ch.bank_size = (extra + 1) as i32;
+    let c = &schema::CHARACTER;
+    p.send(c, Fields::new(c).with(0, 1).with(1, cid).with(23, extra + 1));
+    p.send_raw(super::recovery::used_packet(item.tid, cid, std::time::Duration::ZERO));
+    crate::journal::bank_page(&ctx.db, account_id, (cid, &p.ch.name), extra + 2, 0);
+    info!("[banque] {} ouvre la page {} de sa banque par un Secret Safe", p.ch.name, extra + 2);
+    system_message(st, sid, message::BANK_ADD_SLOT_SUCCESS);
+    Ok(())
+}
+
 /// AGPMCHARACTER op 7 : `amount` pièces vers la banque (négatif : vers l'inventaire).
 pub async fn move_money(ctx: &WorldCtx, st: &mut WorldState, sid: u32, amount: i64) -> anyhow::Result<()> {
     if !at_keeper(ctx, st, sid) {
@@ -414,5 +482,15 @@ mod tests {
         }
         assert_eq!(bank.free_slot(), Some([1, 0, 0]));
         assert_eq!(bank.at([0, 2, 3]).map(|i| i.iid), Some(12));
+    }
+
+    #[test]
+    fn secret_safe() {
+        assert_eq!(secret_safe_refusal(0, 3), Some(None), "deuxième page pas achetée");
+        assert_eq!(secret_safe_refusal(1, 3), None, "page 3");
+        assert_eq!(secret_safe_refusal(2, 3), None, "page 4");
+        assert_eq!(secret_safe_refusal(3, 3), Some(Some(message::BANK_SLOT_IS_MAX)));
+        assert_eq!(secret_safe_refusal(2, 2), Some(Some(message::BANK_SLOT_IS_MAX)), "plafond du texte de l'objet");
+        assert_eq!(secret_safe_refusal(3, 9), Some(Some(message::BANK_SLOT_IS_MAX)), "4 pages au plus");
     }
 }

@@ -119,6 +119,14 @@ pub struct WorldConfig {
     /// Actions sociales (`world/social.rs`) : délai minimal entre deux actions d'un joueur, en millisecondes
     /// (`Social.MinIntervalMs`, 1000 ; anti-inondation, choix d'ArchCore).
     pub social_min_interval_ms: u64,
+    /// Secret Safe (`world/bank.rs`, objets d'usage 21) : pages de banque en plus au-delà desquelles il est refusé
+    /// (`Bank.SecretSafeMaxExtraPages`, 3 : le refus du client, soit 4 pages ; le texte de l'objet 3916 annonce 3 pages,
+    /// soit 2). Choix d'ArchCore.
+    pub bank_secret_safe_max_extra_pages: i64,
+    /// Fortune Manual (`world/convert.rs`, objets d'usage 25 allumés) : points de pour cent ajoutés à la chance d'un
+    /// sertissage de pierre ou de rune et d'un renforcement (`Convert.LuckyScrollBonus`, 0 : sans effet). La valeur
+    /// d'origine n'est pas connue ; un exemplaire est consommé par tentative quand le bonus n'est pas nul.
+    pub convert_lucky_scroll_bonus: u32,
     /// Retour à la sélection des personnages (`world/return_login.rs`) : adresse « hôte:port » du serveur de connexion
     /// donnée au client (`ReturnToLogin.LoginAddress`, vide : le client reprend celle où il s'est connecté) et durée de
     /// validité de la clé, en secondes (`ReturnToLogin.KeySeconds`, 60).
@@ -369,6 +377,8 @@ impl Default for WorldConfig {
             recall_allow_in_combat: false,
             recall_excluded_items: vec![4817],
             social_min_interval_ms: 1000,
+            bank_secret_safe_max_extra_pages: 3,
+            convert_lucky_scroll_bonus: 0,
             return_login_address: String::new(),
             return_login_key_secs: 60,
             shrine_enabled: true,
@@ -673,6 +683,8 @@ fn read_world(s: &Settings, cfg: &mut Config) {
         recall_allow_in_combat: s.flag("Recall.AllowInCombat", d.recall_allow_in_combat),
         recall_excluded_items: s.string("Recall.ExcludedItems", "4817").split(',').filter_map(|t| t.trim().parse().ok()).collect(),
         social_min_interval_ms: s.parse("Social.MinIntervalMs", d.social_min_interval_ms),
+        bank_secret_safe_max_extra_pages: s.parse("Bank.SecretSafeMaxExtraPages", d.bank_secret_safe_max_extra_pages).clamp(1, 3),
+        convert_lucky_scroll_bonus: s.parse("Convert.LuckyScrollBonus", d.convert_lucky_scroll_bonus).min(100),
         return_login_address: s.string("ReturnToLogin.LoginAddress", &d.return_login_address),
         return_login_key_secs: s.parse("ReturnToLogin.KeySeconds", d.return_login_key_secs).max(5),
         shrine_enabled: s.flag("Shrine.Enabled", d.shrine_enabled),
@@ -850,6 +862,8 @@ pub fn to_values(cfg: &Config, which: Which) -> Vec<(String, String)> {
             put("Recall.AllowInCombat", (w.recall_allow_in_combat as i64).to_string());
             put("Recall.ExcludedItems", w.recall_excluded_items.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(","));
             put("Social.MinIntervalMs", w.social_min_interval_ms.to_string());
+            put("Bank.SecretSafeMaxExtraPages", w.bank_secret_safe_max_extra_pages.to_string());
+            put("Convert.LuckyScrollBonus", w.convert_lucky_scroll_bonus.to_string());
             put("ReturnToLogin.LoginAddress", w.return_login_address.clone());
             put("ReturnToLogin.KeySeconds", w.return_login_key_secs.to_string());
             put("Shrine.Enabled", (w.shrine_enabled as i64).to_string());

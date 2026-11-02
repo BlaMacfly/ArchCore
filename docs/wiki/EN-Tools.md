@@ -144,10 +144,12 @@ potion stack and 1000 coins, reconnects and finds them, then withdraws them and 
 `sim portal` (GM account `gmtest`) stands 2500 units from the Anchorville portal and addresses it: the
 server makes it run then grants; paid trip (100 coins) to the Scout's Grounds, unlinked trip refused, paid
 return (500 coins) to Anchorville. `sim trade` puts GmTest (GM) and SimA at the same spot: GmTest offers
-a potion stack (refused on the Ex grid, then put on the targeted slot 0,1,2) and 500 coins, SimA 100 coins;
+a potion stack (refused on the Ex grid, kept for the Marvel Scroll of Release, then put on the targeted slot 0,1,2) and 500 coins, SimA 100 coins;
 requester read from field 2 of op 3; the offered item cannot be destroyed; locks (ops 16 / 18 with the CID),
 GmTest alone unlocks (SimA's lock stays, its "ready" waits), exchange (SimA receives the stack, money is
-adjusted on both sides), then a second request refused with op 5. `sim party` (SimA and
+adjusted on both sides); bound letters (735, 736): refused without a scroll, Marvel Scroll of Release (11256) put on the
+Ex grid (op 1 then op 0 status 14) and given back on cancel (status 51), only one bound letter per trade, traded with
+the scroll, used up; then a second request refused with op 5. `sim party` (SimA and
 SimB) checks that inviting an unknown name is refused, the invitation and acceptance (party and member list
 on both sides), party chat, the leader setting experience sharing (refused to the other), the leader handover,
 then the kick, which disbands the party. `sim guild` (GmTest master, SimA) refuses a name with a space,
@@ -342,6 +344,23 @@ orb is refused during the cooldown (op 18 then op 27 code 3), back to town (op 9
 Dual Slash removed (AGPMSKILL op 1), 560 coins refunded, op 23 "1", op 9 result 0; a second request, then another after
 reconnecting (string read back from the database): result 1. Gem of origin (4876): Dual Slash, put back in the
 database, removed (op 1), op 4. GmTest's skills, money and string restored at the end.
+
+## Items without a skill test (Return Orb, Secret Safe, commands, fireworks, switched-on items)
+
+```bash
+ARCHCORE_CONF_DIR=config/test archcore sim usables [userA passA charA userB passB charB]
+```
+
+GmTest (GM) starts with Dual Slash at level 2, no extra bank page and a Bastard Sword +1 with two filled sockets; SimA
+stands next to it. Return Orb (1171): AGPMSKILL op 13 on the normal attack refused, on Dual Slash → op 1, orb used up
+(op 4), then refused without an orb. Secret Safe (3916) refused without page 2; `/safekeeper` (4923) opens the bank from
+afar (AGPMEVENTBANK op 1), page 2 is bought there (op 22); two Secret Safes open pages 3 and 4 (field 23 = 2, 3,
+message 30), the third is refused (message 29). `/merchant` (4924): a shop list. Release of Agreement (4877):
+AGPMITEMCONVERT op 12 → op 0 (+1, 2 sockets, nothing set), item used up; a second try has no effect. Small firecracker
+(4606): op 4 for GmTest and SimA, a second one refused (op 5). Fortune Manual (4569) and Talisman of Protection (1842):
+op 26 on then off (op 3, op 23). `/nick`: 17 characters refused, "Héros" seen by both (field 27) and saved, "Il faut"
+without the item. `/go`: absent player refused, GmTest moved away joins SimA, cooldown. GmTest's skills, money, bank
+pages and signature restored at the end.
 
 ## Party recall, social actions, quick belt and return to character selection test
 
