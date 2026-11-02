@@ -8,6 +8,14 @@ programmés.
 > 26 septembre 2012), avec en plus les extensions propres au serveur Archonia, dont le client 64 bits
 > sert de base. Les systèmes de jeu d'origine que ce client connaît sont programmés, jusqu'aux sièges,
 > à l'ArchLord et aux Shrines ; ils restent à confirmer en jeu (voir plus bas).
+>
+> **Valeurs de jeu de l'épisode 8** (décision du 2 novembre 2026). Compétences, objets, options, runes,
+> monstres, butin, raffinage, régions, boutiques, portails et expérience viennent des tables du serveur
+> d'origine ; une ligne n'existe que si elle y figure. Le client d'Archonia ne donne plus que les noms, les
+> visuels et les tables purement clientes, sans ses ajouts (règles dans [[Outils|FR-Outils]], « Valeurs de
+> l'épisode 8 »). Écartés : 3 848 objets, 923 compétences, 428 modèles, 1 097 options, 606 runes, 1 190
+> recettes, 31 régions, 39 quêtes, 13 boss de la fenêtre des boss. `archcore export-client-tables` donne les
+> mêmes tables à ArchRust ; `archcore migrate-ep8` met les personnages existants à jour.
 
 ## Les épisodes d'ArchLord
 
@@ -32,7 +40,7 @@ Données du client (`data/client-ini`, client Archonia) et tables du serveur (`-
 |---|---|---|
 | Classe Swashbuckler | 5 | ✅ objets et classe connus d'ArchCore |
 | Race Dragon Scion et ses classes | 6 | ✅ modèles, zones « 드래곤시온 », compétences |
-| Barème d'expérience jusqu'au niveau 120, monstres jusqu'au niveau 120 | 7 | ✅ `level_exp` vient du client (le barème des tables du serveur s'arrête à 100) |
+| Barème d'expérience jusqu'au niveau 120, monstres jusqu'au niveau 120 | 7 | ✅ `level_exp` : niveaux 1 à 100 des tables du serveur, identiques à ceux du client ; 101 à 121 du client (le barème des tables du serveur s'arrête à 100) |
 | Zone Heaven's Hell (« 헤븐즈 헬의 옥좌 ») | 7 | ✅ client et serveur |
 | Cinq Shrines élémentaires (feu, eau, vent, foudre, poison), chacune découpée par race ; potions « Shrine » | 8 | ✅ client et serveur |
 | Battle Ground (deux terrains) | mise à jour Webzen 2012 | ✅ régions |
@@ -50,10 +58,10 @@ Contrôle du 25 octobre 2026, données du client Archonia et `Archonia.exe` :
 
 | Contenu | Source dans ArchCore | État |
 |---|---|---|
-| PNJ | `npc.ini` du client Archonia (567 PNJ, positions, fonctions, boutiques, groupes de quêtes) | ✅ copie du client |
-| Quêtes | `questtemplate.ini` du dossier `Ini` du client (53 quêtes) | ✅ comme le client : au démarrage, `Archonia.exe` ne lit que `IniQuestTemplate.ini`, quelle que soit la langue. La table de `ini_ko` (3 321 quêtes, celles du jeu d'origine) n'est pas chargée : les quêtes des groupes qui n'y figurent pas ne sont proposées ni par le client ni par ArchCore |
-| Caractéristiques des monstres | `CharacterDataTable.txt` du client Archonia | ✅ copie du client |
-| Niveau des monstres | `CharacterDataTable.txt` du client, à la place du niveau des tables du serveur | ✅ Archonia a relevé 70 monstres (gardes MoonElf au niveau 120, Amantorg au niveau 92…) : 1 148 points d'apparition corrigés |
+| PNJ | `npc.ini` fusionné : modèle, position, fonctions et boutiques des tables du serveur ; nom, quêtes, réparation et avis de recherche du client (557 PNJ) | ✅ valeurs EP8 (2 PNJ d'Archonia, 8 au modèle d'Archonia écartés ; 35 PNJ du client dont le numéro désigne un autre PNJ dans les tables du serveur gardés tels quels ; 56 PNJ propres aux tables du serveur non importés) |
+| Quêtes | `questtemplate.ini` du dossier `Ini` du client (53 quêtes, dont 39 retirées : elles citent des monstres, des objets ou des récompenses d'Archonia ; 14 gardées) | ✅ comme le client : au démarrage, `Archonia.exe` ne lit que `IniQuestTemplate.ini`, quelle que soit la langue. La table de `ini_ko` (3 321 quêtes, celles du jeu d'origine) n'est pas chargée : les quêtes des groupes qui n'y figurent pas ne sont proposées ni par le client ni par ArchCore |
+| Caractéristiques des monstres | `characterdatatable.txt` des tables du serveur, noms du client | ✅ valeurs EP8 (2 028 modèles ; les 428 d'Archonia écartés) |
+| Niveau des monstres | niveau du modèle dans `characterdatatable.txt` des tables du serveur | ✅ valeurs EP8 : les 70 monstres relevés par Archonia reviennent à leur niveau d'origine (1 118 points d'apparition prennent le niveau du modèle) |
 | Réapparition des boss | fenêtre des boss d'Archonia (`UIBoss.xml`) : délai tiré dans la plage annoncée | ✅ 16 points (Battlesquare 30 à 45 min, Asylum et Balor King 30 à 60 min, Chaotic Frontier 20 à 40 min, envahisseurs de Shinewood 75 à 90 min) |
 | Emplacement des monstres | tables du serveur d'origine (`spawndatatable.txt`, `spawninstancetable.txt`) | 🟡 les apparitions sont gérées par le serveur d'Archonia, absentes du client ; celles du jeu d'origine sont reprises |
 | Monstres propres à Archonia | — | ⛔ 13 boss de la fenêtre des boss (Heaven's Hell, The Shattered Firmament, Purgatory, nouveaux boss de Chaotic Frontier et d'Asylum), 23 cibles de quêtes et les 46 groupes de monstres des failles (`Rifts.xml`) n'ont pas d'emplacement connu. Le client ne le donne pas : ils ne sont pas placés plutôt qu'inventés |

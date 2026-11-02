@@ -98,7 +98,10 @@ pub fn on_move(ctx: &WorldCtx, st: &mut WorldState, sid: u32, packet: &Packet) {
     // course vers un portail.
     p.attack = None;
     p.skills.cast = None;
-    p.portal = None;
+    // Demande au portail en attente : annulée chez le client aussi (AGPMEVENTTELEPORT op 2).
+    if p.portal.take().is_some() {
+        p.send_raw(super::portal::canceled_packet(p.ch.id));
+    }
     let flags = packet.int(5).unwrap_or(0);
     let dest = packet.vec3(2).filter(Vec3::is_finite);
     let pos = given.unwrap_or_else(|| p.ch.pos());
@@ -136,6 +139,8 @@ pub fn on_move(ctx: &WorldCtx, st: &mut WorldState, sid: u32, packet: &Packet) {
     }
     // Rattachement à la dernière région sûre traversée.
     let at = dest.unwrap_or(pos);
+    // Section d'objets (ItemSection) de la destination : facteurs recalculés si elle change (equipment.rs).
+    super::equipment::on_region_change(ctx, st, sid, pos, at);
     if let Some(region) = ctx.map.region(at.x as f64, at.z as f64).filter(|r| ctx.regions.is_safe(*r)) {
         st.players.get_mut(&sid).unwrap().bound_region = region;
     }
@@ -288,6 +293,8 @@ pub(super) fn set_visible(st: &mut WorldState, viewer: u32, target: u32, visible
     let morph = super::morph::view_packet(t);
     // Titre actif : op 9 d'AgpmTitle (titles.rs), le paquet personnage n'en portant aucun.
     let title = super::titles::view_packet(t);
+    // Ses effets en cours (AGPMSKILL op 6).
+    let buffs = super::skills::all_buffs(st, target, false);
     let has_dest = t.dest.is_some();
     let mv = if has_dest { Some(move_fields(st, target)) } else { None };
     let v = st.players.get_mut(&viewer).unwrap();
@@ -310,6 +317,9 @@ pub(super) fn set_visible(st: &mut WorldState, viewer: u32, target: u32, visible
         }
         if let Some(t) = title {
             v.send_raw(t);
+        }
+        if let Some(b) = buffs {
+            v.send_raw(b);
         }
         if let Some(mv) = mv {
             v.send(&schema::OPT_CHAR_MOVE, mv);

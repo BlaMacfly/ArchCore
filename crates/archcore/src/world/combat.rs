@@ -9,6 +9,13 @@
 //! 5 combo, 6 attaque forcée. Le client lit le champ 3 avec le schéma complet AGPMCHAR_FACTORS : le
 //! sous-paquet 0 (« résultat ») porte les dégâts affichés, le sous-paquet 3 les PV restants de la cible.
 //!
+//! Toucher : rapport des niveaux et de la précision (AR) de l'assaillant à l'esquive (DR) de la cible, celle d'un monstre
+//! comprise (« DR » de CharacterDataTable, plus les « evade_rate » de ses effets). Dégâts physiques : jet de l'arme et de
+//! la caractéristique, moins la défense, puis moins la résistance physique de la cible en pour cent (« PhysicalAttackResist »
+//! des options et « physical_resistance » des compétences pour un joueur, 80 % au plus ; « Physical_Resistance » de
+//! CharacterDataTable pour un monstre, 100 % au plus), diminuée de l'« Ignore_PhysicalAttackResist » de l'assaillant
+//! (points ôtés). Règle choisie : les tables de l'épisode 8 portent la résistance, aucun binaire ne montre son calcul.
+//!
 //! Mort d'un monstre : statut d'action « mort », expérience au tueur, cadavre retiré au bout de 20 s, puis
 //! réapparition à sa place après le délai de son point d'apparition. Les monstres frappés ripostent
 //! (`ai.rs`). Mort d'un joueur : statut « mort » ; AGPMCHARACTER op 9 (résurrection au village) le ramène
@@ -88,6 +95,13 @@ pub struct Attacker {
     /// Défense physique et résistances élémentaires de la cible ignorées (pour cent).
     pub ignore_defense: f64,
     pub ignore_resist: f64,
+    /// Résistance physique et blocage des compétences de la cible ignorés (points de pour cent ôtés).
+    pub ignore_phys_resist: f64,
+    pub ignore_skill_block: f64,
+    /// Dégâts héroïques (min, max) et nature de l'assaillant : la résistance héroïque de la cible ne vaut que contre un
+    /// joueur (`heroic.rs`).
+    pub heroic: (f64, f64),
+    pub player: bool,
 }
 
 /// Côté défenseur.
@@ -99,17 +113,45 @@ pub struct Defender {
     /// Résistances élémentaires (pour cent, dans l'ordre des attributs 1 à 8), déjà plafonnées : 80 pour un
     /// joueur, 100 pour un monstre.
     pub resist: [i32; 8],
+    /// Résistance physique (pour cent des dégâts physiques ôtés, plafonnée comme les résistances) et chance de bloquer
+    /// une compétence (pour cent).
+    pub phys_resist: f64,
+    pub skill_block: f64,
+    /// Défense héroïque et résistances héroïques mêlée, distance, magie (pour cent, `heroic.rs`).
+    pub heroic_def: f64,
+    pub heroic_resist: [f64; 3],
 }
 
 impl Defender {
-    /// Un joueur : niveau, esquive (DR), défense physique, résistances (80 % au plus).
+    /// Un joueur : niveau, esquive (DR), défense physique, résistances (80 % au plus), résistance physique (facteur de
+    /// défense 0, 80 % au plus) et blocage des compétences (facteur 10) : options et effets compris.
     pub fn of_player(f: &crate::character::Factors) -> Self {
-        Defender { level: f.status[7], dr: f.point_max[9], defense: f.defense_point[0] as f64, resist: spirit_resist(f).map(|r| r.clamp(0, 80)) }
+        Defender {
+            level: f.status[7],
+            dr: f.point_max[9],
+            defense: f.defense_point[0] as f64,
+            resist: spirit_resist(f).map(|r| r.clamp(0, 80)),
+            phys_resist: f.defense_rate[0].clamp(0, 80) as f64,
+            skill_block: f.defense_rate[10].max(0) as f64,
+            heroic_def: super::heroic::defense_of(f).0,
+            heroic_resist: super::heroic::defense_of(f).1,
+        }
     }
 
-    /// Un monstre : défense physique sous ses effets, résistances de CharacterDataTable (100 % au plus).
+    /// Un monstre : esquive (« DR », plus les « evade_rate » de ses effets), défense physique sous ses effets, résistances
+    /// de CharacterDataTable (100 % au plus), résistance physique (« Physical_Resistance ») et blocage des compétences
+    /// (« Skill_Block »), effets compris.
     pub fn of_monster(level: i32, s: &super::monsters::MonsterStats, m: &super::effects::Mods) -> Self {
-        Defender { level, dr: 0, defense: super::effects::monster_defense(s.ac, m), resist: s.resist.map(|r| r.clamp(0, 100)) }
+        Defender {
+            level,
+            dr: (s.dr as f64 + m.evade).max(0.0) as i32,
+            defense: super::effects::monster_defense(s.ac, m),
+            resist: s.resist.map(|r| r.clamp(0, 100)),
+            phys_resist: (s.phys_resist as f64 + m.phys_resist).clamp(0.0, 100.0),
+            skill_block: (s.skill_block as f64 + m.skill_block).max(0.0),
+            heroic_def: (s.heroic_def as f64 + m.heroic_def).max(0.0),
+            heroic_resist: m.heroic_resist,
+        }
     }
 }
 
@@ -120,6 +162,8 @@ impl Attacker {
         Defender {
             defense: d.defense * keep(self.ignore_defense),
             resist: d.resist.map(|r| (r as f64 * keep(self.ignore_resist)).round() as i32),
+            phys_resist: super::effects::pierced(d.phys_resist, self.ignore_phys_resist),
+            skill_block: super::effects::pierced(d.skill_block, self.ignore_skill_block),
             ..*d
         }
     }
@@ -130,6 +174,8 @@ impl Attacker {
         Attacker {
             ignore_defense: m.ignore_defense,
             ignore_resist: m.ignore_resist,
+            ignore_phys_resist: m.ignore_phys_resist,
+            ignore_skill_block: m.ignore_skill_block,
             level: f.status[7],
             ar: f.point_max[8],
             class: f.ftype[2],
@@ -138,7 +184,16 @@ impl Attacker {
             int: f.status[2] as f64 / 100.0,
             min_damage: f.damage_min[0] as f64,
             max_damage: f.damage_max[0] as f64,
+            heroic: super::heroic::damage_of(f),
+            player: true,
         }
+    }
+
+    /// Un monstre (ou une invocation) : niveau, précision, dégâts physiques et héroïques sous ses effets.
+    pub fn of_monster(level: i32, s: &super::monsters::MonsterStats, m: &super::effects::Mods) -> Self {
+        let (min_damage, max_damage) = super::effects::monster_damage(s.min_damage, s.max_damage, m);
+        let heroic = ((s.heroic_min as f64 + m.heroic_dmg.0).max(0.0), (s.heroic_max as f64 + m.heroic_dmg.1).max(0.0));
+        Attacker { level, ar: s.ar, min_damage, max_damage, heroic, ..Default::default() }
     }
 
     /// Fourchette de dégâts physiques : arme, plus la caractéristique principale de la classe.
@@ -190,7 +245,48 @@ pub fn strike_at(rng: &mut impl Rng, chance: i32, a: &Attacker, d: &Defender) ->
     }
     let (lo, hi) = a.damage_range();
     let raw = if hi > lo { rng.gen_range(lo..=hi) } else { lo };
-    (result::SUCCESS, ((raw - d.defense).round() as i32).max(1))
+    (result::SUCCESS, physical_hit(raw - d.defense, d))
+}
+
+/// Dégâts physiques après la défense, diminués de la résistance physique de la cible ; au moins 1.
+pub fn physical_hit(after_defense: f64, d: &Defender) -> i32 {
+    ((after_defense * (100.0 - d.phys_resist.clamp(0.0, 100.0)) / 100.0).round() as i32).max(1)
+}
+
+/// Un coup bloqué ou esquivé par un joueur que frappe un autre joueur (combat entre joueurs, de guildes) : sa chance
+/// d'esquive (options et effets, moins l'« Ignore_EvadeRate » / « Ignore_DodgeRate » de l'assaillant) puis de blocage
+/// (compétences, « BlockRate » des options, moins l'« Ignore_BlockRate »), 80 % au plus chacune comme contre un monstre.
+pub fn player_guard(rng: &mut impl Rng, target: &super::effects::Mods, block_factor: i32, attacker: &super::effects::Mods) -> Option<i64> {
+    let dodge = super::effects::pierced(target.dodge, attacker.ignore_dodge).min(80.0);
+    let block = super::effects::pierced(target.block + block_factor as f64, attacker.ignore_block).min(80.0);
+    if dodge > 0.0 && rng.gen_range(0.0..100.0) < dodge {
+        return Some(result::EVADE);
+    }
+    (block > 0.0 && rng.gen_range(0.0..100.0) < block).then_some(result::BLOCK)
+}
+
+/// Coup normal d'un joueur sur un autre (combat entre joueurs, de guildes) : toucher, esquive et blocage de la cible
+/// (`player_guard`), critique (résistance de la cible moins l'« Ignore_CriticalDefenseRate » de l'assaillant), part
+/// élémentaire. Rend (résultat, dégâts par nature).
+pub fn versus(rng: &mut impl Rng, p: &Player, t: &Player) -> (i64, Vec<(usize, i32)>) {
+    let attacker = Attacker::of_player(p);
+    let defender = attacker.pierce(&Defender::of_player(&t.factors));
+    let (mine, theirs) = (super::effects::of_player(p), super::effects::of_player(t));
+    let (outcome, damage) = strike(rng, &attacker, &defender);
+    if outcome == result::SUCCESS {
+        if let Some(r) = player_guard(rng, &theirs, t.factors.defense_rate[9], &mine) {
+            return (r, Vec::new());
+        }
+    }
+    let (outcome, damage) = super::effects::critical(rng, &mine, theirs.crit_resist - mine.ignore_crit_resist.max(0.0), outcome, damage);
+    let mut parts = vec![(RESULT_PHYSICAL, damage)];
+    if damage > 0 {
+        let chance = spirit_chance(true, attacker.level, defender.level);
+        parts.extend(spirit_hits(rng, chance, &spirit_ranges(&p.factors), &defender.resist, true));
+        // Part héroïque (heroic.rs), selon la classe de l'assaillant.
+        super::heroic::push(&mut parts, super::heroic::hit(rng, &attacker, &defender));
+    }
+    (outcome, parts)
 }
 
 /// Champ 3 du paquet d'action : facteurs complets avec le résultat (PV, PM, dégâts affichés en négatif)
@@ -375,6 +471,10 @@ pub async fn step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) -> anyhow::
     }
     // Invocations : fin, suivi du maître, combat (expérience et butin à leur maître).
     super::summons::step(ctx, st, now).await?;
+    // Suiveurs, invocations et renforts des monstres ; zones au sol ; objets à durée.
+    super::ai_kin::step(ctx, st, now);
+    super::skill_extra::fields_step(ctx, st, now).await?;
+    super::lifetime::step(ctx, st, now).await?;
     ai::patrol_step(ctx, st, now);
     ai::preemptive_step(st, now);
     super::pvp::step(ctx, st, now);
@@ -383,6 +483,8 @@ pub async fn step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) -> anyhow::
     super::recovery::regen_step(st, now);
     super::skills::step(ctx, st, now).await?;
     super::portal::step(st);
+    // Zone d'effet et bonus des groupes (op 2).
+    super::party::step(ctx, st, now);
     super::guild::step(ctx, st, now).await?;
     // Combats de Shrine, compteur de dégâts des boss, horaire du Battleground.
     super::shrine::step(ctx, st, now).await?;
@@ -427,12 +529,28 @@ async fn attack_step(ctx: &WorldCtx, st: &mut WorldState, sid: u32, now: Instant
     if !p.in_game || p.dead || now < attack.ready_at {
         return Ok(());
     }
-    if super::effects::active_status(&p.skills.effects, now) & super::effects::status::NO_ATTACK != 0 {
+    // Attaques interdites, peur, désarmement (status_rules.rs).
+    if super::effects::active_status(&p.skills.effects, now) & (super::effects::status::NO_ATTACK | super::effects::status::DISARMAMENT) != 0 {
         return Ok(());
     }
+    // Munition de l'arme (arc, arbalète : ammo.rs), consommée à chaque coup porté.
+    let ammo = super::ammo::needed(ctx, p).map(|(tid, _)| tid);
     let Some(m) = st.monsters.get(attack.target).filter(|m| m.is_alive()).cloned() else {
-        if st.by_cid.contains_key(&attack.target) {
-            return super::pvp::attack_step(ctx, st, sid, attack.target, attack.forced, now).await;
+        if let Some(tsid) = st.by_cid.get(&attack.target).copied() {
+            // Joueur invisible sans détection (skill_extra.rs) : plus de cible.
+            if super::skill_extra::hidden_from(ctx, st, sid, tsid) {
+                st.players.get_mut(&sid).unwrap().attack = None;
+                return Ok(());
+            }
+            if super::ammo::refuse_attack(ctx, st, sid, attack.target) {
+                return Ok(());
+            }
+            super::pvp::attack_step(ctx, st, sid, attack.target, attack.forced, now).await?;
+            // Un coup est parti à cet instant : une munition de moins.
+            if let Some(tid) = ammo.filter(|_| st.players.get(&sid).is_some_and(|p| p.hits.last.is_some_and(|(at, _)| at == now))) {
+                super::ammo::consume(ctx, st, sid, tid, 1).await?;
+            }
+            return Ok(());
         }
         st.players.get_mut(&sid).unwrap().attack = None;
         return Ok(());
@@ -447,18 +565,33 @@ async fn attack_step(ctx: &WorldCtx, st: &mut WorldState, sid: u32, now: Instant
         return Ok(());
     }
 
+    if super::ammo::refuse_attack(ctx, st, sid, m.cid) {
+        return Ok(());
+    }
+    let p = &st.players[&sid];
     let attacker = Attacker::of_player(p);
     let defender = attacker.pierce(&Defender::of_monster(m.level as i32, &stats, &st.monsters.mods(m.cid)));
+    let target_status = st.monsters.status(m.cid, now);
     let (outcome, parts) = {
         let mut rng = rand::thread_rng();
         let (outcome, damage) = strike(&mut rng, &attacker, &defender);
-        let (outcome, damage) = super::effects::critical(&mut rng, &super::effects::of_player(p), st.monsters.mods(m.cid).crit_resist, outcome, damage);
+        let mine = super::effects::of_player(p);
+        let crit_resist = st.monsters.mods(m.cid).crit_resist - mine.ignore_crit_resist.max(0.0);
+        let (outcome, damage) = super::effects::critical(&mut rng, &mine, crit_resist, outcome, damage);
         let mut parts = vec![(RESULT_PHYSICAL, damage)];
         if damage > 0 {
             let chance = spirit_chance(true, attacker.level, m.level as i32);
             parts.extend(spirit_hits(&mut rng, chance, &spirit_ranges(&p.factors), &defender.resist, false));
+            super::heroic::push(&mut parts, super::heroic::hit(&mut rng, &attacker, &defender));
         }
-        (outcome, parts)
+        // Invincibilité élémentaire de la cible (status_rules.rs).
+        super::status_rules::shield(target_status, &mut parts);
+        // Death Strike (skill_extra.rs) : le monstre ordinaire touché tombe d'un coup, résultat 13.
+        if damage > 0 && super::skill_extra::death_strike(ctx, st, p, &m, &mut rng) {
+            (super::skill_extra::RESULT_DEATH_STRIKE, vec![(RESULT_PHYSICAL, m.hp.max(1))])
+        } else {
+            (outcome, parts)
+        }
     };
     let damage: i32 = parts.iter().map(|(_, d)| d).sum();
     let speed = p.factors.attack[2].max(1) as u64;
@@ -484,6 +617,13 @@ async fn attack_step(ctx: &WorldCtx, st: &mut WorldState, sid: u32, now: Instant
         super::repair::hit_dealt(st, sid);
     }
     debug!("[combat] {name} → {} : résultat {outcome}, {damage} dégât(s), {hp}/{} PV", m.name, m.max_hp);
+    if let Some(tid) = ammo {
+        super::ammo::consume(ctx, st, sid, tid, 1).await?;
+    }
+    if damage > 0 {
+        // Effets d'un seul coup (Lens Stone) consommés.
+        super::skill_extra::spend_one_hit(ctx, st, sid);
+    }
     if hp == 0 {
         kill(ctx, st, sid, m.cid, now).await?;
     } else if damage > 0 {
@@ -528,6 +668,9 @@ pub(super) async fn kill(ctx: &WorldCtx, st: &mut WorldState, killer_sid: u32, c
         super::summons::died(st, cid);
         return Ok(());
     }
+    // Chef : ses invocations, suiveurs et renfort disparaissent ; créature appelée : retirée de sa bande (ai_kin.rs).
+    super::ai_kin::on_death(st, cid);
+    st.extra.provoked.remove(&cid);
     // Dégâts de chaque agresseur, pour la répartition de l'expérience d'un groupe ; ceux d'une invocation comptent pour
     // son maître.
     let damage = super::summons::damage_by_owner(st, cid);
@@ -656,6 +799,11 @@ fn life_step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) {
         })
         .collect();
     for cid in due {
+        // Créature appelée par un chef (ai_kin.rs) : retirée au départ de son cadavre, sans réapparition.
+        if matches!(st.monsters.get(cid).map(|m| m.life), Some(Life::Dead { .. })) && super::ai_kin::remove_corpse(st, cid) {
+            st.harvests.remove(&cid);
+            continue;
+        }
         let Some(m) = st.monsters.get_mut(cid) else {
             st.monsters.pending.remove(&cid);
             continue;
@@ -737,7 +885,10 @@ pub fn divert(st: &mut WorldState, sid: u32, parts: &[(usize, i32)]) -> Vec<(usi
 /// Le joueur `sid` reçoit le coup d'un monstre : part des dégâts prise par un protecteur (`divert`), PV,
 /// diffusion (à lui et à ceux qui le voient), mort.
 pub fn hit_player(st: &mut WorldState, sid: u32, monster: u32, outcome: i64, parts: &[(usize, i32)]) {
-    let parts = &divert(st, sid, parts);
+    // Invincibilité élémentaire (status_rules.rs) : parts élémentaires retirées.
+    let mut parts = parts.to_vec();
+    super::status_rules::shield(st.players.get(&sid).map(|p| p.skills.status_sent).unwrap_or(0), &mut parts);
+    let parts = &divert(st, sid, &parts);
     let damage: i32 = parts.iter().map(|(_, d)| d).sum();
     // Usure : l'armure de la victime, l'arme de l'attaquant quand c'est un joueur (combat entre joueurs, de guildes).
     if damage > 0 {
@@ -797,6 +948,10 @@ pub fn player_death(st: &mut WorldState, sid: u32) {
     let plain = status_packet(p, ACTION_STATUS_DEAD);
     info!("[combat] {} meurt", p.ch.name);
     send_around(st, sid, &plain);
+    // Ses inimitiés tombent au prochain tour, après le bilan d'un meurtre (pvp.rs : op 4, op 6).
+    if let Some(p) = st.players.get_mut(&sid) {
+        p.pvp.reset_pending = true;
+    }
     // Les effets des compétences tombent à la mort (pas les passives) ; facteurs recalculés à la résurrection.
     super::skills::clear_player_effects(st, sid);
     // Ses invocations et son familier disparaissent (pas les créatures fixes, qui vont au bout de leur durée).
@@ -810,13 +965,20 @@ pub async fn resurrect(ctx: &WorldCtx, st: &mut WorldState, sid: u32) -> anyhow:
     resurrect_at(ctx, st, sid, None).await
 }
 
-/// Résurrection en `at` (point de siège : siege/war.rs), sinon selon la zone ou au village.
+/// Résurrection en `at` (point de siège : siege/war.rs), sinon selon la zone, au point propre de la région
+/// (ResurrectionX/Z de RegionTemplate.ini) ou au village.
 pub async fn resurrect_at(ctx: &WorldCtx, st: &mut WorldState, sid: u32, at: Option<Vec3>) -> anyhow::Result<()> {
     if !st.players.get(&sid).is_some_and(|p| p.dead) {
         return Ok(());
     }
-    // Battleground : fort de sa race ; Shrine en combat : zone de sa race (battlesquare.rs) ; sinon le village.
-    let (x, y, z) = match at.or_else(|| super::battlesquare::resurrection_point(ctx, st, sid)) {
+    // Battleground : fort de sa race ; Shrine en combat : zone de sa race (battlesquare.rs) ; point propre de la région où
+    // il est mort (ResurrectionX/Z, regions.rs) ; sinon le village.
+    let own = || {
+        let p = &st.players[&sid];
+        let (x, z) = ctx.regions.own_point(ctx.map.region(p.ch.pos_x, p.ch.pos_z))?;
+        Some(Vec3::new(x as f32, ctx.map.height(x, z).unwrap_or(p.ch.pos_y as f32), z as f32))
+    };
+    let (x, y, z) = match at.or_else(|| super::battlesquare::resurrection_point(ctx, st, sid)).or_else(own) {
         Some(at) => (at.x as f64, Some(at.y as f64), at.z as f64),
         None => super::travel::home_village(ctx, &st.players[&sid]),
     };
@@ -913,7 +1075,7 @@ mod tests {
     fn defense_ignoree() {
         let mut resist = [0; 8];
         resist[0] = 50;
-        let boar = Defender { level: 5, dr: 0, defense: 20.0, resist };
+        let boar = Defender { level: 5, dr: 0, defense: 20.0, resist, ..Default::default() };
         // Lethal Attack niveau 1 : 5 % de la défense ; Stunner niveau 1 : 10 % des résistances.
         let a = Attacker { ignore_defense: 5.0, ignore_resist: 10.0, ..warrior() };
         let seen = a.pierce(&boar);
@@ -936,6 +1098,49 @@ mod tests {
         assert_eq!(monster_hit_chance(&worm, &player), 89, "1/2 × 21/34 × 290");
         assert_eq!(monster_hit_chance(&Attacker { ar: 0, ..worm }, &player), 30, "plancher");
         assert_eq!(monster_hit_chance(&Attacker { ar: 0, ..worm }, &Defender { level: 11, ..player }), 55, "85 - 3 × 10");
+    }
+
+    #[test]
+    fn esquive_et_resistance_physique_des_monstres() {
+        // Monstre : DR de CharacterDataTable (et les « evade_rate » de ses effets), résistance physique, blocage des
+        // compétences.
+        let stats = super::super::monsters::MonsterStats { ac: 10, dr: 237, phys_resist: 80, skill_block: 5, ..Default::default() };
+        let d = Defender::of_monster(50, &stats, &super::super::effects::Mods { evade: -37.0, ..Default::default() });
+        assert_eq!((d.dr, d.phys_resist, d.skill_block), (200, 80.0, 5.0));
+        let a = Attacker { level: 50, ar: 300, ..warrior() };
+        assert_eq!(hit_chance(&a, &d), 87, "1/2 × 300/500 × 290");
+        assert_eq!(hit_chance(&a, &Defender { dr: 0, ..d }), 95, "sans esquive : plafond");
+        // 100 après la défense, 80 % de résistance : 20 ; l'assaillant en ignore 30 points : 50.
+        assert_eq!(physical_hit(100.0, &d), 20);
+        let piercing = Attacker { ignore_phys_resist: 30.0, ignore_skill_block: 10.0, ..a };
+        let seen = piercing.pierce(&d);
+        assert_eq!((physical_hit(100.0, &seen), seen.skill_block), (50, 0.0));
+        assert_eq!(physical_hit(0.4, &d), 1, "au moins 1");
+        // Joueur : facteurs de défense 0 (résistance, 80 % au plus) et 10 (blocage des compétences).
+        let mut f = crate::character::Factors::default();
+        f.defense_rate[0] = 95;
+        f.defense_rate[10] = 12;
+        let p = Defender::of_player(&f);
+        assert_eq!((p.phys_resist, p.skill_block), (80.0, 12.0));
+    }
+
+    #[test]
+    fn garde_contre_un_joueur() {
+        let mut rng = rand::rngs::StdRng::seed_from_u64(21);
+        let none = super::super::effects::Mods::default();
+        assert_eq!(player_guard(&mut rng, &none, 0, &none), None);
+        // 100 % d'esquive, plafonnés à 80 ; l'assaillant en ignore 30 : 50 %.
+        let agile = super::super::effects::Mods { dodge: 100.0, ..Default::default() };
+        let n = (0..10_000).filter(|_| player_guard(&mut rng, &agile, 0, &none) == Some(result::EVADE)).count();
+        assert!((7600..8400).contains(&n), "{n}");
+        let sharp = super::super::effects::Mods { ignore_dodge: 50.0, ..Default::default() };
+        let n = (0..10_000).filter(|_| player_guard(&mut rng, &agile, 0, &sharp) == Some(result::EVADE)).count();
+        assert!((4700..5300).contains(&n), "{n}");
+        // Blocage des options (facteur 9) : 20 %, moins 20 points ignorés : jamais.
+        let n = (0..10_000).filter(|_| player_guard(&mut rng, &none, 20, &none) == Some(result::BLOCK)).count();
+        assert!((1700..2300).contains(&n), "{n}");
+        let breaker = super::super::effects::Mods { ignore_block: 20.0, ..Default::default() };
+        assert!((0..1000).all(|_| player_guard(&mut rng, &none, 20, &breaker).is_none()));
     }
 
     #[test]

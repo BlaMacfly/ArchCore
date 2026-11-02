@@ -187,6 +187,8 @@ async fn mutation(cfg: &crate::config::Config, user: &str, pass: &str, char_name
     db.characters.exec("INSERT INTO character_skills (character_id, skill_tid, level) VALUES (?, ?, 1) ON DUPLICATE KEY UPDATE level = 1", (id, MUTATION)).await?;
     tokio::time::sleep(Duration::from_millis(500)).await;
     let mut w = enter_world(cfg, user, pass, char_name, "").await?;
+    // Mutation exige une arme (requirement.rs).
+    super::hold_weapon(&mut w).await?;
     let (me, level) = (w.cid as i64, w.level.max(1));
     let skill = w.skills.iter().find(|s| s.1 == MUTATION).map(|s| s.0).ok_or_else(|| anyhow::anyhow!("Mutation absente"))?;
     gm(&mut w, "/level 60").await?;

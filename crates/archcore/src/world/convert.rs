@@ -14,7 +14,8 @@
 //!     8 Socket Slot Success  n-ième socket : chance (arme, armure, autre)
 //!     9 Socket Slot Fail     n-ième socket, échec : sans perte, sockets vidés, remis à zéro, détruit
 //!                            (arme, armure, autre)
-//!   Runes (itemruneattributetable.txt) : parties admises, « Success_Rate » (ou « AlwaysSuccess »),
+//!   Runes (itemruneattributetable.txt, table de l'épisode 8) : parties admises, « Success_Rate » (« AlwaysSuccess »,
+//!        propre à Archonia, n'est plus lue),
 //!        « Mount_Restriction_Level » (niveau d'objet minimal), « ANTI Number » (deux runes du même numéro ne
 //!        vont pas ensemble). Une rune sertie apporte à l'objet les options de son « OptionTID ». Une rune à
 //!        compétence (« Skill_Name », « Skill_Level », « Skill_Rate » : pierres de prière de glace, de foudre, de
@@ -108,7 +109,6 @@ pub struct Rune {
     /// Parties admises, bits dans l'ordre des options (`options::part_slot`).
     pub parts: u16,
     pub success: u32,
-    pub always: bool,
     /// Niveau d'objet minimal (« Mount_Restriction_Level »).
     pub min_level: i64,
     /// Compétence que donne la rune sertie (« Skill_Name », « Skill_Level », « Skill_Rate » : chance qu'elle parte
@@ -129,7 +129,7 @@ pub fn parse_runes(text: &str) -> std::collections::HashMap<u32, Rune> {
         let parts = PARTS.iter().enumerate().filter(|(_, p)| !at(&r, p).is_empty()).fold(0u16, |m, (i, _)| m | 1 << i);
         let skill_name = at(&r, "Skill_Name");
         let skill = (!skill_name.is_empty()).then(|| (skill_name, n("Skill_Level").max(1) as u32, at(&r, "Skill_Rate").parse::<f64>().unwrap_or(0.0)));
-        out.insert(tid, Rune { anti: n("ANTI Number"), parts, success: n("Success_Rate").max(0) as u32, always: n("AlwaysSuccess") != 0, min_level: n("Mount_Restriction_Level"), skill });
+        out.insert(tid, Rune { anti: n("ANTI Number"), parts, success: n("Success_Rate").max(0) as u32, min_level: n("Mount_Restriction_Level"), skill });
     }
     out
 }
@@ -454,11 +454,11 @@ pub fn check_rune<'a>(t: &'a ConvertTable, e: &EquipData, c: &ItemConvert, rune_
     Ok(rune)
 }
 
-/// Tirage d'un sertissage de rune : réussite selon « Success_Rate » (toujours avec « AlwaysSuccess ») ;
+/// Tirage d'un sertissage de rune : réussite selon « Success_Rate » ;
 /// sinon un second tirage dans « Socket Slot Fail » à l'indice sertissages + 1 (sans perte, sertissages
 /// perdus, objet remis à zéro, détruit).
 pub fn rune_roll(t: &ConvertTable, rune: &Rune, cat: Category, filled: usize, mut roll: impl FnMut() -> u32) -> i64 {
-    if rune.always || roll() < rune.success {
+    if roll() < rune.success {
         return rune_result::SUCCESS;
     }
     let f = t.socket_fail.get(filled + 1).map(|r| r[cat as usize]).unwrap_or_default();
@@ -927,6 +927,25 @@ mod tests {
     }
 
     #[test]
+    fn table_ep8_lue_par_position() {
+        // En-têtes renommés de la table EP8 (« Rank », « Weapon_Damage », « Remain »…), libellés coréens, nombres suivis
+        // d'une espace et colonnes vides en plus : la lecture par position n'en dépend pas.
+        let ep8 = "Rank\tWeapon_Damage\tArmor_Defense\tRank_Name\tSpirit1\tSpirit2\tSpirit3\tSpirit4\tSpirit5\t\t\r\n\
+            1 \t2 \t2 \t\tO\t\t\t\t\t\t\r\n2 \t2 \t2 \t\tO\t\t\t\t\t\t\r\n3 \t3 \t2 \tL\tO\tO\t\t\t\t\t\r\n\t\t\t\t\t\t\r\n\
+            Success\t1 \t2 \t3 \t\t\r\n3 \t100 \t90 \t50 \t\t\r\n\t\t\t\r\n\
+            Remain\t1 \t2 \t3 \r\n3 \t100 \t100 \t40 \r\n\t\t\t\r\n\
+            Reset\t1 \t2 \t3 \r\n3 \t0 \t0 \t7 \r\n\t\t\t\r\n\
+            Destroy\t1 \t2 \t3 \r\n3 \t0 \t0 \t3 \r\n\t\t\t\r\n\
+            Elemental_Stone_Level\tWeapon_Damage\tWeapon_Sucess_Rate\tArmor_Resistance(%)\tArmor_Sucess_Rate\r\n1\t3\t100\t7\t100\r\n2\t4\t70\t9\t70\r\n\t\t\t\t\r\n\
+            정령석같은속성추가시\t무기 보너스\t갑옷 보너스(%)\r\n\t3\t3\r\n\t\t\r\n\
+            기원석 추가장착 판별\t무기 확률\t방어구 확률\t기타확률\r\n1\t100\t100\t100\r\n2\t90\t90\t90\r\n\t\t\t\r\n\
+            Socket_Num\tRemain(Weapon)\tReset_Sockets(Weapon)\tReset(Weapon)\tDestroy(Weapon)\r\n2\t95\t5\t0\t0\t95\t5\t0\t0\t50\t50\t0\t0\r\n";
+        let (a, b) = (ConvertTable::parse(ep8), ConvertTable::parse(TABLE));
+        assert_eq!((a.levels, a.success, a.unchanged, a.reset, a.destroy, a.stones, a.stone_bonus), (b.levels, b.success, b.unchanged, b.reset, b.destroy, b.stones, b.stone_bonus));
+        assert_eq!((a.socket_success, a.socket_fail), (b.socket_success, b.socket_fail));
+    }
+
+    #[test]
     fn runes() {
         let mut t = ConvertTable::parse(TABLE);
         t.runes = parse_runes("Item_Name\tTID\tANTI Number\tUpper_Body\tWeapon\tSuccess_Rate\tAlwaysSuccess\tMount_Restriction_Level\r\n\
@@ -934,7 +953,7 @@ mod tests {
             Anti A\t470\t7\t\tO\t60\t\t1\r\n\
             Anti B\t471\t7\t\tO\t60\t1\t1\r\n\
             Body\t480\t\tO\t\t90\t\t50\r\n");
-        assert_eq!(t.runes[&471], Rune { anti: 7, parts: 0b100, success: 60, always: true, min_level: 1, skill: None });
+        assert_eq!(t.runes[&471], Rune { anti: 7, parts: 0b100, success: 60, min_level: 1, skill: None }, "« AlwaysSuccess » (Archonia) n'est pas lue");
         let open = ItemConvert { sockets: 3, ..Default::default() };
         let sword = EquipData { level: 10, part: 10, ..weapon(3) };
         assert!(check_rune(&t, &sword, &open, 463).is_ok());
@@ -945,7 +964,7 @@ mod tests {
         assert_eq!(check_rune(&t, &sword, &ItemConvert { sockets: 3, filled: vec![470], ..Default::default() }, 471).err(), Some(rune_result::ALREADY_ANTI));
         assert_eq!(check_rune(&t, &sword, &ItemConvert { sockets: 1, filled: vec![463], ..Default::default() }, 463).err(), Some(rune_result::FULL));
         let seq = |v: Vec<u32>| { let mut it = v.into_iter(); move || it.next().unwrap_or(99) };
-        assert_eq!(rune_roll(&t, &t.runes[&471], Category::Weapon, 0, seq(vec![99])), rune_result::SUCCESS, "toujours");
+        assert_ne!(rune_roll(&t, &t.runes[&471], Category::Weapon, 0, seq(vec![99, 0])), rune_result::SUCCESS, "Success_Rate seul");
         assert_eq!(rune_roll(&t, &t.runes[&470], Category::Weapon, 1, seq(vec![59])), rune_result::SUCCESS);
         // Deuxième sertissage raté sur un « autre » : 50 % sans perte, 50 % sertissages perdus.
         assert_eq!(rune_roll(&t, &t.runes[&470], Category::Other, 1, seq(vec![60, 49])), rune_result::KEEP);

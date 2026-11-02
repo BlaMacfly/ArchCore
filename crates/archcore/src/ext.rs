@@ -1,11 +1,14 @@
 //! Extensions ArchRust ↔ ArchCore : négociation de capacités (HELLO / HELLO_ACK) et paquets communs aux
-//! deux serveurs (version 1.1 de la spécification).
+//! deux serveurs (version 1.2 de la spécification).
 //!
 //! Le client ArchRust envoie un paquet 0xAC `HELLO` juste après la poignée de main chiffrée, sur chaque
 //! connexion (login, monde). Le serveur répond `HELLO_ACK` avec l'intersection des capacités demandées et
 //! de celles qu'il gère, et ses limites. Une connexion sans `HELLO` (client d'origine) ne reçoit jamais de
 //! paquet 0xAC. Avec la capacité `language/1`, le client peut joindre sa langue au `HELLO` (champ 16) et la
 //! changer ensuite (`SET_LANGUAGE`) ; le serveur répond la langue qu'il applique et celles qu'il propose.
+//! Avec la capacité `client-tables/1` (v1.2), le `HELLO_ACK` porte au champ 21 l'empreinte des tables de valeurs
+//! exportées pour le client (`tables.toml` du dossier `Client.TablesDir`, voir `tools/export.rs`) ; sans dossier ni
+//! empreinte valable, le champ manque.
 //! Spécification complète : page « Extensions ArchRust » du wiki.
 
 use archcore_net::ext_text::normalize_language;
@@ -15,10 +18,10 @@ use std::collections::BTreeMap;
 
 /// Version du protocole d'extension gérée par ce serveur.
 pub const VERSION_MAJOR: i64 = 1;
-pub const VERSION_MINOR: i64 = 1;
+pub const VERSION_MINOR: i64 = 2;
 
 /// Capacités gérées par ce serveur, avec leur version.
-pub const SUPPORTED: &[(&str, u32)] = &[("addon-msg", 1), ("language", 1)];
+pub const SUPPORTED: &[(&str, u32)] = &[("addon-msg", 1), ("client-tables", 1), ("language", 1)];
 
 /// Limites du canal de messages d'AddOn (version 1).
 pub const MAX_PAYLOAD: usize = 255;
@@ -27,6 +30,19 @@ pub const RATE_PER_SEC: f64 = 10.0;
 
 pub const ADDON_MSG: &str = "addon-msg";
 pub const LANGUAGE: &str = "language";
+pub const CLIENT_TABLES: &str = "client-tables";
+
+/// Empreinte des tables exportées pour le client, lue au démarrage (`set_tables_fingerprint`).
+static TABLES_FINGERPRINT: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+
+/// Installe l'empreinte annoncée par `HELLO_ACK` (champ 21) ; `None` : rien d'annoncé.
+pub fn set_tables_fingerprint(fingerprint: Option<String>) {
+    let _ = TABLES_FINGERPRINT.set(fingerprint);
+}
+
+pub fn tables_fingerprint() -> Option<&'static str> {
+    TABLES_FINGERPRINT.get().and_then(|f| f.as_deref())
+}
 
 /// Accord conclu sur une connexion.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -99,6 +115,9 @@ pub fn hello(packet: &Packet) -> (Agreement, Fields) {
         let summary = crate::locale::summary();
         ack = ack.with(16, summary.pick(language.as_deref()).into_bytes()).with(17, summary.available_list().into_bytes());
     }
+    if let Some(f) = tables_fingerprint().filter(|_| granted.contains_key(CLIENT_TABLES)) {
+        ack = ack.with(21, f.as_bytes().to_vec());
+    }
     (Agreement { software, capabilities: granted, language }, ack)
 }
 
@@ -158,7 +177,22 @@ mod tests {
         assert_eq!(ack.text(5).as_deref(), Some("addon-msg/1"));
         assert_eq!((ack.int(6), ack.int(7), ack.int(8)), (Some(255), Some(20), Some(10)));
         // Sans la capacité « language », pas de champs 16 et 17 (client 1.0 : champs réservés absents).
-        assert!(ack.get(16).is_none() && ack.get(17).is_none());
+        assert!(ack.get(16).is_none() && ack.get(17).is_none() && ack.get(21).is_none());
+    }
+
+    #[test]
+    fn empreinte_des_tables() {
+        let s = &schema::ARCHCORE_EXT;
+        set_tables_fingerprint(Some("sha256:0f1e".into()));
+        let hello_pkt = build_packet(s, &Fields::new(s).with(0, ext_op::HELLO).with(2, 1).with(3, 2).with(4, b"ArchRust 0.5.0".to_vec()).with(5, b"client-tables/1".to_vec()));
+        let (agreement, ack) = hello(&decode_packet(s, &hello_pkt).unwrap());
+        assert!(agreement.has(CLIENT_TABLES));
+        let ack = decode_packet(s, &build_packet(s, &ack)).unwrap();
+        assert_eq!((ack.text(5).as_deref(), ack.text(21).as_deref()), (Some("client-tables/1"), Some("sha256:0f1e")));
+        // Capacité non demandée : pas de champ 21.
+        let other = build_packet(s, &Fields::new(s).with(0, ext_op::HELLO).with(2, 1).with(5, b"addon-msg/1".to_vec()));
+        let ack = decode_packet(s, &build_packet(s, &hello(&decode_packet(s, &other).unwrap()).1)).unwrap();
+        assert!(ack.get(21).is_none());
     }
 
     #[test]

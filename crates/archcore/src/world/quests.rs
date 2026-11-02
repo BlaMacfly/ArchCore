@@ -12,10 +12,18 @@
 //!     client → op 6 abandonner (champ 4) ← op 7 (champ 4, champ 6)
 //!     ← op 10 progression : mini QUEST_INFO (TID, monstres A et B tués, objectifs remplis) ; le client
 //!       affiche « nom n/total »
+//!     client → op 14 suivi à l'écran (champ 3 = QUEST_INFO { TID, 0, 0, 0, drapeau }, champ 4 = TID) : drapeau 1 à la
+//!            prise d'une quête et par la case « suivre », 0 au retrait ; aucune réponse. 10 quêtes suivies au plus
+//!            (le client refuse lui-même la onzième : « You can register up to 10 quests »)
+//!     ← op 8 (champ 1 CID, champ 4 TID) à la place de l'op 3 refusée quand les récompenses ne tiennent pas dans
+//!       l'inventaire (sysstr 447) ; ← op 9 (mêmes champs) à la place de l'op 1 refusée quand l'objet remis au départ
+//!       (`Quest_TransItemTid`) ne tient pas (sysstr 440)
 //!     ← à l'entrée en jeu : op 5 (drapeaux des quêtes terminées, champs 8 à 10 : 3 × 0x800 octets, bit
 //!       TID % 16 384 du bloc TID / 16 384, octet bit / 8, bit de poids faible d'abord), puis op 4 (mini
-//!       QUEST_INFO) pour chaque quête en cours
+//!       QUEST_INFO) pour chaque quête en cours ; son 5ᵉ entier est le drapeau du suivi (le 4ᵉ est ignoré par l'op 4)
 //! ```
+//! Les ops 11 (objet de quête ramassé : colonnes `ObjectItem*` de questtemplate.ini, vides dans les données), 12 et 13
+//! (aucun abonné dans le client) ne sont pas gérées.
 //! Une quête se prend auprès d'un PNJ dont le groupe (`QuestGroupID` de npc.ini → questgroup.ini) la
 //! propose, ou depuis le journal si elle est « personnelle » (`Self_Quest`) ; elle se rend de même.
 
@@ -32,6 +40,8 @@ use std::collections::{BTreeSet, HashMap};
 
 /// Quêtes en cours au plus (taille du journal du client).
 pub const MAX_ACTIVE: usize = 60;
+/// Quêtes suivies à l'écran au plus (« JournalMaxCount » du client).
+pub const MAX_JOURNAL: usize = 10;
 /// Taille d'un bloc de drapeaux et TID couverts par bloc.
 const FLAG_BLOCK: usize = 0x800;
 const TIDS_PER_BLOCK: u32 = 0x4000;
@@ -45,7 +55,13 @@ pub mod op {
     pub const FLAGS: i64 = 5;
     pub const CANCEL: i64 = 6;
     pub const CANCEL_RESULT: i64 = 7;
+    /// Récompenses qui ne tiennent pas dans l'inventaire : la quête n'est pas terminée.
+    pub const COMPLETE_INVENTORY_FULL: i64 = 8;
+    /// Objet remis au départ qui ne tient pas dans l'inventaire : la quête n'est pas prise.
+    pub const ACCEPT_INVENTORY_FULL: i64 = 9;
     pub const PROGRESS: i64 = 10;
+    /// Suivi à l'écran (client → serveur).
+    pub const JOURNAL: i64 = 14;
     pub const COMPLETE_SELECT: i64 = 15;
 }
 
@@ -76,6 +92,8 @@ pub struct QuestTemplate {
     pub previous: Option<u32>,
     pub self_quest: bool,
     pub complete_level: i32,
+    /// Objet remis à la prise de la quête (`Quest_TransItemTid`, `Quest_TransItemCount` ; vide dans les données).
+    pub trans_item: Option<(u32, i64)>,
     /// Objets à rapporter (pris à la fin).
     pub item: Option<(u32, i64)>,
     pub hunts: [Option<Hunt>; 2],
@@ -130,6 +148,7 @@ impl QuestTemplate {
             previous: (int(d, "Need_PreviousQuestTid") > 0).then(|| int(d, "Need_PreviousQuestTid") as u32),
             self_quest: int(d, "Self_Quest") != 0,
             complete_level: int(d, "Complete_Level") as i32,
+            trans_item: pair("Quest_TransItemTid", "Quest_TransItemCount"),
             item: pair("Complete_ItemTid", "Complete_ItemCount"),
             hunts: [hunt("A"), hunt("B")],
             drops,
@@ -217,6 +236,8 @@ pub struct ActiveQuest {
     pub tid: u32,
     pub count_a: i64,
     pub count_b: i64,
+    /// Suivie à l'écran (op 14).
+    pub journal: bool,
 }
 
 /// Journal d'un personnage.
@@ -229,12 +250,12 @@ pub struct PlayerQuests {
 impl PlayerQuests {
     pub async fn load(db: &Databases, character_id: u32) -> anyhow::Result<Self> {
         let mut q = PlayerQuests::default();
-        for r in db.characters.rows("SELECT quest_tid, status, count_a, count_b FROM character_quests WHERE character_id = ?", (character_id,)).await? {
+        for r in db.characters.rows("SELECT quest_tid, status, count_a, count_b, journal FROM character_quests WHERE character_id = ?", (character_id,)).await? {
             let tid: u32 = col(&r, "quest_tid");
             if col::<i64>(&r, "status") == 1 {
                 q.done.insert(tid);
             } else {
-                q.active.push(ActiveQuest { tid, count_a: col(&r, "count_a"), count_b: col(&r, "count_b") });
+                q.active.push(ActiveQuest { tid, count_a: col(&r, "count_a"), count_b: col(&r, "count_b"), journal: col::<i64>(&r, "journal") != 0 });
             }
         }
         Ok(q)
@@ -242,6 +263,18 @@ impl PlayerQuests {
 
     pub fn active(&self, tid: u32) -> Option<&ActiveQuest> {
         self.active.iter().find(|a| a.tid == tid)
+    }
+
+    /// Op 14 : inscrit (`on`) ou retire la quête en cours `tid` du suivi à l'écran ; rend vrai si le drapeau change.
+    /// Au-delà de `MAX_JOURNAL` quêtes suivies, l'inscription est refusée.
+    pub fn set_journal(&mut self, tid: u32, on: bool) -> bool {
+        let full = self.active.iter().filter(|a| a.journal).count() >= MAX_JOURNAL;
+        let Some(a) = self.active.iter_mut().find(|a| a.tid == tid) else { return false };
+        if a.journal == on || (on && full) {
+            return false;
+        }
+        a.journal = on;
+        true
     }
 
     /// Les trois blocs de drapeaux des quêtes terminées.
@@ -260,7 +293,7 @@ impl PlayerQuests {
 /// Mini QUEST_INFO.
 pub fn info_mini(a: &ActiveQuest, done: bool) -> Vec<u8> {
     let s = &mini::QUEST_INFO;
-    build_mini(s, &Fields::new(s).with(0, a.tid).with(1, a.count_a).with(2, a.count_b).with(3, done as i64).with(4, 0))
+    build_mini(s, &Fields::new(s).with(0, a.tid).with(1, a.count_a).with(2, a.count_b).with(3, done as i64).with(4, a.journal as i64))
 }
 
 fn quest(op: i64, cid: u32) -> Fields {
@@ -277,6 +310,12 @@ pub fn login_packets(cid: u32, q: &PlayerQuests) -> Vec<Vec<u8>> {
         out.push(archcore_net::build_packet(s, &quest(op::ADD, cid).with(3, info_mini(aq, false)).with(4, aq.tid)));
     }
     out
+}
+
+/// `count` exemplaires de `item` (piles de `stack`) tiennent dans l'inventaire : une case libre, ou une pile du même
+/// objet qui a la place.
+fn fits(p: &super::Player, item: u32, count: i64, stack: i64) -> bool {
+    p.inventory.free_count() > 0 || (stack > 1 && p.inventory.items.values().any(|i| i.tid == item && i.count + count <= stack))
 }
 
 /// Nombre d'exemplaires d'un objet dans l'inventaire.
@@ -327,6 +366,7 @@ pub async fn on_packet(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet
         op::ACCEPT => accept(ctx, st, sid, tid, p.bytes(2)).await?,
         op::COMPLETE | op::COMPLETE_SELECT => complete(ctx, st, sid, tid, p.bytes(2), p.int(7).unwrap_or(-1)).await?,
         op::CANCEL => cancel(ctx, st, sid, tid).await?,
+        op::JOURNAL => journal(ctx, st, sid, tid, p).await?,
         other => warn!("[quête] #{sid} op {other} non géré"),
     }
     Ok(())
@@ -338,6 +378,23 @@ fn place_allows(ctx: &WorldCtx, st: &WorldState, sid: u32, q: &QuestTemplate, ev
         Some((offered, confirmed)) => (if give { offered } else { confirmed }).contains(&q.tid) || q.self_quest,
         None => q.self_quest,
     }
+}
+
+/// Op 14 : suivi à l'écran d'une quête en cours (drapeau au 5ᵉ entier du QUEST_INFO du champ 3), enregistré pour
+/// l'entrée en jeu suivante. Pas de réponse.
+async fn journal(ctx: &WorldCtx, st: &mut WorldState, sid: u32, tid: u32, p: &Packet) -> anyhow::Result<()> {
+    let Some(info) = p.bytes(3).and_then(|b| decode_mini(&mini::QUEST_INFO, b).ok()) else { return Ok(()) };
+    let on = info.int(4).unwrap_or(0) != 0;
+    let tid = if tid != 0 { tid } else { info.int(0).unwrap_or(0) as u32 };
+    let pl = st.players.get_mut(&sid).unwrap();
+    if !pl.quests.set_journal(tid, on) {
+        crate::debug!("[quête] {} : suivi de la quête {tid} inchangé ({})", pl.ch.name, if on { "inscription" } else { "retrait" });
+        return Ok(());
+    }
+    let character_id = pl.ch.id;
+    info!("[quête] {} : quête {tid} {}", pl.ch.name, if on { "suivie à l'écran" } else { "retirée du suivi" });
+    ctx.db.characters.exec("UPDATE character_quests SET journal = ? WHERE character_id = ? AND quest_tid = ? AND status = 0", (on as i64, character_id, tid)).await?;
+    Ok(())
 }
 
 fn reply(st: &WorldState, sid: u32, op: i64, tid: u32, ok: bool) {
@@ -359,10 +416,29 @@ async fn accept(ctx: &WorldCtx, st: &mut WorldState, sid: u32, tid: u32, event: 
         return Ok(());
     }
     let character_id = p.ch.id;
+    // Objet remis au départ : il doit tenir dans l'inventaire (une case libre, ou une pile du même objet qui l'accueille),
+    // sinon op 9 (le client affiche sysstr 440).
+    if let Some((item, count)) = q.trans_item {
+        let stack = ctx.catalog.get(item).map(|d| d.stack).unwrap_or(1);
+        if !fits(p, item, count, stack) {
+            info!("[quête] {} ne peut pas prendre « {} » : inventaire plein (objet de départ {item})", p.ch.name, q.name);
+            p.send(&schema::QUEST, quest(op::ACCEPT_INVENTORY_FULL, character_id).with(4, tid));
+            return Ok(());
+        }
+    }
     ctx.db
         .characters
-        .exec("REPLACE INTO character_quests (character_id, quest_tid, status, count_a, count_b) VALUES (?, ?, 0, 0, 0)", (character_id, tid))
+        .exec("REPLACE INTO character_quests (character_id, quest_tid, status, count_a, count_b, journal) VALUES (?, ?, 0, 0, 0, 0)", (character_id, tid))
         .await?;
+    if let Some((item, count)) = q.trans_item {
+        let stack = ctx.catalog.get(item).map(|d| d.stack).unwrap_or(1);
+        let p = st.players.get_mut(&sid).unwrap();
+        match p.inventory.add(&ctx.db, item, count, stack, None).await? {
+            Some((it, true)) => p.send_raw(item_add(it.iid, it.tid, Some(character_id), it.count, item_status::INVENTORY, Some(it.grid))),
+            Some((it, false)) => p.send_raw(item_count(&it, character_id)),
+            None => warn!("[quête] {} : objet de départ {item} non remis", p.ch.name),
+        }
+    }
     let p = st.players.get_mut(&sid).unwrap();
     p.quests.active.push(ActiveQuest { tid, ..Default::default() });
     info!("[quête] {} prend « {} »", p.ch.name, q.name);
@@ -383,6 +459,20 @@ async fn cancel(ctx: &WorldCtx, st: &mut WorldState, sid: u32, tid: u32) -> anyh
     ctx.db.characters.exec("DELETE FROM character_quests WHERE character_id = ? AND quest_tid = ? AND status = 0", (p.ch.id, tid)).await?;
     info!("[quête] {} abandonne la quête {tid}", p.ch.name);
     reply(st, sid, op::CANCEL_RESULT, tid, true);
+    drop_quest_items(ctx, st, sid, tid).await
+}
+
+/// Objets de la quête `tid` (« QuestItem » d'itemdatatable : le numéro de la quête, pas un drapeau) détruits à son
+/// abandon ou à sa fin (règle proposée : ni vente ni échange, `npc_trade.rs`, `trade.rs`).
+async fn drop_quest_items(ctx: &WorldCtx, st: &mut WorldState, sid: u32, tid: u32) -> anyhow::Result<()> {
+    let Some(p) = st.players.get_mut(&sid) else { return Ok(()) };
+    let cid = p.ch.id;
+    let gone: Vec<u32> = p.inventory.items.values().filter(|i| ctx.catalog.quest_items.get(&i.tid) == Some(&tid)).map(|i| i.iid).collect();
+    for iid in gone {
+        p.inventory.remove(&ctx.db, iid).await?;
+        p.send_raw(item_remove(iid, Some(cid)));
+        info!("[quête] {} : objet de quête {iid} retiré (quête {tid})", p.ch.name);
+    }
     Ok(())
 }
 
@@ -412,11 +502,15 @@ async fn complete(ctx: &WorldCtx, st: &mut WorldState, sid: u32, tid: u32, event
         Some("niveau")
     } else if !place_allows(ctx, st, sid, q, event, false) {
         Some("rendez-la au bon PNJ")
-    } else if p.inventory.free_count() < rewards.len() {
-        Some("inventaire plein")
     } else {
         None
     };
+    // Récompenses qui ne tiennent pas : op 8 (sysstr 447 chez le client, qui rafraîchit sa fenêtre), quête gardée.
+    if why.is_none() && p.inventory.free_count() < rewards.len() {
+        info!("[quête] {} ne peut pas terminer « {} » : inventaire plein", p.ch.name, q.name);
+        p.send(&schema::QUEST, quest(op::COMPLETE_INVENTORY_FULL, p.ch.id).with(4, tid));
+        return Ok(());
+    }
     if let Some(why) = why {
         info!("[quête] {} ne peut pas terminer « {} » : {why}", p.ch.name, q.name);
         send_system(st, sid, &format!("Quête « {} » : {why}.", q.name));
@@ -445,6 +539,7 @@ async fn complete(ctx: &WorldCtx, st: &mut WorldState, sid: u32, tid: u32, event
     p.quests.done.insert(tid);
     ctx.db.characters.exec("UPDATE character_quests SET status = 1 WHERE character_id = ? AND quest_tid = ?", (cid, tid)).await?;
     reply(st, sid, op::COMPLETE_RESULT, tid, true);
+    drop_quest_items(ctx, st, sid, tid).await?;
     for (item, count) in rewards {
         let stack = ctx.catalog.get(item).map(|d| d.stack).unwrap_or(1);
         let p = st.players.get_mut(&sid).unwrap();
@@ -571,8 +666,8 @@ mod tests {
         assert_eq!(hunt.refusal(1, 1, 1, &j), Some("quête précédente non terminée"));
         j.done.insert(4632);
         assert_eq!(hunt.refusal(1, 1, 1, &j), None);
-        assert!(!hunt.objectives_met(&ActiveQuest { tid: 1, count_a: 2, count_b: 0 }, 0));
-        assert!(hunt.objectives_met(&ActiveQuest { tid: 1, count_a: 3, count_b: 0 }, 0));
+        assert!(!hunt.objectives_met(&ActiveQuest { tid: 1, count_a: 2, ..Default::default() }, 0));
+        assert!(hunt.objectives_met(&ActiveQuest { tid: 1, count_a: 3, ..Default::default() }, 0));
         hunt.races = vec![2];
         assert_eq!(hunt.refusal(1, 1, 1, &j), Some("race ou classe"));
     }
@@ -586,13 +681,40 @@ mod tests {
 
     #[test]
     fn paquets_de_quete() {
-        let j = PlayerQuests { active: vec![ActiveQuest { tid: 4611, count_a: 12, count_b: 0 }], done: [4632].into_iter().collect() };
+        let j = PlayerQuests { active: vec![ActiveQuest { tid: 4611, count_a: 12, count_b: 0, journal: true }], done: [4632].into_iter().collect() };
         let pk = login_packets(7, &j);
         assert_eq!(pk.len(), 2);
         let flags = archcore_net::decode_packet(&schema::QUEST, &pk[0]).unwrap();
         assert_eq!((flags.int(0), flags.bytes(8).map(|b| b.len())), (Some(op::FLAGS), Some(0x800)));
         let add = archcore_net::decode_packet(&schema::QUEST, &pk[1]).unwrap();
         let info = decode_mini(&mini::QUEST_INFO, add.bytes(3).unwrap()).unwrap();
-        assert_eq!((add.int(0), info.int(0), info.int(1)), (Some(op::ADD), Some(4611), Some(12)));
+        assert_eq!((add.int(0), info.int(0), info.int(1), info.int(4)), (Some(op::ADD), Some(4611), Some(12), Some(1)), "5ᵉ entier : suivi à l'écran");
+    }
+
+    #[test]
+    fn suivi_a_l_ecran() {
+        let mut j = PlayerQuests { active: (1..=12).map(|tid| ActiveQuest { tid, ..Default::default() }).collect(), ..Default::default() };
+        assert!(!j.set_journal(99, true), "quête absente");
+        for tid in 1..=10 {
+            assert!(j.set_journal(tid, true));
+        }
+        assert!(!j.set_journal(3, true), "déjà suivie");
+        assert!(!j.set_journal(11, true), "dix quêtes au plus");
+        assert!(j.set_journal(3, false) && j.set_journal(11, true));
+        assert_eq!(j.active.iter().filter(|a| a.journal).count(), MAX_JOURNAL);
+        // Op 14 telle que le client l'envoie : CID, QUEST_INFO { TID, 0, 0, 0, drapeau }, TID.
+        let s = &mini::QUEST_INFO;
+        let info = build_mini(s, &Fields::new(s).with(0, 4611).with(1, 0).with(2, 0).with(3, 0).with(4, 1));
+        let raw = archcore_net::build_packet(&schema::QUEST, &quest(op::JOURNAL, 7).with(3, info).with(4, 4611));
+        let p = archcore_net::decode_packet(&schema::QUEST, &raw).unwrap();
+        let back = decode_mini(&mini::QUEST_INFO, p.bytes(3).unwrap()).unwrap();
+        assert_eq!((p.int(0), p.int(4), back.int(0), back.int(4)), (Some(14), Some(4611), Some(4611), Some(1)));
+    }
+
+    #[test]
+    fn objet_de_depart() {
+        let q = QuestTemplate::from_data(10, "Départ", &serde_json::json!({ "Quest_TransItemTid": "1234", "Quest_TransItemCount": "2" }));
+        assert_eq!(q.trans_item, Some((1234, 2)));
+        assert_eq!(shattered_roots().trans_item, None);
     }
 }

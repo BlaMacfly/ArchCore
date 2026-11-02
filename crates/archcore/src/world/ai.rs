@@ -3,7 +3,8 @@
 //! Un monstre ne s'en prend qu'à ceux qui l'ont frappé. Il retient chaque agresseur avec les dégâts reçus et
 //! l'oublie 30 s après son dernier coup. Toutes les 500 ms, il vise celui qui lui a fait le plus de dégâts
 //! parmi les joueurs vivants, en jeu et à moins de 5000 unités, et les invocations qui l'ont frappé
-//! (`summons.rs`) ; il le rejoint, puis le frappe au rythme de sa vitesse d'attaque (une invocation ne reçoit
+//! (`summons.rs`), les dégâts d'un joueur pesés par la préférence de son IA pour sa race et sa classe
+//! (`MonsterAi::hate` : « HateRace », « HateClass ») ; il le rejoint, puis le frappe au rythme de sa vitesse d'attaque (une invocation ne reçoit
 //! que des coups normaux). Sans agresseur, il rentre à son point d'apparition ; s'il s'en est éloigné de plus
 //! de 10 000 unités, il y est ramené d'un coup avec tous ses PV.
 //!
@@ -13,10 +14,14 @@
 //!
 //! États spéciaux : étourdi, gelé ou endormi, un monstre ne bouge ni ne frappe ; immobilisé, il ne poursuit
 //! pas ; sous « attaque interdite » ou la peur, il ne frappe pas. Il ignore les joueurs invincibles ou
-//! invisibles. Le coup d'un monstre peut être esquivé, bloqué ou changé en PV ou PM selon les effets du
-//! joueur (`effects::guard`), et réveille un joueur endormi. Un joueur qui contre-attaque (Counter Attack) lui
+//! invisibles. Le coup d'un monstre peut être esquivé, bloqué ou changé en PV ou PM selon les effets et l'équipement du
+//! joueur (`effects::guard` ; blocage : compétences et « BlockRate » des options, facteur de défense 9), et réveille un joueur endormi. Un joueur qui contre-attaque (Counter Attack) lui
 //! renvoie, avec sa chance, les dégâts du coup reçu (résultat 12). Le monstre lance aussi les compétences de son
 //! IA (`monster_skills.rs`) à la place d'un coup normal ou de la poursuite.
+//!
+//! Confusion et berserk (états 21 et 24, `status_rules.rs`) : le monstre frappe une cible tirée au hasard ou la plus
+//! proche, autres monstres compris ; provoqué (`skill_extra.rs`), il garde le lanceur pour cible. Aggro non ajoutée et
+//! aggro cachée (états 6 et 7) : voir `status_rules.rs`. Invocations, suiveurs et renfort : `ai_kin.rs`.
 //!
 //! Patrouille : un monstre (type « monstre ») au repos, vu par au moins un joueur et dont le point a un rayon,
 //! marche toutes les 15 à 45 s vers un endroit tiré au hasard dans ce rayon, hors sol infranchissable ; au plus
@@ -63,6 +68,10 @@ const TYPE_MONSTER: i64 = 0x4;
 /// encore engagé, il réagit au pas d'IA suivant : un pas de promenade ou le retour chez lui (qui le
 /// rendent indisponible jusqu'à l'arrivée) ne retardent pas sa riposte.
 pub fn add_aggro(st: &mut WorldState, cid: u32, attacker: u32, damage: u64, now: Instant) {
+    // Aggro non ajoutée (état 6, status_rules.rs) : le porteur n'entre pas dans une liste où il n'est pas déjà.
+    if !super::status_rules::adds_aggro(st, cid, attacker) {
+        return;
+    }
     let fresh = !st.monsters.engaged.contains(&cid);
     let Some(m) = st.monsters.get_mut(cid) else { return };
     if !m.is_alive() {
@@ -108,15 +117,19 @@ pub fn preemptive_step(st: &mut WorldState, now: Instant) {
         if stats.char_type & TYPE_MONSTER == 0 || pre.range <= 0.0 {
             continue;
         }
+        let ai = st.monsters.ai_of(cid);
         let near = st
             .players
             .values()
             .filter(|p| p.in_game && !p.dead && p.invincible_until.is_none_or(|u| now >= u))
-            .filter(|p| p.skills.status_sent & status::UNTOUCHABLE == 0 && pre.allows(p.factors.status[7]))
+            // Invisibles et porteurs de l'aggro cachée (état 7) : ignorés.
+            .filter(|p| p.skills.status_sent & (status::UNTOUCHABLE | status::HIDE_AGGRO) == 0 && pre.allows(p.factors.status[7]))
             // Tours et gardes de siège : les assaillants de leur château seulement (siege/war.rs).
             .filter(|p| super::siege::war::may_target(st, cid, p.ch.id, false))
-            .map(|p| (combat::dist2d(p.ch.pos(), m.pos), p.ch.id))
+            .map(|p| (combat::dist2d(p.ch.pos(), m.pos), p))
             .filter(|(d, _)| *d <= pre.range)
+            // Race et classe haïes : distance divisée par leur poids.
+            .map(|(d, p)| (d / ai.map(|a| a.hate(p.factors.ftype[0], p.factors.ftype[2])).unwrap_or(1.0).max(0.01), p.ch.id))
             .min_by(|a, b| a.0.total_cmp(&b.0));
         if let Some((_, pcid)) = near {
             engage.push((cid, pcid));
@@ -129,9 +142,16 @@ pub fn preemptive_step(st: &mut WorldState, now: Instant) {
 }
 
 /// Agresseur à viser : le plus de dégâts parmi les joueurs vivants, en jeu et assez proches, et les invocations
-/// vivantes qui l'ont frappé (`summons.rs`).
+/// vivantes qui l'ont frappé (`summons.rs`) ; ceux d'un joueur pesés par la préférence de l'IA pour sa race et sa
+/// classe.
 pub fn choose_target(st: &WorldState, m: &Monster) -> Option<u32> {
-    m.aggro
+    let ai = st.monsters.ai_of(m.cid);
+    let weight = |cid: u32| {
+        let p = st.by_cid.get(&cid).and_then(|sid| st.players.get(sid));
+        p.zip(ai).map(|(p, a)| a.hate(p.factors.ftype[0], p.factors.ftype[2])).unwrap_or(1.0)
+    };
+    let candidates = m
+        .aggro
         .iter()
         .filter(|a| {
             let player = st.by_cid.get(&a.cid).and_then(|sid| st.players.get(sid)).is_some_and(|p| {
@@ -143,8 +163,14 @@ pub fn choose_target(st: &WorldState, m: &Monster) -> Option<u32> {
             });
             player || summon_target(st, a.cid).is_some_and(|pos| combat::dist2d(pos, m.pos) <= CHASE_LIMIT)
         })
-        .max_by_key(|a| a.damage)
-        .map(|a| a.cid)
+        .map(|a| (a.damage, weight(a.cid), a.cid))
+        .collect::<Vec<_>>();
+    heaviest(&candidates)
+}
+
+/// Agresseur retenu parmi (dégâts, poids, CID) : le plus de dégâts pesés.
+fn heaviest(list: &[(u64, f64, u32)]) -> Option<u32> {
+    list.iter().map(|(d, w, c)| (*d as f64 * w, *c)).max_by(|a, b| a.0.total_cmp(&b.0)).map(|(_, c)| c)
 }
 
 /// Position d'une invocation vivante qu'un monstre peut prendre pour cible.
@@ -323,6 +349,22 @@ fn monster_step(ctx: &WorldCtx, st: &mut WorldState, cid: u32, now: Instant) -> 
     if state & status::HELPLESS != 0 {
         return None;
     }
+    // Confusion, berserk (status_rules.rs) : une cible tirée au hasard ou la plus proche, monstres compris.
+    let mut forced = None;
+    if let Some(berserk) = super::status_rules::frenzied(state) {
+        match super::status_rules::frenzy_target(st, &m, berserk, &mut rand::thread_rng()) {
+            Some((t, false)) => {
+                super::status_rules::strike_monster(st, cid, t, now);
+                return None;
+            }
+            Some((t, true)) => {
+                add_aggro(st, cid, t, 1, now);
+                forced = Some(t);
+            }
+            None => {}
+        }
+    }
+    let Some(m) = st.monsters.get(cid).cloned() else { return None };
     let aggro: Vec<Aggro> = m.aggro.iter().copied().filter(|a| a.until > now).collect();
     if aggro.is_empty() {
         // Plus personne à poursuivre : il rentre.
@@ -339,6 +381,10 @@ fn monster_step(ctx: &WorldCtx, st: &mut WorldState, cid: u32, now: Instant) -> 
         let mut probe = m.clone();
         probe.aggro = aggro.clone();
         target = choose_target(st, &probe);
+    }
+    // Cible imposée : confusion, berserk, provocation (skill_extra.rs).
+    if let Some(t) = forced.or_else(|| super::skill_extra::provoker(st, cid, now)) {
+        target = Some(t);
     }
     {
         let mm = st.monsters.get_mut(cid).unwrap();
@@ -359,7 +405,8 @@ fn monster_step(ctx: &WorldCtx, st: &mut WorldState, cid: u32, now: Instant) -> 
     // Position actuelle de la cible (suivie par le serveur), pas sa destination : le monstre vise le joueur, pas
     // l'endroit où il va.
     let ppos = p.ch.pos();
-    let reach = stats.range.max(50) as f64 + PLAYER_HIT_RANGE;
+    // Rétrécissement (état 25) : portée réduite.
+    let reach = stats.range.max(50) as f64 * super::status_rules::shrink_keep(state) + PLAYER_HIT_RANGE;
     let distance = combat::dist2d(m.pos, ppos);
     if distance > reach + REACH_TOLERANCE {
         // Une compétence qui porte déjà jusqu'à la cible part à la place de la poursuite.
@@ -389,16 +436,19 @@ fn monster_step(ctx: &WorldCtx, st: &mut WorldState, cid: u32, now: Instant) -> 
         return None;
     }
     let mods = st.monsters.mods(cid);
-    let (min_damage, max_damage) = super::effects::monster_damage(stats.min_damage, stats.max_damage, &mods);
-    let attacker = Attacker { level: m.level as i32, ar: stats.ar, min_damage, max_damage, ..Default::default() };
+    let mut attacker = Attacker::of_monster(m.level as i32, &stats, &mods);
+    let shrink = super::status_rules::shrink_keep(state);
+    (attacker.min_damage, attacker.max_damage) = (attacker.min_damage * shrink, attacker.max_damage * shrink);
     let defender = Defender::of_player(&p.factors);
     let mut rng = rand::thread_rng();
     let (mut outcome, physical) = combat::strike_at(&mut rng, combat::monster_hit_chance(&attacker, &defender), &attacker, &defender);
     let mut parts = vec![(combat::RESULT_PHYSICAL, physical)];
     if outcome == combat::result::SUCCESS {
-        let spirit = stats.spirit.map(|(lo, hi)| (lo as f64, hi.max(lo) as f64));
+        let spirit = effects::monster_spirit(&stats.spirit, &mods);
         let chance = combat::spirit_chance(false, m.level as i32, p.factors.status[7]);
         parts.extend(combat::spirit_hits(&mut rng, chance, &spirit, &combat::spirit_resist(&p.factors), true));
+        // Part héroïque (heroic.rs) : la défense héroïque du joueur compte, pas ses résistances.
+        super::heroic::push(&mut parts, super::heroic::hit(&mut rng, &attacker, &defender));
     }
     let mut damage: i32 = parts.iter().map(|(_, d)| d).sum();
     let speed = super::effects::speed(stats.attack_speed, mods.atk_speed_pct).max(1) as u64;
@@ -408,7 +458,9 @@ fn monster_step(ctx: &WorldCtx, st: &mut WorldState, cid: u32, now: Instant) -> 
     let mut countered = 0;
     if outcome == combat::result::SUCCESS {
         let p = st.players.get_mut(&sid).unwrap();
-        let mods = effects::total(&p.skills.effects);
+        // Effets et équipement (esquive et coups changés en PV des options) ; blocage des options (facteur de défense 9).
+        let mut mods = effects::of_player(p);
+        mods.block += p.factors.defense_rate[9] as f64;
         let guard = effects::guard(&mut rng, &mods, p.skills.status_sent, damage);
         if matches!(guard, Guard::Hit | Guard::Block) && effects::counter(&mut rng, &mods) {
             countered = damage;
@@ -438,6 +490,8 @@ fn monster_step(ctx: &WorldCtx, st: &mut WorldState, cid: u32, now: Instant) -> 
     combat::hit_player(st, sid, cid, outcome, &parts);
     if outcome == combat::result::SUCCESS && damage > 0 {
         monster_skills::on_hit(ctx, st, cid, sid, now);
+        // Enchaînement 3 (Frost Armor…) : l'effet additionnel du porteur sur le monstre (skill_extra.rs).
+        super::skill_extra::on_bearer_hit(ctx, st, sid, cid, now);
     }
     if countered > 0 {
         return counter(st, sid, cid, countered, now);
@@ -471,14 +525,13 @@ fn strike_summon(ctx: &WorldCtx, st: &mut WorldState, m: &Monster, stats: &super
         return;
     }
     let mods = st.monsters.mods(cid);
-    let (min_damage, max_damage) = super::effects::monster_damage(stats.min_damage, stats.max_damage, &mods);
-    let attacker = Attacker { level: m.level as i32, ar: stats.ar, min_damage, max_damage, ..Default::default() };
+    let attacker = Attacker::of_monster(m.level as i32, stats, &mods);
     let defender = Defender::of_monster(s.level as i32, &sstats, &st.monsters.mods(tcid));
     let mut rng = rand::thread_rng();
     let (outcome, physical) = combat::strike_at(&mut rng, combat::monster_hit_chance(&attacker, &defender), &attacker, &defender);
     let mut parts = vec![(combat::RESULT_PHYSICAL, physical)];
     if outcome == combat::result::SUCCESS {
-        let spirit = stats.spirit.map(|(lo, hi)| (lo as f64, hi.max(lo) as f64));
+        let spirit = effects::monster_spirit(&stats.spirit, &mods);
         parts.extend(combat::spirit_hits(&mut rng, combat::spirit_chance(false, m.level as i32, s.level as i32), &spirit, &defender.resist, false));
     }
     let damage: i32 = parts.iter().map(|(_, d)| d).sum();
@@ -523,5 +576,13 @@ mod tests {
         assert_eq!(travel(1200.0, 0, true), Duration::from_secs(1), "course inconnue : 12000");
         assert_eq!(travel(400.0, 0, false), Duration::from_secs(1), "marche inconnue : 4000");
         assert_eq!(travel(1e9, 3850, true), MAX_TRAVEL);
+    }
+
+    #[test]
+    fn preference_de_cible() {
+        // 100 dégâts d'un orc guerrier contre 90 d'un mage humain haï à 120 % (race) et 125 % (classe) : le mage.
+        assert_eq!(heaviest(&[(100, 1.0, 1), (90, 1.5, 2)]), Some(2));
+        assert_eq!(heaviest(&[(100, 1.0, 1), (60, 1.5, 2)]), Some(1));
+        assert_eq!(heaviest(&[]), None);
     }
 }

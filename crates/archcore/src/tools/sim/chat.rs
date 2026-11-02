@@ -6,6 +6,8 @@
 //! « /race » sans Race Trumpet est refusé ; le MJ lui en donne 2 : le cri arrive chez les deux (AgpmAreaChatting op 0,
 //! type 19, texte « [Race Trumpet] [SimA] … »), une trompette est consommée ; un second cri dans la seconde est
 //! refusé, le suivant consomme la dernière.
+//! Chuchotements : vers un nom absent, op 4 (« … is not connected. ») ; SimA bloque les chuchotements (op 1, renvoyée),
+//! le chuchotement de GmTest donne l'op 3 sans rien transmettre ; débloqués (op 2), il arrive.
 
 use super::{enter_world, step, InWorld, Recv};
 use archcore_net::schema::{self, chat_type};
@@ -99,6 +101,30 @@ pub async fn run(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> 
     b.world.expect_where(|q| q.is(it, Some(1)) && q.int(2) == Some(iid), 3000, "trompette retirée").await?;
     a.world.expect_where(|q| q.is(ar, Some(0)) && q.fields().text(6).is_some_and(|t| t.ends_with("Dernier appel")), 3000, "second cri chez A").await?;
     println!("  ✓ cri reçu, trompette retirée de l'inventaire");
+
+    step("chuchotements : destinataire absent (op 4), blocage (ops 1 à 3)");
+    let whisper = |w: &InWorld, to: &str, text: &str| {
+        Fields::new(ch).with(0, 0).with(1, w.cid).with(2, chat_type::WHISPER).with(5, to).with(6, crate::tools::to_cp1252(text))
+    };
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    a.world.send(ch, whisper(&a, "PersonneIci", "Tu es là ?")).await?;
+    let off = a.world.expect_where(|q| q.is(ch, Some(4)), 3000, "op 4").await?;
+    anyhow::ensure!(off.int(1) == Some(a.cid as i64) && off.fields().text(5).as_deref() == Some("PersonneIci"), "op 4 : {:?} {:?}", off.int(1), off.fields().text(5));
+    println!("  ✓ op 4 (émetteur, « PersonneIci »)");
+    b.world.send(ch, Fields::new(ch).with(0, 1).with(1, b.cid)).await?;
+    b.world.expect_where(|q| q.is(ch, Some(1)), 3000, "op 1 renvoyée").await?;
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    a.world.send(ch, whisper(&a, cb, "Psst")).await?;
+    let blocked = a.world.expect_where(|q| q.is(ch, Some(3)), 3000, "op 3").await?;
+    anyhow::ensure!(blocked.fields().text(5).as_deref() == Some(cb), "op 3 : {:?}", blocked.fields().text(5));
+    anyhow::ensure!(b.world.expect_where(chat_with("Psst"), 800, "chuchotement bloqué").await.is_err(), "chuchotement transmis malgré le blocage");
+    println!("  ✓ {cb} bloque : op 3 chez {ca}, rien chez {cb}");
+    b.world.send(ch, Fields::new(ch).with(0, 2).with(1, b.cid)).await?;
+    b.world.expect_where(|q| q.is(ch, Some(2)), 3000, "op 2 renvoyée").await?;
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    a.world.send(ch, whisper(&a, cb, "Psst encore")).await?;
+    b.world.expect_where(chat_with("Psst encore"), 3000, "chuchotement débloqué").await?;
+    println!("  ✓ débloqués (op 2) : le chuchotement arrive");
 
     println!("\ndiscussion : OK");
     Ok(())

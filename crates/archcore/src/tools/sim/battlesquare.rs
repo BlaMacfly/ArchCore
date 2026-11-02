@@ -13,7 +13,6 @@ use std::time::Duration;
 
 /// Valiant, superviseur de la Battle Square (npc.ini 551), et un point à côté de lui.
 const VALIANT: i64 = 0x4000_0000 + 551;
-const NEAR_VALIANT: Vec3 = Vec3 { x: -467_000.0, y: 6_015.0, z: -62_400.0 };
 /// Porte du premier étage (région 195).
 const FLOOR_1: (f32, f32) = (-268_600.0, -237_000.0);
 
@@ -47,6 +46,12 @@ fn murderer_points(bytes: &[u8]) -> Option<i64> {
 
 pub async fn run(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> anyhow::Result<()> {
     let cfg = crate::config::load()?;
+    // Position de Valiant lue dans la base (npc.ini fusionné avec la table de l'épisode 8, qui l'a déplacé) : 200 unités
+    // à côté.
+    let db = crate::db::Databases::new(&cfg.database);
+    let near = db.world.first("SELECT pos_x, pos_y, pos_z FROM npc_spawn WHERE id = 551", ()).await?.ok_or_else(|| anyhow::anyhow!("PNJ 551 (Valiant) absent"))?;
+    let near_valiant = Vec3::new(crate::db::col::<f64>(&near, "pos_x") as f32 + 200.0, crate::db::col::<f64>(&near, "pos_y") as f32, crate::db::col::<f64>(&near, "pos_z") as f32 + 200.0);
+    db.close().await;
     let (mv, act, c, it) = (&schema::OPT_CHAR_MOVE, &schema::OPT_CHAR_ACTION, &schema::CHARACTER, &schema::ITEM);
 
     step(&format!("{cb} (niveau 1) parle au superviseur Valiant : refusé"));
@@ -56,8 +61,8 @@ pub async fn run(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> 
     let (level_a, level_b) = (a.level, b.level);
     gm(&mut a, &format!("/level 1 \"{cb}\"")).await?;
     // B n'a pas de droits MJ : A (MJ) le pose, le serveur refusant qu'il se téléporte lui-même.
-    super::gm_place(&mut a, cb, NEAR_VALIANT).await?;
-    b.world.send(mv, Fields::new(mv).with(0, b.cid).with(1, NEAR_VALIANT).with(2, NEAR_VALIANT).with(5, 0x04).with(6, 0)).await?;
+    super::gm_place(&mut a, cb, near_valiant).await?;
+    b.world.send(mv, Fields::new(mv).with(0, b.cid).with(1, near_valiant).with(2, near_valiant).with(5, 0x04).with(6, 0)).await?;
     tokio::time::sleep(Duration::from_millis(500)).await;
     talk(&mut b).await?;
     b.world.expect_where(|q| q.is(&schema::EVENT_NPC_DIALOG, Some(1)), 3000, "dialogue accordé").await?;

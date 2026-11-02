@@ -7,6 +7,14 @@ separating two things: the **world** loaded (game data) and the **systems** alre
 > 26 September 2012), plus the extensions of the Archonia server, whose 64-bit client is the base. The
 > original gameplay systems this client knows are programmed, up to sieges, the ArchLord and Shrines; they
 > remain to be confirmed in game (see below).
+>
+> **Episode 8 game values** (decision of 2 November 2026). Skills, items, options, runes, monsters, drops,
+> refining, regions, shops, teleports and experience come from the original server tables; a row exists only
+> if it is listed there. The Archonia client only provides names, visuals and purely client tables, without
+> its additions (rules in [[Tools|EN-Tools]], "Episode 8 values"). Dropped: 3,848 items, 923 skills,
+> 428 templates, 1,097 options, 606 runes, 1,190 recipes, 31 regions, 39 quests, 13 boss window bosses.
+> `archcore export-client-tables` gives the same tables to ArchRust; `archcore migrate-ep8` updates existing
+> characters.
 
 ## ArchLord episodes
 
@@ -31,7 +39,7 @@ Client data (`data/client-ini`, Archonia client) and server tables (`--server`):
 |---|---|---|
 | Swashbuckler class | 5 | ✅ items and class known to ArchCore |
 | Dragon Scion race and its classes | 6 | ✅ templates, "드래곤시온" zones, skills |
-| Experience table up to level 120, monsters up to level 120 | 7 | ✅ `level_exp` comes from the client (the server tables' table stops at 100) |
+| Experience table up to level 120, monsters up to level 120 | 7 | ✅ `level_exp`: levels 1 to 100 from the server tables, identical to the client's; 101 to 121 from the client (the server tables' scale stops at 100) |
 | Heaven's Hell zone ("헤븐즈 헬의 옥좌") | 7 | ✅ client and server |
 | Five elemental Shrines (fire, water, wind, lightning, poison), each split by race; "Shrine" potions | 8 | ✅ client and server |
 | Battle Ground (two fields) | 2012 Webzen update | ✅ regions |
@@ -48,10 +56,10 @@ Check of 25 October 2026, Archonia client data and `Archonia.exe`:
 
 | Content | Source in ArchCore | Status |
 |---|---|---|
-| NPCs | Archonia client's `npc.ini` (567 NPCs, positions, functions, shops, quest groups) | ✅ copy of the client |
-| Quests | `questtemplate.ini` of the client's `Ini` folder (53 quests) | ✅ like the client: at start-up, `Archonia.exe` only reads `IniQuestTemplate.ini`, whatever the language. The `ini_ko` table (3,321 quests, those of the original game) is not loaded: group quests missing from it are offered neither by the client nor by ArchCore |
-| Monster stats | Archonia client's `CharacterDataTable.txt` | ✅ copy of the client |
-| Monster level | client's `CharacterDataTable.txt`, instead of the server tables' level | ✅ Archonia raised 70 monsters (MoonElf guards to level 120, Amantorg to level 92…): 1,148 spawn points corrected |
+| NPCs | merged `npc.ini`: template, position, functions and shops from the server tables; name, quests, repair and wanted board from the client (557 NPCs) | ✅ EP8 values (2 Archonia NPCs, 8 with an Archonia template dropped; 35 client NPCs whose number points to another NPC in the server tables kept as they are; 56 NPCs specific to the server tables not imported) |
+| Quests | `questtemplate.ini` of the client's `Ini` folder (53 quests, 39 of them removed: they cite Archonia monsters, items or rewards; 14 kept) | ✅ like the client: at start-up, `Archonia.exe` only reads `IniQuestTemplate.ini`, whatever the language. The `ini_ko` table (3,321 quests, those of the original game) is not loaded: group quests missing from it are offered neither by the client nor by ArchCore |
+| Monster stats | server tables' `characterdatatable.txt`, client names | ✅ EP8 values (2,028 templates; Archonia's 428 dropped) |
+| Monster level | the template's level in the server tables' `characterdatatable.txt` | ✅ EP8 values: the 70 monsters raised by Archonia go back to their original level (1,118 spawn points take the template's level) |
 | Boss respawn | Archonia's boss window (`UIBoss.xml`): delay drawn in the announced range | ✅ 16 points (Battlesquare 30 to 45 min, Asylum and Balor King 30 to 60 min, Chaotic Frontier 20 to 40 min, Shinewood invaders 75 to 90 min) |
 | Monster placement | original server tables (`spawndatatable.txt`, `spawninstancetable.txt`) | 🟡 spawns are handled by Archonia's server and absent from the client; the original game's are used |
 | Archonia's own monsters | — | ⛔ 13 bosses of the boss window (Heaven's Hell, The Shattered Firmament, Purgatory, new Chaotic Frontier and Asylum bosses), 23 quest targets and the 46 rift monster groups (`Rifts.xml`) have no known placement. The client does not give it: they are left out rather than invented |

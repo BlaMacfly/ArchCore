@@ -57,13 +57,14 @@ fn checks(n: &Names) -> Vec<Check> {
         Check {
             label: "personnages au modèle inconnu",
             severity: Severity::Error,
-            rows: format!("`{c}`.characters x LEFT JOIN `{w}`.character_template r ON r.tid = x.template_id WHERE r.tid IS NULL"),
+            // Modèles jouables (Dragon Scion…) : `character_data_table`, sans ligne dans `character_template`.
+            rows: format!("`{c}`.characters x LEFT JOIN `{w}`.character_template r ON r.tid = x.template_id LEFT JOIN `{w}`.character_data_table d ON d.tid = x.template_id WHERE r.tid IS NULL AND d.tid IS NULL"),
             sample: "CONCAT(x.name, ' (TID ', x.template_id, ')')",
         },
         Check {
             label: "formes évoluées inconnues (evolution_tid)",
             severity: Severity::Warning,
-            rows: format!("`{c}`.characters x LEFT JOIN `{w}`.character_template r ON r.tid = x.evolution_tid WHERE x.evolution_tid <> 0 AND r.tid IS NULL"),
+            rows: format!("`{c}`.characters x LEFT JOIN `{w}`.character_template r ON r.tid = x.evolution_tid LEFT JOIN `{w}`.character_data_table d ON d.tid = x.evolution_tid WHERE x.evolution_tid <> 0 AND r.tid IS NULL AND d.tid IS NULL"),
             sample: "CONCAT(x.name, ' (forme ', x.evolution_tid, ')')",
         },
         Check {

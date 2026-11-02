@@ -29,6 +29,7 @@
 #   7. COMMANDES MJ
 #   8. ANTI-TRICHE
 #   9. INTERFACE SOAP
+#  10. RÈGLES DE JEU PROPOSÉES
 ###############################################################################
 
 ###############################################################################
@@ -113,6 +114,16 @@ Database.SlowQueryMs = 200
 #        Défaut : "../client/ArchLord/Game"
 
 Client.DataDir = "../client/ArchLord/Game"
+
+#    Client.TablesDir
+#        Dossier écrit par `archcore export-client-tables <dossier>` (tables de
+#        valeurs de l'épisode 8 au format du client, lu par ArchRust : dossier
+#        server-data/ à côté de realmlist.wtf), relatif à la racine du dépôt
+#        (ou absolu). Le serveur monde annonce l'empreinte de son tables.toml
+#        aux clients ArchRust (capacité client-tables/1). Vide : rien d'annoncé.
+#        Défaut : ""
+
+Client.TablesDir = ""
 
 ###############################################################################
 # 4. MONDE
@@ -306,6 +317,45 @@ Recall.ExcludedItems = 4817
 #        Défaut : 1000
 
 Social.MinIntervalMs = 1000
+
+#    Party.InviteLevelGap
+#        Groupes : une invitation est refusée (« You cannot invite players 10 or
+#        more levels below your own level. ») quand l'invité a au moins tant de
+#        niveaux de moins que l'invitant. 0 = pas de règle.
+#        Défaut : 10
+
+Party.InviteLevelGap = 10
+
+#    Party.EffectRange
+#        Zone d'effet du groupe : membres à moins de tant d'unités du chef ; seuls
+#        ceux-là reçoivent le bonus du groupe. Portée d'origine inconnue : celle des
+#        sphères.
+#        Défaut : 1600
+
+Party.EffectRange = 1600
+
+#    Party.BonusPercentPerMember
+#        Bonus du groupe, par membre dans la zone au-delà du premier : pour cent de
+#        dégâts (chef archer, ou d'une classe autre que chevalier et mage) ou de
+#        défense (chef chevalier). Règle d'origine inconnue : proposition d'ArchCore
+#        à valider en jeu. 0 = aucun.
+#        Défaut : 2
+
+Party.BonusPercentPerMember = 2
+
+#    Party.BonusPointsPerMember
+#        Bonus du groupe d'un chef mage, par membre dans la zone au-delà du premier :
+#        PV et PM maximaux en plus. 0 = aucun.
+#        Défaut : 50
+
+Party.BonusPointsPerMember = 50
+
+#    Party.BonusMaxLevelGap
+#        Aucun bonus du groupe quand l'écart de niveau entre ses membres dépasse
+#        cette valeur (texte du client : « … difference of level … is over 21 »).
+#        Défaut : 20
+
+Party.BonusMaxLevelGap = 20
 
 #    Bank.SecretSafeMaxExtraPages
 #        Secret Safe (objets d'usage 21) : nombre de pages de banque en plus (au-delà
@@ -702,3 +752,90 @@ SOAP.Port = 7878
 #        Défaut : 3 (comme SEC_ADMINISTRATOR)
 
 SOAP.MinGmLevel = 3
+
+###############################################################################
+# 10. RÈGLES DE JEU PROPOSÉES
+#
+#    Règles que ni Archonia ni les tables de l'épisode 8 ne tranchent : chacune
+#    est une proposition d'après les colonnes des tables (voir le wiki,
+#    Feuille de route et Protocole réseau). 0 la coupe.
+#
+#    Rules.Heroic
+#        Système héroïque : dégâts héroïques des objets, options, effets et
+#        monstres, moins la défense héroïque de la cible, moins sa résistance
+#        (mêlée, distance ou magie selon la classe de l'assaillant, 80 % au plus,
+#        contre un joueur seulement) ; compétences « dmg_heroic ».
+#        Défaut : 1
+
+Rules.Heroic = 1
+
+#    Rules.Ammunition
+#        Une flèche (194) ou un carreau (238) de l'inventaire par coup à l'arc ou
+#        à l'arbalète, « cost_arrow » par compétence ; sans munition, le coup et
+#        la compétence sont refusés. Katariya et chakram n'en usent pas.
+#        Défaut : 1
+
+Rules.Ammunition = 1
+
+#    Rules.WeaponRequirement
+#        Arme ou bouclier exigé par une compétence (colonne « requirement ») :
+#        sans lui, lancement refusé et passive sans effet.
+#        Défaut : 1
+
+Rules.WeaponRequirement = 1
+
+#    Rules.ItemLifetime
+#        Objets Cash à durée : temps de jeu (« RemainTime ») décompté pendant
+#        l'usage, date d'expiration (« ExpireTime ») qui court même hors ligne ;
+#        à la fin, l'effet tombe et l'objet est consommé.
+#        Défaut : 1
+
+Rules.ItemLifetime = 1
+
+#    Rules.DeathStrike
+#        Death Strike : mort instantanée d'un monstre ordinaire (ni boss, ni
+#        objet de siège) avec la chance « death » de la passive.
+#        Défaut : 1
+
+Rules.DeathStrike = 1
+
+#    Rules.ForcedMove
+#    Rules.KnockbackUnit
+#        Déplacements forcés des compétences (cible tirée au contact, ruée d'un
+#        monstre, recul de Body Check) ; unités du jeu par point de
+#        « move_distance » (unité de la table inconnue).
+#        Défaut : 1 et 100
+
+Rules.ForcedMove = 1
+Rules.KnockbackUnit = 100
+
+#    Rules.ShrinkPercent
+#        Rétrécissement : pour cent de portée d'attaque et de dégâts physiques
+#        ôtés (0 à 90).
+#        Défaut : 30
+
+Rules.ShrinkPercent = 30
+
+#    Rules.ConfusionIntervalMs
+#        Confusion et berserk d'un monstre : délai (ms) entre deux coups sur une
+#        cible tirée au hasard (confusion) ou la plus proche (berserk).
+#        Défaut : 1500
+
+Rules.ConfusionIntervalMs = 1500
+
+#    Rules.ProvokeSeconds
+#        Provoke, Zone Provoke : secondes pendant lesquelles le monstre garde le
+#        lanceur pour cible.
+#        Défaut : 10
+
+Rules.ProvokeSeconds = 10
+
+#    Rules.MonsterKin
+#    Rules.PinchHpPercent
+#        Invocations, suiveurs et renfort des monstres (colonnes « SummonTID »,
+#        « FollowerTID », « PinchMonster » d'aidatatable) ; seuil de PV (pour
+#        cent) du renfort, une fois par vie.
+#        Défaut : 1 et 30
+
+Rules.MonsterKin = 1
+Rules.PinchHpPercent = 30

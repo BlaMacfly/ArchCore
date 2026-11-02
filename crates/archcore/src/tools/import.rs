@@ -1,9 +1,11 @@
-//! `archcore import [dossier] [--server dossier]` : importe les tables déchiffrées du client
-//! (`data/client-ini`) dans `archcore_world`. Les fichiers sont en CP949 (coréen) ; ils sont convertis en
-//! UTF-8. Avec `--server` (par défaut `data/server-ini` s'il existe), importe aussi, depuis les tables du
-//! serveur d'origine, les apparitions de monstres (`spawndatatable.txt`, `spawninstancetable.txt`), la carte
-//! (`world/node_data`), le butin (`itemdroptable.txt`, `groupdroprate.txt`, `droprankrate.txt`) et l'IA des
-//! monstres (`aidatatable.txt` : compétences qu'ils lancent).
+//! `archcore import [dossier] [--server dossier]` : importe dans `archcore_world` les tables de valeurs de l'épisode 8
+//! (tables du serveur d'origine, `--server`, par défaut `data/server-ini` : elles sont exigées) et les noms, visuels et
+//! tables purement clientes du client déchiffré (`data/client-ini`), selon les règles de `ep8.rs` : une ligne de
+//! valeurs n'existe que si elle existe dans les tables EP8, avec leurs valeurs. Les fichiers sont en CP949 (coréen) ;
+//! ils sont convertis en UTF-8. Des tables EP8 viennent aussi les apparitions de monstres (`spawndatatable.txt`,
+//! `spawninstancetable.txt`), la carte (`world/node_data`), le butin (`itemdroptable.txt`, `groupdroprate.txt`,
+//! `droprankrate.txt`) et l'IA des monstres (`aidatatable.txt` : compétences qu'ils lancent). L'import finit par un
+//! résumé : lignes gardées et écartées, table par table.
 
 use crate::db::Databases;
 use mysql_async::prelude::Queryable;
@@ -32,7 +34,7 @@ fn num(v: Option<&str>) -> f64 {
     js_number(v.unwrap_or(""), 0.0)
 }
 
-fn is_uint(s: &str) -> bool {
+pub fn is_uint(s: &str) -> bool {
     !s.is_empty() && s.chars().all(|c| c.is_ascii_digit())
 }
 
@@ -283,45 +285,63 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         }
     }
     let dir = positional.first().map(PathBuf::from).unwrap_or_else(|| cfg.root.join("data").join("client-ini"));
-    let server_dir = server_dir.or_else(|| Some(cfg.root.join("data").join("server-ini")).filter(|d| d.exists()));
+    // Les valeurs de jeu viennent des tables du serveur d'origine (épisode 8) : sans elles, pas d'import.
+    let d = server_dir.or_else(|| Some(cfg.root.join("data").join("server-ini")).filter(|d| d.exists())).ok_or_else(|| {
+        anyhow::anyhow!("tables du serveur d'origine introuvables (data/server-ini, ou --server dossier) : elles donnent les valeurs de l'épisode 8")
+    })?;
     let src = Source(dir.clone());
+    let server = Source(d.clone());
+    let sets = super::ep8::Ep8Sets::from_texts(&server.read("itemdatatable.txt")?, &server.read("characterdatatable.txt")?, &server.read("skilltemplate.ini")?, &server.read("itemoptiontable.txt")?);
+    println!(
+        "· tables EP8 : {} objet(s), {} modèle(s), {} compétence(s), {} option(s)",
+        sets.items.len(),
+        sets.models.len(),
+        sets.skills.len(),
+        sets.options.len()
+    );
     let db = Databases::new(&cfg.database);
     use super::content::{begin_run, finish_run, fingerprint};
+    let mut bilan = super::ep8::Bilan::default();
     // Chaque source lue est notée dans import_run (empreinte, version) ; finished_at reste vide si l'import
-    // s'arrête en route.
-    let (n, sum) = fingerprint(&dir, |_| true);
-    let run = begin_run(&db, "client", &dir, n, &sum).await?;
-    import_all(&db, &src).await?;
+    // s'arrête en route. Le relief passe d'abord : la fusion des PNJ vérifie qu'un PNJ déplacé reste sur le terrain.
     let game = cfg.root.join(&cfg.client.data_dir);
-    import_region_glossary(&db, &src, &game).await?;
-    finish_run(&db, run).await?;
     let (n, sum) = fingerprint(&game.join("world"), |f| f.starts_with('b') && f.ends_with("x.ma2"));
     let run = begin_run(&db, "relief", &game.join("world"), n, &sum).await?;
     import_terrain(&db, &game).await?;
     finish_run(&db, run).await?;
-    match server_dir {
-        Some(d) => {
-            let (n, sum) = fingerprint(&d, |_| true);
-            let run = begin_run(&db, "serveur", &d, n, &sum).await?;
-            import_spawns(&db, &src, &Source(d.clone())).await?;
-            import_map(&db, &d).await?;
-            import_loot(&db, &Source(d.clone())).await?;
-            import_monster_ai(&db, &Source(d.clone())).await?;
-            // Nombre d'options et de sockets des objets créés (tables du serveur d'origine).
-            let server = Source(d.clone());
-            for name in ["optionnumdroprate.txt", "socketnumdroprate.txt", "refineryrecipetable.txt"] {
-                if server.exists(name) {
-                    store_text(&db, name, &server.read(name)?).await?;
-                }
-            }
-            finish_run(&db, run).await?;
+    let (n, sum) = fingerprint(&dir, |_| true);
+    let run = begin_run(&db, "client", &dir, n, &sum).await?;
+    let (n, sum) = fingerprint(&d, |_| true);
+    let server_run = begin_run(&db, "serveur", &d, n, &sum).await?;
+    import_all(&db, &src, &server, &sets, &mut bilan).await?;
+    import_region_glossary(&db, &src, &game).await?;
+    finish_run(&db, run).await?;
+    import_spawns(&db, &src, &server, &mut bilan).await?;
+    import_map(&db, &d).await?;
+    import_loot(&db, &server).await?;
+    import_monster_ai(&db, &server).await?;
+    // Nombre d'options et de sockets des objets créés.
+    for name in ["optionnumdroprate.txt", "socketnumdroprate.txt"] {
+        if server.exists(name) {
+            store_text(&db, name, &server.read(name)?).await?;
         }
-        None => println!("· monster_spawn : pas de tables du serveur (data/server-ini ou --server), ignoré"),
     }
+    finish_run(&db, server_run).await?;
     // Couche de contenu d'ArchCore (content/*.sql), par-dessus les tables tout juste régénérées.
     super::content::apply(&db, &cfg.root).await?;
+    bilan.print();
     db.close().await;
     Ok(())
+}
+
+/// Secteurs du relief du client (`map_height`) : un PNJ que la table EP8 déplace hors de ces secteurs garde sa position.
+/// Sans relief importé, toute position est admise.
+async fn terrain_sectors(db: &Databases) -> std::collections::HashSet<(i64, i64)> {
+    db.world
+        .rows("SELECT sector_x, sector_z FROM map_height", ())
+        .await
+        .map(|rows| rows.iter().map(|r| (crate::db::col::<i64>(r, "sector_x"), crate::db::col::<i64>(r, "sector_z"))).collect())
+        .unwrap_or_default()
 }
 
 /// Ligne d'apparition prête à insérer : spawndatatable.txt (quoi) jointe à spawninstancetable.txt (où).
@@ -584,6 +604,22 @@ pub fn parse_region_levels(text: &str) -> Vec<(u32, i64, i64)> {
         .filter(|s| is_uint(&s.id))
         .map(|s| (s.id.parse().unwrap(), num(s.first("LevelMin")) as i64, num(s.first("LevelLimit")) as i64))
         .filter(|(_, min, limit)| *min > 0 || *limit > 0)
+        .collect()
+}
+
+/// Règles d'une région de RegionTemplate.ini : (région, bits interdits, ItemSection, ResurrectionX, ResurrectionZ). Bits :
+/// 1 DisableSummon, 2 DisableGo, 4 DisableParty, 8 DisableLogin (une valeur non nulle interdit). Seules les régions qui ont
+/// une règle sont rendues.
+pub fn parse_region_rules(text: &str) -> Vec<(u32, u32, i64, f64, f64)> {
+    const KEYS: [(&str, u32); 4] = [("DisableSummon", 1), ("DisableGo", 2), ("DisableParty", 4), ("DisableLogin", 8)];
+    parse_ini(text)
+        .iter()
+        .filter(|s| is_uint(&s.id))
+        .map(|s| {
+            let bits = KEYS.iter().filter(|(k, _)| num(s.first(k)) != 0.0).fold(0, |acc, (_, b)| acc | b);
+            (s.id.parse().unwrap(), bits, num(s.first("ItemSection")) as i64, num(s.first("ResurrectionX")), num(s.first("ResurrectionZ")))
+        })
+        .filter(|(_, bits, section, x, z)| *bits != 0 || *section != 0 || *x != 0.0 || *z != 0.0)
         .collect()
 }
 
@@ -1351,7 +1387,7 @@ async fn import_monster_ai(db: &Databases, server: &Source) -> anyhow::Result<()
     Ok(())
 }
 
-async fn import_spawns(db: &Databases, client: &Source, server: &Source) -> anyhow::Result<()> {
+async fn import_spawns(db: &Databases, client: &Source, server: &Source, bilan: &mut super::ep8::Bilan) -> anyhow::Result<()> {
     let (rows, missing) = join_spawns(&server.read("spawndatatable.txt")?, &server.read("spawninstancetable.txt")?);
     // Noms publics des monstres (clé 1 de CharacterTemplatePublic.ini), en anglais.
     let public: std::collections::HashMap<u32, String> = if client.exists("CharacterTemplatePublic.ini") {
@@ -1362,10 +1398,10 @@ async fn import_spawns(db: &Databases, client: &Source, server: &Source) -> anyh
     } else {
         Default::default()
     };
-    // Niveau des monstres : celui de CharacterDataTable.txt du client (Archonia en a relevé certains), le
-    // niveau des tables du serveur seulement à défaut.
+    // Niveau des monstres : celui du modèle dans la table EP8 (characterdatatable.txt), celui du point d'apparition
+    // à défaut.
     let levels: std::collections::HashMap<u32, i64> = {
-        let (h, rows) = parse_tsv(&client.read("CharacterDataTable.txt")?);
+        let (h, rows) = parse_tsv(&server.read("characterdatatable.txt")?);
         let (t, l) = (h.iter().position(|x| x == "TID"), h.iter().position(|x| x == "LVL"));
         rows.iter()
             .filter_map(|r| {
@@ -1402,11 +1438,15 @@ async fn import_spawns(db: &Databases, client: &Source, server: &Source) -> anyh
     )
     .await?;
     println!("✓ monster_spawn : {n} point(s), {monsters} monstre(s) ; {missing} ligne(s) sans position ignorée(s)");
-    println!("  niveau du client sur {relevelled} point(s) ; délai de la fenêtre des boss (UIBoss.xml) sur {timed} point(s)");
+    println!("  niveau du modèle EP8 sur {relevelled} point(s) ; délai de la fenêtre des boss (UIBoss.xml) sur {timed} point(s)");
+    bilan.add("monster_spawn", n, missing, format!("écartées : lignes sans position ; niveau du modèle EP8 sur {relevelled} point(s)"));
     Ok(())
 }
 
-async fn import_all(db: &Databases, src: &Source) -> anyhow::Result<()> {
+/// Tables du client (`src`) et tables EP8 (`server`) : valeurs EP8, noms et visuels du client, lignes hors EP8 écartées
+/// (voir `ep8.rs`). Chaque table note dans `bilan` ses lignes gardées et écartées.
+async fn import_all(db: &Databases, src: &Source, server: &Source, sets: &super::ep8::Ep8Sets, bilan: &mut super::ep8::Bilan) -> anyhow::Result<()> {
+    use super::ep8;
     // ---------------------------------------------------------------- charactertemplate.ini
     {
         let rows: Vec<Vec<Value>> = parse_ini(&src.read("charactertemplate.ini")?)
@@ -1430,11 +1470,13 @@ async fn import_all(db: &Databases, src: &Source) -> anyhow::Result<()> {
             .collect();
         let n = replace(db, "character_template", "INSERT INTO character_template (tid,name,character_type,race,gender,class,level,con,str,intel,dex,cha,luk,wis,movement,movement_fast,hp,mp,sp,attack_point,magic_attack,ar,dr,base_exp,min_damage,max_damage,attack_range,attack_speed,sight,raw) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows).await?;
         println!("✓ character_template : {n}");
+        bilan.add("character_template", n, 0, "client (règles, pas de table EP8)");
     }
 
-    // ---------------------------------------------------------------- CharacterDataTable.txt
+    // ---------------------------------------------------------------- characterdatatable.txt (EP8) + noms du client
     {
-        let (header, rows) = parse_tsv(&src.read("CharacterDataTable.txt")?);
+        let m = ep8::merge_by_key(&server.read("characterdatatable.txt")?, &src.read("CharacterDataTable.txt")?, "TID", &["Name"], &[]);
+        let (header, rows) = parse_tsv(&m.text);
         let out: Vec<Vec<Value>> = rows
             .iter()
             .filter(|r| r.first().is_some_and(|c| is_uint(c.trim())))
@@ -1449,24 +1491,27 @@ async fn import_all(db: &Databases, src: &Source) -> anyhow::Result<()> {
             })
             .collect();
         let n = replace(db, "character_data_table", "INSERT INTO character_data_table (tid,name,data) VALUES (?,?,?)", out).await?;
-        println!("✓ character_data_table : {n}");
+        println!("✓ character_data_table : {n} ({} modèle(s) d'Archonia écarté(s))", m.dropped);
+        bilan.add("character_data_table", n, m.dropped, format!("{} modèle(s) EP8 sans nom du client", m.ep8_only));
     }
 
-    // ---------------------------------------------------------------- LevelUpExp.txt
+    // ---------------------------------------------------------------- levelupexp (EP8 1–100) + LevelUpExp.txt (101–121)
     {
-        let (_, rows) = parse_tsv(&src.read("LevelUpExp.txt")?);
+        let (text, from_ep8, from_client) = ep8::merge_level_exp(&server.read("levelupexp.ini")?, &src.read("LevelUpExp.txt")?);
+        let (_, rows) = parse_tsv(&text);
         let out: Vec<Vec<Value>> = rows
             .iter()
             .filter(|r| r.first().is_some_and(|c| is_uint(c.trim())))
             .map(|r| vec![v(r[0].trim().parse::<u32>().unwrap()), v(r.get(1).and_then(|e| e.trim().parse::<u64>().ok()).unwrap_or(0))])
             .collect();
         let n = replace(db, "level_exp", "INSERT INTO level_exp (level,exp) VALUES (?,?)", out).await?;
-        println!("✓ level_exp : {n}");
+        println!("✓ level_exp : {n} ({from_ep8} EP8, {from_client} du client au-delà)");
+        bilan.add("level_exp", n, 0, format!("{from_ep8} niveaux EP8, {from_client} du client (101+)"));
     }
 
-    // ---------------------------------------------------------------- GrowUpFactor.txt
+    // ---------------------------------------------------------------- growupfactor (EP8) + modèles absents (client)
     {
-        let text = src.read("GrowUpFactor.txt")?;
+        let (text, ep8_models, client_models) = ep8::merge_growup(&server.read("growupfactor.ini")?, &src.read("GrowUpFactor.txt")?);
         let mut out: Vec<Vec<Value>> = Vec::new();
         let mut tid: Option<f64> = None;
         for line in super::lines(&text) {
@@ -1488,7 +1533,8 @@ async fn import_all(db: &Databases, src: &Source) -> anyhow::Result<()> {
             out.push(row);
         }
         let n = replace(db, "growup_factor", "INSERT INTO growup_factor (template_id,level,str,dex,con,wis,intel,cha,hp,mp,sp,ac,ar,dr,res_fire,res_water,res_earth,res_air,res_magic,min_damage,max_damage) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", out).await?;
-        println!("✓ growup_factor : {n}");
+        println!("✓ growup_factor : {n} ({ep8_models} modèle(s) EP8, croissance du client gardée pour {client_models:?})");
+        bilan.add("growup_factor", n, 0, format!("{ep8_models} modèles EP8 ; client : {client_models:?}"));
     }
 
     // ---------------------------------------------------------------- logincharpos.ini
@@ -1506,58 +1552,80 @@ async fn import_all(db: &Databases, src: &Source) -> anyhow::Result<()> {
         println!("✓ login_char_pos : {n}");
     }
 
-    // ---------------------------------------------------------------- itemtemplateentry.ini
+    // ---------------------------------------------------------------- itemtemplateentry.ini (visuels des objets EP8)
     if src.exists("itemtemplateentry.ini") {
-        let out: Vec<Vec<Value>> = parse_ini(&src.read("itemtemplateentry.ini")?)
+        let all = parse_ini(&src.read("itemtemplateentry.ini")?);
+        let out: Vec<Vec<Value>> = all
             .iter()
-            .filter(|s| is_uint(&s.id))
+            .filter(|s| is_uint(&s.id) && s.id.parse::<u32>().is_ok_and(|t| sets.items.contains(&t)))
             .map(|s| vec![v(s.id.parse::<u32>().unwrap()), v(s.first("0").unwrap_or("").to_string()), s.first("1").map(|f| v(f.to_string())).unwrap_or(Value::NULL), v(s.keys_json().to_string())])
             .collect();
+        let dropped = all.iter().filter(|s| is_uint(&s.id)).count() - out.len();
         let n = replace(db, "item_template", "INSERT INTO item_template (tid,name,file,raw) VALUES (?,?,?,?)", out).await?;
         println!("✓ item_template : {n}");
+        bilan.add("item_template", n, dropped, "visuels du client, objets EP8");
     }
 
-    // ---------------------------------------------------------------- SKILLTEMPLATE.ini
-    if src.exists("SKILLTEMPLATE.ini") {
-        let out: Vec<Vec<Value>> = parse_ini(&src.read("SKILLTEMPLATE.ini")?)
+    // ---------------------------------------------------------------- skilltemplate.ini (EP8) + noms et icônes du client
+    let (template_text, kept, dropped, renamed) = ep8::merge_skill_template(&server.read("skilltemplate.ini")?, &src.read("SKILLTEMPLATE.ini")?);
+    {
+        let out: Vec<Vec<Value>> = parse_ini(&template_text)
             .iter()
             .filter(|s| is_uint(&s.id))
             .map(|s| vec![v(s.id.parse::<u32>().unwrap()), v(s.first("1").or(s.first("Name")).unwrap_or("").to_string()), v(s.keys_json().to_string())])
             .collect();
         let n = replace(db, "skill_template", "INSERT INTO skill_template (tid,name,raw) VALUES (?,?,?)", out).await?;
-        println!("✓ skill_template : {n}");
+        println!("✓ skill_template : {n} ({dropped} compétence(s) d'Archonia écartée(s) ; nom différent dans la table EP8 : {renamed:?})");
+        bilan.add("skill_template", kept, dropped, format!("noms différents (jointure par le nom EP8) : {renamed:?}"));
     }
 
-    // ---------------------------------------------------------------- SKILL_SPEC.txt, SKILL_CONST.txt
-    if src.exists("SKILLTEMPLATE.ini") && src.exists("SKILL_SPEC.txt") && src.exists("SKILL_CONST.txt") {
-        let tids = skill_tids(&src.read("SKILLTEMPLATE.ini")?);
-        let (specs, missing_spec) = parse_skill_specs(&src.read("SKILL_SPEC.txt")?, &tids);
-        let (mut levels, missing_const) = parse_skill_levels(&src.read("SKILL_CONST.txt")?, &tids);
-        if src.exists("Skill_Const2.txt") {
-            let (more, _) = parse_skill_levels(&src.read("Skill_Const2.txt")?, &tids);
-            println!("✓ Skill_Const2.txt : {} niveau(x) complété(s)", merge_skill_levels(&mut levels, more));
+    // ---------------------------------------------------------------- skillspec / skillconst / skillconst2 (EP8)
+    // Jointure nom → TID par le modèle EP8 : ses noms sont ceux des tables EP8 (930 « <Battle>Skill Upgrade »).
+    {
+        let tids = skill_tids(&server.read("skilltemplate.ini")?);
+        let (specs, missing_spec) = parse_skill_specs(&server.read("skillspec.txt")?, &tids);
+        let (mut levels, missing_const) = parse_skill_levels(&server.read("skillconst.txt")?, &tids);
+        if server.exists("skillconst2.txt") {
+            let (more, _) = parse_skill_levels(&server.read("skillconst2.txt")?, &tids);
+            println!("✓ skillconst2.txt : {} niveau(x) complété(s)", merge_skill_levels(&mut levels, more));
         }
+        // Lignes du client écartées : compétences et niveaux qui n'existent pas dans les tables EP8.
+        let client_tids = skill_tids(&src.read("SKILLTEMPLATE.ini")?);
+        let ep8_specs: std::collections::HashSet<u32> = specs.iter().map(|s| s.0).collect();
+        let ep8_levels: std::collections::HashSet<(u32, u32)> = levels.iter().map(|l| (l.0, l.1)).collect();
+        let (client_specs, _) = parse_skill_specs(&src.read("SKILL_SPEC.txt")?, &client_tids);
+        let (client_levels, _) = parse_skill_levels(&src.read("SKILL_CONST.txt")?, &client_tids);
+        let spec_dropped = client_specs.iter().filter(|s| !ep8_specs.contains(&s.0)).count();
+        let level_dropped = client_levels.iter().filter(|l| !ep8_levels.contains(&(l.0, l.1))).count();
         let out: Vec<Vec<Value>> = specs.into_iter().map(|(tid, name, spec)| vec![v(tid), v(name), v(spec.to_string())]).collect();
         let n = replace(db, "skill_spec", "INSERT INTO skill_spec (tid,name,spec) VALUES (?,?,?)", out).await?;
         println!("✓ skill_spec : {n} ({missing_spec} nom(s) sans modèle)");
+        bilan.add("skill_spec", n, spec_dropped, format!("{missing_spec} nom(s) EP8 sans modèle"));
         let out: Vec<Vec<Value>> = levels.into_iter().map(|(tid, level, consts)| vec![v(tid), v(level), v(consts.to_string())]).collect();
         let n = replace(db, "skill_level", "INSERT INTO skill_level (tid,level,consts) VALUES (?,?,?)", out).await?;
         println!("✓ skill_level : {n} ({missing_const} nom(s) sans modèle)");
+        bilan.add("skill_level", n, level_dropped, "niveaux (+ skillconst2)");
     }
 
     // ---------------------------------------------------------------- SkillMastery_High.txt, SkillMastery_Heroic.txt
     if src.exists("SkillMastery_High.txt") || src.exists("SkillMastery_Heroic.txt") {
         let mut out: Vec<Vec<Value>> = Vec::new();
+        let mut dropped = 0;
         for (tree, file) in [(1, "SkillMastery_High.txt"), (2, "SkillMastery_Heroic.txt")] {
             if !src.exists(file) {
                 continue;
             }
             for m in parse_masteries(&src.read(file)?, tree == 2) {
+                if !sets.skills.contains(&m.skill) || m.requires.iter().any(|(s, _)| !sets.skills.contains(s)) {
+                    dropped += 1;
+                    continue;
+                }
                 out.push(vec![v(m.class), v(m.skill), v(tree), v(json!(m.requires).to_string()), v(json!(m.class_points).to_string()), v(m.total)]);
             }
         }
         let n = replace(db, "skill_mastery", "INSERT IGNORE INTO skill_mastery (class_tid,skill_tid,tree,requires,class_points,total_points) VALUES (?,?,?,?,?,?)", out).await?;
         println!("✓ skill_mastery : {n}");
+        bilan.add("skill_mastery", n, dropped, "client, compétences EP8");
     }
 
     // ---------------------------------------------------------------- Product*.txt (production)
@@ -1565,12 +1633,14 @@ async fn import_all(db: &Databases, src: &Source) -> anyhow::Result<()> {
     // servent pas.
     if src.exists("productcompose.txt") && src.exists("SKILLTEMPLATE.ini") {
         let tids = skill_tids(&src.read("SKILLTEMPLATE.ini")?);
+        let item = |t: u32| sets.items.contains(&t);
+        let mut dropped = 0;
         if src.exists("productcategory.txt") {
             let mut missing = 0;
             let out: Vec<Vec<Value>> = parse_product_categories(&src.read("productcategory.txt")?)
                 .into_iter()
                 .filter_map(|(category, skill, price, level, npc)| {
-                    let Some(&tid) = tids.get(&skill) else {
+                    let Some(&tid) = tids.get(&skill).filter(|t| sets.skills.contains(t)) else {
                         missing += 1;
                         return None;
                     };
@@ -1578,10 +1648,15 @@ async fn import_all(db: &Databases, src: &Source) -> anyhow::Result<()> {
                 })
                 .collect();
             let n = replace(db, "product_category", "INSERT IGNORE INTO product_category (category,skill_tid,skill_name,price,level,npc) VALUES (?,?,?,?,?,?)", out).await?;
-            println!("✓ product_category : {n} ({missing} compétence(s) sans modèle)");
+            println!("✓ product_category : {n} ({missing} compétence(s) sans modèle EP8)");
         }
         let out: Vec<Vec<Value>> = parse_product_composes(&src.read("productcompose.txt")?)
             .into_iter()
+            .filter(|c| {
+                let ok = item(c.result_tid) && (c.recipe_tid == 0 || item(c.recipe_tid)) && c.materials.iter().all(|(t, _)| item(*t));
+                dropped += usize::from(!ok);
+                ok
+            })
             .map(|c| {
                 vec![
                     v(c.result_tid), v(c.category), v(c.name), v(c.title_tid), v(c.item_level), v(c.price), v(c.success_rate),
@@ -1591,12 +1666,13 @@ async fn import_all(db: &Databases, src: &Source) -> anyhow::Result<()> {
             .collect();
         let n = replace(db, "product_compose", "INSERT IGNORE INTO product_compose (result_tid,category,name,title_tid,item_level,price,success_rate,recipe_tid,recipe_bonus,materials) VALUES (?,?,?,?,?,?,?,?,?,?)", out).await?;
         println!("✓ product_compose : {n}");
+        bilan.add("product_compose", n, dropped, "client, objets EP8");
         if src.exists("productexp.txt") {
             let mut missing = 0;
             let out: Vec<Vec<Value>> = parse_product_exp(&src.read("productexp.txt")?)
                 .into_iter()
                 .filter_map(|(skill, level, lo, hi, bonus, level_exp, total)| {
-                    let Some(&tid) = tids.get(&skill) else {
+                    let Some(&tid) = tids.get(&skill).filter(|t| sets.skills.contains(t)) else {
                         missing += 1;
                         return None;
                     };
@@ -1604,48 +1680,84 @@ async fn import_all(db: &Databases, src: &Source) -> anyhow::Result<()> {
                 })
                 .collect();
             let n = replace(db, "product_exp", "INSERT IGNORE INTO product_exp (skill_tid,level,exp_min,exp_max,rate_bonus,level_exp,total_exp) VALUES (?,?,?,?,?,?,?)", out).await?;
-            println!("✓ product_exp : {n} ({missing} ligne(s) sans compétence connue)");
+            println!("✓ product_exp : {n} ({missing} ligne(s) sans compétence EP8)");
         }
         if src.exists("productgather.txt") {
-            let out: Vec<Vec<Value>> = parse_product_gather(&src.read("productgather.txt")?).into_iter().map(|(t, c, s, r, i)| vec![v(t), v(c), v(s), v(r), v(i)]).collect();
+            let all = parse_product_gather(&src.read("productgather.txt")?);
+            let total = all.len();
+            let out: Vec<Vec<Value>> =
+                all.into_iter().filter(|(t, _, s, _, _)| sets.models.contains(t) && sets.skills.contains(s)).map(|(t, c, s, r, i)| vec![v(t), v(c), v(s), v(r), v(i)]).collect();
+            let dropped = total - out.len();
             let n = replace(db, "product_gather", "INSERT IGNORE INTO product_gather (monster_tid,classes,skill_tid,rate,item_set) VALUES (?,?,?,?,?)", out).await?;
             println!("✓ product_gather : {n}");
+            bilan.add("product_gather", n, dropped, "client, monstres et compétences EP8");
         }
         if src.exists("productresultitem.txt") {
-            let out: Vec<Vec<Value>> = parse_product_results(&src.read("productresultitem.txt")?).into_iter().map(|(s, l, t, w)| vec![v(s), v(l), v(t), v(w)]).collect();
+            let all = parse_product_results(&src.read("productresultitem.txt")?);
+            let total = all.len();
+            let out: Vec<Vec<Value>> = all.into_iter().filter(|r| item(r.2)).map(|(s, l, t, w)| vec![v(s), v(l), v(t), v(w)]).collect();
+            let dropped = total - out.len();
             let n = replace(db, "product_result_item", "INSERT IGNORE INTO product_result_item (item_set,skill_level,item_tid,weight) VALUES (?,?,?,?)", out).await?;
             println!("✓ product_result_item : {n}");
+            bilan.add("product_result_item", n, dropped, "client, objets EP8");
         }
     }
 
-    // ---------------------------------------------------------------- ItemConvertTable.txt, itemoptiontable.txt
-    // Textes entiers (ItemConvertTable : plusieurs tableaux séparés par des lignes vides) : le monde les lit
-    // au chargement.
-    for name in ["ItemConvertTable.txt", "itemoptiontable.txt", "itemruneattributetable.txt", "RefineryItem2.txt"] {
-        if src.exists(name) {
-            store_text(db, name, &src.read(name)?).await?;
-        }
+    // ---------------------------------------------------------------- options, runes, conversion, raffinage (EP8)
+    // Textes entiers (ItemConvertTable : plusieurs tableaux séparés par des lignes vides) : le monde les lit au
+    // chargement. Les options gardent la description du client ; le raffinage ne lit que refineryrecipetable.txt.
+    {
+        let m = ep8::merge_by_key(&server.read("itemoptiontable.txt")?, &src.read("itemoptiontable.txt")?, "tid", &["Description"], &[]);
+        store_text(db, "itemoptiontable.txt", &m.text).await?;
+        bilan.add("itemoptiontable", m.kept, m.dropped, "description du client");
+        let runes = server.read("itemruneattributetable.txt")?;
+        let (ep8_runes, client_runes) = (ep8::tsv_keys(&runes, "TID"), ep8::tsv_keys(&src.read("itemruneattributetable.txt")?, "TID"));
+        store_text(db, "itemruneattributetable.txt", &runes).await?;
+        bilan.add("itemruneattributetable", ep8_runes.len(), client_runes.difference(&ep8_runes).count(), "« AlwaysSuccess » (Archonia) absente");
+        store_text(db, "ItemConvertTable.txt", &server.read("itemconverttable.txt")?).await?;
+        bilan.add("ItemConvertTable", 1, 0, "table EP8 (lue par position)");
+        let recipes = server.read("refineryrecipetable.txt")?;
+        let ids = |text: &str| -> std::collections::HashSet<u32> { parse_tsv(text).1.iter().filter_map(|r| r.first()?.trim().parse().ok()).collect() };
+        let (ep8_recipes, client_recipes) = (ids(&recipes), if src.exists("RefineryItem2.txt") { ids(&src.read("RefineryItem2.txt")?) } else { Default::default() });
+        store_text(db, "refineryrecipetable.txt", &recipes).await?;
+        db.world.exec("DELETE FROM client_table WHERE name = 'RefineryItem2.txt'", ()).await?;
+        bilan.add("refinery (recettes)", ep8_recipes.len(), client_recipes.difference(&ep8_recipes).count(), "colonnes « Keep » (Archonia) absentes");
     }
 
-    // ---------------------------------------------------------------- questtemplate.ini (tabulé)
+    // ---------------------------------------------------------------- questtemplate.ini (tabulé), questgroup.ini
+    // Quêtes du client (pas de table EP8), sans celles qui citent un monstre ou un objet hors EP8.
+    let mut quest_groups: std::collections::HashSet<u32> = Default::default();
     if src.exists("questtemplate.ini") {
-        let quests = parse_quests(&src.read("questtemplate.ini")?);
+        let (text, removed) = ep8::filter_quests(&src.read("questtemplate.ini")?, sets);
+        let quests = parse_quests(&text);
         let out: Vec<Vec<Value>> = quests.into_iter().map(|(tid, name, data)| vec![v(tid), v(name), v(data.to_string())]).collect();
         let n = replace(db, "quest_template", "INSERT INTO quest_template (tid,name,data) VALUES (?,?,?)", out).await?;
-        println!("✓ quest_template : {n}");
-    }
-    if src.exists("questgroup.ini") {
-        let out: Vec<Vec<Value>> = parse_quest_groups(&src.read("questgroup.ini")?)
-            .into_iter()
-            .map(|(id, name, give, confirm)| vec![v(id), v(name), v(json!(give).to_string()), v(json!(confirm).to_string())])
-            .collect();
-        let n = replace(db, "quest_group", "INSERT INTO quest_group (id,name,give,confirm) VALUES (?,?,?,?)", out).await?;
-        println!("✓ quest_group : {n}");
+        println!("✓ quest_template : {n} ({} quête(s) hors EP8 retirée(s) : {removed:?})", removed.len());
+        bilan.add("quest_template", n, removed.len(), "client, TID hors EP8 retirés");
+        if src.exists("questgroup.ini") {
+            let (groups, gone) = ep8::filter_quest_groups(&src.read("questgroup.ini")?, &removed);
+            let rows = parse_quest_groups(&groups);
+            quest_groups = rows.iter().map(|g| g.0).collect();
+            let out: Vec<Vec<Value>> = rows.into_iter().map(|(id, name, give, confirm)| vec![v(id), v(name), v(json!(give).to_string()), v(json!(confirm).to_string())]).collect();
+            let n = replace(db, "quest_group", "INSERT INTO quest_group (id,name,give,confirm) VALUES (?,?,?,?)", out).await?;
+            println!("✓ quest_group : {n} ({} groupe(s) vidé(s) retiré(s))", gone.len());
+            bilan.add("quest_group", n, gone.len(), "groupes sans quête retirés");
+        }
     }
 
-    // ---------------------------------------------------------------- npc.ini (PNJ placés dans le monde)
-    if src.exists("npc.ini") {
-        let out: Vec<Vec<Value>> = parse_ini(&src.read("npc.ini")?)
+    // ---------------------------------------------------------------- npctradelist (EP8) : boutiques communes
+    let (shops_text, shops, shops_client_only, shops_ep8_only) = ep8::merge_shops(&server.read("npctradelist.txt")?, &src.read("npctradeitemlist.txt")?);
+
+    // ---------------------------------------------------------------- npc.ini (fusion EP8 + client)
+    {
+        let sectors = terrain_sectors(db).await;
+        let on_terrain = |x: f64, z: f64| {
+            let s = |c: f64| ((c - crate::world::map::WORLD_START) / crate::world::map::SECTOR_SIZE).floor() as i64;
+            sectors.is_empty() || sectors.contains(&(s(x), s(z)))
+        };
+        let rules = ep8::NpcRules { models: &sets.models, shops: &shops, quest_groups: &quest_groups, on_terrain: &on_terrain };
+        let (text, st) = ep8::merge_npcs(&server.read("npc.ini")?, &src.read("npc.ini")?, &rules);
+        let out: Vec<Vec<Value>> = parse_ini(&text)
             .iter()
             .filter(|s| is_uint(&s.id) && s.first("TID").is_some_and(|t| !t.is_empty()) && s.first("Position").is_some_and(|p| !p.is_empty()))
             .map(|s| {
@@ -1662,23 +1774,40 @@ async fn import_all(db: &Databases, src: &Source) -> anyhow::Result<()> {
             })
             .collect();
         let n = replace(db, "npc_spawn", "INSERT INTO npc_spawn (id,tid,name,pos_x,pos_y,pos_z,degree_x,degree_y,raw) VALUES (?,?,?,?,?,?,?,?,?)", out).await?;
-        println!("✓ npc_spawn : {n}");
+        println!(
+            "✓ npc_spawn : {n} ({} du client seul, {} de la table EP8 seule, {} au modèle hors EP8 écartés ; {} gardent la position du client, {} la boutique du client ; {} événement(s) de quête et {} de réparation ou d'avis de recherche du client ; {} PNJ du client sans équivalent EP8 au même numéro gardés)",
+            st.client_only, st.ep8_only, st.bad_model, st.client_position, st.client_shop, st.quest_events, st.client_repair, st.client_kept
+        );
+        bilan.add(
+            "npc_spawn",
+            n,
+            st.client_only + st.ep8_only + st.bad_model,
+            format!("{} client seul, {} EP8 seul, {} modèle hors EP8 ; {} position client ; {} sans équivalent EP8 gardés", st.client_only, st.ep8_only, st.bad_model, st.client_position, st.client_kept),
+        );
     }
 
-    // ---------------------------------------------------------------- RegionTemplate.ini, obj*.ini (régions, résurrection)
-    if src.exists("RegionTemplate.ini") {
-        let regions = parse_regions(&src.read("RegionTemplate.ini")?);
+    // ---------------------------------------------------------------- regiontemplate.ini, objects/obj*.ini (EP8)
+    {
+        let region_text = server.read("regiontemplate.ini")?;
+        store_text(db, "RegionTemplate.ini", &region_text).await?;
+        let regions = parse_regions(&region_text);
+        let client_regions = parse_regions(&src.read("RegionTemplate.ini")?);
         let by_name: std::collections::HashMap<&str, u32> = regions.iter().map(|r| (r.1.as_str(), r.0)).collect();
         let mut points = Vec::new();
         let mut siege_points = Vec::new();
-        let mut files: Vec<PathBuf> = std::fs::read_dir(&src.0)?
+        let objects = Source(server.0.join("objects"));
+        let mut files: Vec<PathBuf> = std::fs::read_dir(&objects.0)
+            .map_err(|e| anyhow::anyhow!("{} : {e}", objects.0.display()))?
             .filter_map(|e| e.ok().map(|e| e.path()))
             .filter(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("obj") && n.ends_with(".ini")))
             .collect();
         files.sort();
+        let client_files = std::fs::read_dir(&src.0)?.filter_map(|e| e.ok()?.file_name().into_string().ok()).filter(|n| n.starts_with("obj") && n.ends_with(".ini") && n != "objecttemplate.ini").count();
+        let mut portals: std::collections::BTreeMap<u32, (String, [f64; 3])> = std::collections::BTreeMap::new();
+        let mut spheres: std::collections::BTreeMap<u32, [f64; 3]> = std::collections::BTreeMap::new();
         for f in &files {
             let file = f.file_name().unwrap().to_str().unwrap();
-            let text = src.read(file)?;
+            let text = objects.read(file)?;
             let mut ranks: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
             for b in parse_bindings(&text).into_iter().filter(|b| b.binding_type == 1) {
                 // Clé stable : fichier, objet et rang de l'événement dans l'objet.
@@ -1699,6 +1828,10 @@ async fn import_all(db: &Databases, src: &Source) -> anyhow::Result<()> {
                     siege_points.push((region, key, b));
                 }
             }
+            for (object, point, pos) in parse_portals(&text) {
+                portals.insert(object, (point, pos));
+            }
+            spheres.extend(parse_refinery_objects(&text));
         }
         let out: Vec<Vec<Value>> = siege_points
             .iter()
@@ -1707,16 +1840,18 @@ async fn import_all(db: &Databases, src: &Source) -> anyhow::Result<()> {
             .collect();
         let k = replace(db, "siege_binding", "INSERT INTO siege_binding (id,stable_key,region_id,name,binding_type,pos_x,pos_y,pos_z) VALUES (?,?,?,?,?,?,?,?)", out).await?;
         println!("✓ siege_binding : {k}");
-        // ------------------------------------------------------------ SiegeWar.txt, SiegeWarObject.txt (guerres de siège)
+        // ------------------------------------------------------------ SiegeWar.txt, SiegeWarObject.txt (guerres de siège, client)
         if src.exists("SiegeWar.txt") {
             let rows = parse_siege_war(&src.read_utf8_or_korean("SiegeWar.txt")?);
             let region = |name: &str| by_name.get(name).copied().unwrap_or(0);
             let out: Vec<Vec<Value>> = rows
                 .iter()
                 .map(|r| {
+                    // Compétence de gravure hors EP8 : aucune.
+                    let stamp = if r.stamp_skill_tid > 0 && sets.skills.contains(&(r.stamp_skill_tid as u32)) { r.stamp_skill_tid } else { 0 };
                     vec![
                         v(r.id), v(r.name.clone()), v(region(&r.regions.0)), v(region(&r.regions.1)), v(r.playing_ms), v(r.eye_open_ms), v(r.stamping_ms),
-                        v(r.declare_hours), v(r.select_hours), v(r.interval_days), v(r.begin_hour), v(r.stamp_skill_tid), v(r.stamp_skill_level), v(r.disabled as u8),
+                        v(r.declare_hours), v(r.select_hours), v(r.interval_days), v(r.begin_hour), v(stamp), v(r.stamp_skill_level), v(r.disabled as u8),
                     ]
                 })
                 .collect();
@@ -1730,38 +1865,87 @@ async fn import_all(db: &Databases, src: &Source) -> anyhow::Result<()> {
             .await?;
             println!("✓ siege_war : {n} ({unknown} sans région connue)");
         }
-        let objects = ["siegewarobject.txt", "SiegeWarObject.txt"].into_iter().find(|f| src.exists(f));
-        if let Some(file) = objects {
+        let siege_objects = ["siegewarobject.txt", "SiegeWarObject.txt"].into_iter().find(|f| src.exists(f));
+        if let Some(file) = siege_objects {
             let out: Vec<Vec<Value>> = parse_siege_war_objects(&src.read(file)?)
                 .into_iter()
-                .map(|(t, d, count, cost, minutes, items)| vec![v(t), v(d), v(count), v(cost), v(minutes), v(serde_json::to_string(&items.iter().map(|(a, b)| [*a, *b]).collect::<Vec<_>>()).unwrap())])
+                .map(|(t, d, count, cost, minutes, items)| {
+                    let items: Vec<[i64; 2]> = items.iter().filter(|(a, _)| sets.items.contains(&(*a as u32))).map(|(a, b)| [*a, *b]).collect();
+                    vec![v(t), v(d), v(count), v(cost), v(minutes), v(serde_json::to_string(&items).unwrap())]
+                })
                 .collect();
             let n = replace(db, "siege_war_object", "INSERT INTO siege_war_object (type,description,repair_count,repair_cost,repair_minutes,items) VALUES (?,?,?,?,?,?)", out).await?;
             println!("✓ siege_war_object : {n}");
         }
         // Niveaux d'entrée (étages de la Battle Square).
-        let levels: std::collections::HashMap<u32, (i64, i64)> = parse_region_levels(&src.read("RegionTemplate.ini")?).into_iter().map(|(r, a, b)| (r, (a, b))).collect();
+        let levels: std::collections::HashMap<u32, (i64, i64)> = parse_region_levels(&region_text).into_iter().map(|(r, a, b)| (r, (a, b))).collect();
+        // Règles : invocations, `/go`, groupes, entrée en jeu, objets réservés, point de résurrection propre.
+        let rules: std::collections::HashMap<u32, (u32, i64, f64, f64)> = parse_region_rules(&region_text).into_iter().map(|(r, b, s, x, z)| (r, (b, s, x, z))).collect();
         let out: Vec<Vec<Value>> = regions
             .iter()
             .map(|r| {
                 let (min, limit) = levels.get(&r.0).copied().unwrap_or((0, 0));
-                vec![v(r.0), v(r.1.clone()), v(r.2), v(r.3), v((r.3 >> 2) & 3), v(min), v(limit)]
+                let (bits, section, x, z) = rules.get(&r.0).copied().unwrap_or((0, 0, 0.0, 0.0));
+                vec![v(r.0), v(r.1.clone()), v(r.2), v(r.3), v((r.3 >> 2) & 3), v(min), v(limit), v(bits), v(section), v(x), v(z)]
             })
             .collect();
-        let n = replace(db, "region_template", "INSERT INTO region_template (id,name,parent_id,type_bits,safety,level_min,level_limit) VALUES (?,?,?,?,?,?,?)", out).await?;
+        let n = replace(
+            db,
+            "region_template",
+            "INSERT INTO region_template (id,name,parent_id,type_bits,safety,level_min,level_limit,disabled,item_section,resurrection_x,resurrection_z) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            out,
+        )
+        .await?;
+        let ep8_regions: std::collections::HashSet<u32> = regions.iter().map(|r| r.0).collect();
+        bilan.add("region_template", n, client_regions.iter().filter(|r| !ep8_regions.contains(&r.0)).count(), "régions d'Archonia écartées");
         let out: Vec<Vec<Value>> = points
             .iter()
             .enumerate()
             .map(|(i, (region, key, b))| vec![v(i as u32 + 1), v(key.clone()), v(*region), v(b.name.clone()), v(b.pos[0]), v(b.pos[1]), v(b.pos[2]), v(b.race), v(b.class)])
             .collect();
         let m = replace(db, "resurrection_point", "INSERT INTO resurrection_point (id,stable_key,region_id,name,pos_x,pos_y,pos_z,race,class) VALUES (?,?,?,?,?,?,?,?,?)", out).await?;
-        println!("✓ region_template : {n} ({} avec un niveau d'entrée) ; resurrection_point : {m} (sur {} fichier(s) obj*.ini)", levels.len(), files.len());
+        println!("✓ region_template : {n} ({} avec un niveau d'entrée, {} avec une règle) ; resurrection_point : {m} (sur {} fichier(s) obj*.ini)", levels.len(), rules.len(), files.len());
+        bilan.add("obj*.ini", files.len(), client_files.saturating_sub(files.len()), format!("{m} point(s) de résurrection, {k} de siège"));
+
+        // ------------------------------------------------------------ teleportpoint.ini (EP8, ordre du client), teleportfee.txt
+        let (tp_text, tp_kept, tp_dropped, tp_ep8_only) = ep8::merge_teleport_points(&server.read("teleportpoint.ini")?, &src.read("TeleportPoint.ini")?);
+        store_text(db, "TeleportPoint.ini", &tp_text).await?;
+        let points = parse_teleport_points(&tp_text);
+        let names: std::collections::HashSet<&str> = points.iter().map(|p| p.name.as_str()).collect();
+        // Numéro d'un point : son rang dans le fichier du client, à partir de 1 (comme au chargement du client).
+        let out: Vec<Vec<Value>> = points
+            .iter()
+            .enumerate()
+            .map(|(i, p)| {
+                let list = |l: &Vec<String>| serde_json::to_string(l).unwrap();
+                vec![
+                    v(i as i64 + 1),
+                    v(p.name.clone()), v(p.target_type), v(p.pos[0]), v(p.pos[1]), v(p.pos[2]), v(p.radius_min), v(p.radius_max),
+                    v(p.region_type), v(p.special_type), v(p.use_type), v(list(&p.groups)), v(list(&p.target_groups)),
+                ]
+            })
+            .collect();
+        let n = replace(db, "teleport_point", "INSERT INTO teleport_point (point_id,name,target_type,pos_x,pos_y,pos_z,radius_min,radius_max,region_type,special_type,use_type,point_groups,target_groups) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", out).await?;
+        bilan.add("teleport_point", tp_kept, tp_dropped + tp_ep8_only, format!("{tp_ep8_only} point(s) propre(s) à la table EP8 non importé(s)"));
+        let out: Vec<Vec<Value>> = spheres.iter().map(|(id, pos)| vec![v(*id), v(pos[0]), v(pos[1]), v(pos[2])]).collect();
+        let s = replace(db, "refinery_object", "INSERT INTO refinery_object (object_id,pos_x,pos_y,pos_z) VALUES (?,?,?,?)", out).await?;
+        println!("✓ refinery_object : {s} sphère(s) d'alchimie");
+        // Portails vers un point gardé seulement.
+        let out: Vec<Vec<Value>> = portals.iter().filter(|(_, (point, _))| names.contains(point.as_str())).map(|(id, (point, pos))| vec![v(*id), v(point.clone()), v(pos[0]), v(pos[1]), v(pos[2])]).collect();
+        let m = replace(db, "teleport_object", "INSERT INTO teleport_object (object_id,point,pos_x,pos_y,pos_z) VALUES (?,?,?,?,?)", out).await?;
+        let fees = parse_teleport_fees(&server.read("teleportfee.txt")?);
+        let out: Vec<Vec<Value>> = fees.into_iter().filter(|(a, b, _)| names.contains(a.as_str()) && names.contains(b.as_str())).map(|(a, b, fee)| vec![v(a), v(b), v(fee)]).collect();
+        let f = replace(db, "teleport_fee", "INSERT INTO teleport_fee (source,destination,fee) VALUES (?,?,?)", out).await?;
+        println!("✓ teleport_point : {n} ; teleport_object : {m} ; teleport_fee : {f}");
     }
 
     // ---------------------------------------------------------------- titledatatable.txt et tables liées (titres)
     if src.exists("titledatatable.txt") {
         let categories = if src.exists("titlestringtable.txt") { parse_title_categories(&src.read("titlestringtable.txt")?) } else { HashMap::new() };
-        let titles = parse_titles(&src.read("titledatatable.txt")?);
+        let all = parse_titles(&src.read("titledatatable.txt")?);
+        // Titres dont un coût ou une compétence est hors EP8 : écartés.
+        let (titles, out_of_ep8): (Vec<TitleRow>, Vec<TitleRow>) =
+            all.into_iter().partition(|t| t.cost_items.iter().all(|(i, _)| sets.items.contains(i)) && t.skills.iter().all(|s| sets.skills.contains(s)));
         let optional = titles.iter().filter(|t| t.optional).count();
         let json = |x: serde_json::Value| v(x.to_string());
         let out: Vec<Vec<Value>> = titles
@@ -1788,7 +1972,8 @@ async fn import_all(db: &Databases, src: &Source) -> anyhow::Result<()> {
             out,
         )
         .await?;
-        println!("✓ title_template : {n} ({optional} réservé(s) à Title.Schola ; ajouts d'Archonia écartés)");
+        println!("✓ title_template : {n} ({optional} réservé(s) à Title.Schola ; ajouts d'Archonia et {} titre(s) au coût ou à la compétence hors EP8 écartés)", out_of_ep8.len());
+        bilan.add("title_template", n, out_of_ep8.len(), "client, coûts et compétences EP8");
     }
     if src.exists("charismatitletable.txt") {
         let out: Vec<Vec<Value>> = parse_charisma_titles(&src.read("charismatitletable.txt")?).into_iter().map(|(r, lo, hi, t)| vec![v(r), v(lo), v(hi), v(t)]).collect();
@@ -1796,12 +1981,13 @@ async fn import_all(db: &Databases, src: &Source) -> anyhow::Result<()> {
         println!("✓ charisma_title : {n}");
     }
 
-    // ---------------------------------------------------------------- UIBoss.xml (fenêtre des boss d'Archonia)
+    // ---------------------------------------------------------------- UIBoss.xml (fenêtre des boss d'Archonia), boss EP8
     if src.exists("UIBoss.xml") {
-        let out: Vec<Vec<Value>> =
-            parse_boss_window(&src.read("UIBoss.xml")?).into_iter().enumerate().map(|(i, (tid, category, name))| vec![v(tid), v(i as u32), v(category), v(name)]).collect();
+        let (xml, removed) = ep8::filter_boss_xml(&src.read("UIBoss.xml")?, &sets.models);
+        let out: Vec<Vec<Value>> = parse_boss_window(&xml).into_iter().enumerate().map(|(i, (tid, category, name))| vec![v(tid), v(i as u32), v(category), v(name)]).collect();
         let n = replace(db, "boss_window", "INSERT INTO boss_window (tid,row_order,category,name) VALUES (?,?,?,?)", out).await?;
-        println!("✓ boss_window : {n}");
+        println!("✓ boss_window : {n} ({} boss hors EP8 retiré(s))", removed.len());
+        bilan.add("boss_window", n, removed.len(), "boss d'Archonia retirés");
     }
 
     // ---------------------------------------------------------------- pvpskulldroptable.txt (crânes de la Battle Square)
@@ -1811,48 +1997,6 @@ async fn import_all(db: &Databases, src: &Source) -> anyhow::Result<()> {
         let out = levels.iter().map(|(a, b, l)| vec![v(*a), v(*b), v(*l)]).collect();
         let m = replace(db, "pvp_skull_level", "INSERT INTO pvp_skull_level (victim_level_min,victim_level_max,skull_level) VALUES (?,?,?)", out).await?;
         println!("✓ pvp_skull_chance : {n} ; pvp_skull_level : {m}");
-    }
-
-    // ---------------------------------------------------------------- TeleportPoint.ini, obj*.ini, TeleportFee.txt (portails)
-    if src.exists("TeleportPoint.ini") {
-        let points = parse_teleport_points(&src.read("TeleportPoint.ini")?);
-        // Numéro d'un point : son rang dans le fichier, à partir de 1 (comme au chargement du client).
-        let out: Vec<Vec<Value>> = points
-            .iter()
-            .enumerate()
-            .map(|(i, p)| {
-                let list = |l: &Vec<String>| serde_json::to_string(l).unwrap();
-                vec![
-                    v(i as i64 + 1),
-                    v(p.name.clone()), v(p.target_type), v(p.pos[0]), v(p.pos[1]), v(p.pos[2]), v(p.radius_min), v(p.radius_max),
-                    v(p.region_type), v(p.special_type), v(p.use_type), v(list(&p.groups)), v(list(&p.target_groups)),
-                ]
-            })
-            .collect();
-        let n = replace(db, "teleport_point", "INSERT INTO teleport_point (point_id,name,target_type,pos_x,pos_y,pos_z,radius_min,radius_max,region_type,special_type,use_type,point_groups,target_groups) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", out).await?;
-        let mut files: Vec<String> = std::fs::read_dir(&src.0)?
-            .filter_map(|e| e.ok().and_then(|e| e.file_name().to_str().map(str::to_string)))
-            .filter(|n| n.starts_with("obj") && n.ends_with(".ini"))
-            .collect();
-        files.sort();
-        let mut portals: std::collections::BTreeMap<u32, (String, [f64; 3])> = std::collections::BTreeMap::new();
-        let mut spheres: std::collections::BTreeMap<u32, [f64; 3]> = std::collections::BTreeMap::new();
-        for f in &files {
-            let text = src.read(f)?;
-            for (object, point, pos) in parse_portals(&text) {
-                portals.insert(object, (point, pos));
-            }
-            spheres.extend(parse_refinery_objects(&text));
-        }
-        let out: Vec<Vec<Value>> = spheres.iter().map(|(id, pos)| vec![v(*id), v(pos[0]), v(pos[1]), v(pos[2])]).collect();
-        let s = replace(db, "refinery_object", "INSERT INTO refinery_object (object_id,pos_x,pos_y,pos_z) VALUES (?,?,?,?)", out).await?;
-        println!("✓ refinery_object : {s} sphère(s) d'alchimie");
-        let out: Vec<Vec<Value>> = portals.iter().map(|(id, (point, pos))| vec![v(*id), v(point.clone()), v(pos[0]), v(pos[1]), v(pos[2])]).collect();
-        let m = replace(db, "teleport_object", "INSERT INTO teleport_object (object_id,point,pos_x,pos_y,pos_z) VALUES (?,?,?,?,?)", out).await?;
-        let fees = if src.exists("TeleportFee.txt") { parse_teleport_fees(&src.read("TeleportFee.txt")?) } else { Vec::new() };
-        let out: Vec<Vec<Value>> = fees.into_iter().map(|(a, b, fee)| vec![v(a), v(b), v(fee)]).collect();
-        let f = replace(db, "teleport_fee", "INSERT INTO teleport_fee (source,destination,fee) VALUES (?,?,?)", out).await?;
-        println!("✓ teleport_point : {n} ; teleport_object : {m} ; teleport_fee : {f}");
     }
 
     // ---------------------------------------------------------------- guildmaxmember.txt (taille des guildes)
@@ -1881,10 +2025,14 @@ async fn import_all(db: &Databases, src: &Source) -> anyhow::Result<()> {
 
     // ---------------------------------------------------------------- itemtransformtable.txt (bonus des potions de métamorphose)
     if let Some(file) = ["itemtransformtable.txt", "ItemTransformTable.txt"].into_iter().find(|f| src.exists(f)) {
-        let out: Vec<Vec<Value>> = parse_item_transform(&src.read(file)?)
+        let all = parse_item_transform(&src.read(file)?);
+        let total = all.len();
+        let out: Vec<Vec<Value>> = all
             .into_iter()
+            .filter(|r| sets.items.contains(&r.item_tid))
             .map(|r| vec![v(r.item_tid), v(r.tid), v(r.level), v(r.name), v(r.movement_run), v(r.atk_speed), v(r.max_hp), v(r.max_mp), v(r.defense), v(r.min_damage), v(r.max_damage)])
             .collect();
+        let dropped = total - out.len();
         let n = replace(
             db,
             "item_transform",
@@ -1893,6 +2041,7 @@ async fn import_all(db: &Databases, src: &Source) -> anyhow::Result<()> {
         )
         .await?;
         println!("✓ item_transform : {n}");
+        bilan.add("item_transform", n, dropped, "client, objets EP8");
     }
 
     // ---------------------------------------------------------------- charactercustomizelist.txt (coiffures, visages)
@@ -1912,12 +2061,13 @@ async fn import_all(db: &Databases, src: &Source) -> anyhow::Result<()> {
         println!("✓ character_customize : {n}");
     }
 
-    // ---------------------------------------------------------------- itemdatatable.txt (prix, piles)
+    // ---------------------------------------------------------------- itemdatatable.txt (EP8, noms du client)
     {
-        let (header, rows) = parse_tsv(&src.read("itemdatatable.txt")?);
+        let m = ep8::merge_by_key(&server.read("itemdatatable.txt")?, &src.read("itemdatatable.txt")?, "TID", &["ItemName"], &ep8::EP8_ONLY_ITEM_COLUMNS);
+        let (header, rows) = parse_tsv(&m.text);
         let col = |name: &str| header.iter().position(|h| h == name);
         let (c_tid, c_name) = (col("TID"), col("ItemName"));
-        // Prix chez un PNJ : or, revente, charisme (colonne 29) et Shrine Coins (colonne 35) de la boutique des Shrines.
+        // Prix chez un PNJ : or, revente, charisme et Shrine Coins de la boutique des Shrines.
         let cols = ["Level", "Part", "Kind", "ItemType", "Type", "NPC Price", "PC Price", "NPC Charisma Price", "NPC Shrine Coin"].map(|n| col(n));
         let c_stack = col("Stack");
         fn cell(r: &[String], c: Option<usize>) -> Option<&str> {
@@ -1941,17 +2091,17 @@ async fn import_all(db: &Databases, src: &Source) -> anyhow::Result<()> {
             out.push(row);
         }
         let n = replace(db, "item_data", "INSERT INTO item_data (tid,name,level,part,kind,item_type,type,npc_price,pc_price,npc_charisma_price,npc_shrine_coin,stack,raw) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE name = VALUES(name)", out).await?;
-        println!("✓ item_data : {n}");
+        println!("✓ item_data : {n} ({} objet(s) d'Archonia écarté(s))", m.dropped);
+        bilan.add("item_data", n, m.dropped, format!("{} objet(s) EP8 sans nom du client ; « NPC Arena Coin » non importée", m.ep8_only));
     }
 
-    // ---------------------------------------------------------------- npctradeitemlist.txt (boutiques)
+    // ---------------------------------------------------------------- npctradelist.txt (boutiques EP8 communes)
     {
-        let text = src.read("npctradeitemlist.txt")?;
         let mut out: Vec<Vec<Value>> = Vec::new();
         let mut template: Option<f64> = None;
         let mut idx = 0u32;
-        let mut shops = std::collections::HashSet::new();
-        for line in super::lines(&text) {
+        let mut missing = 0;
+        for line in super::lines(&shops_text) {
             let cells: Vec<&str> = line.split('\t').map(str::trim).collect();
             if cells[0] == "Npc" {
                 template = Some(js_number(cells.get(1).copied().unwrap_or(""), f64::NAN)).filter(|t| t.fract() == 0.0);
@@ -1959,17 +2109,21 @@ async fn import_all(db: &Databases, src: &Source) -> anyhow::Result<()> {
                 continue;
             }
             if let (Some(t), "Item") = (template, cells[0]) {
-                out.push(vec![v(t), v(idx), v(num(cells.get(1).copied())), v(js_number(cells.get(2).copied().unwrap_or(""), 1.0).max(1.0))]);
-                shops.insert(t as i64);
+                let tid = num(cells.get(1).copied());
+                if !sets.items.contains(&(tid as u32)) {
+                    missing += 1;
+                    continue;
+                }
+                out.push(vec![v(t), v(idx), v(tid), v(js_number(cells.get(2).copied().unwrap_or(""), 1.0).max(1.0))]);
                 idx += 1;
             }
         }
         let n = replace(db, "npc_trade_list", "INSERT INTO npc_trade_list (template_id,idx,tid,count) VALUES (?,?,?,?)", out).await?;
-        println!("✓ npc_trade_list : {n} ligne(s), {} boutique(s)", shops.len());
+        println!("✓ npc_trade_list : {n} ligne(s), {} boutique(s) ({shops_client_only} du client seul, {shops_ep8_only} de la table EP8 seule écartées)", shops.len());
+        bilan.add("npc_trade_list", shops.len(), shops_client_only + shops_ep8_only, format!("{n} articles ; {shops_client_only} client seul, {shops_ep8_only} EP8 seul ; {missing} article(s) hors EP8"));
     }
     Ok(())
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -2237,6 +2391,11 @@ mod tests {
     fn niveaux_des_regions_et_cranes() {
         let r = parse_region_levels("[198]\nName=BS\nLevelLimit=30\nLevelMin=20\n[9]\nName=Anchorville\n");
         assert_eq!(r, vec![(198, 20, 30)]);
+        let rules = parse_region_rules(
+            "[312]\nName=Guild vs Guild Area\nItemSection=0\nResurrectionX=0\nDisableSummon=1\nDisableGo=1\nDisableParty=1\nDisableLogin=1\n\
+             [306]\nResurrectionX=\nDisableLogin=0\n[183]\nItemSection=1\nResurrectionX=677469\nResurrectionZ=764938\n[9]\nName=Anchorville\n",
+        );
+        assert_eq!(rules, vec![(312, 15, 0, 0.0, 0.0), (183, 0, 1, 677469.0, 764938.0)], "DisableLogin=0 et ResurrectionX vide : rien");
         let (chances, levels) = parse_skull_table("PC\tniveau\tchance\t\r\n40\t1\t0\t\r\n5\t1\t10\t\r\n-35\t1\t1\t\r\n1:40\t1\t-1\t\r\n41:70\t2\t-1\r\n");
         assert_eq!(chances, vec![(40, 0.0), (5, 10.0), (-35, 1.0)]);
         assert_eq!(levels, vec![(1, 40, 1), (41, 70, 2)]);

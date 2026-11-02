@@ -1,7 +1,7 @@
 # Status and roadmap
 
-> **Episode.** World of Episode 8 "The Dark Revelation" (2012) and Archonia extensions; systems of the
-> original release. Detail by episode: [[Game episode|EN-Episode]].
+> **Episode.** World of Episode 8 "The Dark Revelation" (2012); game values from the original episode 8
+> server tables (Archonia additions dropped); systems of the original release. Detail by episode: [[Game episode|EN-Episode]].
 
 ## Working with the real client
 
@@ -9,7 +9,7 @@
 - Encrypted handshake, world list, account login.
 - Character list and creation screen.
 - World entry, with a starting village per race.
-- Spawning of the 567 NPCs around the player, with translated titles.
+- Spawning of the NPCs around the player (557 since the switch to episode 8 values), with translated titles.
 - French client interface, accents included (translation in progress).
 - Player movement, with position saving.
 - NPC dialog: the npc.ini functions (dialog, shop, quests) are sent with each NPC, and clicking opens
@@ -22,7 +22,7 @@
 
 - Creatures: 36,960 monsters placed from the original server tables, off blocked ground, with their stats
   (level, speeds, HP). Seen and targeted in game during a first test; sending their HP, added since,
-  remains to be checked. Levels taken from the Archonia client and boss respawn from its boss window;
+  remains to be checked. Levels from the template in the episode 8 tables and boss respawn from its boss window;
   fidelity report in [[Game episode|EN-Episode]].
 - Melee combat against monsters: approach, hits (hit chance, class-based damage), death, experience and
   level up (stats, HP and MP from GrowUpFactor), corpse then respawn. Monsters that are hit fight back and chase their attacker; player death
@@ -205,7 +205,7 @@
   to the player on entering the game and on every change of their effects, skills' share only (passives included):
   the client adds the items' share itself. Critical hit resistance (`critical_defence_percent2`,
   `Critical_Defense_Rate` option) subtracted from the attacker's critical hit chance (deduced rule); stun resistance
-  (`stun_resistance`, `StunResistance`) read, only shown; an option with `Critical` and no `skill_type` (13822)
+  (`stun_resistance`, `StunResistance`) Archonia-only, no longer read since 2 November 2026; an option with `Critical` and no `skill_type` (13822)
   counts as critical damage, as in the client. Validated in the simulator on 1 November 2026 (`ignore` scenario), to
   be confirmed in game with the ArchRust window.
 - Consumables, death and skill reset (`world/consumables.rs`): skill items (stews, speed potions, stones, wings,
@@ -264,6 +264,54 @@
   of Asylum (16, nothing on the server), Plastic Surgeon Coupon (32), quest scrolls (33); Sentence Combination (23):
   effect unknown. ArchRust side: "Reset Selected" button (op 13), dragging the Release of Agreement (op 12), Ex grid,
   local `BankSlotFull` refusal.
+- Rules carried by the episode 8 tables (`combat.rs`, `effects.rs`, `skills.rs`, `options.rs`, `ai.rs`, `regions.rs`):
+  monster evasion (CharacterDataTable `DR` in the hit chance); `point.dmg_min/max_*` buffs (elemental damage),
+  `point.physical_resistance` and the `PhysicalAttackResist` option (physical damage taken reduced, 80% at most for a
+  player; monsters' `Physical_Resistance`), `point.skill_block`, the `SkillBlockRate` option and monsters' `Skill_Block`
+  (offensive skill blocked, 80% at most), `point.atk_range` (metres); monster target preference (aidatatable
+  `HateRace`, `HateClass`: weighted damage, distance divided for a preemptive monster); shorter casting and cooldown
+  (`point.skill_cast`, `point.skill_delay`, `skill_cast`, `skill_delay` options in attack factors 3 and 4,
+  `applied_cooldown_cap` limit) and MP (`cost_mp_decrease`); `Ignore_*` options (seven penetrations, in points),
+  `bonus_exp`, `bonus_money`, `bonus_drop_rate` (percent) and `Add_Debuff_Duration`; skills' `bonus_money`; option
+  block (`BlockRate`) and evasion against monsters and between players; Skill_Const2 second hit (`damage_*2`, 15
+  skills); regions `DisableSummon` (party recall), `DisableGo` (`/go`), `DisableParty`, `DisableLogin` (placed at the
+  region's point or in the village), `ItemSection` with `Item_section_num` (items that do not count in Heaven's Hell)
+  and `ResurrectionX/Z` (resurrection inside the region). Options' `Item_Level_Min/Max` do not drive the roll (neither
+  Archonia nor the original table use them). Archonia-only columns: the 589 options with a `CategoryName`, all from
+  Archonia, are never rolled (only known for an item already in the database); no longer read: `StunResistance` and
+  `magnify.stun_resistance` (slot 0xbc of the secondary stats block at 0); CharacterDataTable's
+  `Critical_Defense_Rate` was not read. Formulas chosen, no binary shows them (see
+  [[Network protocol|EN-Network-protocol]]). Unit tests; simulator scenarios rerun on 2 November 2026 (full series: only `divide` and `guildstage` fail, as before), to be confirmed in game.
+- Remaining data rules (2 November 2026, episode 8 table values; tunable `Rules.*` proposals, no binary shows them):
+  heroic system (`heroic.rs`: heroic damage and defense of items, options, effects and monsters, melee, ranged and
+  magic resistances of effects; heroic part at point 19 of normal hits, of skills with `dmg_heroic`,
+  `dmg_heroic_percent` and the level-gap penalty, and of damage over time `dot_dmg_heroic`); ammunition (`ammo.rs`:
+  one arrow 194 or bolt 238 per hit with a bow or crossbow, skill `cost_arrow`, results 2 and 3, refusal 12, kataria
+  and chakram need none); required weapon (`requirement.rs`: `requirement` mask, refusal action 8, passives without
+  effect, disarm); timed items (`lifetime.rs`: `RemainTime` play time counted while in use, absolute `ExpireTime`
+  date, full Cash mini, op 26, system message 5 then the item is consumed; quest items and started timed items are
+  neither traded nor sold); statuses (Archonia codes 26 to 33 mapped back to the skill's EP8 value, 9 halt, 10
+  invisibility; rules for 5, 6, 7, 18, 19, 21, 23, 24, 25: `status_rules.rs`); skill effects (`skill_extra.rs`:
+  `move_pos`, Body Check knockback, Death Strike result 13, `at_field` ground zones of skills and summons, chains 3
+  and 4, summons' additional skills, `skill_levelup` 1, 2, 4, detection, Redemption through AGPMCHARACTER op 24,
+  `disturb`, `target_restriction`, provocation); monster AI (`ai_kin.rs`: `SummonTID` summons, `FollowerTID`
+  followers, `PinchMonster` reinforcement); boots `PDR` in evasion, ring stat bonuses, `QuestItem` = quest number
+  (item destroyed when the quest is abandoned or completed). Not done: pet stamina (Archonia does not show it: pet
+  "Immortal"), taming (no skill in the tables), timed item pause (op 25), chains 1, 2, 6, 7, 8, heroic reflection,
+  `Skill_plus` (field 21: the `skill_levelup` option still applies to every skill). Unit tests; `ammo` and `lifetime`
+  scenarios (new), skill scenarios now hold a weapon; to be confirmed in game.
+- Missing protocol ops (Archonia survey of 2 November 2026): quests (op 14 on-screen tracking, 10 at most, stored in
+  `character_quests.journal` and sent back as the 5th integer of op 4; ops 8 and 9 inventory full); party (op 2: effect
+  area and party bonus, configurable `Party.*` rules; management ops 9, 12 and 13, refusal of an invitee at least 10
+  levels below); PvP (ops 6, 8, 10, 12, 14, 16: enemy lists and enemy guilds, which hit each other without Ctrl outside
+  safe areas; portal refused to a player with enemies, op 18 code 11); guild battles (op 14 fighters picked for types 3
+  and 4, ops 26 and 27 fighters and lists, op 46 round 1; op 42 truce refused); skills (op 6 effect list, op 15 cooldowns
+  reset when effects end, op 14 level bonus of the `skill_levelup` options, applied to casts); chat (op 4 recipient
+  absent, ops 1 to 3 whisper blocking); items (op 15 gold dropped on the ground, without an owner; op 28 cooldown per
+  template); AGPMCHARACTER op 8 before closing a session taken over by another connection; portals (ops 2, 3 and 6). Set
+  aside: quests 11 to 13, items 8 and 29, skills 9, 10, 16 and 17, PvP 17. Unit tests; `quest`, `party`, `pk`, `pvp`,
+  `guildbattle`, `guildrelation`, `chat` and `gold` (new) scenarios in the simulator on 2 November 2026, to be confirmed
+  in game (party bonus rules in particular).
 - ArchRust client ([own repository](https://github.com/BlaMacfly/ArchRust)): combat (attacking, hits, death, resurrection, loot), parties, other
   players, inventory and equipment, NPCs (dialog, shop, bank and buying pages, quests), skills (trainers,
   casting, shortcut bar), teleport portals (original window and loading screen, confirmation of player-versus-player zones, "Return",
@@ -281,6 +329,13 @@
   [[Administration|EN-Administration]].
 
 ## Next steps
+
+0. Episode 8 values (2 November 2026): import (original server table values, client names, per-table
+   summary), table export for ArchRust (`archcore export-client-tables`, fingerprint announced through the
+   `client-tables/1` capability), character migration (`archcore migrate-ep8`, reversible quarantine) done;
+   full simulator series run again. Remaining: in-game tests (tooltips, prices, cooldowns, refining,
+   teleports, remaining quests), then the main server switch (reimport, `migrate-ep8 --apply`, export) with
+   the user's approval, and episode 8 style balancing.
 
 1. Full character creation and visibility between two players: checked on 25 October 2026 with two ArchRust
    clients on the test server (creation, arrival in Golundo, refusal of a taken name, players visible to each

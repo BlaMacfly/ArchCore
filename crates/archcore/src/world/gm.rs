@@ -559,11 +559,19 @@ pub(super) async fn run(world: &Arc<World>, st: &mut WorldState, sid: u32, gm_le
         "recast" => {
             let p = st.players.get_mut(&sid).unwrap();
             let n = p.skills.list.iter().filter(|s| s.ready_at.is_some()).count();
+            let cid = p.ch.id;
+            // Recharges remises à zéro chez le client aussi : compétences (AGPMSKILL op 15), objets par modèle (AGPMITEM
+            // op 28, temps restant 0).
+            let mut out: Vec<Vec<u8>> = p.skills.list.iter().filter(|s| s.ready_at.is_some()).map(|s| super::effects::init_cooltime_packet(cid, s.id, s.tid)).collect();
+            out.extend(p.uses.item_ready.keys().map(|tid| super::recovery::cooldown_packet(*tid, cid, std::time::Duration::ZERO)));
             for s in p.skills.list.iter_mut() {
                 s.ready_at = None;
             }
             // Recharges des consommables à compétence et des orbes aussi (consumables.rs).
             p.uses.clear();
+            for pkt in out {
+                p.send_raw(pkt);
+            }
             Ok(format!("Délais de relance remis à zéro ({n} compétence(s))."))
         }
         "last_refine" => match st.players[&sid].last_recipe {

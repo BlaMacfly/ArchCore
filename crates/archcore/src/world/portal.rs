@@ -29,8 +29,12 @@
 //! (op 7), qui ramène à ce point de départ (à défaut, au village de rattachement), sans frais. Le client
 //! demande lui-même confirmation avant d'entrer dans une telle zone (`TELEPORT_ConfirmPvPZone`).
 //!
-//! Demande (op 4), trajet (op 0) et retour (op 7) sont ignorés pour un joueur mort ou en combat (10 s
-//! après le dernier coup) : le client d'origine ne les envoie pas et affiche `Teleport_CombatMode`.
+//! Demande (op 4), trajet (op 0) et retour (op 7) sont refusés à un joueur mort ou en combat (10 s après le dernier
+//! coup) : le client d'origine ne les envoie pas et affiche `Teleport_CombatMode`. Ils le sont aussi à un joueur qui a
+//! des ennemis (AgpmPvP op 18 code 11, « PvP_Msg_CannotUseTeleport »). Refus d'une demande : op 6 (REQUEST_IGNORED :
+//! 1 EVENT_BASE, 2 CID ; la fenêtre ne s'ouvre pas) ; refus d'un trajet ou d'un retour, et demande en attente annulée
+//! par une marche : op 2 (CANCELED : 2 CID ; le client referme la liste). Op 3 (CUSTOM_POS : 2 CID, 4 position) : départ
+//! vers une position libre, suivi du déplacement et de l'op 8 (`custom_travel`, rappel de groupe).
 
 use super::combat::dist2d;
 use super::npcs::BASE_TYPE_OBJECT;
@@ -49,8 +53,11 @@ pub const MAX_USE_RANGE: f64 = super::npc_events::range::TELEPORT;
 pub mod op {
     pub const TELEPORT_POINT: i64 = 0;
     pub const TELEPORT_START: i64 = 1;
+    pub const CANCELED: i64 = 2;
+    pub const CUSTOM_POS: i64 = 3;
     pub const REQUEST: i64 = 4;
     pub const GRANTED: i64 = 5;
+    pub const REQUEST_IGNORED: i64 = 6;
     pub const RETURN: i64 = 7;
     pub const LOADING: i64 = 8;
 }
@@ -220,16 +227,65 @@ fn portal_of<'a>(ctx: &'a WorldCtx, p: &Packet) -> Option<(u32, &'a Portal, Vec<
     ctx.portals.objects.get(&id).map(|portal| (id, portal, build_mini(&mini::EVENT_BASE, &base)))
 }
 
+/// Refus d'une demande (op 6, avec l'EVENT_BASE reçu) ou d'un trajet (op 2).
+fn refuse(st: &WorldState, sid: u32, p: &Packet) {
+    let Some(player) = st.players.get(&sid) else { return };
+    let cid = player.ch.id;
+    match p.int(0) {
+        Some(op::REQUEST) => {
+            // EVENT_BASE reçu, reconstruit avec sa longueur.
+            let base = p.bytes(1).and_then(|b| decode_mini(&mini::EVENT_BASE, b).ok()).map(|f| build_mini(&mini::EVENT_BASE, &f));
+            player.send(&schema::EVENT_TELEPORT, packet(op::REQUEST_IGNORED, base.as_deref(), cid))
+        }
+        _ => player.send(&schema::EVENT_TELEPORT, packet(op::CANCELED, None, cid)),
+    }
+}
+
+/// Op 2 (CANCELED) : la demande ou le trajet tombe, la liste se referme chez le client.
+pub fn canceled_packet(cid: u32) -> Vec<u8> {
+    archcore_net::build_packet(&schema::EVENT_TELEPORT, &packet(op::CANCELED, None, cid))
+}
+
+/// Départ vers une position libre (op 3, déplacement, op 8) : rappel de groupe.
+pub async fn custom_travel(ctx: &WorldCtx, st: &mut WorldState, sid: u32, at: Vec3) -> anyhow::Result<()> {
+    let cid = st.players[&sid].ch.id;
+    st.players[&sid].send(&schema::EVENT_TELEPORT, packet(op::CUSTOM_POS, None, cid).with(4, at));
+    super::teleport(ctx, st, sid, at.x as f64, Some(at.y as f64), at.z as f64).await?;
+    st.players[&sid].send(&schema::EVENT_TELEPORT, packet(op::LOADING, None, cid));
+    Ok(())
+}
+
 pub async fn on_packet(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> anyhow::Result<()> {
+    let asks = matches!(p.int(0), Some(op::REQUEST | op::TELEPORT_POINT | op::RETURN));
     // Sous métamorphose (sauf l'ArchLord) : « Portals may not be used while under metamorphosis. » (morph.rs).
-    if matches!(p.int(0), Some(op::REQUEST | op::TELEPORT_POINT | op::RETURN)) && super::morph::restricted(st, sid) {
+    if asks && super::morph::restricted(st, sid) {
         super::send_system(st, sid, "Les portails ne s'utilisent pas sous métamorphose.");
+        refuse(st, sid, p);
+        return Ok(());
+    }
+    // Ennemis déclarés (combat entre joueurs) : AgpmPvP op 18 code 11.
+    if asks && st.players.get(&sid).is_some_and(|x| !x.pvp.enemies.is_empty()) {
+        info!("[portail] {} : refusé (combat entre joueurs)", st.players[&sid].ch.name);
+        st.players[&sid].send_raw(super::pvp::message(super::pvp::code::CANNOT_USE_TELEPORT, None, None));
+        refuse(st, sid, p);
         return Ok(());
     }
     match p.int(0) {
-        Some(op::REQUEST) => request(ctx, st, sid, p),
-        Some(op::TELEPORT_POINT) => teleport(ctx, st, sid, p).await?,
-        Some(op::RETURN) => go_back(ctx, st, sid, p).await?,
+        Some(op::REQUEST) => {
+            if !request(ctx, st, sid, p) {
+                refuse(st, sid, p);
+            }
+        }
+        Some(op::TELEPORT_POINT) => {
+            if !teleport(ctx, st, sid, p).await? {
+                refuse(st, sid, p);
+            }
+        }
+        Some(op::RETURN) => {
+            if !go_back(ctx, st, sid, p).await? {
+                refuse(st, sid, p);
+            }
+        }
         op => crate::debug!("[portail] #{sid} AGPMEVENTTELEPORT op {op:?} (ignoré)"),
     }
     Ok(())
@@ -251,17 +307,17 @@ async fn travel_to(ctx: &WorldCtx, st: &mut WorldState, sid: u32, at: Vec3) -> a
     Ok(())
 }
 
-/// Op 7 : « Retour » depuis un point d'où l'on ne peut que revenir (zones de combat entre joueurs).
-async fn go_back(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> anyhow::Result<()> {
-    let Some((_, portal, _)) = portal_of(ctx, p) else { return Ok(()) };
-    let Some(here) = ctx.portals.points.get(&portal.point) else { return Ok(()) };
-    let Some(player) = st.players.get(&sid) else { return Ok(()) };
+/// Op 7 : « Retour » depuis un point d'où l'on ne peut que revenir (zones de combat entre joueurs) ; faux si refusé.
+async fn go_back(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> anyhow::Result<bool> {
+    let Some((_, portal, _)) = portal_of(ctx, p) else { return Ok(false) };
+    let Some(here) = ctx.portals.points.get(&portal.point) else { return Ok(false) };
+    let Some(player) = st.players.get(&sid) else { return Ok(false) };
     if here.special_type != SPECIAL_RETURN_ONLY {
         warn!("[portail] {} : retour demandé depuis « {} », qui n'est pas un point de retour", player.ch.name, portal.point);
-        return Ok(());
+        return Ok(false);
     }
     if unable(player, Instant::now()) || dist2d(player.ch.pos(), portal.pos) > MAX_USE_RANGE {
-        return Ok(());
+        return Ok(false);
     }
     // Arrivée : autour du point de départ du dernier trajet, sinon au village de rattachement.
     let from = player.trip_from.clone();
@@ -277,19 +333,19 @@ async fn go_back(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> a
     st.players.get_mut(&sid).unwrap().trip_from = None;
     travel_to(ctx, st, sid, at).await?;
     info!("[portail] {name} : retour depuis « {} » vers « {} »", portal.point, from.as_deref().unwrap_or("village"));
-    Ok(())
+    Ok(true)
 }
 
-/// Op 4 : le joueur s'adresse à un portail.
-fn request(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) {
+/// Op 4 : le joueur s'adresse à un portail ; faux si la demande est refusée.
+fn request(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> bool {
     let Some((object, portal, base)) = portal_of(ctx, p) else {
         warn!("[portail] #{sid} demande sur un objet sans portail");
-        return;
+        return false;
     };
-    let Some(point) = ctx.portals.points.get(&portal.point) else { return };
-    let Some(player) = st.players.get_mut(&sid) else { return };
+    let Some(point) = ctx.portals.points.get(&portal.point) else { return false };
+    let Some(player) = st.players.get_mut(&sid) else { return false };
     if unable(player, Instant::now()) || !point.admits(player.factors.ftype[0] as i64) {
-        return;
+        return false;
     }
     player.attack = None;
     let disabled = ctx.portals.disabled(point, player.factors.ftype[0] as i64);
@@ -297,7 +353,7 @@ fn request(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) {
     let distance = dist2d(player.ch.pos(), portal.pos);
     if distance <= MAX_USE_RANGE {
         grant(st, sid, &pending);
-        return;
+        return true;
     }
     // Trop loin : le joueur court jusqu'à bonne distance du portail, l'accord suit à l'arrivée à portée.
     let from = player.ch.pos();
@@ -306,6 +362,7 @@ fn request(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) {
     super::presence::run_to(st, sid, dest, Instant::now());
     info!("[portail] {} court vers « {} » ({distance:.0} unités)", st.players[&sid].ch.name, portal.point);
     st.players.get_mut(&sid).unwrap().portal = Some(pending);
+    true
 }
 
 /// Accord (op 5) : le client ouvre la liste des destinations ; le joueur s'arrête.
@@ -347,37 +404,37 @@ pub fn landing(ctx: &WorldCtx, point: &Point, center: Vec3, rng: &mut impl Rng) 
     })
 }
 
-/// Op 0 : le joueur choisit sa destination.
-async fn teleport(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> anyhow::Result<()> {
-    let Some((_, portal, _)) = portal_of(ctx, p) else { return Ok(()) };
+/// Op 0 : le joueur choisit sa destination ; faux si le trajet est refusé.
+async fn teleport(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> anyhow::Result<bool> {
+    let Some((_, portal, _)) = portal_of(ctx, p) else { return Ok(false) };
     let target_name = point_name(p.bytes(3).unwrap_or_default());
-    let Some(player) = st.players.get(&sid) else { return Ok(()) };
+    let Some(player) = st.players.get(&sid) else { return Ok(false) };
     let race = player.factors.ftype[0] as i64;
     let (Some(src), Some(dst)) = (ctx.portals.points.get(&portal.point), ctx.portals.points.get(&target_name)) else {
         warn!("[portail] {} : point « {target_name} » inconnu", player.ch.name);
-        return Ok(());
+        return Ok(false);
     };
     if unable(player, Instant::now()) {
-        return Ok(());
+        return Ok(false);
     }
     // Le joueur doit être au portail de départ (l'accord a été donné à moins de 1600 unités).
     if dist2d(player.ch.pos(), portal.pos) > MAX_USE_RANGE * 2.0 {
         warn!("[portail] {} trop loin de « {} »", player.ch.name, portal.point);
-        return Ok(());
+        return Ok(false);
     }
     if !src.admits(race) || !dst.admits(race) || !src.leads_to(dst) {
         warn!("[portail] {} : trajet « {} » → « {target_name} » refusé", player.ch.name, portal.point);
-        return Ok(());
+        return Ok(false);
     }
     // Trajets des châteaux (SpecialType 2 à 4) : selon le propriétaire et le siège (siege/war.rs).
     if let Err(why) = super::siege::war::portal_check(ctx, st, sid, (src.special_type, portal.pos), (dst.special_type, dst.at)) {
         info!("[portail] {} : trajet « {} » → « {target_name} » refusé ({why})", player.ch.name, portal.point);
         send_system(st, sid, &why);
-        return Ok(());
+        return Ok(false);
     }
     let Some(center) = dst.at else {
         warn!("[portail] « {target_name} » n'a pas d'objet d'arrivée");
-        return Ok(());
+        return Ok(false);
     };
     // Prix du trajet taxé dans la région du départ (tax.rs).
     let taxed = super::tax::quote(ctx, st, sid, ctx.portals.fee(&portal.point, &target_name));
@@ -385,11 +442,11 @@ async fn teleport(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> 
     let money = player.ch.money as i64;
     if fee > money {
         send_system(st, sid, &format!("Il faut {fee} pièce(s) d'or pour ce trajet."));
-        return Ok(());
+        return Ok(false);
     }
     let Some(at) = landing(ctx, dst, center, &mut rand::thread_rng()) else {
         warn!("[portail] pas de place libre autour de « {target_name} »");
-        return Ok(());
+        return Ok(false);
     };
     let name = player.ch.name.clone();
     if fee > 0 {
@@ -401,7 +458,7 @@ async fn teleport(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> 
     travel_to(ctx, st, sid, at).await?;
     let zone = if dst.region_type == REGION_PVP { " (zone de combat entre joueurs)" } else { "" };
     info!("[portail] {name} : « {} » → « {target_name} »{zone} pour {fee} pièce(s)", portal.point);
-    Ok(())
+    Ok(true)
 }
 
 #[cfg(test)]

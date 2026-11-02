@@ -20,8 +20,8 @@ ArchCore uses three main MariaDB databases, plus a log database, created and upd
 | Table | Content |
 |---|---|
 | `characters` | Account, slot, unique name, template (TID), level, experience, HP/MP/SP, position, money, bank, hair, face, charisma, soft delete; `evolution_tid`: evolved form of a Dragon Scion (1722, 1723, 1732; 0 none), `template_id` staying the Scion's; `skill_init`: "skill init" string (empty: the skill reset at the master is still allowed, "1": done); `pet_auto_pick`: pet bag auto pickup (AGPMITEM op 30, 1 by default); `signature`: signature taken with `/nick` and a Signature of Glory (AGPMCHARACTER field 27, at most 16 characters, empty: none) |
-| `character_items` | Items: status 0 inventory, 1 equipped, 2 bank (attached to the character who deposited it), 3 guild warehouse (`guild_id`; the character who deposited it stays recorded), 4 item attached to a mail (attached to the recipient), 5 on sale in the auction house (attached to the seller), 6 Cash inventory (status 51; rank in the list in `row_idx`), 7 pet bag (status 13; bag, row, column); a Cash item still at status 0 moves to status 6 when entering the world; `durability`: -1 full (template DUR column), otherwise current durability (wear, `repair.rs`) |
-| `character_quests` | Quests in progress (monster A and B counters) and completed |
+| `character_items` | Items: status 0 inventory, 1 equipped, 2 bank (attached to the character who deposited it), 3 guild warehouse (`guild_id`; the character who deposited it stays recorded), 4 item attached to a mail (attached to the recipient), 5 on sale in the auction house (attached to the seller), 6 Cash inventory (status 51; rank in the list in `row_idx`), 7 pet bag (status 13; bag, row, column); a Cash item still at status 0 moves to status 6 when entering the world; `durability`: -1 full (template DUR column), otherwise current durability (wear, `repair.rs`); `remain_ms` (play time left, ms, of a Cash "RemainTime" item) and `expire_at` (expiry date, Unix seconds, of an "ExpireTime" item), set at first use, 0 otherwise (timed items, `lifetime.rs`) |
+| `character_quests` | Quests in progress (monster A and B counters, `journal`: tracked on screen, AgpmQuest op 14) and completed |
 | `account_bank` | Account bank: money, pages beyond the first (created on first entry, with the money the characters had in the bank) |
 | `character_skills` | Learned skills and their level ("Normal Attack" is not stored: every character knows it); `exp`: cumulative experience of a production skill |
 | `character_recipes` | Cooking and alchemy recipes bought (`recipe_tid` = `product_compose.result_tid`) |
@@ -44,10 +44,14 @@ ArchCore uses three main MariaDB databases, plus a log database, created and upd
 | `character_quickbelt` | Quick belt kept by the server (AgpmUIStatus): one row per filled slot (0 to 49), base type (5 item, 7 skill), TID, IID of an item; deleted with the character |
 | `character_titles` | Titles owned (AgpmTitle): TID, active (one at most), chosen skill (0), date obtained (Unix seconds); the time of the last change of active title is `characters.title_changed_at` (`Title.ChangeDelaySeconds` delay) |
 | `character_title_goals` | Running title goals: TID, acceptance date, values `c1` to `c5` of the template's non-empty conditions |
+| `ep8_quarantine` | Switch to the episode 8 values (`archcore migrate-ep8 --apply`): what was removed or changed, nothing destroyed — pass (`run_id`), character, kind (`item`: `character_items` row as JSON with the mail and sales citing it; `options`, `sockets`: original `option_tids` / `socket_tids`; `skill_level`, `skill`; `skill_init`), `ref_id` (item or skill TID), original values (JSON), reason, date; `restored_at` set by `--restore` |
 
 ## `archcore_world` — game data (`sql/003_world.sql`)
 
-Filled by `archcore import` from the client tables.
+Filled by `archcore import`. Value tables come from the original server tables (episode 8): EP8 rows and
+values, client names and visuals joined by TID, Archonia's rows dropped (rules and figures in
+[[Tools|EN-Tools]], "Episode 8 values"). The "Source" column gives the client file; the EP8 table of the
+same name (`characterdatatable.txt`, `skillconst.txt`, `levelupexp.ini`…) provides the values.
 
 | Table | Client source | Content |
 |---|---|---|
@@ -65,16 +69,16 @@ Filled by `archcore import` from the client tables.
 | `skill_level` | `SKILL_CONST.txt`, `Skill_Const2.txt` | Values of each level of each skill (non-empty columns, as JSON; `point.`, `percent.`, `magnify.` groups; those of `Skill_Const2.txt`, suffixed with "2", under `point2.`, `percent2.`…) |
 | `skill_mastery` | `SkillMastery_High.txt`, `SkillMastery_Heroic.txt` | Mastery trees: key (template TID, 10000 + race for "10004;4"), skill, tree (1 high, 2 heroic), required skills `[[TID, level]…]` (ConditionA, B), levels in a template's class `class_points` `[[template TID, levels]…]` (ConditionC), total (ConditionD: levels in total, or heroic points) |
 | `product_category`, `product_compose`, `product_exp`, `product_gather`, `product_result_item` | `productcategory.txt`, `productcompose.txt`, `productexp.txt`, `productgather.txt`, `productresultitem.txt` | Production: skill of each category, 95 recipes (materials `[[TID, count]…]`, price, level, chance), levels 1 to 15, 760 monsters that can be gathered, items gathered per set and level (skill names resolved through `SKILLTEMPLATE.ini`) |
-| `npc_spawn` | `npc.ini` | 567 NPCs: template, name, position, orientation, raw functions |
-| `client_table` | other `.txt` tables | Rows as JSON, for tables not modelled yet |
-| `monster_spawn` | original server tables (`spawndatatable.txt` + `spawninstancetable.txt`) | 12,802 spawn points, 36,960 creatures: template, level (the client's), count, respawn (`respawn_sec`–`respawn_max_sec` range for the `UIBoss.xml` bosses), position, radius, public name (`CharacterTemplatePublic.ini`) |
+| `npc_spawn` | `npc.ini` (merged with the EP8 table) | 557 NPCs: template, name, position, orientation, raw functions |
+| `client_table` | other tables | Whole texts (row 0): `itemoptiontable.txt`, `itemruneattributetable.txt`, `ItemConvertTable.txt`, `refineryrecipetable.txt` (EP8 tables), `RegionTemplate.ini`, `TeleportPoint.ini` (EP8, kept for `export-client-tables`), `optionnumdroprate.txt`, `socketnumdroprate.txt` |
+| `monster_spawn` | original server tables (`spawndatatable.txt` + `spawninstancetable.txt`) | 12,802 spawn points, 36,960 creatures: template, level (the EP8 template's), count, respawn (`respawn_sec`–`respawn_max_sec` range for the `UIBoss.xml` bosses), position, radius, public name (`CharacterTemplatePublic.ini`) |
 | `map_segment` | original server `world/node_data` | 45,312 sectors: blocked ground and region per 400-unit segment |
 | `map_height` | client `world/b*x.ma2` (ground geometry) | 46,592 sectors: ground height at the 17 × 17 cell corners (i16) |
 | `monster_drop` | original server `itemdroptable.txt` | 4,653 items of 550 monsters: count, rate out of 100,000 |
 | `monster_ai` | original server `aidatatable.txt` | 7,674 AIs (3,289 with skills), named by `monster_spawn.ai_tid`: non-empty columns as JSON, repeated columns numbered (`Skill1`, `SkillCondition1`, `SkillCount1`…) |
 | `drop_group` | original server `groupdroprate.txt` | 28 drop groups; each group's items come from `item_data` (GroupID, DropRank, DropRate) |
 | `drop_rank_rate` | original server `droprankrate.txt` | Item ranks (percent) by the monster's drop rank |
-| `region_template` | `RegionTemplate.ini` | 331 regions: name, parent region, Type field, safety (33 safe), entry levels `level_min` and `level_limit` (LevelMin, LevelLimit: Battle Square floors) |
+| `region_template` | `RegionTemplate.ini` | 331 regions: name, parent region, Type field, safety (33 safe), entry levels `level_min` and `level_limit` (LevelMin, LevelLimit: Battle Square floors), bans `disabled` (bits 1 DisableSummon, 2 DisableGo, 4 DisableParty, 8 DisableLogin), `item_section` (ItemSection: Heaven's Hell), own resurrection point `resurrection_x`, `resurrection_z` (ResurrectionX/Z) |
 | `region_glossary` | `RegionGlossary.txt` of every client language folder (`ini`, `ini_fr`…) | Displayed name of each region per language (key: `RegionTemplate.ini` Korean name): name of the taxed regions sent to the client (AgpmTax) |
 | `boss_window` | `UIBoss.xml` | 25 bosses of Archonia's boss window: TID, order, category (1 to 7), displayed name |
 | `pvp_skull_chance`, `pvp_skull_level` | `pvpskulldroptable.txt` | Battle Square skulls: chance (%) by killer − victim level gap, skull level by the victim's level |

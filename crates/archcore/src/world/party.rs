@@ -7,14 +7,26 @@
 //!     B → op 2 (cible = A) accepte          groupe formé ou agrandi ; A ← op 2 (nom = B) ; B ← 6 s'il a déjà un groupe
 //!     B → op 1 (cible = A) refuse           A ← op 1 (nom = B)
 //!     → op 3 quitte ; chef → op 4 (cible) exclut, la cible ← op 4 ; chef → op 11 (cible) lui passe la main,
-//!       le groupe ← op 11 (auteur = nouveau chef, cible = ancien)
+//!       le groupe ← op 11 (auteur = nouveau chef, cible = ancien) ; refus ← op 12 (« Failed to change party leader »)
+//!     Échecs : ← op 9 (« You cannot form a party. » : région sans groupes, invitations en attente trop nombreuses) ;
+//!     ← op 13 quand l'invité a au moins `Party.InviteLevelGap` (10) niveaux de moins que l'invitant (texte du client)
 //!   Groupe (0x08, drapeaux 2) : 0 opération, 1 identifiant, 2 membres au plus, 3 membres, 4 CID d'un membre,
 //!     5 liste des CID (u32), 6 facteurs, 7 zone d'effet, 8 répartition de l'expérience, 9 bonus, 10 répartition
 //!     des objets.
 //!     Arrivée : le nouveau ← fiche de chaque autre membre, op 0 (groupe avec la liste) puis op 3 (membre) pour
 //!     chacun ; les autres ← sa fiche et op 3 (lui). Départ : le groupe et lui ← op 4 (lui), lui ← op 1 ; un
 //!     groupe réduit à un membre est dissous. Le chef règle l'expérience (op 5) et les objets (op 6).
+//!     Op 2 (mise à jour) : champ 7 = zone d'effet (mini de 5 octets, un par membre dans l'ordre de la liste : 1 à portée
+//!     du chef), champ 9 = bonus du groupe (mini : dégâts et défense en pour cent, PV et PM max) ; envoyée aux membres
+//!     à chaque changement. Le client montre l'icône de zone selon la classe du chef et les textes `Party_Add_*`
+//!     (`Party_Add_None` quand le bonus est nul).
 //! ```
+//! Zone et bonus (règles d'origine inconnues, réglables) : un membre est dans la zone à moins de `Party.EffectRange`
+//! unités du chef (en jeu, même mort) ; avec n membres dans la zone, chacun d'eux reçoit (n − 1) ×
+//! `Party.BonusPercentPerMember` pour cent de défense si le chef est chevalier, de dégâts physiques s'il est archer (ou
+//! scion), ou (n − 1) × `Party.BonusPointsPerMember` PV et PM max s'il est mage ; rien quand l'écart de niveau des membres
+//! en jeu dépasse `Party.BonusMaxLevelGap`. Le bonus s'ajoute aux facteurs (`equipment::recompute_factors`) ; il est
+//! revu une fois par seconde (`step`).
 //! Cinq membres au plus, chef en tête ; seize invitations en attente par joueur. Les membres se voient à toute
 //! distance ; un membre déconnecté quitte le groupe. Répartition de l'expérience d'un monstre tué (ajout
 //! d'ArchCore, le serveur d'origine ne la décrit pas) : entre les membres vivants assez proches (5 × 5 secteurs
@@ -34,12 +46,14 @@
 //! guerre, dans un Shrine en combat, dans la Battle Square et les Battlegrounds, dans une région sans le bit 0x100 du
 //! Type (celui de la résurrection : prison, tribune…), en combat sauf `Recall.AllowInCombat`. À l'usage, refus aussi
 //! sans autre membre en jeu, pendant la recharge (« Use Interval ») ou hors des niveaux de l'objet ; refus à l'usage :
-//! AGPMITEM op 5. La demande vaut `Recall.RequestSeconds` ; le membre est rappelé à toute distance.
+//! AGPMITEM op 5. La demande vaut `Recall.RequestSeconds` ; le membre est rappelé à toute distance. Refus aussi dans une
+//! région « DisableSummon » de RegionTemplate.ini (`regions.rs`). Une région « DisableParty » refuse les invitations et
+//! leur acceptation à qui s'y trouve (message système).
 
 use super::{presence, WorldCtx, WorldState};
 use crate::{debug, info};
-use archcore_net::schema;
-use archcore_net::{build_packet, Fields, Packet, Value};
+use archcore_net::schema::{self, mini};
+use archcore_net::{build_mini, build_packet, Fields, Packet, Value};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
@@ -51,6 +65,8 @@ const FIRST_ID: u32 = 100;
 pub mod op {
     pub const ADD: i64 = 0;
     pub const REMOVE: i64 = 1;
+    /// Zone d'effet et bonus du groupe.
+    pub const UPDATE: i64 = 2;
     pub const ADD_MEMBER: i64 = 3;
     pub const REMOVE_MEMBER: i64 = 4;
     pub const UPDATE_EXP_TYPE: i64 = 5;
@@ -67,8 +83,14 @@ pub mod mgmt {
     pub const FAILED_ALREADY_MEMBER: i64 = 6;
     pub const FAILED_FULL: i64 = 7;
     pub const FAILED_NOT_LEADER: i64 = 8;
+    /// Échec sans autre précision : « PartyRecvOperationFailed ».
+    pub const FAILED: i64 = 9;
     pub const FAILED_NO_LOGIN: i64 = 10;
     pub const DELEGATION_LEADER: i64 = 11;
+    /// Passage de chef refusé : « Party_DelegationLeaderFailed ».
+    pub const DELEGATION_LEADER_FAILED: i64 = 12;
+    /// Invité trop bas : « Party_InviteMemeberLevelDiff ».
+    pub const INVITE_FAILED_LEVEL_DIFF: i64 = 13;
     /// L'invité refuse les invitations de groupe (options) : « Option_Party_Off_User ».
     pub const FAILED_REFUSE: i64 = 14;
     /// Meurtrier (40 points ou plus) : l'invitant (« Party_Murderer_Error_Self »), l'invité
@@ -109,6 +131,63 @@ pub struct Party {
     pub members: Vec<u32>,
     pub exp_type: i64,
     pub item_division: i64,
+    /// Zone d'effet et bonus envoyés en dernier (op 2), `None` avant le premier envoi.
+    pub effect: Option<(Vec<bool>, Bonus)>,
+}
+
+/// Bonus du groupe (champ 9 de l'op 2) : dégâts physiques et défense physique en pour cent, PV et PM max en plus.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Bonus {
+    pub damage: i64,
+    pub defense: i64,
+    pub hp: i64,
+    pub mp: i64,
+}
+
+impl Bonus {
+    pub fn is_none(&self) -> bool {
+        *self == Bonus::default()
+    }
+
+    /// Ajoute le bonus aux facteurs d'un membre dans la zone.
+    pub fn apply(&self, f: &mut crate::character::Factors) {
+        if self.is_none() {
+            return;
+        }
+        let pct = |v: i32, p: i64| v + (v as i64 * p / 100) as i32;
+        f.damage_min[0] = pct(f.damage_min[0], self.damage);
+        f.damage_max[0] = pct(f.damage_max[0], self.damage);
+        f.defense_point[0] = pct(f.defense_point[0], self.defense);
+        f.point_max[0] += self.hp as i32;
+        f.point_max[1] += self.mp as i32;
+    }
+}
+
+/// Classes du chef (champ 2 du type de personnage) qui donnent la défense et les PV/PM ; les autres, les dégâts.
+const CLASS_KNIGHT: i32 = 1;
+const CLASS_MAGE: i32 = 4;
+/// Revue de la zone et du bonus des groupes.
+const EFFECT_EVERY: Duration = Duration::from_secs(1);
+
+/// Bonus d'un groupe dont `in_zone` membres sont dans la zone, selon la classe du chef et l'écart de niveau des
+/// membres en jeu (`levels`).
+pub fn bonus_of(leader_class: i32, in_zone: usize, levels: &[i32], percent: i64, points: i64, max_gap: i32) -> Bonus {
+    let gap = levels.iter().max().copied().unwrap_or(0) - levels.iter().min().copied().unwrap_or(0);
+    let k = in_zone.saturating_sub(1) as i64;
+    if k == 0 || gap > max_gap {
+        return Bonus::default();
+    }
+    match leader_class {
+        CLASS_KNIGHT => Bonus { defense: (k * percent).min(i8::MAX as i64), ..Default::default() },
+        CLASS_MAGE => Bonus { hp: (k * points).min(i16::MAX as i64), mp: (k * points).min(i16::MAX as i64), ..Default::default() },
+        _ => Bonus { damage: (k * percent).min(i8::MAX as i64), ..Default::default() },
+    }
+}
+
+/// L'invité (niveau `target`) est trop bas pour l'invitant (niveau `inviter`) : au moins `gap` niveaux de moins
+/// (`gap` 0 : jamais).
+pub fn level_gap_refused(inviter: i32, target: i32, gap: i32) -> bool {
+    gap > 0 && target <= inviter - gap
 }
 
 #[derive(Debug, Default)]
@@ -121,6 +200,8 @@ pub struct Parties {
     /// CID d'un membre → rappel qui attend sa réponse (le dernier reçu).
     pub recalls: HashMap<u32, Recall>,
     next_id: u32,
+    /// Dernière revue de la zone d'effet et du bonus.
+    effect_at: Option<Instant>,
 }
 
 impl Parties {
@@ -169,7 +250,7 @@ impl Parties {
     fn form(&mut self, leader: u32, member: u32) -> u32 {
         self.next_id = self.next_id.max(FIRST_ID) + 1;
         let id = self.next_id;
-        self.parties.insert(id, Party { id, members: vec![leader, member], exp_type: EXP_BY_DAMAGE, item_division: ITEM_DAMAGE });
+        self.parties.insert(id, Party { id, members: vec![leader, member], exp_type: EXP_BY_DAMAGE, item_division: ITEM_DAMAGE, effect: None });
         self.of.insert(leader, id);
         self.of.insert(member, id);
         id
@@ -196,6 +277,15 @@ fn party_packet(kind: i64, party: &Party, member: Option<u32>, full: bool) -> Ve
     build_packet(s, &f)
 }
 
+/// AGPMPARTY op 2 : zone d'effet (un octet par membre) et bonus du groupe.
+pub fn update_packet(id: u32, zone: &[bool], bonus: &Bonus) -> Vec<u8> {
+    let (z, b) = (&mini::PARTY_EFFECT_AREA, &mini::PARTY_BONUS);
+    let zone = build_mini(z, &(0..MAX_MEMBERS).fold(Fields::new(z), |f, i| f.with(i, zone.get(i).copied().unwrap_or(false) as i64)));
+    let bonus = build_mini(b, &Fields::new(b).with(0, bonus.damage).with(1, bonus.defense).with(2, bonus.hp).with(3, bonus.mp));
+    let s = &schema::PARTY;
+    build_packet(s, &Fields::new(s).with(0, op::UPDATE).with(1, id).with(7, zone).with(9, bonus))
+}
+
 /// AGPMPARTYMANAGEMENT : paquet de gestion.
 pub fn management_packet(kind: i64, author: Option<u32>, target: Option<u32>, name: Option<&str>) -> Vec<u8> {
     let s = &schema::PARTY_MANAGEMENT;
@@ -210,6 +300,11 @@ pub fn management_packet(kind: i64, author: Option<u32>, target: Option<u32>, na
         f = f.with(3, n);
     }
     build_packet(s, &f)
+}
+
+/// Le joueur `cid` se trouve dans une région qui interdit ce que disent `bits` (`regions::disable`).
+pub fn region_forbids(ctx: &WorldCtx, st: &WorldState, cid: u32, bits: u32) -> bool {
+    st.by_cid.get(&cid).and_then(|s| st.players.get(s)).is_some_and(|p| ctx.regions.forbids(ctx.map.region(p.ch.pos_x, p.ch.pos_z), bits))
 }
 
 fn sid_of(st: &WorldState, cid: u32) -> Option<u32> {
@@ -242,7 +337,7 @@ fn name_of(st: &WorldState, cid: u32) -> String {
 }
 
 /// AGPMPARTYMANAGEMENT reçu.
-pub fn on_management(st: &mut WorldState, sid: u32, p: &Packet) {
+pub fn on_management(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) {
     let Some(me) = st.players.get(&sid).filter(|x| x.in_game).map(|x| x.ch.id) else { return };
     let my_name = name_of(st, me);
     match p.int(0) {
@@ -252,6 +347,12 @@ pub fn on_management(st: &mut WorldState, sid: u32, p: &Packet) {
                 return;
             };
             if target == me {
+                return;
+            }
+            // Région sans groupes (DisableParty), pour l'un ou l'autre : op 9.
+            if [me, target].iter().any(|c| region_forbids(ctx, st, *c, super::regions::disable::PARTY)) {
+                info!("[groupe] {my_name} : invitation refusée (région sans groupes)");
+                send(st, me, management_packet(mgmt::FAILED, Some(me), Some(target), None));
                 return;
             }
             let target_name = name_of(st, target);
@@ -273,6 +374,13 @@ pub fn on_management(st: &mut WorldState, sid: u32, p: &Packet) {
                 send(st, me, management_packet(mgmt::FAILED_MURDERER_TARGET, Some(me), Some(target), Some(&target_name)));
                 return;
             }
+            // Invité trop bas (au moins `Party.InviteLevelGap` niveaux de moins) : op 13.
+            let level = |cid: u32| st.by_cid.get(&cid).and_then(|s| st.players.get(s)).map_or(1, |p| p.ch.level);
+            if level_gap_refused(level(me), level(target), ctx.config.world.party_invite_level_gap) {
+                info!("[groupe] {my_name} ne peut pas inviter {target_name} (niveau {} contre {})", level(target), level(me));
+                send(st, me, management_packet(mgmt::INVITE_FAILED_LEVEL_DIFF, Some(me), Some(target), Some(&target_name)));
+                return;
+            }
             if st.parties.of.contains_key(&target) {
                 send(st, me, management_packet(mgmt::FAILED_OTHER_PARTY, Some(me), Some(target), Some(&target_name)));
                 return;
@@ -288,6 +396,7 @@ pub fn on_management(st: &mut WorldState, sid: u32, p: &Packet) {
                 }
             }
             if !st.parties.invite(me, target) {
+                send(st, me, management_packet(mgmt::FAILED, Some(me), Some(target), None));
                 return;
             }
             info!("[groupe] {my_name} invite {target_name}");
@@ -308,6 +417,11 @@ pub fn on_management(st: &mut WorldState, sid: u32, p: &Packet) {
             }
             if st.parties.of.contains_key(&me) {
                 send(st, me, management_packet(mgmt::FAILED_ALREADY_MEMBER, Some(inviter), Some(me), Some(&my_name)));
+                return;
+            }
+            if [me, inviter].iter().any(|c| region_forbids(ctx, st, *c, super::regions::disable::PARTY)) {
+                info!("[groupe] {my_name} : acceptation refusée (région sans groupes)");
+                send(st, me, management_packet(mgmt::FAILED, Some(inviter), Some(me), None));
                 return;
             }
             match st.parties.of.get(&inviter).copied() {
@@ -344,10 +458,14 @@ pub fn on_management(st: &mut WorldState, sid: u32, p: &Packet) {
             send(st, target, management_packet(mgmt::BANISH, Some(target), None, None));
         }
         Some(mgmt::DELEGATION_LEADER) => {
-            let Some(target) = target_of(st, p) else { return };
-            if !st.parties.same(me, target) || st.parties.party_of(me).map(|x| x.members[0]) != Some(me) || target == me {
+            // Refus (pas chef, cible absente ou hors du groupe) : op 12.
+            let target = target_of(st, p);
+            let leader = st.parties.party_of(me).map(|x| x.members[0]) == Some(me);
+            let Some(target) = target.filter(|t| leader && *t != me && st.parties.same(me, *t)) else {
+                info!("[groupe] {my_name} : passage de chef refusé");
+                send(st, me, management_packet(mgmt::DELEGATION_LEADER_FAILED, Some(me), target.or(p.int(2).map(|c| c as u32)), None));
                 return;
-            }
+            };
             let id = st.parties.of[&me];
             let party = st.parties.parties.get_mut(&id).unwrap();
             if let Some(i) = party.members.iter().position(|c| *c == target) {
@@ -419,6 +537,8 @@ pub fn remove_member(st: &mut WorldState, cid: u32) {
     st.parties.recalls.retain(|m, r| *m != cid && r.leader != cid);
     let party = st.parties.parties.get_mut(&id).unwrap();
     party.members.retain(|c| *c != cid);
+    // Zone et bonus revus pour les restants, et retirés au partant, au prochain tour (`step`).
+    party.effect = None;
     let party = party.clone();
     let leave = party_packet(op::REMOVE_MEMBER, &party, Some(cid), false);
     send_party(st, &party, &leave, None);
@@ -462,6 +582,53 @@ pub fn on_leave_world(st: &mut WorldState, cid: u32) {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Zone d'effet et bonus du groupe
+// ---------------------------------------------------------------------------------------------
+
+/// Zone d'effet (un drapeau par membre, dans l'ordre de la liste) et bonus d'un groupe.
+fn effect_of(ctx: &WorldCtx, st: &WorldState, party: &Party) -> (Vec<bool>, Bonus) {
+    let w = &ctx.config.world;
+    let player = |c: u32| sid_of(st, c).and_then(|s| st.players.get(&s));
+    let Some(leader) = party.members.first().and_then(|c| player(*c)) else { return (vec![false; party.members.len()], Bonus::default()) };
+    let center = leader.ch.pos();
+    let zone: Vec<bool> = party.members.iter().map(|c| player(*c).is_some_and(|p| super::combat::dist2d(p.ch.pos(), center) <= w.party_effect_range)).collect();
+    let levels: Vec<i32> = party.members.iter().filter_map(|c| player(*c)).map(|p| p.ch.level).collect();
+    let n = zone.iter().filter(|z| **z).count();
+    (zone, bonus_of(leader.factors.ftype[2], n, &levels, w.party_bonus_percent, w.party_bonus_points, w.party_bonus_max_level_gap))
+}
+
+/// Une fois par seconde : zone d'effet et bonus de chaque groupe ; op 2 aux membres s'ils changent, bonus porté par les
+/// membres dans la zone (facteurs recalculés), retiré aux autres et à ceux qui n'ont plus de groupe.
+pub fn step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) {
+    if st.parties.effect_at.is_some_and(|t| now.duration_since(t) < EFFECT_EVERY) {
+        return;
+    }
+    st.parties.effect_at = Some(now);
+    let mut want: HashMap<u32, Bonus> = HashMap::new();
+    let ids: Vec<u32> = st.parties.parties.keys().copied().collect();
+    for id in ids {
+        let party = st.parties.parties[&id].clone();
+        let (zone, bonus) = effect_of(ctx, st, &party);
+        for (c, z) in party.members.iter().zip(&zone) {
+            if let Some(sid) = sid_of(st, *c) {
+                want.insert(sid, if *z { bonus } else { Bonus::default() });
+            }
+        }
+        if party.effect.as_ref() != Some(&(zone.clone(), bonus)) {
+            debug!("[groupe] groupe {id} : zone {zone:?}, bonus {bonus:?}");
+            send_party(st, &party, &update_packet(id, &zone, &bonus), None);
+            st.parties.parties.get_mut(&id).unwrap().effect = Some((zone, bonus));
+        }
+    }
+    let changed: Vec<u32> = st.players.iter().filter(|(sid, p)| p.party_bonus != want.get(sid).copied().unwrap_or_default()).map(|(sid, _)| *sid).collect();
+    for sid in changed {
+        let b = want.get(&sid).copied().unwrap_or_default();
+        st.players.get_mut(&sid).unwrap().party_bonus = b;
+        super::equipment::refresh_factors(ctx, st, sid);
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
 // Rappel de groupe
 // ---------------------------------------------------------------------------------------------
 
@@ -483,6 +650,10 @@ pub fn recall_refusal(ctx: &WorldCtx, st: &WorldState, sid: u32, now: Instant) -
     if let Some(region) = ctx.map.region(p.ch.pos_x, p.ch.pos_z) {
         if ctx.regions.type_bits(region).is_some_and(|bits| bits & super::consumables::REGION_RESURRECTION == 0) {
             return Some(format!("région {region} fermée au rappel"));
+        }
+        // DisableSummon de RegionTemplate.ini.
+        if ctx.regions.forbids(Some(region), super::regions::disable::SUMMON) {
+            return Some(format!("région {region} sans invocation"));
         }
     }
     if !ctx.config.world.recall_allow_in_combat && now < p.timers.combat_until {
@@ -566,7 +737,10 @@ pub async fn accept_recall(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Pa
     // Échange en cours annulé (le client l'annule aussi avant d'accepter), boutique refermée.
     super::trade::cancel(st, sid);
     super::npc_trade::close(st, sid);
-    super::teleport(ctx, st, sid, target.x as f64 + RECALL_OFFSET, None, target.z as f64).await?;
+    // Départ vers une position libre (AGPMEVENTTELEPORT op 3, déplacement, op 8).
+    let x = target.x as f64 + RECALL_OFFSET;
+    let y = ctx.map.height(x, target.z as f64).unwrap_or(target.y);
+    super::portal::custom_travel(ctx, st, sid, archcore_net::Vec3::new(x as f32, y, target.z)).await?;
     info!("[groupe] {my_name} rejoint {} par le rappel", name_of(st, leader));
     send(st, leader, management_packet(mgmt::ACCEPT_RECALL, Some(me), Some(leader), Some(&my_name)));
     Ok(())
@@ -632,7 +806,7 @@ mod tests {
 
     #[test]
     fn paquets_de_groupe() {
-        let party = Party { id: 101, members: vec![7, 9], exp_type: EXP_BY_DAMAGE, item_division: ITEM_DAMAGE };
+        let party = Party { id: 101, members: vec![7, 9], exp_type: EXP_BY_DAMAGE, item_division: ITEM_DAMAGE, effect: None };
         let p = archcore_net::decode_packet(&schema::PARTY, &party_packet(op::ADD, &party, None, true)).unwrap();
         assert_eq!((p.int(0), p.int(1), p.int(2), p.int(3)), (Some(0), Some(101), Some(5), Some(2)));
         assert_eq!(p.bytes(5).unwrap(), &[7, 0, 0, 0, 9, 0, 0, 0]);
@@ -641,6 +815,35 @@ mod tests {
         // Demande de rappel : lanceur au champ 1, son nom au champ 3, pas de cible.
         let r = archcore_net::decode_packet(&schema::PARTY_MANAGEMENT, &recall_request_packet(7, "Alice")).unwrap();
         assert_eq!((r.int(0), r.int(1), r.int(2), r.text(3).as_deref()), (Some(15), Some(7), None, Some("Alice")));
+    }
+
+    #[test]
+    fn zone_et_bonus() {
+        // Chevalier : défense ; archer (ou scion) : dégâts ; mage : PV et PM. Rien seul dans la zone ni au-delà de 20 niveaux.
+        assert_eq!(bonus_of(1, 3, &[50, 60, 55], 2, 50, 20), Bonus { defense: 4, ..Default::default() });
+        assert_eq!(bonus_of(2, 2, &[50, 60], 2, 50, 20), Bonus { damage: 2, ..Default::default() });
+        assert_eq!(bonus_of(3, 5, &[50; 5], 2, 50, 20), Bonus { damage: 8, ..Default::default() });
+        assert_eq!(bonus_of(4, 4, &[50; 4], 2, 50, 20), Bonus { hp: 150, mp: 150, ..Default::default() });
+        assert!(bonus_of(1, 1, &[50, 60], 2, 50, 20).is_none(), "seul dans la zone");
+        assert!(bonus_of(1, 3, &[30, 51, 40], 2, 50, 20).is_none(), "écart de 21 niveaux");
+        assert!(!bonus_of(1, 3, &[30, 50, 40], 2, 50, 20).is_none(), "écart de 20 niveaux");
+        let mut f = crate::character::Factors::default();
+        (f.damage_min[0], f.damage_max[0], f.defense_point[0], f.point_max[0]) = (100, 200, 300, 1000);
+        Bonus { damage: 10, defense: 5, hp: 50, mp: 20 }.apply(&mut f);
+        assert_eq!((f.damage_min[0], f.damage_max[0], f.defense_point[0], f.point_max[0], f.point_max[1]), (110, 220, 315, 1050, 20));
+        // Op 2 : zone (un octet par membre), bonus.
+        let p = archcore_net::decode_packet(&schema::PARTY, &update_packet(101, &[true, false, true], &Bonus { defense: 4, ..Default::default() })).unwrap();
+        let z = archcore_net::decode_mini(&mini::PARTY_EFFECT_AREA, p.bytes(7).unwrap()).unwrap();
+        let b = archcore_net::decode_mini(&mini::PARTY_BONUS, p.bytes(9).unwrap()).unwrap();
+        assert_eq!((p.int(0), p.int(1), (0..5).map(|i| z.int(i).unwrap_or(-1)).collect::<Vec<_>>()), (Some(2), Some(101), vec![1, 0, 1, 0, 0]));
+        assert_eq!((b.int(0), b.int(1), b.int(2), b.int(3)), (Some(0), Some(4), Some(0), Some(0)));
+    }
+
+    #[test]
+    fn ecart_de_niveau_a_l_invitation() {
+        assert!(level_gap_refused(20, 10, 10) && level_gap_refused(20, 1, 10));
+        assert!(!level_gap_refused(20, 11, 10) && !level_gap_refused(5, 20, 10), "invité plus haut : permis");
+        assert!(!level_gap_refused(100, 1, 0), "règle coupée");
     }
 
     #[test]

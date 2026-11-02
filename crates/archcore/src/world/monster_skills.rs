@@ -15,6 +15,12 @@
 //!        1, comme « <MOB>Water Elemental Skill ») accompagne les coups normaux qui touchent : son effet prend
 //!        avec la chance « skill_rate ».
 //! ```
+//! Préférence de cible (« HateRace » / « HateRacePercent », « HateClass » / « HateClassPercent » : 인간 humain, 오크 orc,
+//! 문엘프 elfe de lune ; 전사 guerrier, 궁수 archer, 법사 mage) : règle choisie, les tables ne disent que les pour cent
+//! (100 à 130). Le monstre pèse les dégâts de chaque agresseur par ces pour cent quand sa race ou sa classe est celle
+//! qu'il hait (les deux se multiplient) ; un monstre préventif divise la distance de chaque joueur par le même poids.
+//! Une compétence de monstre peut être bloquée par le joueur (facteur de défense 10).
+//!
 //! Les tables ne disent pas à quel rythme le serveur d'origine lançait ces compétences : ArchCore lance chacune
 //! dès qu'elle est prête, au rythme de sa relance (`recast_time`).
 
@@ -64,6 +70,20 @@ pub struct MonsterAi {
     /// Attaque préventive (« PreemptiveType » 1) : portée (« PreemptiveRange », en mètres de 100 unités) et
     /// conditions sur la cible.
     pub preemptive: Option<Preemptive>,
+    /// Race et classe haïes (codes du jeu : race 1 humain, 2 orc, 3 elfe de lune ; classe 1 guerrier, 2 archer, 4 mage),
+    /// avec leur poids en pour cent.
+    pub hate_race: Option<(i32, f64)>,
+    pub hate_class: Option<(i32, f64)>,
+    /// Invocations, suiveurs et renfort (`ai_kin.rs`).
+    pub kin: super::ai_kin::KinAi,
+}
+
+impl MonsterAi {
+    /// Poids d'une cible de cette race et de cette classe (1 : aucune préférence).
+    pub fn hate(&self, race: i32, class: i32) -> f64 {
+        let w = |h: Option<(i32, f64)>, v: i32| h.filter(|(x, _)| *x == v).map(|(_, p)| p.max(0.0) / 100.0).unwrap_or(1.0);
+        w(self.hate_race, race) * w(self.hate_class, class)
+    }
 }
 
 /// Agression d'un monstre « préventif » : il attaque de lui-même un joueur à portée qui remplit ses conditions.
@@ -116,7 +136,27 @@ impl MonsterAi {
             let range = text("PreemptiveRange".into()).parse::<f64>().unwrap_or(0.0) * 100.0;
             Preemptive { range, forbidden_levels }
         });
-        MonsterAi { normal_attack: text("UseNormalAttack".into()) != "0", skills, preemptive }
+        let pct = |k: &str| text(k.into()).parse::<f64>().unwrap_or(100.0);
+        let race = match text("HateRace".into()).as_str() {
+            "인간" => Some(1),
+            "오크" => Some(2),
+            "문엘프" => Some(3),
+            _ => None,
+        };
+        let class = match text("HateClass".into()).as_str() {
+            "전사" => Some(1),
+            "궁수" => Some(2),
+            "법사" => Some(4),
+            _ => None,
+        };
+        MonsterAi {
+            normal_attack: text("UseNormalAttack".into()) != "0",
+            skills,
+            preemptive,
+            hate_race: race.map(|r| (r, pct("HateRacePercent"))),
+            hate_class: class.map(|c| (c, pct("HateClassPercent"))),
+            kin: super::ai_kin::KinAi::from_data(d),
+        }
     }
 }
 
@@ -264,7 +304,14 @@ fn complete(ctx: &WorldCtx, st: &mut WorldState, m: &Monster, cast: MonsterCast,
     let Some((t, lv)) = ctx.skills.get(s.tid).and_then(|t| Some((t, t.level(s.level)?))) else { return };
     let id = st.monsters.skill_state.get(&m.cid).and_then(|x| x.ids.get(cast.slot).copied()).unwrap_or(0);
     let owned = Owned { id, tid: s.tid, level: s.level, ready_at: None, exp: 0 };
-    for sid in targets(st, m, t, lv, &cast) {
+    let hit = targets(st, m, t, lv, &cast);
+    // Ruée (`move_pos` 2, skill_extra.rs) : le monstre est posé au contact de sa cible avant l'impact.
+    if t.move_pos == super::skill_extra::MOVE_SELF {
+        if let Some(at) = hit.first().and_then(|sid| st.players.get(sid)).map(|p| p.ch.pos()) {
+            super::skill_extra::rush(ctx, st, m.cid, at);
+        }
+    }
+    for sid in hit {
         hit_player(ctx, st, m, t, lv, &owned, sid, now);
     }
 }
@@ -276,11 +323,12 @@ fn hit_player(ctx: &WorldCtx, st: &mut WorldState, m: &Monster, t: &SkillTemplat
     let shielded = p.invincible_until.is_some_and(|u| now < u) || p.skills.status_sent & (status::UNTOUCHABLE | status::SKILL_ATK_INVINCIBLE) != 0;
     let stats = st.monsters.stats_of(m.tid);
     let mods = st.monsters.mods(m.cid);
-    let (min_damage, max_damage) = effects::monster_damage(stats.min_damage, stats.max_damage, &mods);
-    let attacker = Attacker { level: m.level as i32, ar: stats.ar, min_damage, max_damage, ..Default::default() };
+    let attacker = Attacker::of_monster(m.level as i32, &stats, &mods);
     let defender = Defender::of_player(&p.factors);
-    let spirit = stats.spirit.map(|(lo, hi)| (lo as f64, hi.max(lo) as f64));
+    let spirit = effects::monster_spirit(&stats.spirit, &mods);
     let mut rng = rand::thread_rng();
+    // Blocage des compétences du joueur : ni dégâts ni effet.
+    let shielded = shielded || t.offensive() && skills::skill_blocked(&mut rng, &defender);
     let damages = if t.instant_damage() && !shielded { skills::skill_damage(&mut rng, &attacker, &spirit, &defender, lv) } else { Vec::new() };
     let damages = combat::divert(st, sid, &damages);
     let total: i32 = damages.iter().map(|(_, d)| *d).sum();
@@ -360,6 +408,11 @@ mod tests {
         assert!(ai.skills[1].hp_ok(25, 100) && !ai.skills[1].hp_ok(31, 100));
         assert!(!MonsterAi::from_data(&serde_json::json!({ "UseNormalAttack": "0" })).normal_attack);
         assert!(MonsterAi::from_data(&serde_json::json!({})).normal_attack, "sans colonne : coups normaux");
+        // Préférence de cible : humains à 120 %, mages à 125 %.
+        let hater = MonsterAi::from_data(&serde_json::json!({ "HateRace": "인간", "HateRacePercent": "120", "HateClass": "법사", "HateClassPercent": "125" }));
+        assert_eq!((hater.hate_race, hater.hate_class), (Some((1, 120.0)), Some((4, 125.0))));
+        assert_eq!((hater.hate(1, 4), hater.hate(1, 1), hater.hate(2, 4), hater.hate(3, 2)), (1.5, 1.2, 1.25, 1.0));
+        assert_eq!(MonsterAi::from_data(&serde_json::json!({})).hate(1, 1), 1.0);
         let p = MonsterAi::from_data(&serde_json::json!({ "PreemptiveType": "1", "PreemptiveCondition1": "타겟;LV;90;이상;금지", "PreemptiveRange": "8" })).preemptive.unwrap();
         assert_eq!(p.range, 800.0);
         assert!(p.allows(89) && !p.allows(90));

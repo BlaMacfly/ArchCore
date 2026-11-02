@@ -80,6 +80,7 @@ pub async fn run(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> 
     } else {
         w
     };
+    super::hold_weapon(&mut w).await?;
     let me = w.cid as i64;
     let skill = |w: &InWorld, tid: i64| w.skills.iter().find(|s| s.1 == tid).map(|s| s.0).ok_or_else(|| anyhow::anyhow!("compétence {tid} absente"));
     let (griolli, bomba) = (skill(&w, GRIOLLI)?, skill(&w, BOMBA)?);

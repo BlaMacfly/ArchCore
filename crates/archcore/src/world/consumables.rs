@@ -13,8 +13,9 @@
 //!             remplacé si le nouveau est de rang égal ou supérieur, sinon l'objet est refusé.
 //!             Un exemplaire est consommé, sauf objet « CanStopUsingItem » (familiers à part, `summons.rs`) : il reste,
 //!             et le réutiliser arrête son effet. Confirmation : op 4 (TID, CID, 18 = recharge en ms).
-//!             Bonus d'expérience et de butin (« bonus_exp », « bonus_drop_rate » des effets portés) : en pour cent,
-//!             valeur / `Skill.GameBonusDivisor` (10), sur l'expérience des monstres et le taux de butin du tueur.
+//!             Bonus d'expérience, de butin et d'or (« bonus_exp », « bonus_drop_rate », « bonus_money » des effets
+//!             portés) : en pour cent, valeur / `Skill.GameBonusDivisor` (10), sur l'expérience des monstres, le taux de
+//!             butin et l'or du tueur ; ceux des options de l'équipement s'y ajoutent tels quels (pour cent).
 //!   Orbe de résurrection (usage 14), par le mort seulement (vivant : op 5, « Regeneration has failed ») ; refus par
 //!             op 27 code 3 (« You cannot use the resurrection item. ») pour l'ArchLord, en zone de siège en guerre,
 //!             dans une région sans le bit 0x100 du Type (Battle Square, prison…), en région de combat (sûreté 2) avec
@@ -56,12 +57,13 @@
 //!             joueur en jeu), `/safekeeper` (Safe Keeper 4923 : banque ouverte par le gardien le plus proche, à distance)
 //!             et `/merchant` (Merchant 4924 : boutique du marchand le plus proche, à distance) ; refus du mort, sous
 //!             métamorphose et là où le rappel de groupe est refusé (`party::recall_refusal`, pour la cible de `/go`
-//!             aussi). `/nick texte` (Signature of Glory) : signature de 16 octets au plus (AGPMCHARACTER champ 27,
+//!             aussi) ; `/go` aussi depuis ou vers une région « DisableGo » (`regions.rs`). `/nick texte` (Signature of Glory) : signature de 16 octets au plus (AGPMCHARACTER champ 27,
 //!             `characters.signature`), envoyée au joueur et à ceux qui le voient (op 1), puis avec le personnage ;
 //!             `/nick` seul l'efface. Un exemplaire consommé, op 4 et « Objet … utilisé » (texte `JumpItemUsed`).
 //! Choix d'ArchCore (règles du serveur d'origine inconnues) : l'or rendu, les compétences gardées, l'unité des bonus,
-//! les effets d'objet perdus à la mort et à la déconnexion comme les autres effets, l'objet à durée qui ne s'use pas
-//! (son temps de vie, « RemainTime » / « ExpireTime » de l'exemplaire, n'est pas décompté).
+//! les effets d'objet perdus à la mort et à la déconnexion comme les autres effets. Objet Cash à durée (« RemainTime » /
+//! « ExpireTime » avec « CashItemUseType » 2) : sa vie commence à la première utilisation, il n'est pas consommé à
+//! l'usage, l'effet dure ce qui lui reste ; décompte et fin dans `lifetime.rs`.
 
 use super::items::{item_remove, InventoryItem};
 use super::skills::{self, Owned, SkillCatalog};
@@ -279,14 +281,20 @@ pub fn bonus_pct(raw: f64, divisor: f64) -> f64 {
     (raw / divisor.max(0.01)).max(0.0)
 }
 
-/// Bonus d'expérience (pour cent) des effets d'un joueur.
+/// Bonus d'expérience (pour cent) des effets d'un joueur, plus le « bonus_exp » des options de son équipement (déjà en
+/// pour cent : « Bonus Exp 4% »).
 pub fn exp_bonus_pct(ctx: &WorldCtx, p: &Player) -> f64 {
-    bonus_pct(super::effects::total(&p.skills.effects).exp_bonus, ctx.config.world.skill_game_bonus_divisor)
+    bonus_pct(super::effects::total(&p.skills.effects).exp_bonus, ctx.config.world.skill_game_bonus_divisor) + p.gear.exp_pct.max(0.0)
 }
 
-/// Bonus de butin (pour cent) des effets d'un joueur.
+/// Bonus de butin (pour cent) des effets d'un joueur, plus le « bonus_drop_rate » de ses options.
 pub fn drop_bonus_pct(ctx: &WorldCtx, p: &Player) -> f64 {
-    bonus_pct(super::effects::total(&p.skills.effects).drop_bonus, ctx.config.world.skill_game_bonus_divisor)
+    bonus_pct(super::effects::total(&p.skills.effects).drop_bonus, ctx.config.world.skill_game_bonus_divisor) + p.gear.drop_pct.max(0.0)
+}
+
+/// Bonus d'or (pour cent) : « bonus_money » des effets d'un joueur (même unité que l'expérience) et de ses options.
+pub fn gold_bonus_pct(ctx: &WorldCtx, p: &Player) -> f64 {
+    bonus_pct(super::effects::total(&p.skills.effects).gold_bonus, ctx.config.world.skill_game_bonus_divisor) + p.gear.gold_pct.max(0.0)
 }
 
 /// Expérience d'un monstre majorée du bonus des effets du joueur.
@@ -398,12 +406,15 @@ pub async fn use_skill_item(ctx: &WorldCtx, st: &mut WorldState, sid: u32, item:
     for e in &gone {
         super::combat::send_around(st, sid, &super::effects::remove_packet(cid, e));
     }
+    // Objet à durée (lifetime.rs) : sa vie commence, il n'est pas consommé ; l'effet dure ce qui lui reste.
+    let timed = super::lifetime::on_use(ctx, st, sid, item.iid, item.tid).await?;
     let mut recast = 0u64;
     let mut posed = Vec::new();
     for (t, lv, n) in levels {
         st.next_skill_id += 1;
         let owned = Owned { id: st.next_skill_id, tid: t.tid, level: n, ready_at: None, exp: 0 };
-        let lasting = skills::SkillLevel { duration_ms: effect_duration_ms(lv.duration_ms, u), ..lv.clone() };
+        let life = timed.filter(|ms| *ms > 0 && lv.duration_ms == 0 && u.effect_ms == 0);
+        let lasting = skills::SkillLevel { duration_ms: life.unwrap_or_else(|| effect_duration_ms(lv.duration_ms, u)), ..lv.clone() };
         let e = skills::new_effect(&owned, &lasting, caster_tid, lv.status, None, now);
         if !lv.heal.is_empty() {
             if let Some(p) = st.players.get_mut(&sid) {
@@ -425,7 +436,7 @@ pub async fn use_skill_item(ctx: &WorldCtx, st: &mut WorldState, sid: u32, item:
     }
     if u.can_stop {
         p.uses.lit.insert(item.iid, posed.clone());
-    } else {
+    } else if timed.is_none() {
         consume_one(ctx, p, item.iid).await?;
     }
     p.send_raw(super::recovery::used_packet(item.tid, cid, Duration::from_millis(u.reuse_ms.max(recast))));
@@ -867,6 +878,8 @@ pub async fn chat_command(ctx: &WorldCtx, st: &mut WorldState, sid: u32, text: &
         Some(format!("{label} n'est pas encore prêt ({} s)", left.as_secs().max(1)))
     } else if cmd != ItemCommand::Nick && super::morph::restricted(st, sid) {
         Some("sous métamorphose".into())
+    } else if cmd == ItemCommand::Go && super::party::region_forbids(ctx, st, p.ch.id, super::regions::disable::GO) {
+        Some("région sans /go".into())
     } else if cmd != ItemCommand::Nick {
         super::party::recall_refusal(ctx, st, sid, now)
     } else if !valid_signature(target) {
@@ -879,6 +892,7 @@ pub async fn chat_command(ctx: &WorldCtx, st: &mut WorldState, sid: u32, text: &
     if refusal.is_none() && cmd == ItemCommand::Go {
         refusal = match st.by_name(target).filter(|t| *t != sid) {
             None => Some(format!("{target} n'est pas en jeu")),
+            Some(tsid) if super::party::region_forbids(ctx, st, st.players[&tsid].ch.id, super::regions::disable::GO) => Some(format!("{target} est hors d'atteinte (région sans /go)")),
             Some(tsid) => match super::party::recall_refusal(ctx, st, tsid, now) {
                 Some(why) => Some(format!("{target} est hors d'atteinte ({why})")),
                 None => {

@@ -33,9 +33,14 @@
 //! - Un monstre tué par une invocation l'est par son maître : expérience (partage de groupe compris), butin, quêtes.
 //! - Combat entre joueurs : une invocation n'attaque un joueur que si son maître le peut (`pvp.rs`) ; l'attaquer, c'est
 //!   suivre les mêmes règles qu'envers son maître.
-//! - Non faits : apprivoisement (type 2, compétence inconnue), Call on Nature et Evil Light (7 : pas de TID de
-//!   créature), pièges de faille (11), renforcements des familiers (colonnes « point.* » de leur compétence), endurance
-//!   des familiers (« StaminaPoint », Pet Feed : sans elle, endurance infinie).
+//! - Compétence additionnelle de la créature (« additional_skilltid » du niveau qui l'invoque, `skill_extra.rs`) : zone au
+//!   sol qui la suit (Lightning Trap, Tuuga, Holy Ground), ou passive à chance dont l'effet additionnel se pose sur le
+//!   monstre qu'elle touche (Griolli…).
+//! - Non faits : apprivoisement (type 2 : aucune compétence d'apprivoisement dans les tables de l'épisode 8, ni dans le
+//!   client), Call on Nature et Evil Light (7 : pas de TID de créature), pièges de faille (11), renforcements des
+//!   familiers (colonnes « point.* » de leur compétence). Endurance des familiers (« StaminaPoint », « StartStamina »,
+//!   Pet Feed « StaminaCure ») : volontairement pas faite, le familier reste « Immortal » comme l'affiche Archonia, dont
+//!   la jauge d'endurance n'a pas de données et qui ne range pas l'op 29.
 
 use super::combat::{self, Attacker, Defender};
 use super::effects::{self, status};
@@ -404,8 +409,11 @@ fn spawn(ctx: &WorldCtx, st: &mut WorldState, sid: u32, sp: &Spawn, now: Instant
         item: sp.item,
         seq,
     };
+    let until = summon.ends_at;
     st.summons.list.insert(cid, summon);
     show(ctx, st, cid, Some(sid));
+    // Compétence additionnelle de la créature : zone au sol qui la suit (pièges, Tuuga, Holy Ground : skill_extra.rs).
+    super::skill_extra::on_summoned(ctx, st, sid, cid, sp.skill_tid, until, now);
     info!("[invocation] {master_name} invoque {name} ({cid:#x}, TID {}, type {pkind}, {} PV, niveau {master_level}{})", sp.tid, stats.max_hp, sp.duration_ms.map(|ms| format!(", {} s", ms / 1000)).unwrap_or_default());
     Some(cid)
 }
@@ -513,7 +521,7 @@ fn beside(at: Vec3, from: Vec3) -> Vec3 {
 }
 
 /// Saut de la créature en `to` : vue revue chez chacun (apparition, retrait), arrêt net chez ceux qui la gardent.
-fn jump(ctx: &WorldCtx, st: &mut WorldState, cid: u32, mut to: Vec3) {
+pub(super) fn jump(ctx: &WorldCtx, st: &mut WorldState, cid: u32, mut to: Vec3) {
     if st.monsters.grounded.contains(&cid) {
         if let Some(y) = ctx.map.height(to.x as f64, to.z as f64) {
             to.y = y;
@@ -885,8 +893,7 @@ async fn strike(ctx: &WorldCtx, st: &mut WorldState, cid: u32, m: &Monster, s: &
         return Ok(());
     }
     let mods = st.monsters.mods(cid);
-    let (min_damage, max_damage) = effects::monster_damage(stats.min_damage, stats.max_damage, &mods);
-    let attacker = Attacker { level: m.level as i32, ar: stats.ar, min_damage, max_damage, ..Default::default() };
+    let attacker = Attacker::of_monster(m.level as i32, &stats, &mods);
     let (outcome, parts) = {
         let mut rng = rand::thread_rng();
         let (outcome, physical) = combat::strike_at(&mut rng, combat::monster_hit_chance(&attacker, &defender), &attacker, &defender);
@@ -914,6 +921,10 @@ async fn strike(ctx: &WorldCtx, st: &mut WorldState, cid: u32, m: &Monster, s: &
             combat::broadcast(st, &watchers, &combat::action_packet(cid, t, outcome, (damage > 0).then(|| combat::parts_factors(hp, max_mp, &parts))));
             if damage > 0 {
                 super::ai::add_aggro(st, t, cid, damage as u64, now);
+                // Passive à chance de la créature : son effet additionnel sur la cible (skill_extra.rs).
+                if hp > 0 {
+                    super::skill_extra::summon_proc(ctx, st, cid, osid, t, now);
+                }
             }
             debug!("[invocation] {} ({cid:#x}) → {tname} : résultat {outcome}, {damage} dégât(s), {hp} PV", m.name);
             if hp == 0 {

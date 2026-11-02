@@ -1,6 +1,6 @@
 # ArchRust ↔ ArchCore extensions
 
-> **Specification, version 1.1 — approved on 2026-10-19** (decisions in section 11). Both sides are
+> **Specification, version 1.2 — 1.1 approved on 2026-10-19, 1.2 (table fingerprint) on 2026-11-02** (decisions in section 11). Both sides are
 > implemented (section 10). This document is the reference for both projects: the
 > [ArchRust](https://github.com/BlaMacfly/ArchRust) client and the ArchCore server.
 
@@ -13,7 +13,9 @@ features:
 2. the **AddOn message channel**: the equivalent of WoW's `C_ChatInfo.SendAddonMessage` and
    `CHAT_MSG_ADDON` event;
 3. since version 1.1, the **client language**: the server serves its texts (NPC, monster, quest and item
-   names…) in the language the player chose (section 6).
+   names…) in the language the player chose (section 6);
+4. since version 1.2, the **client tables fingerprint**: the server announces the fingerprint of the value
+   tables it exported for the client (`client-tables/1` capability, section 4).
 
 ## 1. Principles
 
@@ -61,7 +63,8 @@ module of the original client. Even if received by mistake, it would be ignored.
 | 18 | MEMORY_BLOCK | `text_kind` | kind of text requested, ASCII (section 6) — v1.1 |
 | 19 | MEMORY_BLOCK | `text_ids` | requested identifiers: little-endian UINT32s back to back — v1.1 |
 | 20 | MEMORY_BLOCK | `texts` | returned texts: for each, UINT32 identifier, UINT16 length, UTF-8 — v1.1 |
-| 21–31 | — | — | reserved for future versions |
+| 21 | MEMORY_BLOCK | `tables_fingerprint` | fingerprint of the value tables exported for the client (`fingerprint` of `tables.toml`), printable ASCII without spaces, 128 bytes at most — v1.2 |
+| 22–31 | — | — | reserved for future versions |
 
 Decoding rules:
 - a missing field (flag bit 0) takes its default value: 0 or empty;
@@ -73,7 +76,7 @@ Decoding rules:
 | `op` | Name | Direction | Fields |
 |---|---|---|---|
 | 0 | `HELLO` | client → server | 2, 3, 4, 5, 16 (optional, v1.1) |
-| 1 | `HELLO_ACK` | server → client | 2, 3, 4, 5, 6, 7, 8, 16 and 17 (when `language` is granted) |
+| 1 | `HELLO_ACK` | server → client | 2, 3, 4, 5, 6, 7, 8, 16 and 17 (when `language` is granted), 21 (when `client-tables` is granted and the server has a fingerprint, v1.2) |
 | 2 | `ADDON_SEND` | client → server | 1 (optional), 9, 10, 11 (depending on scope), 14 |
 | 3 | `ADDON_RECV` | server → client | 9, 10, 11 (whisper), 12, 13, 14 |
 | 4 | `RESULT` | server → client | 1, 15 |
@@ -112,8 +115,9 @@ client                                   server
 
 ### Versions
 
-- **Protocol version** (`version_major.version_minor`), currently **1.1** (1.1 adds fields 16 to 20,
-  operations 5 to 8 and result 9; a 1.0 client or server ignores them). A minor version only adds
+- **Protocol version** (`version_major.version_minor`), currently **1.2** (1.1 adds fields 16 to 20,
+  operations 5 to 8 and result 9; 1.2 adds field 21 and the `client-tables` capability; an older client
+  or server ignores them). A minor version only adds
   optional fields or operations. A different major version makes both sides incompatible: the server then
   answers `HELLO_ACK` with an empty capability list.
 - **Capability version**: an integer after the name (`addon-msg/1`), raised when the capability's
@@ -125,6 +129,7 @@ client                                   server
 |---|---|---|
 | `addon-msg` | defined here | AddOn message channel |
 | `language` | defined here (v1.1, section 6) | client language and localized server texts |
+| `client-tables` | defined here (v1.2) | fingerprint of the value tables exported for the client (`archcore export-client-tables`): the server returns it in `HELLO_ACK` field 21, read from `tables.toml` in the `Client.TablesDir` folder; without a folder or a valid fingerprint, the capability is granted without field 21. The client compares it with its `server-data/` folder's and logs a mismatch |
 | `addon-data` | reserved | server data queries from AddOns (like WoW's `C_*` APIs) |
 | `saved-vars` | reserved | `SavedVariables` kept on the server, shared across machines |
 | `server-script` | reserved | AddOn interfaces driven by server-side scripts |
@@ -301,6 +306,10 @@ is stored in `saved-variables/options.toml`, announced in the `HELLO` of both co
 - Repeated rate-limit abuse is logged so GMs can step in.
 
 ## 10. Implementation
+
+**ArchCore, v1.2** — done on 2026-11-02: field 21 of the `ARCHCORE_EXT` schema, `client-tables/1`
+capability and fingerprint read at start-up (`ext.rs`, `server.rs`, `tools/export.rs`), test
+`ext::tests::empreinte_des_tables`.
 
 **ArchCore** — done on 2026-10-19
 - `ARCHCORE_EXT` schema and constants in `crates/archcore-net/src/schema.rs`; encoding of fields 19 and 20

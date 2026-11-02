@@ -19,6 +19,16 @@
 //!
 //! Cadence (valeurs du code partagé d'Archonia) : un message toutes les 100 ms au plus (le surplus est ignoré), un
 //! cri de zone par seconde (refus avec message). Les commandes MJ n'y sont pas soumises.
+//!
+//! Chuchotements (ops d'AGPMCHATTING relevées dans le client) :
+//! ```text
+//!   client → op 1 (champ 1 CID) bloque les chuchotements reçus ; op 2 les débloque ← même op (le client note le
+//!            blocage dans son attache) ; blocage gardé jusqu'à la déconnexion (choix d'ArchCore)
+//!   ← op 3 (1 CID de l'émetteur, 5 nom du destinataire) à l'émetteur d'un chuchotement bloqué : « <nom> is blocking
+//!     whispering. » (onglet système)
+//!   ← op 4 (1 CID de l'émetteur, 5 nom du destinataire) quand le destinataire n'est pas en jeu : « <nom> is not
+//!     connected. »
+//! ```
 
 use super::{gm, send_system, World, WorldCtx, WorldState};
 use crate::{debug, info};
@@ -33,11 +43,27 @@ pub const CHAT_MAX_BYTES: usize = 512;
 pub const CHAT_INTERVAL: Duration = Duration::from_millis(100);
 pub const SHOUT_INTERVAL: Duration = Duration::from_millis(1000);
 
-/// Dernier message et dernier cri de zone d'un joueur.
+/// Dernier message et dernier cri de zone d'un joueur ; chuchotements bloqués (op 1).
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ChatClock {
     pub said: Option<Instant>,
     pub shouted: Option<Instant>,
+    pub block_whisper: bool,
+}
+
+/// Opérations d'AGPMCHATTING.
+pub mod op {
+    pub const MESSAGE: i64 = 0;
+    pub const SET_BLOCK_WHISPER: i64 = 1;
+    pub const RELEASE_BLOCK_WHISPER: i64 = 2;
+    pub const REPLY_BLOCK_WHISPER: i64 = 3;
+    pub const OFFLINE_WHISPER_TARGET: i64 = 4;
+}
+
+/// Op 3 ou 4 : chuchotement de `sender` (CID) refusé, destinataire `target` bloqué ou absent.
+pub fn whisper_refusal(kind: i64, sender: u32, target: &str) -> Vec<u8> {
+    let s = &schema::CHATTING;
+    build_packet(s, &Fields::new(s).with(0, kind).with(1, sender).with(5, target))
 }
 
 impl ChatClock {
@@ -178,9 +204,21 @@ pub fn admin_level_packet(cid: u32, name: &str, level: i64, account: &str) -> Ve
 
 pub async fn on_chatting(world: &Arc<World>, st: &mut WorldState, sid: u32, p: &Packet) -> anyhow::Result<()> {
     let Some(player) = st.players.get(&sid) else { return Ok(()) };
-    if p.int(0) != Some(0) {
-        crate::debug!("[world] #{sid} AGPMCHATTING op {:?} ignoré", p.int(0));
-        return Ok(());
+    match p.int(0) {
+        Some(op::MESSAGE) => {}
+        Some(o @ (op::SET_BLOCK_WHISPER | op::RELEASE_BLOCK_WHISPER)) => {
+            let (cid, on) = (player.ch.id, o == op::SET_BLOCK_WHISPER);
+            info!("[chat] {} {} les chuchotements", player.ch.name, if on { "bloque" } else { "débloque" });
+            let p = st.players.get_mut(&sid).unwrap();
+            p.chat.block_whisper = on;
+            let s = &schema::CHATTING;
+            p.send(s, Fields::new(s).with(0, o).with(1, cid));
+            return Ok(());
+        }
+        other => {
+            crate::debug!("[world] #{sid} AGPMCHATTING op {other:?} ignoré");
+            return Ok(());
+        }
     }
     let mut kind = p.int(2).unwrap_or(chat_type::NORMAL);
     let block = p.bytes(6).unwrap_or_default().to_vec();
@@ -216,6 +254,11 @@ pub async fn on_chatting(world: &Arc<World>, st: &mut WorldState, sid: u32, p: &
             return Ok(());
         }
     }
+    // Mutisme (état 19, status_rules.rs) : discussion refusée.
+    if st.players.get(&sid).is_some_and(|p| super::status_rules::muted(p.skills.status_sent)) {
+        send_system(st, sid, "Vous ne pouvez pas parler pour l'instant.");
+        return Ok(());
+    }
     match prefix.map(|(p, _)| p) {
         Some(Prefix::Party) => kind = chat_type::PARTY,
         Some(Prefix::Guild) => kind = chat_type::GUILD,
@@ -231,11 +274,18 @@ pub async fn on_chatting(world: &Arc<World>, st: &mut WorldState, sid: u32, p: &
     colored.extend(chat_color(&block).unwrap_or_default());
     if kind == chat_type::WHISPER {
         let target_name = p.text(5).unwrap_or_default();
-        let Some(tsid) = st.by_name(&target_name) else {
-            send_system(st, sid, &format!("{target_name} n'est pas connecté."));
+        // Destinataire absent : op 4 (« <nom> is not connected. » chez le client).
+        let Some(tsid) = st.by_name(&target_name).filter(|t| st.players[t].in_game) else {
+            st.players[&sid].send_raw(whisper_refusal(op::OFFLINE_WHISPER_TARGET, cid, &target_name));
             return Ok(());
         };
         let target = &st.players[&tsid];
+        // Chuchotements bloqués (op 1) : op 3 à l'émetteur, rien au destinataire.
+        if target.chat.block_whisper && tsid != sid {
+            info!("[chat] chuchotement de {name} à {} refusé (chuchotements bloqués)", target.ch.name);
+            st.players[&sid].send_raw(whisper_refusal(op::REPLY_BLOCK_WHISPER, cid, &target.ch.name));
+            return Ok(());
+        }
         let pkt = chat_packet_bytes(kind, Some(cid), Some(&name), Some(&target.ch.name), colored);
         // Auteur ignoré avec « Block Chat » (buddy.rs) : rien n'est transmis, et l'auteur n'en sait rien (il voit
         // son message comme d'habitude), comme avec le filtre du client.
@@ -383,5 +433,13 @@ mod tests {
         c.shouted = Some(t);
         assert!(!c.may_shout(t + Duration::from_millis(900)));
         assert!(c.may_shout(t + Duration::from_millis(1000)));
+    }
+
+    #[test]
+    fn chuchotement_refuse() {
+        for kind in [op::REPLY_BLOCK_WHISPER, op::OFFLINE_WHISPER_TARGET] {
+            let p = archcore_net::decode_packet(&schema::CHATTING, &whisper_refusal(kind, 7, "SimA")).unwrap();
+            assert_eq!((p.int(0), p.int(1), p.text(5).as_deref(), p.text(4)), (Some(kind), Some(7), Some("SimA"), None));
+        }
     }
 }

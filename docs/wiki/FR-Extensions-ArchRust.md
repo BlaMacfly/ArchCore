@@ -1,6 +1,6 @@
 # Extensions ArchRust ↔ ArchCore
 
-> **Spécification, version 1.1 — validée le 2026-10-19** (décisions en section 11). Les deux côtés sont en
+> **Spécification, version 1.2 — 1.1 validée le 2026-10-19, 1.2 (empreinte des tables) le 2026-11-02** (décisions en section 11). Les deux côtés sont en
 > place (section 10). Ce document fait foi pour les deux projets : le client
 > [ArchRust](https://github.com/BlaMacfly/ArchRust) et le serveur ArchCore.
 
@@ -13,7 +13,9 @@ La version 1 couvre trois fonctions :
 2. le **canal de messages d'AddOn** : l'équivalent de `C_ChatInfo.SendAddonMessage` et de l'événement
    `CHAT_MSG_ADDON` de WoW ;
 3. depuis la version 1.1, la **langue du client** : le serveur sert ses textes (noms de PNJ, de monstres,
-   de quêtes, d'objets…) dans la langue choisie par le joueur (section 6).
+   de quêtes, d'objets…) dans la langue choisie par le joueur (section 6) ;
+4. depuis la version 1.2, l'**empreinte des tables du client** : le serveur annonce celle des tables de valeurs
+   qu'il a exportées pour le client (capacité `client-tables/1`, section 4).
 
 ## 1. Principes
 
@@ -61,7 +63,8 @@ collision avec aucun module, présent ou futur, du client d'origine. Même reçu
 | 18 | MEMORY_BLOCK | `text_kind` | sorte de texte demandée, en ASCII (section 6) — v1.1 |
 | 19 | MEMORY_BLOCK | `text_ids` | identifiants demandés : UINT32 petit-boutistes à la suite — v1.1 |
 | 20 | MEMORY_BLOCK | `texts` | textes rendus : pour chacun, UINT32 identifiant, UINT16 longueur, UTF-8 — v1.1 |
-| 21–31 | — | — | réservés aux versions futures |
+| 21 | MEMORY_BLOCK | `tables_fingerprint` | empreinte des tables de valeurs exportées pour le client (`fingerprint` de `tables.toml`), ASCII imprimable sans espace, 128 octets au plus — v1.2 |
+| 22–31 | — | — | réservés aux versions futures |
 
 Règles de décodage :
 - un champ absent (bit de drapeau à 0) vaut sa valeur par défaut : 0 ou vide ;
@@ -73,7 +76,7 @@ Règles de décodage :
 | `op` | Nom | Sens | Champs |
 |---|---|---|---|
 | 0 | `HELLO` | client → serveur | 2, 3, 4, 5, 16 (facultatif, v1.1) |
-| 1 | `HELLO_ACK` | serveur → client | 2, 3, 4, 5, 6, 7, 8, 16 et 17 (si `language` est accordée) |
+| 1 | `HELLO_ACK` | serveur → client | 2, 3, 4, 5, 6, 7, 8, 16 et 17 (si `language` est accordée), 21 (si `client-tables` est accordée et le serveur a une empreinte, v1.2) |
 | 2 | `ADDON_SEND` | client → serveur | 1 (facultatif), 9, 10, 11 (selon la portée), 14 |
 | 3 | `ADDON_RECV` | serveur → client | 9, 10, 11 (murmure), 12, 13, 14 |
 | 4 | `RESULT` | serveur → client | 1, 15 |
@@ -113,8 +116,9 @@ client                                   serveur
 
 ### Versions
 
-- **Version du protocole** (`version_major.version_minor`), actuellement **1.1** (la 1.1 ajoute les champs
-  16 à 20, les opérations 5 à 8 et le résultat 9 ; un client ou un serveur 1.0 les ignore). Une version
+- **Version du protocole** (`version_major.version_minor`), actuellement **1.2** (la 1.1 ajoute les champs
+  16 à 20, les opérations 5 à 8 et le résultat 9 ; la 1.2 ajoute le champ 21 et la capacité `client-tables` ;
+  un client ou un serveur plus ancien les ignore). Une version
   mineure n'ajoute que des champs ou des opérations facultatifs. Une version majeure différente rend les
   deux côtés incompatibles : le serveur répond alors `HELLO_ACK` avec une liste de capacités vide.
 - **Version d'une capacité** : un entier après le nom (`addon-msg/1`). Il augmente quand le comportement
@@ -126,6 +130,7 @@ client                                   serveur
 |---|---|---|
 | `addon-msg` | définie ici | canal de messages d'AddOn |
 | `language` | définie ici (v1.1, section 6) | langue du client et textes localisés du serveur |
+| `client-tables` | définie ici (v1.2) | empreinte des tables de valeurs exportées pour le client (`archcore export-client-tables`) : le serveur la renvoie au champ 21 du `HELLO_ACK`, lue dans `tables.toml` du dossier `Client.TablesDir` ; sans dossier ni empreinte valable, la capacité est accordée sans champ 21. Le client la compare à celle de son dossier `server-data/` et signale un écart dans son journal |
 | `addon-data` | réservée | requêtes de données serveur par les AddOns (équivalent des API `C_*`) |
 | `saved-vars` | réservée | `SavedVariables` gardées sur le serveur, communes à plusieurs machines |
 | `server-script` | réservée | interfaces d'AddOn pilotées par des scripts côté serveur |
@@ -305,6 +310,9 @@ est enregistré dans `saved-variables/options.toml`, annoncé au `HELLO` des deu
 - Un abus répété de la limite de débit est journalisé, pour que les MJ puissent intervenir.
 
 ## 10. Mise en œuvre
+
+**ArchCore, v1.2** — fait le 2026-11-02 : champ 21 du schéma `ARCHCORE_EXT`, capacité `client-tables/1` et
+empreinte lue au démarrage (`ext.rs`, `server.rs`, `tools/export.rs`), test `ext::tests::empreinte_des_tables`.
 
 **ArchCore** — fait le 2026-10-19
 - Schéma `ARCHCORE_EXT` et constantes dans `crates/archcore-net/src/schema.rs` ; encodage des champs 19 et

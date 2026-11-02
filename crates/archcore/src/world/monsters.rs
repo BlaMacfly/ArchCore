@@ -62,6 +62,11 @@ pub struct MonsterStats {
     pub exp: i32,
     /// Défense physique (« AC »).
     pub ac: i32,
+    /// Esquive (« DR »), opposée à la précision d'un assaillant ; résistance physique (« Physical_Resistance », pour
+    /// cent) et blocage des compétences (« Skill_Block », pour cent).
+    pub dr: i32,
+    pub phys_resist: i32,
+    pub skill_block: i32,
     /// Rayon du corps, ajouté à la portée de l'attaquant (« HitRange » de charactertemplate.ini).
     pub hit_range: i32,
     /// Type de personnage (bits `char_type`).
@@ -81,6 +86,11 @@ pub struct MonsterStats {
     pub level: i32,
     /// Familier (« PetType ») : 1 pour une créature qui donne un sac du familier (`pet_bag.rs`).
     pub pet_type: i32,
+    /// Dégâts héroïques (min, max) et défense héroïque (« Heroic_Min_Damage », « Heroic_Max_Damage »,
+    /// « Heroic_Defense_Point », `heroic.rs`) : vides dans la table de l'épisode 8.
+    pub heroic_min: i32,
+    pub heroic_max: i32,
+    pub heroic_def: i32,
 }
 
 impl MonsterStats {
@@ -108,6 +118,9 @@ impl MonsterStats {
             range: n("Range"),
             exp: n("Exp"),
             ac: n("AC"),
+            dr: n("DR"),
+            phys_resist: n("Physical_Resistance"),
+            skill_block: n("Skill_Block"),
             hit_range: DEFAULT_HIT_RANGE,
             char_type: n("Type") as i64,
             geld_min: n("Geld_Min"),
@@ -121,6 +134,9 @@ impl MonsterStats {
             resist: ["Magic", "Water", "Fire", "Earth", "Air", "Poison", "Thunder", "Ice"].map(|e| n(&format!("{e} Res."))),
             level: n("LVL"),
             pet_type: n("PetType"),
+            heroic_min: n("Heroic_Min_Damage"),
+            heroic_max: n("Heroic_Max_Damage"),
+            heroic_def: n("Heroic_Defense_Point"),
         }
     }
 
@@ -141,7 +157,7 @@ pub fn monster_factors(level: i64, s: &MonsterStats, hp: i32) -> Factors {
     f.point[0] = hp;
     f.point[1] = s.max_mp;
     f.point[2] = s.max_sp;
-    f.point_max = [s.max_hp, s.max_mp, s.max_sp, 0, s.exp, 0, 0, 0, s.ar, 0, 0];
+    f.point_max = [s.max_hp, s.max_mp, s.max_sp, 0, s.exp, 0, 0, 0, s.ar, s.dr, 0];
     f.attack = [s.range, 50, s.attack_speed, 0, 0, 0, 0, 0];
     f.damage_min[0] = s.min_damage;
     f.damage_max[0] = s.max_damage;

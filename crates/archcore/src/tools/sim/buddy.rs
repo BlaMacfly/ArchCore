@@ -168,6 +168,10 @@ pub async fn run(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> 
     anyhow::ensure!(r.int(1) == Some(bcid as i64), "personnage annoncé {:?}", r.int(1));
     anyhow::ensure!(b.world.expect_where(|q| q.is(tr, Some(3)), 800, "demande d'échange").await.is_err(), "{cb} a reçu la demande d'échange");
     println!("  ✓ échange refusé (op 25), rien chez {cb}");
+    // Invitation refusée à 10 niveaux d'écart (party.rs) : le MJ se met au niveau de l'invité, le temps des invitations.
+    let say = |cid: u32, text: &str| Fields::new(&schema::CHATTING).with(0, 0).with(1, cid).with(2, chat_type::NORMAL).with(6, crate::tools::to_cp1252(text));
+    a.world.send(&schema::CHATTING, say(acid, &format!("/level {}", b.level.max(1)))).await?;
+    a.world.expect_where(|q| q.is(&schema::CHATTING, None) && q.int(2) == Some(chat_type::WHOLE_WORLD), 3000, "réponse du MJ").await?;
     a.world.send(pm, Fields::new(pm).with(0, 0).with(1, acid).with(2, bcid)).await?;
     b.world.expect_where(|q| q.is(pm, Some(0)), 3000, "invitation de groupe (non bloquée)").await?;
     b.world.send(pm, Fields::new(pm).with(0, 1).with(1, bcid).with(2, acid)).await?;
@@ -177,6 +181,8 @@ pub async fn run(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> 
     a.world.expect_where(|q| q.is(pm, Some(14)), 3000, "refus d'invitation (op 14)").await?;
     anyhow::ensure!(b.world.expect_where(|q| q.is(pm, Some(0)), 800, "invitation").await.is_err(), "{cb} a reçu l'invitation bloquée");
     println!("  ✓ invitation de groupe : reçue sans « Block Invites », refusée (op 14) avec la case");
+    a.world.send(&schema::CHATTING, say(acid, &format!("/level {}", a.level.max(1)))).await?;
+    a.world.expect_where(|q| q.is(&schema::CHATTING, None) && q.int(2) == Some(chat_type::WHOLE_WORLD), 3000, "réponse du MJ").await?;
 
     step(&format!("{cb} décoche les cases : le chuchotement passe"));
     b.world.send(bd, buddy(buddy_op::OPTIONS, bcid, ca, 0)).await?;

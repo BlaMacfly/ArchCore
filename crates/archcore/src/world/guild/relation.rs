@@ -72,7 +72,7 @@ pub mod code {
     pub const HOSTILE_SUCCESS: i64 = 0x54;
     pub const HOSTILE_LEAVE_DISABLE: i64 = 0x55;
     pub const HOSTILE_LEAVE_WAIT: i64 = 0x56;
-    pub const HOSTILE_LEAVE_REJECT: i64 = 0x57;
+    // 0x57 (trêve refusée) : remplacé par l'op 42, qui donne le même texte.
     pub const HOSTILE_LEAVE_SUCCESS: i64 = 0x59;
 }
 
@@ -274,12 +274,17 @@ fn answer(st: &mut WorldState, gid: u32, other: Option<u32>, kind: Kind, yes: bo
     }
     st.guilds.relation_offers.retain(|o| !(o.kind == kind && o.from == from && o.to == gid));
     if !yes {
-        let c = match kind {
-            Kind::Joint => code::JOINT_REJECT,
-            Kind::Hostile => code::HOSTILE_REJECT,
-            Kind::HostileLeave => code::HOSTILE_LEAVE_REJECT,
+        let pkt = match kind {
+            Kind::Joint => sys(code::JOINT_REJECT),
+            Kind::Hostile => sys(code::HOSTILE_REJECT),
+            // Trêve refusée : op 42 (2 guilde du demandeur, 17 { guilde qui refuse }), « Guild_Hostile_Leave_Reject »
+            // chez le client (à la place du message 0x57, même texte).
+            Kind::HostileLeave => match (st.guilds.by_id.get(&from), st.guilds.by_id.get(&gid)) {
+                (Some(f), Some(g)) => build(base(op::HOSTILE_LEAVE_REJECT, f, &g.name)),
+                _ => return yes,
+            },
         };
-        send_master(st, from, sys(c));
+        send_master(st, from, pkt);
     }
     yes
 }

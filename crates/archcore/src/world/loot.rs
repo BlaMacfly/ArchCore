@@ -1,7 +1,8 @@
 //! Butin des monstres : or et objets posés au sol, à ramasser.
 //!
 //! À la mort d'un monstre, le tueur obtient :
-//! - de l'or : entre `Geld_Min` et `Geld_Max` du monstre (CharacterDataTable.txt), × le taux `gold` ;
+//! - de l'or : entre `Geld_Min` et `Geld_Max` du monstre (CharacterDataTable.txt), × le taux `gold`, majoré du bonus
+//!   d'or des effets et des options du tueur (`consumables::gold_bonus_pct`) ;
 //! - des objets de groupe : pour chaque groupe (groupdroprate.txt), un tirage sur 100 000 avec le taux du
 //!   groupe (× taux `drop`, × `DropMeditation` du monstre si le groupe y est sensible, + bonus selon le niveau
 //!   du tueur) ; puis un rang d'objet selon le rang du monstre (droprankrate.txt), puis un objet du groupe et
@@ -9,7 +10,10 @@
 //! - les objets propres au monstre (itemdroptable.txt) : toujours à 100 000, sinon selon leur taux.
 //!
 //! Tout tombe au sol autour du cadavre (AGPMITEM op 0, statut 1 « au sol », champ 6 = position), réservé
-//! au tueur pendant 30 s, et disparaît au bout de 45 s. Le client demande le ramassage par AGPMITEM op 11
+//! au tueur pendant 30 s, et disparaît au bout de 45 s. Un joueur peut aussi jeter de l'or (AGPMITEM op 15, boîte
+//! « Inventory_DropMoneyYes » de l'inventaire : champ 4 = CID, champ 5 = montant, sans réponse) : la somme, retirée de
+//! son or (1 au moins, pas plus qu'il n'en porte, pas pendant un échange), tombe à ses pieds sans propriétaire,
+//! ramassable par tous. Le client demande le ramassage par AGPMITEM op 11
 //! (champ 2 = IID) ; le serveur répond op 12 (champ 1 = 0 réussi, 1 échec) puis crédite l'or ou range l'objet : un objet
 //! Cash dans l'inventaire Cash, les autres dans l'inventaire, puis, s'il est plein, dans le sac du familier quand il est
 //! disponible (`pet_bag.rs`).
@@ -38,8 +42,9 @@ pub const OWNERSHIP: Duration = Duration::from_secs(30);
 pub const PICKUP_DISTANCE: f64 = 2000.0;
 /// Statut AGPMITEM « au sol ».
 pub const FIELD: i64 = 1;
-/// Opérations AGPMITEM du ramassage.
+/// Opérations AGPMITEM du ramassage, et de l'or jeté.
 pub const PICKUP_ITEM: i64 = 11;
+pub const DROP_MONEY: i64 = 15;
 pub const PICKUP_ITEM_RESULT: i64 = 12;
 pub mod pickup_result {
     pub const SUCCESS: i64 = 0;
@@ -290,8 +295,8 @@ pub struct GroundItem {
     pub tid: u32,
     pub count: i64,
     pub pos: Vec3,
-    /// CID du tueur, seul à pouvoir le ramasser avant `owner_until`.
-    pub owner: u32,
+    /// CID du tueur, seul à pouvoir le ramasser avant `owner_until` ; `None` : à tous (or jeté par un joueur).
+    pub owner: Option<u32>,
     pub owner_until: Instant,
     pub expire_at: Instant,
     /// Options et sockets d'un équipement, tirés à la chute.
@@ -318,7 +323,7 @@ pub fn ground_packet(g: &GroundItem) -> Vec<u8> {
     let s = &schema::ITEM;
     let fm = &mini::ITEM_FIELD;
     let field = build_mini(fm, &Fields::new(fm).with(0, g.pos));
-    let f = Fields::new(s).with(0, super::items::item_op::ADD).with(1, FIELD).with(2, g.iid).with(3, g.tid).with(4, g.owner).with(5, g.count).with(6, field);
+    let f = Fields::new(s).with(0, super::items::item_op::ADD).with(1, FIELD).with(2, g.iid).with(3, g.tid).with_opt(4, g.owner).with(5, g.count).with(6, field);
     build_packet(s, &f.with_opt(20, (!g.options.is_empty()).then(|| super::options::options_mini(&g.options))))
 }
 
@@ -354,12 +359,21 @@ pub fn drop_loot(ctx: &WorldCtx, st: &mut WorldState, killer: u32, center: Vec3,
             let pos = Vec3::new(center.x + rng.gen_range(-SCATTER..SCATTER) as f32, center.y, center.z + rng.gen_range(-SCATTER..SCATTER) as f32);
             let iid = st.ground.alloc();
             let (options, sockets) = super::options::generate(catalog, &ctx.options, tid, source_level, &mut rng);
-            let item = GroundItem { iid, tid, count: n, pos, owner, owner_until: now + OWNERSHIP, expire_at: now + EXPIRE, options, sockets };
+            let item = GroundItem { iid, tid, count: n, pos, owner: Some(owner), owner_until: now + OWNERSHIP, expire_at: now + EXPIRE, options, sockets };
             st.ground.items.insert(iid, item.clone());
             placed.push(item);
         }
     }
-    for item in &placed {
+    show(st, &placed);
+    if !placed.is_empty() {
+        let list: Vec<String> = placed.iter().map(|i| format!("{} × {}", i.count, catalog.get(i.tid).map(|d| d.name.as_str()).unwrap_or("?"))).collect();
+        debug!("[butin] {}", list.join(", "));
+    }
+}
+
+/// Montre des objets posés au sol aux joueurs qui voient leur secteur.
+fn show(st: &mut WorldState, placed: &[GroundItem]) {
+    for item in placed {
         let plain = ground_packet(item);
         for p in st.players.values_mut().filter(|p| p.in_game) {
             if super::sector::sees(p.view_pos, item.pos) && p.seen_items.insert(item.iid) {
@@ -367,10 +381,31 @@ pub fn drop_loot(ctx: &WorldCtx, st: &mut WorldState, killer: u32, center: Vec3,
             }
         }
     }
-    if !placed.is_empty() {
-        let list: Vec<String> = placed.iter().map(|i| format!("{} × {}", i.count, catalog.get(i.tid).map(|d| d.name.as_str()).unwrap_or("?"))).collect();
-        debug!("[butin] {}", list.join(", "));
-    }
+}
+
+/// Montant d'or qu'un joueur peut jeter : `None` si la demande est refusée (montant nul ou négatif, plus que l'or porté).
+pub fn droppable(amount: i64, money: i64) -> Option<i64> {
+    (amount > 0 && amount <= money).then_some(amount)
+}
+
+/// AGPMITEM op 15 : le joueur jette `champ 5` pièces d'or à ses pieds (sans propriétaire, ramassables par tous).
+pub async fn drop_money(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet, now: Instant) -> anyhow::Result<()> {
+    let Some(pl) = st.players.get(&sid) else { return Ok(()) };
+    let money = pl.ch.money as i64;
+    let amount = p.int(5).unwrap_or(0);
+    let other = p.int(4).is_some_and(|c| c != pl.ch.id as i64);
+    let Some(amount) = droppable(amount, money).filter(|_| pl.in_game && !pl.dead && !other && pl.trade.is_none()) else {
+        info!("[butin] {} : or jeté refusé ({amount} sur {money})", pl.ch.name);
+        return Ok(());
+    };
+    let (name, pos) = (pl.ch.name.clone(), pl.ch.pos());
+    set_money(ctx, st, sid, money - amount).await?;
+    let iid = st.ground.alloc();
+    let item = GroundItem { iid, tid: GOLD_TID, count: amount, pos, owner: None, owner_until: now, expire_at: now + EXPIRE, options: Vec::new(), sockets: 0 };
+    st.ground.items.insert(iid, item.clone());
+    show(st, &[item]);
+    info!("[butin] {name} jette {amount} pièce(s) d'or");
+    Ok(())
 }
 
 /// Objets au sol des secteurs vus depuis `pos` : montrés s'ils sont nouveaux, retirés s'ils en sont sortis.
@@ -380,7 +415,7 @@ pub fn sync_ground(_ctx: &WorldCtx, st: &mut WorldState, sid: u32, pos: Vec3) {
         if super::sector::sees(pos, item.pos) && p.seen_items.insert(item.iid) {
             p.send_raw(ground_packet(item));
         } else if !super::sector::keeps(pos, item.pos) && p.seen_items.remove(&item.iid) {
-            p.send_raw(item_remove(item.iid, Some(item.owner)));
+            p.send_raw(item_remove(item.iid, item.owner));
         }
     }
 }
@@ -388,7 +423,7 @@ pub fn sync_ground(_ctx: &WorldCtx, st: &mut WorldState, sid: u32, pos: Vec3) {
 /// Retire un objet du sol chez ceux qui le voient.
 fn take_from_ground(st: &mut WorldState, iid: u32) -> Option<GroundItem> {
     let item = st.ground.items.remove(&iid)?;
-    let gone = item_remove(iid, Some(item.owner));
+    let gone = item_remove(iid, item.owner);
     for p in st.players.values_mut() {
         if p.seen_items.remove(&iid) {
             p.send_raw(gone.clone());
@@ -413,6 +448,7 @@ pub async fn on_item_packet(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &P
     }
     match p.int(0) {
         Some(PICKUP_ITEM) => pick_up(ctx, st, sid, p.int(2).unwrap_or(0) as u32, Instant::now()).await,
+        Some(DROP_MONEY) => drop_money(ctx, st, sid, p, Instant::now()).await,
         Some(super::items::item_op::UPDATE) => super::equipment::on_item_update(ctx, st, sid, p).await,
         Some(super::recovery::USE_ITEM) => super::recovery::use_item(ctx, st, sid, p, &ctx.catalog).await,
         Some(super::travel::USE_RETURN_SCROLL) => super::travel::use_return(ctx, st, sid, Instant::now()).await,
@@ -439,7 +475,7 @@ async fn pick_up(ctx: &WorldCtx, st: &mut WorldState, sid: u32, iid: u32, now: I
     let Some(p) = st.players.get(&sid) else { return Ok(()) };
     let Some(item) = st.ground.items.get(&iid).cloned() else { return Ok(()) };
     let fail = |st: &WorldState| st.players[&sid].send_raw(pickup_result_packet(pickup_result::FAIL, iid, item.tid, item.count));
-    if !p.in_game || p.dead || (item.owner != p.ch.id && now < item.owner_until) || dist2d(reach_pos(p), item.pos) > PICKUP_DISTANCE {
+    if !p.in_game || p.dead || (item.owner.is_some_and(|o| o != p.ch.id) && now < item.owner_until) || dist2d(reach_pos(p), item.pos) > PICKUP_DISTANCE {
         fail(st);
         return Ok(());
     }
@@ -495,9 +531,11 @@ pub fn on_kill(ctx: &WorldCtx, st: &mut WorldState, killer: u32, monster: u32, n
     let Some(m) = st.monsters.get(monster) else { return };
     let (pos, source) = (m.pos, Source::of(m.tid, m.level, &st.monsters.stats_of(m.tid)));
     let level = st.players.get(&killer).map(|p| p.factors.status[7]).unwrap_or(1);
-    // Bonus de butin des effets du tueur (talismans de Janus, costumes : consumables.rs).
+    // Bonus de butin et d'or des effets et des options du tueur (talismans de Janus, costumes, « Bonus Gold » :
+    // consumables.rs).
     let bonus = st.players.get(&killer).map(|p| super::consumables::drop_bonus_pct(ctx, p)).unwrap_or(0.0);
-    let rates = Rates { gold: st.rates.get("gold"), drop: st.rates.get("drop") * (100.0 + bonus) / 100.0 };
+    let gold = st.players.get(&killer).map(|p| super::consumables::gold_bonus_pct(ctx, p)).unwrap_or(0.0);
+    let rates = Rates { gold: st.rates.get("gold") * (100.0 + gold) / 100.0, drop: st.rates.get("drop") * (100.0 + bonus) / 100.0 };
     let loot = ctx.loot.roll(&mut rand::thread_rng(), &source, level, rates);
     drop_loot(ctx, st, killer, pos, &loot, &ctx.catalog, source.level, now);
 }
@@ -595,11 +633,15 @@ mod tests {
     #[test]
     fn paquet_au_sol() {
         let now = Instant::now();
-        let g = GroundItem { iid: GROUND_IID_BASE + 1, tid: GOLD_TID, count: 11, pos: Vec3::new(1.0, 2.0, 3.0), owner: 7, owner_until: now, expire_at: now, options: Vec::new(), sockets: 0 };
+        let g = GroundItem { iid: GROUND_IID_BASE + 1, tid: GOLD_TID, count: 11, pos: Vec3::new(1.0, 2.0, 3.0), owner: Some(7), owner_until: now, expire_at: now, options: Vec::new(), sockets: 0 };
         let p = decode_packet(&schema::ITEM, &ground_packet(&g)).unwrap();
         assert_eq!((p.int(0), p.int(1), p.int(2), p.int(3), p.int(4), p.int(5)), (Some(0), Some(FIELD), Some(GROUND_IID_BASE as i64 + 1), Some(268), Some(7), Some(11)));
         let f = decode_mini(&mini::ITEM_FIELD, p.bytes(6).unwrap()).unwrap();
         assert_eq!(f.vec3(0), Some(Vec3::new(1.0, 2.0, 3.0)));
+        // Or jeté par un joueur : sans propriétaire (champ 4 absent).
+        let free = decode_packet(&schema::ITEM, &ground_packet(&GroundItem { owner: None, ..g.clone() })).unwrap();
+        assert_eq!((free.int(3), free.int(4), free.int(5)), (Some(268), None, Some(11)));
+        assert_eq!([droppable(0, 10), droppable(-5, 10), droppable(11, 10), droppable(10, 10)], [None, None, None, Some(10)]);
         let r = decode_packet(&schema::ITEM, &pickup_result_packet(pickup_result::SUCCESS, 5, 268, 11)).unwrap();
         assert_eq!((r.int(0), r.int(1), r.int(2), r.int(5)), (Some(PICKUP_ITEM_RESULT), Some(0), Some(5), Some(11)));
     }

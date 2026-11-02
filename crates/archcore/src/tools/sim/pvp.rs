@@ -1,9 +1,11 @@
 //! `archcore sim pvp` : portails des zones de combat entre joueurs (AGPMEVENTTELEPORT 0x31).
 //!
 //! Un compte MJ frappe un Ver vert au nord d'Anchorville : en combat, sa demande au portail de la cité de
-//! Tullan est ignorée ; dix secondes après le dernier coup, elle est accordée. Il part pour l'arène de
+//! Tullan est refusée (op 6, REQUEST_IGNORED) ; dix secondes après le dernier coup, elle est accordée. L'op 7 refusée
+//! referme la liste (op 2, CANCELED). Il part pour l'arène de
 //! guilde (zone de combat entre joueurs, `RegionType=1`), d'où « Retour » (op 7) le ramène au portail de
-//! Tullan ; l'op 7 est refusée depuis un portail ordinaire.
+//! Tullan si l'arène est un point « SpecialType=1 » ; dans la table de l'épisode 8, c'est un point ordinaire : l'op 7
+//! y est refusée et le retour passe par la liste des trajets. L'op 7 est refusée depuis un portail ordinaire.
 
 use super::{enter_world, factors_hp, step, Recv};
 use archcore_net::schema::{self, chat_type, mini};
@@ -54,10 +56,11 @@ pub async fn run(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> 
     let fought = tokio::time::Instant::now();
     println!("  ✓ coup échangé avec le ver {worm:#x}, départ pour le portail de Tullan");
 
-    step("en combat : la demande au portail est ignorée");
+    step("en combat : la demande au portail est refusée (op 6)");
     w.world.send(tp, Fields::new(tp).with(0, 4).with(1, base(TULLAN.0)).with(2, w.cid)).await?;
-    anyhow::ensure!(w.world.expect_where(|q| q.is(tp, Some(5)), 1500, "accord").await.is_err(), "accord donné en combat");
-    println!("  ✓ aucun accord");
+    let ignored = w.world.expect_where(|q| q.is(tp, Some(5)) || q.is(tp, Some(6)), 1500, "refus").await?;
+    anyhow::ensure!(ignored.int(0) == Some(6) && ignored.int(2) == Some(me), "op {:?} (CID {:?}) au lieu de l'op 6", ignored.int(0), ignored.int(2));
+    println!("  ✓ op 6 (demande ignorée), aucun accord");
 
     step("dix secondes après le dernier coup : accord");
     tokio::time::sleep_until(fought + Duration::from_millis(10_500)).await;
@@ -74,11 +77,30 @@ pub async fn run(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> 
     w.world.expect_where(|q| q.is(tp, Some(8)), 3000, "chargement").await?;
     println!("  ✓ arrivée en {:.0}, {:.0} ({:.0} unités du portail de l'arène)", at.x, at.z, dist(at, ARENA.1));
 
-    step("« Retour » (op 7) depuis l'arène : de retour au portail de départ");
+    // « Retour » (op 7) : seulement depuis un point « SpecialType=1 ». La table de l'épisode 8 n'en a pas (l'arène y
+    // est un point ordinaire) : la valeur est lue dans la base, et le retour se fait alors par la liste des trajets.
+    let return_only = {
+        let db = crate::db::Databases::new(&cfg.database);
+        let r = db.world.first("SELECT special_type FROM teleport_point WHERE name = ?", ("길드경기장",)).await?.map(|r| crate::db::col::<i64>(&r, "special_type"));
+        db.close().await;
+        r == Some(crate::world::portal::SPECIAL_RETURN_ONLY)
+    };
     w.world.send(tp, Fields::new(tp).with(0, 4).with(1, base(ARENA.0)).with(2, w.cid)).await?;
     w.world.expect_where(|q| q.is(tp, Some(5)), 3000, "accord à l'arène").await?;
-    w.world.send(tp, Fields::new(tp).with(0, 7).with(1, base(ARENA.0)).with(2, w.cid)).await?;
-    let back = w.world.expect_where(|q| q.is(tp, Some(1)), 3000, "départ du retour").await?;
+    let back = if return_only {
+        step("« Retour » (op 7) depuis l'arène : de retour au portail de départ");
+        w.world.send(tp, Fields::new(tp).with(0, 7).with(1, base(ARENA.0)).with(2, w.cid)).await?;
+        w.world.expect_where(|q| q.is(tp, Some(1)), 3000, "départ du retour").await?
+    } else {
+        step("arène ordinaire (épisode 8) : « Retour » refusé, retour par la liste des trajets");
+        w.world.send(tp, Fields::new(tp).with(0, 7).with(1, base(ARENA.0)).with(2, w.cid)).await?;
+        let r = w.world.expect_where(|q| q.is(tp, Some(1)) || q.is(tp, Some(2)), 1000, "refus du retour").await?;
+        anyhow::ensure!(r.int(0) == Some(2), "retour accepté depuis un point ordinaire (op {:?})", r.int(0));
+        w.world.send(tp, Fields::new(tp).with(0, 4).with(1, base(ARENA.0)).with(2, w.cid)).await?;
+        w.world.expect_where(|q| q.is(tp, Some(5)), 3000, "accord à l'arène").await?;
+        w.world.send(tp, Fields::new(tp).with(0, 0).with(1, base(ARENA.0)).with(2, w.cid).with(3, name("도시 툴란"))).await?;
+        w.world.expect_where(|q| q.is(tp, Some(1)), 3000, "départ vers Tullan").await?
+    };
     let at = back.fields().vec3(4).ok_or_else(|| anyhow::anyhow!("position du retour absente"))?;
     anyhow::ensure!(dist(at, TULLAN.1) <= 1_601.0, "retour à {:.0} unités du portail de Tullan", dist(at, TULLAN.1));
     w.world.expect_where(|q| q.is(tp, Some(8)), 3000, "chargement").await?;
@@ -86,7 +108,8 @@ pub async fn run(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> 
 
     step("op 7 refusée depuis un portail ordinaire");
     w.world.send(tp, Fields::new(tp).with(0, 7).with(1, base(TULLAN.0)).with(2, w.cid)).await?;
-    anyhow::ensure!(w.world.expect_where(|q| q.is(tp, Some(1)), 1000, "départ").await.is_err(), "retour accepté hors d'une zone de combat");
+    let back = w.world.expect_where(|q| q.is(tp, Some(1)) || q.is(tp, Some(2)), 1000, "refus du retour").await?;
+    anyhow::ensure!(back.int(0) == Some(2), "retour accepté hors d'une zone de combat (op {:?})", back.int(0));
     println!("  ✓ aucun départ");
 
     w.world.send(ch, say(w.cid, "/invincible 0")).await?;

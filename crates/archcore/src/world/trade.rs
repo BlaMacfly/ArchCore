@@ -316,7 +316,15 @@ fn add(ctx: &WorldCtx, st: &mut WorldState, sid: u32, iid: u32, wanted: Option<G
     let Some(item) = p.inventory.get(iid).cloned() else { return };
     let data = ctx.catalog.get(item.tid);
     let bound = data.is_some_and(|d| d.bound_type == BOUND_ON_ACQUIRE);
-    if let Some(why) = bound_refusal(&mine, bound, data.is_some_and(|d| d.event_item)) {
+    // Objet de quête (« QuestItem ») ; objet à durée en cours d'utilisation ou daté (lifetime.rs).
+    let quest_or_timed = if ctx.catalog.quest_items.contains_key(&item.tid) {
+        Some("un objet de quête ne s'échange pas")
+    } else if super::lifetime::locked(&p.inventory, iid) {
+        Some("un objet à durée commencée ne s'échange pas")
+    } else {
+        None
+    };
+    if let Some(why) = quest_or_timed.or_else(|| bound_refusal(&mine, bound, data.is_some_and(|d| d.event_item))) {
         info!("[échange] {} propose l'objet {} : refusé ({why})", p.ch.name, item.tid);
         send_system(st, sid, &format!("Échange : {why}."));
         return;

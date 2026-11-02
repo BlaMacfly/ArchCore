@@ -160,6 +160,13 @@ On world entry, the inventory is not sent as separate packets. The full AGPMITEM
 concatenated in **field 6** of the 0x42 view packet **op 2**. The client's inventory grid has 5 bags
 of 5 × 5 slots (grid type 1).
 
+**Dropped gold**: **op 15** (client, inventory "Inventory_DropMoneyYes" box: field 4 = CID, field 5 = amount; no
+answer). The amount (1 at least, no more than the gold carried, not during a trade) is taken from the player's gold
+(character op 1, field 8) and falls at their feet as a gold stack (TID 268) **without an owner** (field 4 absent), which
+anyone can pick up (op 11, op 12); it disappears after 45 s. **Op 28** (UPDATE_COOLDOWN, server: 3 TID, 4 CID, 5 integer
+left at 0, 18 time left in ms): cooldown of the items of a template; sent at 0 by the `/recast` GM command. Op 8 (cancel
+the return scroll) has no caller in the client; op 29 (pet stamina): format not established; neither is handled.
+
 ## NPC shops (type 0x32, AgcmEventNPCTrade)
 
 **2-byte** field flags:
@@ -245,6 +252,11 @@ message (memory block).
   20 elemental shout; 17, 19 and 20 have neither header nor name. ArchCore answers the GM and sends its system
   messages as type 7, its announcements as type 10 (names fixed on 28 October 2026: `WHOLE_WORLD`, `SYSTEM_LEVEL3`,
   `NOTICE_LEVEL1`; values sent unchanged).
+- Whispers: recipient absent → **op 4** (field 1 = sender CID, field 5 = recipient name; the client writes "`<name>` is
+  not connected." in the system tab). The client sends **op 1** (field 1 = CID) to block incoming whispers and **op 2**
+  to unblock them; ArchCore echoes them (the client records the block) and keeps the block until disconnection. A
+  whisper to a player who blocks gives the sender **op 3** (field 5 = name: "`<name>` is blocking whispering.") and is
+  not delivered.
 
 ## Area shouts (type 0x4C, AgpmAreaChatting)
 
@@ -444,7 +456,11 @@ Stored in `character_items.option_tids`.
   that type by weight (`Probability`, 0 above 100,000). Allowed: the item's part is ticked (a left-hand weapon
   takes weapon options), the item's rank is between `Rank_Min` (0 counts as 1) and `Rank_Max`, the source
   level is at least `Level_limit` (and 1 to 120). A non-empty `Refined` or `Gacha` cell (even "0"), or a
-  `CategoryName`, puts the option in another family, outside loot.
+  puts the option in another family, outside loot. `CategoryName` is Archonia-only (column missing from
+  the original table, none of its 589 options is there): those options are never rolled (loot, linked options), only
+  applied when an item already in the database carries them. `Item_Level_Min`
+  and `Item_Level_Max` do not drive the roll (Archonia does not read them, the original table reads them without
+  using them).
 - **Network**: AGPMITEM field 20, a mini packet of 5 UINT16 (TIDs), in every op 0 of a known item (inventory,
   equipment seen by others, bank, trade, item on the ground). The client applies the options to the item's
   factors itself for the tooltip ("Additional Ability", the table's `Description`).
@@ -464,8 +480,11 @@ Stored in `character_items.option_tids`.
   column of its element every second for `dot_damage_time`, which overrides `duration`; this damage is not added
   to the factors), 6 evasion (`evade_rate`: chance to avoid a monster hit, result 7). `Ignore_Physical_Defense_Rate`
   and `Ignore_Attribute_Defense_Rate` add to the ignored defense, `Critical_Defense_Rate` to the critical hit
-  resistance (Skills section); `StunResistance` is read but neither played nor shown (no option fills it; the
-  client's window only shows the skills' share). The stun goes out in the
+  resistance (Skills section); `StunResistance`, Archonia-only, is not read. Penetrations (`Ignore_*`, percentage
+  points taken off the target's defense): `PhysicalAttackResist`, `BlockRate`, `SkillBlockRate`, `EvadeRate` and
+  `DodgeRate` (once for both), `CriticalDefenseRate`, `StunDefenseRate`. `skill_cast` and `skill_delay` go to attack
+  factors 3 and 4; `bonus_exp`, `bonus_money`, `bonus_drop_rate` raise the wearer's experience, gold and loot rate by
+  that percentage; `Add_Debuff_Duration` lengthens (ms) the debuffs they apply. The stun goes out in the
   monster's state (AGPMCHARACTER op 1, field 17), the wound in its HP (op 1); no effect packet announces them.
 
 ## Item conversion (types 0x16 and 0x38, AgpmItemConvert and AgpmEventItemConvert)
@@ -729,6 +748,16 @@ Every character knows "Normal Attack" (TID 222). Skill points are the character'
 from 50 to 70) minus the points required by each learned level; they are sent in the character's "dirt"
 factors (index 5).
 
+**Effects and levels.** **Op 6** (ALL_BUFFED_SKILL: 2 base, 8 SKILL_BUFF minis {TID, time left, caster TID}): all of a
+character's current effects, to the player on entering the world and to others when it appears. **Op 15**
+(INIT_COOLTIME: 1 ID, 2 base, 4 TID): when all of a player's effects end (death, dispel), the cooldown of each skill
+whose effect they gave themselves is reset; also by `/recast`. **Op 14** (MODIFIED_SKILL_LEVEL: 1 bonus, below 31,
+2 base): extra levels of all learned skills, sum of the `skill_levelup` columns of the worn options ("Learned skills
+upgraded by n ranks"), sent on entering the world and on every change; the server casts skills at that level (the
+skill's last level at most, not production skills). Op 16 (a single skill's level) is not sent: no option of the data
+gives one (`Skill_id`, `Skill_level` empty); nor op 10 (additional effect), for lack of knowing when; op 17 is an
+Archonia addition.
+
 **Skill master.** "Trainer" NPCs carry function 25, with the race and class they teach (`SkillRaceType`,
 `SkillClassType`), sent in their view (INT8, INT8 mini). AGPMEVENTSKILLMASTER (0x3B, 1 flag byte): op,
 event, CID, skill ID, TID, result, points. **Op 4** opens the window (answer op 5, result 0); **op 1** learns
@@ -801,8 +830,36 @@ back (chance `skill_rate`, otherwise `special_status_rate`; share `damage_conver
 Sword Stopper, and Natural Warrior; not Counter Attack, whose tooltip does not mention it) and the
 `Critical_Defense_Rate` option make up the target's critical hit resistance: it is subtracted from the attacker's
 critical hit chance (deduced rule; a debuff such as Defence Breaker makes it negative). The stun resistance
-(`stun_resistance` in SKILL_CONST, a column filed after `FACTOR_MAGNIFY`: Free Will, Stun Protection 100,
-Terrifying Nemesis negative) is only shown: no game rule is known, stuns follow the protection (state 8).
+(`stun_resistance` in SKILL_CONST, a column filed after `FACTOR_MAGNIFY`) is Archonia-only, absent from the episode 8
+tables: it is no longer read and slot 0xbc of the block below stays at 0; stuns follow the protection (state 8),
+lowered by the caster's `Ignore_StunDefenseRate`.
+
+**Episode 8 rules carried by the tables.** Formulas chosen by ArchCore: the tables give the values, no binary shows
+the computation (the client receives the results).
+
+- *Hit*: chance = level / (level + target level) × AR / (AR + DR) × 290 (10 to 95%), a monster's DR included
+  (CharacterDataTable `DR`, plus the `evade_rate` of its effects).
+- *Physical resistance*: physical damage after defense × (100 − r) / 100, at least 1; r = a player's defense factor 0
+  (options' `PhysicalAttackResist`, effects' `point.physical_resistance`; 80 at most) or a monster's
+  `Physical_Resistance` (100 at most), minus the attacker's `Ignore_PhysicalAttackResist`. Normal hits and skills.
+- *Skill block*: an offensive skill is blocked (no damage, no effect) with the target's chance (defense factor 10:
+  `SkillBlockRate`, `point.skill_block`; a monster's `Skill_Block`), minus the caster's `Ignore_SkillBlockRate`, 80%
+  at most.
+- *A player's evasion and block*: against a monster and between players, options' and effects' evasion, then block
+  (skills and options' `BlockRate`, defense factor 9), 80% at most each, minus the attacker's `Ignore_EvadeRate` /
+  `Ignore_DodgeRate` and `Ignore_BlockRate` (results 7 and 9).
+- *Buffs*: `point.dmg_min_*` / `dmg_max_*` add to elemental damage, `point.atk_range` (metres, ×100) to the attack
+  range (50 at least), `point.skill_cast` / `skill_delay` to attack factors 3 and 4.
+- *Casting and cooldown*: × (100 − s) / 100, s = attack factor 3 or 4 (−100 to 90); the cooldown reduction never
+  exceeds SKILL_SPEC's `applied_cooldown_cap` (percent). MP: × (100 + c) / 100, c = sum of the effects'
+  `cost_mp_decrease` (negative: less MP). Reduced durations are sent in op 7.
+- *Second hit* (Skill_Const2: `damage_a2`, `damage_a_PERCENT2`, `damage_<element>2`, `…_PERCENT2`): a second share
+  computed like the first is added to the same result.
+- *Target preference* (aidatatable: `HateRace` 인간/오크/문엘프, `HateClass` 전사/궁수/법사, with their percentages):
+  the damage of an aggressor of the hated race or class is multiplied by these percentages (both stack); a preemptive
+  monster divides each player's distance by the same weight.
+- *Gold bonus*: effects' `bonus_money` (÷ `Skill.GameBonusDivisor`, like experience) and options' (percent) raise
+  the gold dropped for the killer.
 
 **Secondary stats (AGPMSKILL op 3).** On entering the game and on every change of their effects (effect applied,
 removed or expired, purge, death, passive learned or upgraded), the player alone receives AGPMSKILL **op 3**:
@@ -925,9 +982,11 @@ Square, dungeon rooms and entrances. In Archonia (AgcmUIEventTeleport):
 
 **Refusals.** The client does not send op 4 in combat mode (10 s after the last hit given or taken, or an
 offensive skill): `Teleport_CombatMode` message in the chat; nor while transformed (character field 18):
-`Teleport_TransformChar`. ArchCore likewise ignores ops 0, 4 and 7 from a dead player or one in combat, and, while
-transformed (except for the ArchLord), with a system message. A cancelled departure is reported by **op 2** (closes
-the loading screen).
+`Teleport_TransformChar`. ArchCore likewise refuses ops 0, 4 and 7 from a dead player, one in combat or one with
+enemies (AgpmPvP op 18 code 11), and, while transformed (except for the ArchLord), with a system message. A refused
+request (op 4) gets **op 6** (REQUEST_IGNORED: 1 EVENT_BASE, 2 CID; the window does not open); a refused trip or return,
+and a pending request cancelled by walking, get **op 2** (CANCELED: 2 CID; list and loading screen closed). **Op 3**
+(CUSTOM_POS: 2 CID, 4 position) sends to a free position (party recall), followed by the move and op 8.
 
 ## Bank (types 0x36, 0x04 and 0x02)
 
@@ -1033,7 +1092,15 @@ in a battle (24, 25), the enemy master is online (26) and does not refuse guild 
 The enemy master gets op 15, the challenger code 28 and status 1; without an answer within 60 seconds, the
 request lapses. Refusal (op 17): code 30. Acceptance (op 16): status 2 and GUILD_BATTLE to both guilds; the
 battle starts `Guild.BattleReadySeconds` later (op 21, status 3), then the clock (op 22) goes out every
-second. Cancelling (op 18, then 19 or 20; code 33 when refused): impossible less than a minute before the start
+second; at the start also **op 46** (round: 1, in the first of the eight numbers of field 4 and in field 14 of the
+battle; ArchCore has no multi-round battle) and **op 27** (both sides' fighter lists: field 20 mini {U32 n1, block of
+n1 0x48-byte records of the field 2 guild, U32 n2, block of the enemy guild}; record (`FUN_1404dee40`): zero-terminated
+name in 0x38 bytes, points, enemies killed, deaths (U32), then an integer of unknown meaning, -1 = unchanged). For each
+enemy killed, **op 26** to both guilds for the killer and the victim (field 2 = recipient's guild, field 19 mini {guild,
+name, points, enemies killed, deaths}); op 27 again with the result. For types 3 and 4, the master picks the fighters in
+the `UI_GuildBattleMember` window: **op 14** (1 CID, 2 guild, field 18 mini {I16 count, block of (U16 length, name
+without zero)}) just before the request (op 15) or the acceptance (op 16); they are the fighters (those online at the
+start), otherwise the members online at the start. Cancelling (op 18, then 19 or 20; code 33 when refused): impossible less than a minute before the start
 (code 31). During the battle, members of both guilds can hit each other; each enemy killed is worth a point
 (op 23). End: when the time is up (scores compared), "GG" surrender (op 24, refused before the start: code 35;
 results 4 and 5), death of the enemy master (type 2) or no enemy fighter left standing (types 3 and 4,
@@ -1051,7 +1118,7 @@ GUILD_BATTLE mini packet reduced to its field 0); 37 and 43 also carry the CID (
 | 35, 36 | → | Refusal (code 0x44 to the requester), acceptance; ← 36 to every guild of the alliance: 17 the ally, 6 joining date, 11 role (2 founder, 1 other) |
 | 37 | ↔ | Leaving the alliance (17 = own guild); ← 37: 17 the leaving guild, 3 the new founder when the founder leaves |
 | 38, 39, 40 | ↔ | Hostility declaration, refusal (0x52), acceptance; ← 40 to both guilds: 17 the hostile guild, 6 date |
-| 41 | ↔ | Truce request, forwarded to the target master like op 38; Archonia refuses it with op 39 (0x57) |
+| 41 | ↔ | Truce request, forwarded to the target master like op 38; Archonia refuses it with op 39: the requester gets **op 42** (2 their guild, 17 {refusing guild}): `Guild_Hostile_Leave_Reject` |
 | 43 | ↔ | Truce accepted; ← 43 to both guilds: 17 the other one |
 
 An alliance has a founder and at most 3 other guilds (the client keeps no more, FUN_1401ff510); 20 members are
@@ -1103,6 +1170,9 @@ u32, factors, effect area, experience sharing, bonus, item sharing).
 | 4 | kick by the leader; the kicked player gets op 4 |
 | 11 | leader handover; the party gets op 11 (author = new leader) |
 | 5, 6, 7, 8, 10 | failures: already in another party, already a member, party full, not leader, player absent |
+| 9 | failure without detail ("You cannot form a party."): region without parties, too many pending invitations |
+| 12 | leader handover refused (not leader, target outside the party) |
+| 13 | invitation refused: the invitee is at least `Party.InviteLevelGap` (10) levels below the inviter |
 
 A party has at most five members, leader first; a player keeps at most sixteen pending invitations. On
 acceptance the party is formed (two members) or grows. The new member gets every other member's character
@@ -1115,6 +1185,16 @@ Party members see each other at any distance; a disconnected member leaves the p
 experience is shared between the living members close enough (5 × 5 sectors around the monster), by damage
 dealt or by level: this sharing is an ArchCore addition, the original server does not describe it. Gold and
 items still drop on the ground for the killer.
+
+**Effect area and bonus (op 2 of type 0x08).** Field 7: 5-byte mini, one per member in list order (1: closer than
+`Party.EffectRange` units to the leader); field 9: mini {damage I8 and defense I8 in percent, max HP I16, max MP I16};
+both minis have 1 flag byte. The client shows the area icon by the leader's class (knight, archer, mage) and the
+`Party_Add_*` texts (`Party_Add_None` when everything is zero). Original rules unknown, ArchCore's are configurable:
+with n members in the area, each of them gets (n − 1) × `Party.BonusPercentPerMember` percent of defense (knight
+leader) or physical damage (archer or scion leader), or (n − 1) × `Party.BonusPointsPerMember` max HP and MP (mage
+leader); nothing when the members' level gap exceeds `Party.BonusMaxLevelGap` (20). Reviewed every second, op 2 to the
+members on every change; the bonus is added to the factors. A party recall moves the member with AGPMEVENTTELEPORT
+**op 3** (free position), then op 8.
 
 ### Party recall (types 0x04 and 0x09)
 
@@ -1203,7 +1283,10 @@ three flag blocks.
 | 5 | server | Flags of completed quests, on entering the world: fields 8, 9, 10 of 0x800 bytes; quest TID is bit TID % 16,384 of block TID / 16,384 (byte bit / 8, lowest bit first) |
 | 6 | client | Abandon (field 4) |
 | 7 | server | Answer (fields 4 and 6) |
+| 8 | server | Rewards that do not fit in the inventory (fields 1 and 4): sysstr 447, the quest stays in progress |
+| 9 | server | Starting item (`Quest_TransItemTid`, empty in the data) that does not fit: sysstr 440, quest not taken |
 | 10 | server | Progress (mini): the client shows "monster n/total" |
+| 14 | client | On-screen tracking: field 3 = mini {TID, 0, 0, 0, flag} (1 add, 0 remove), field 4 = TID; sent when a quest is taken and by the "track" box; 10 quests at most; no answer. Stored (`character_quests.journal`) and sent back as the 5th integer of the op 4 mini |
 
 AGPMEVENTQUEST (0x3E, 1 flag byte: op, event, CID, integer): the client asks for an NPC's quest window
 (function 27) with op 0; the server opens it by sending op 0 back.
@@ -1241,6 +1324,8 @@ character the client already knows: ArchCore sends it right after the world-entr
 A type of ArchCore's own. The original client only dispatches types 0x01 to 0x77 and ignores the rest;
 an ArchRust client uses it after the handshake to negotiate its extensions (`HELLO` / `HELLO_ACK`) and
 then exchange AddOn messages. The server never sends one to a connection that did not send `HELLO`.
+Since version 1.2, with the `client-tables/1` capability, `HELLO_ACK` carries in field 21 the fingerprint of
+the value tables exported for the client (`archcore export-client-tables`).
 Full specification: [[ArchRust extensions|EN-ArchRust-extensions]].
 
 ## Automatic reconnection (type 0x63, AgpmReconnect)
@@ -1274,6 +1359,16 @@ op 6 list cleared, op 18 system message (`PvP_Msg_*` texts of uimessage.txt: 3 "
 5 defeat, 12 victory, 17 target invincible, 20 friend, 24 charisma gained, 25 level too low…). Codes 0 to 2
 (entering a safe, free or combat area) are produced by the client itself on region change; ArchCore sends code 2 then
 13 ("You moved to a Battle Square") on arrival in the Battle Square, and 18 (level too low) when a supervisor refuses.
+
+**Enemy lists** (moments chosen by ArchCore, the original server did not leave them): op 6 (list cleared) on entering
+the world and after the player's death (their enmities then end on both sides, op 4); op 8 (1, 2, 5) when a known
+enemy hits again, if the area mode changed or every 30 s. **Enemy guilds**: when a member of guild G attacks (forced
+attack, outside a safe area) a member of guild H (not allied), H's online members get op 10 (1, 8 = G, 5 = mode), then
+op 16 on later aggressions (same pace as op 8); the enmity lasts 5 minutes extended on every aggression, then op 12 (1,
+8). H's members then hit G's without Ctrl outside safe areas, as the client judges it (`FUN_1402d8b90`). Op 14 (list
+cleared) on entering the world and on every guild change, followed by the new guild's enemy guilds. A player with
+enemies cannot take a portal: op 18 code 11 (`PvP_Msg_CannotUseTeleport`); op 17 raises an interface event missing
+from UI_1024X768.ini and is not sent.
 
 ArchCore rules, taken from the client (`FUN_1402d8e80`): an area's safety comes from bits 2-3 of RegionTemplate.ini's
 `Type`; never an attack in a safe area; elsewhere, a declared enemy or a forced attack (Ctrl, field 6 of action 0x41),
@@ -1883,6 +1978,24 @@ On the login server, a valid key (`account.return_key`, `ReturnToLogin.KeySecond
 key (AGPMLOGIN op 0): the client logs in again with the id and password it kept. An unknown, expired or already used
 key is refused with AGPMLOGIN op 15 (wrong credentials). The key goes through the database: both servers may run in
 separate processes.
+
+## Remaining data rules (types 0x02, 0x04, 0x05, 0x41, 0x44)
+
+Rules proposed from the episode 8 tables, tunable (`Rules.*`, [[Configuration|EN-Configuration]]); the client plays
+none of them, it only shows their inputs and outputs.
+
+| Rule | Packets | Content |
+|---|---|---|
+| Heroic part (`heroic.rs`) | 0x41 field 3, AGPMSKILL op 8 | result point 19 (negative), added to the HP removed; attribute 11 factors (min/max damage, defense) and 12 to 14 (melee, ranged, magic resistances) sent with the others |
+| Ammunition (`ammo.rs`) | 0x41 to the player only; AGPMSKILL op 7; AGPMITEM op 2 / op 1 | hit without ammunition: result 2 (arrows) or 3 (bolts), no factors; skill: action type 12 in the SKILL_ACTION mini; each consumed: stack count (op 2) or removal (op 1) |
+| Required weapon (`requirement.rs`) | AGPMSKILL op 7 to the caster only | action type 8 ("This skill cannot be used with the equipped weapon") |
+| Forbidden targets (`target_restriction`) | AGPMSKILL op 7 to the caster only | action type 7 (invalid target) |
+| Death Strike | 0x41 | result 13, damage = the monster's remaining HP |
+| Timed items (`lifetime.rs`) | AGPMITEM op 0 and op 26, field 23; 0x44 op 0 | Cash mini: 0 in use (0, 1; 2 paused, not sent), 1 play time left (ms, i64), 2 expiry date (Unix seconds, u64); op 26 on first use, every minute of play time and at the end; end: system message code 5, item name in field 4, then op 2 or op 1 |
+| Redemption | AGPMCHARACTER op 24 | server → dead player: field 1 dead player's CID, 3 caster's name, 13 caster's CID ("… wants to resurrect you"); client answer with op 24 (field 4 at 0: refused) or op 10: resurrection on the spot (op 1, action status 0) |
+| Level bonus | AGPMSKILL op 14 | field 1 = `skill_levelup` options + type 1 effects (Expert Skill…); types 2 and 4 counted by the server only |
+| Statuses | AGPMCHARACTER op 1, field 17 | special_status codes 26 to 33 (Archonia) mapped back to the EP8 value; 9 halt (0x80000000 + 0x100000000), 10 invisibility (0x200); `disturb` 1, 2, 8 → attack, movement, skill forbidden (client bits); 4 (items): server-only bit, never sent |
+| Forced moves | 0x40 | the monster stops dead at its new place (flags 0x0c), view refreshed for everyone |
 
 ## Known types
 

@@ -604,7 +604,10 @@ const WAR_SPOT: archcore_net::Vec3 = archcore_net::Vec3 { x: -476_000.0, y: 4_42
 /// (op 16 : délai), annulation trop tardive (code 31) ; avant le début, A ne peut pas frapper B ; début
 /// (op 21), horloge (op 22), A tue B (op 23 : score 1), B abandonne (op 24 → op 25 : 4 et 5, bilan op 12) ;
 /// défi « mort du chef » annulé en plein combat (op 18 → 19) ; nouveau défi « mort du chef » : A tue le chef B
-/// (op 25 : victoire 1, défaite 3) ; bilan relu à la reconnexion ; B refuse les combats (option 0x04 : code 43).
+/// (op 25 : victoire 1, défaite 3) ; survie individuelle avec les combattants choisis (op 14 : un seul de chaque côté),
+/// listes de l'op 27 à un nom, A tue B : victoire ; bilan relu à la reconnexion ; B refuse les combats (option 0x04 :
+/// code 43). Au début du combat aux points : op 46 (manche 1) et op 27 (10 combattants de chaque côté) ; après le
+/// meurtre : op 26 (A : 1 adversaire tué ; B : 1 mort) ; avec le résultat, op 27.
 pub async fn guild_battle(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> anyhow::Result<()> {
     const GA: &str = "SimWarA";
     const GB: &str = "SimWarB";
@@ -695,8 +698,14 @@ pub async fn guild_battle(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: 
     anyhow::ensure!(b.world.expect_where(|q| q.is(act, None) && q.int(1) == Some(b.cid as i64), 1500, "coup").await.is_err(), "{cb} frappé avant le début");
     println!("  ✓ op 16 (délai {ready} s) des deux côtés, code 31, aucun coup avant le début");
 
-    step("début, coups, abandon de B");
+    step("début (op 21, 46, 27), coups (op 26), abandon de B (op 25, 27)");
     a.world.expect_where(gop(21), (ready as u64 + 10) * 1000, "début").await?;
+    let round = a.world.expect_where(gop(46), 3000, "manche (op 46)").await?;
+    let m = decode_mini(&mini::GUILD_BATTLE, round.fields().bytes(17).unwrap_or_default())?;
+    anyhow::ensure!(m.int(14) == Some(1) && round.fields().text(2).as_deref() == Some(GA), "manche {:?}, guilde {:?}", m.int(14), round.fields().text(2));
+    let (mine, theirs) = member_lists(&a.world.expect_where(gop(27), 3000, "combattants (op 27)").await?)?;
+    anyhow::ensure!(mine.len() == 10 && theirs.len() == 10 && mine.iter().any(|n| n == ca) && theirs.iter().any(|n| n == cb), "op 27 : {mine:?} contre {theirs:?}");
+    println!("  ✓ op 46 (manche 1), op 27 : 10 combattants de chaque côté");
     b.world.expect_where(gop(21), 3000, "début vu de B").await?;
     a.world.expect_where(gop(22), 3000, "horloge").await?;
     a.world.send(ch, chat_line(a.cid, &format!("/level 1 \"{cb}\""))).await?;
@@ -705,12 +714,20 @@ pub async fn guild_battle(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: 
     let sc = a.world.expect_where(|q| gop(23)(q), 5000, "score").await?;
     let m = decode_mini(&mini::GUILD_BATTLE, sc.fields().bytes(17).unwrap_or_default())?;
     anyhow::ensure!(m.int(9) == Some(1) && m.int(11) == Some(1), "score {:?} gain {:?}", m.int(9), m.int(11));
+    for _ in 0..2 {
+        let row = a.world.expect_where(gop(26), 3000, "combattant (op 26)").await?;
+        let r = decode_mini(&mini::GUILD_BATTLE_MEMBER, row.fields().bytes(19).unwrap_or_default())?;
+        let (name, kills, deaths) = (r.text(1).unwrap_or_default(), r.int(3), r.int(4));
+        anyhow::ensure!((name == ca && kills == Some(1)) || (name == cb && deaths == Some(1)), "op 26 : {name} {kills:?} {deaths:?}");
+    }
+    println!("  ✓ op 26 : {ca} 1 adversaire tué, {cb} 1 mort");
     b.world.send(gd, Fields::new(gd).with(0, 24).with(1, b.cid).with(2, GB).with(3, cb)).await?;
     let res = a.world.expect_where(gop(25), 3000, "résultat").await?;
     let m = decode_mini(&mini::GUILD_BATTLE, res.fields().bytes(17).unwrap_or_default())?;
     anyhow::ensure!(m.int(13) == Some(4), "résultat {:?}", m.int(13));
     let rb = b.world.expect_where(gop(25), 3000, "résultat vu de B").await?;
     anyhow::ensure!(decode_mini(&mini::GUILD_BATTLE, rb.fields().bytes(17).unwrap_or_default())?.int(13) == Some(5), "résultat de B");
+    a.world.expect_where(gop(27), 3000, "combattants avec le résultat (op 27)").await?;
     let rec = a.world.expect_where(gop(12), 3000, "bilan").await?;
     anyhow::ensure!((rec.int(12), rec.int(15)) == (Some(1), Some(1)), "bilan {:?} {:?}", rec.int(12), rec.int(15));
     a.world.send(ch, chat_line(a.cid, &format!("/level 20 \"{cb}\""))).await?;
@@ -750,18 +767,47 @@ pub async fn guild_battle(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: 
     anyhow::ensure!(decode_mini(&mini::GUILD_BATTLE, rb.fields().bytes(17).unwrap_or_default())?.int(13) == Some(3), "résultat de B");
     println!("  ✓ chef tué : victoire (1) et défaite (3)");
 
+    step("survie individuelle : combattants choisis (op 14), un seul de chaque côté");
+    b.world.send(c, Fields::new(c).with(0, 9).with(1, b.cid)).await?;
+    b.world.expect_where(|q| q.is(c, Some(1)) && q.int(1) == Some(b.cid as i64) && q.int(11) == Some(0), 5000, "résurrection").await?;
+    // Niveaux de SimWarB de nouveau suffisants (100 au moins) : son chef revient au niveau 20.
+    a.world.send(ch, chat_line(a.cid, &format!("/level 20 \"{cb}\""))).await?;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let persons = |w: &InWorld, guild: &str, name: &str| Fields::new(gd).with(0, 14).with(1, w.cid).with(2, guild).with(18, crate::world::guild::battle::person_mini(&[name]));
+    a.world.send(gd, persons(&a, GA, ca)).await?;
+    a.world.send(gd, request(&a, GB, 4, 300)).await?;
+    b.world.expect_where(gop(15), 3000, "défi reçu").await?;
+    b.world.send(gd, persons(&b, GB, cb)).await?;
+    b.world.send(gd, Fields::new(gd).with(0, 16).with(1, b.cid).with(2, GB).with(3, cb)).await?;
+    a.world.expect_where(gop(21), (ready as u64 + 10) * 1000, "début").await?;
+    let (mine, theirs) = member_lists(&a.world.expect_where(gop(27), 3000, "combattants (op 27)").await?)?;
+    anyhow::ensure!(mine == vec![ca.to_string()] && theirs == vec![cb.to_string()], "op 27 : {mine:?} contre {theirs:?}");
+    super::gm_place(&mut a, cb, WAR_SPOT).await?;
+    {
+        let mv = &schema::OPT_CHAR_MOVE;
+        b.world.send(mv, Fields::new(mv).with(0, b.cid).with(1, WAR_SPOT).with(2, WAR_SPOT).with(5, 0x04).with(6, 0)).await?;
+    }
+    a.world.send(ch, chat_line(a.cid, &format!("/level 1 \"{cb}\""))).await?;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    Box::pin(kill_player(&mut a, &mut b)).await?;
+    let res = a.world.expect_where(gop(25), 5000, "résultat").await?;
+    let m = decode_mini(&mini::GUILD_BATTLE, res.fields().bytes(17).unwrap_or_default())?;
+    anyhow::ensure!(m.int(13) == Some(1), "résultat {:?}", m.int(13));
+    a.world.send(ch, chat_line(a.cid, &format!("/level 20 \"{cb}\""))).await?;
+    println!("  ✓ op 27 : [{ca}] contre [{cb}] ; dernier debout : victoire");
+
     step(&format!("{ca} se reconnecte : bilan relu ; {cb} refuse les combats"));
     drop(a);
     let mut a = enter_world(&cfg, ua, pa, ca, "A-").await?;
     let rec = a.world.expect_where(gop(12), 3000, "bilan à l'entrée").await?;
-    anyhow::ensure!((rec.int(12), rec.int(13), rec.int(14), rec.int(15)) == (Some(2), Some(0), Some(0), Some(2)), "bilan {:?}", (rec.int(12), rec.int(13), rec.int(14), rec.int(15)));
+    anyhow::ensure!((rec.int(12), rec.int(13), rec.int(14), rec.int(15)) == (Some(3), Some(0), Some(0), Some(3)), "bilan {:?}", (rec.int(12), rec.int(13), rec.int(14), rec.int(15)));
     b.world.send(c, Fields::new(c).with(0, 9).with(1, b.cid)).await?;
     b.world.send(c, Fields::new(c).with(0, 0x11).with(1, b.cid).with(22, 0x04)).await?;
     b.world.expect_where(|q| q.is(c, Some(0x11)), 3000, "drapeaux").await?;
     a.world.send(gd, request(&a, GB, 0, 600)).await?;
     a.world.expect_where(gsys(43), 3000, "combats refusés (code 43)").await?;
     b.world.send(c, Fields::new(c).with(0, 0x11).with(1, b.cid).with(22, 0)).await?;
-    println!("  ✓ 2 victoires, 2 points ; code 43");
+    println!("  ✓ 3 victoires, 3 points ; code 43");
 
     step("dissolution des deux guildes");
     a.world.send(gd, Fields::new(gd).with(0, 6).with(1, a.cid).with(2, GA).with(9, LEAD_PASSWORD)).await?;
@@ -771,6 +817,20 @@ pub async fn guild_battle(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: 
     drop(helpers);
     println!("\ncombats de guildes : OK");
     Ok(())
+}
+
+/// Noms des combattants des deux camps d'une op 27 (enregistrements de 0x48 octets, nom en tête).
+fn member_lists(q: &Recv) -> anyhow::Result<(Vec<String>, Vec<String>)> {
+    let l = decode_mini(&mini::GUILD_BATTLE_MEMBER_LIST, q.fields().bytes(20).unwrap_or_default())?;
+    let names = |n: Option<i64>, block: Option<&[u8]>| -> Vec<String> {
+        let block = block.unwrap_or_default();
+        block
+            .chunks(crate::world::guild::battle::MEMBER_RECORD)
+            .take(n.unwrap_or(0) as usize)
+            .map(|r| archcore_net::text::decode(&r[..r.iter().position(|b| *b == 0).unwrap_or(r.len().min(0x38))]))
+            .collect()
+    };
+    Ok((names(l.int(0), l.bytes(1)), names(l.int(2), l.bytes(3))))
 }
 
 /// A frappe B jusqu'à sa mort (B sait qu'il est mort par l'op 1, statut 2).
@@ -810,8 +870,8 @@ fn relation_op(n: i64, other: &'static str) -> impl Fn(&Recv) -> bool {
 /// demande (op 34, attente 0x43) refusée (op 35, 0x44), puis acceptée (op 36 des deux côtés, rôles 2 et 1,
 /// 0x46, détails op 44) ; déjà alliées (0x3e) ; hostilité envers une alliée (0x4b) ; B quitte l'alliance
 /// (op 37, 0x47 ; dissoute pour A : 0x49) ; hostilité (op 38, 0x51) refusée (op 39, 0x52), puis acceptée
-/// (op 40 des deux côtés, 0x54, détails op 45) ; déjà hostiles (0x4c) ; trêve (op 41, 0x56) refusée (op 39,
-/// 0x57), puis acceptée (op 43 des deux côtés, 0x59) ; hostilité relue à la reconnexion de A ; la dissolution
+/// (op 40 des deux côtés, 0x54, détails op 45) ; déjà hostiles (0x4c) ; trêve (op 41, 0x56) refusée (op 39 →
+/// op 42), puis acceptée (op 43 des deux côtés, 0x59) ; hostilité relue à la reconnexion de A ; la dissolution
 /// de SimRelA y met fin pour B (op 43).
 pub async fn guild_relation(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> anyhow::Result<()> {
     const GA: &str = "SimRelA";
@@ -909,14 +969,14 @@ pub async fn guild_relation(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb
     a.world.expect_where(gsys(0x56), 3000, "attente (0x56)").await?;
     b.world.expect_where(relation_op(41, GA), 3000, "demande de trêve").await?;
     b.world.send(gd, relation_fields(&b, 39, GB, cb, GA)).await?;
-    a.world.expect_where(gsys(0x57), 3000, "refus (0x57)").await?;
+    a.world.expect_where(gop(42), 3000, "trêve refusée (op 42)").await?;
     a.world.send(gd, relation_fields(&a, 41, GA, ca, GB)).await?;
     b.world.expect_where(relation_op(41, GA), 3000, "demande de trêve").await?;
     b.world.send(gd, relation_fields(&b, 43, GB, GA, GA)).await?;
     a.world.expect_where(relation_op(43, GB), 3000, "trêve vue de A").await?;
     a.world.expect_where(gsys(0x59), 3000, "trêve (0x59)").await?;
     b.world.expect_where(relation_op(43, GA), 3000, "trêve vue de B").await?;
-    println!("  ✓ op 41 → 39 (0x57), 41 → 43 (0x59)");
+    println!("  ✓ op 41 → 39 (op 42), 41 → 43 (0x59)");
 
     step(&format!("hostilité relue à la reconnexion de {ca} ; dissolution"));
     a.world.send(gd, relation_fields(&a, 38, GA, ca, GB)).await?;

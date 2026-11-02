@@ -7,6 +7,8 @@
 //!   archcore db-check                          contrôle de cohérence des bases (lecture seule)
 //!   archcore import [dossier]                  importe les tables déchiffrées du client, puis content/*.sql
 //!   archcore content                           réapplique la couche de contenu content/*.sql
+//!   archcore export-client-tables <dossier>    écrit les tables de valeurs au format du client (ArchRust)
+//!   archcore migrate-ep8 [--apply|--restore n] rapport puis migration des personnages vers l'épisode 8
 //!   archcore decrypt [source] [destination]    déchiffre Game/ini vers data/client-ini
 //!   archcore i18n strings|coverage [Game]      mesure ce qui reste à traduire
 //!   archcore i18n apply [--ascii] [--dry]      applique data/i18n/fr.json à Game/ini_fr
@@ -34,7 +36,7 @@ mod soap;
 mod tools;
 mod world;
 
-const USAGE: &str = "usage : archcore [login|world|all] | config | db-init | db-check | import | content | decrypt | i18n | sim | re (voir le wiki, page Outils)";
+const USAGE: &str = "usage : archcore [login|world|all] | config | db-init | db-check | import | content | export-client-tables | migrate-ep8 | decrypt | i18n | sim | re (voir le wiki, page Outils)";
 
 #[tokio::main]
 async fn main() {
@@ -49,6 +51,8 @@ async fn main() {
         "config" => tools::conf::run(&rest),
         "import" => tools::import::run(&rest).await,
         "content" => tools::content::run(&rest).await,
+        "export-client-tables" => tools::export::run(&rest).await,
+        "migrate-ep8" => tools::migrate_ep8::run(&rest).await,
         "decrypt" => tools::decrypt::run(&rest),
         "i18n" => tools::i18n::run(&rest).await,
         "sim" => tools::sim::run(&rest).await,

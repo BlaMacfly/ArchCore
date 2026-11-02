@@ -53,21 +53,43 @@ archcore import      # data/client-ini → archcore_world
 ```
 
 Les tables du client sont chiffrées en RC4, avec une clé dérivée de MD5(« 1111 »), et écrites en CP949.
-L'import les convertit en UTF-8 : modèles de personnages, expérience, PNJ, objets, boutiques, compétences,
-quêtes. Il lit aussi la hauteur du sol dans la géométrie du monde (`world/` du client), ce qui prend
-quelques minutes.
+L'import les convertit en UTF-8. Il lit aussi la hauteur du sol dans la géométrie du monde (`world/` du
+client), ce qui prend quelques minutes.
 
-**Monstres, butin et carte.** Ils ne sont pas dans le client : ils viennent des tables du serveur
-d'origine d'ArchLord (`spawndatatable.txt`, `spawninstancetable.txt`, `itemdroptable.txt`,
-`groupdroprate.txt`, `droprankrate.txt` et `world/node_data`), qu'ArchCore ne fournit pas. Placez-les
-dans `data/server-ini` (jamais versionné), ou désignez leur dossier :
+**Valeurs de l'épisode 8.** Les valeurs de jeu (compétences, objets, options, runes, monstres, raffinage,
+régions, boutiques, portails, expérience) viennent des **tables du serveur d'origine** d'ArchLord ; le
+client ne donne plus que les noms, les visuels et les tables purement clientes (quêtes, maîtrises, titres,
+production), sans les lignes propres à Archonia. Ces tables donnent aussi les monstres, le butin et la carte
+(`spawndatatable.txt`, `itemdroptable.txt`, `world/node_data`…). ArchCore ne les fournit pas : placez-les
+dans `data/server-ini` (jamais versionné), ou désignez leur dossier. L'import refuse de partir sans elles :
 
 ```bash
 archcore import data/client-ini --server chemin/vers/ini
 ```
 
-Sans elles, le serveur démarre mais le monde est vide de monstres. Le détail des fichiers est dans
-[[Outils|FR-Outils]].
+L'import finit par un résumé : lignes gardées et écartées, table par table. Le détail des règles et des
+fichiers est dans [[Outils|FR-Outils]].
+
+**Exporter les tables pour ArchRust.** Pour que le client ArchRust affiche les mêmes valeurs que le serveur
+(infobulles, prix, délais), écrivez-les au format du client dans son dossier « données du serveur »
+(`server-data/` à côté de `realmlist.wtf`), puis désignez ce dossier au serveur monde :
+
+```bash
+archcore export-client-tables chemin/vers/server-data
+```
+
+```ini
+# config/world.conf
+Client.TablesDir = "chemin/vers/server-data"
+```
+
+Le dossier contient `ini/` et un dossier par langue du client (`ini_fr/`…), et `tables.toml` avec
+l'empreinte des tables ; le serveur l'annonce à ArchRust, qui signale un dossier absent ou périmé. Relancez
+l'export après chaque import (ou `archcore content`). Ce dossier est une donnée du jeu : jamais versionné.
+
+**Personnages existants.** Une base créée avant le passage à l'épisode 8 se met à jour avec
+`archcore migrate-ep8` (rapport), puis `archcore migrate-ep8 --apply` après une sauvegarde
+(voir [[Outils|FR-Outils]]).
 
 ## 5. Lancer le serveur
 

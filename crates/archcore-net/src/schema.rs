@@ -578,6 +578,7 @@ pub static ARCHCORE_EXT: Schema = Schema {
         f(MemBlock), // 18 sorte de texte demandée (ext_text_kind, ASCII) — v1.1
         f(MemBlock), // 19 identifiants demandés (UINT32 petit-boutiste, à la suite) — v1.1
         f(MemBlock), // 20 textes rendus : UINT32 identifiant, UINT16 longueur, UTF-8, à la suite — v1.1
+        f(MemBlock), // 21 empreinte des tables de valeurs exportées pour le client (ASCII, 128 octets au plus) — v1.2
     ],
 };
 
@@ -1295,6 +1296,30 @@ pub mod mini {
 
     /// Données d'un maître des compétences (race, classe enseignées) — drapeaux 1.
     pub static SKILL_MASTER_DATA: Schema = Schema { name: "AGPMEVENTSKILLMASTER_DATA", id: 153, flag_len: 1, fields: &[f(I8), f(I8)] };
+
+    /// Zone d'effet du groupe (AGPMPARTY champ 7, `+0x1bec` d'AgpmParty) — drapeaux 1 : un octet par membre, dans
+    /// l'ordre de la liste (1 : à portée du chef).
+    pub static PARTY_EFFECT_AREA: Schema = Schema { name: "AGPMPARTY_EFFECT_AREA", id: 182, flag_len: 1, fields: &rep::<5>(I8) };
+
+    /// Bonus du groupe (AGPMPARTY champ 9, `+0x1d78`) — drapeaux 1 : dégâts (pour cent), défense (pour cent), PV max,
+    /// PM max.
+    pub static PARTY_BONUS: Schema = Schema { name: "AGPMPARTY_BONUS", id: 183, flag_len: 1, fields: &[f(I8), f(I8), f(I16), f(I16)] };
+
+    /// Combattants choisis par le chef (AGPMGUILD champ 18, op 14, `+0x21c8`) — drapeaux 1 : nombre, puis les noms mis
+    /// bout à bout, chacun précédé de sa longueur (U16, sans zéro final).
+    pub static GUILD_BATTLE_PERSON: Schema = Schema { name: "AGPMGUILD_BATTLE_PERSON", id: 184, flag_len: 1, fields: &[f(I16), f(MemBlock)] };
+
+    /// Combattant d'un combat de guildes (AGPMGUILD champ 19, op 26, `+0x2354`) — drapeaux 1 : guilde, nom, points,
+    /// adversaires tués, morts.
+    pub static GUILD_BATTLE_MEMBER: Schema =
+        Schema { name: "AGPMGUILD_BATTLE_MEMBER", id: 185, flag_len: 1, fields: &[fs(Char, 33), fs(Char, 49), f(U32), f(U32), f(U32)] };
+
+    /// Listes des combattants (AGPMGUILD champ 20, op 27, `+0x24e0`) — drapeaux 1 : nombre et bloc d'enregistrements de
+    /// 0x48 octets de la guilde du champ 2, puis de la guilde adverse. Enregistrement (`FUN_1404dee40`) : nom (0x38
+    /// octets, zéro final), puis quatre entiers aux décalages 0x38, 0x3c, 0x40 et 0x44 (le dernier : -1 garde la valeur
+    /// déjà connue).
+    pub static GUILD_BATTLE_MEMBER_LIST: Schema =
+        Schema { name: "AGPMGUILD_BATTLE_MEMBER_LIST", id: 186, flag_len: 1, fields: &[f(U32), f(MemBlock), f(U32), f(MemBlock)] };
 
     /// Détail d'un objet de boutique (AgcmEventNPCTrade) — drapeaux 2 : TID, prix, quantité, statut,
     /// sac, ligne, colonne, puis trois entiers.

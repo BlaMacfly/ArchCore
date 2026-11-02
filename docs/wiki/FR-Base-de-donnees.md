@@ -21,8 +21,8 @@ Toutes sont en `utf8mb4`.
 | Table | Contenu |
 |---|---|
 | `characters` | Compte, emplacement, nom unique, modèle (TID), niveau, expérience, PV/PM/PE, position, argent, banque, coiffure, visage, charisme, suppression logique ; `evolution_tid` : forme évoluée d'un Dragon Scion (1722, 1723, 1732 ; 0 aucune), `template_id` restant celui du Scion ; `skill_init` : chaîne « skill init » (vide : oubli des compétences chez le maître encore permis, « 1 » : fait) ; `pet_auto_pick` : ramassage automatique du sac du familier (AGPMITEM op 30, 1 par défaut) ; `signature` : signature prise par `/nick` avec une Signature of Glory (AGPMCHARACTER champ 27, 16 caractères au plus, vide : aucune) |
-| `character_items` | Objets : statut 0 inventaire, 1 équipé, 2 banque (rattaché au personnage qui l'a déposé), 3 entrepôt de guilde (`guild_id` ; le personnage qui l'a déposé reste noté), 4 pièce jointe d'un courrier (rattachée au destinataire), 5 en vente dans la maison des ventes (rattaché au vendeur), 6 inventaire Cash (statut 51 ; rang dans la liste en `row_idx`), 7 sac du familier (statut 13 ; sac, ligne, colonne) ; un objet Cash encore au statut 0 passe au statut 6 à l'entrée en jeu ; `durability` : -1 pleine (colonne DUR du modèle), sinon durabilité actuelle (usure, `repair.rs`) |
-| `character_quests` | Quêtes en cours (compteurs des monstres A et B) et terminées |
+| `character_items` | Objets : statut 0 inventaire, 1 équipé, 2 banque (rattaché au personnage qui l'a déposé), 3 entrepôt de guilde (`guild_id` ; le personnage qui l'a déposé reste noté), 4 pièce jointe d'un courrier (rattachée au destinataire), 5 en vente dans la maison des ventes (rattaché au vendeur), 6 inventaire Cash (statut 51 ; rang dans la liste en `row_idx`), 7 sac du familier (statut 13 ; sac, ligne, colonne) ; un objet Cash encore au statut 0 passe au statut 6 à l'entrée en jeu ; `durability` : -1 pleine (colonne DUR du modèle), sinon durabilité actuelle (usure, `repair.rs`) ; `remain_ms` (temps de jeu restant, ms, d'un objet Cash « RemainTime ») et `expire_at` (date d'expiration, secondes Unix, d'un objet « ExpireTime »), fixés à la première utilisation, 0 sinon (objets à durée, `lifetime.rs`) |
+| `character_quests` | Quêtes en cours (compteurs des monstres A et B, `journal` : suivie à l'écran, AgpmQuest op 14) et terminées |
 | `account_bank` | Banque du compte : argent, pages en plus de la première (créée à la première entrée, avec l'argent que les personnages avaient en banque) |
 | `character_skills` | Compétences apprises et leur niveau (« Normal Attack » n'y figure pas : tout personnage la connaît) ; `exp` : expérience cumulée d'une compétence de production |
 | `character_recipes` | Recettes de cuisine et d'alchimie achetées (`recipe_tid` = `product_compose.result_tid`) |
@@ -45,10 +45,15 @@ Toutes sont en `utf8mb4`.
 | `character_quickbelt` | Barre de raccourcis gardée par le serveur (AgpmUIStatus) : une ligne par case remplie (0 à 49), type de base (5 objet, 7 compétence), TID, IID d'un objet ; supprimée avec le personnage |
 | `character_titles` | Titres possédés (AgpmTitle) : TID, actif (un au plus), compétence choisie (0), date d'obtention (secondes Unix) ; l'heure du dernier changement de titre actif est `characters.title_changed_at` (délai `Title.ChangeDelaySeconds`) |
 | `character_title_goals` | Objectifs de titre en cours : TID, date d'acceptation, valeurs `c1` à `c5` des conditions non vides du modèle |
+| `ep8_quarantine` | Passage aux valeurs de l'épisode 8 (`archcore migrate-ep8 --apply`) : ce qui a été retiré ou changé, rien n'est détruit — passe (`run_id`), personnage, sorte (`item` : ligne de `character_items` en JSON avec les courriers et ventes qui la citaient ; `options`, `sockets` : `option_tids` / `socket_tids` d'origine ; `skill_level`, `skill` ; `skill_init`), `ref_id` (objet ou TID de compétence), valeurs d'origine (JSON), raison, date ; `restored_at` remplie par `--restore` |
 
 ## `archcore_world` — données du jeu (`sql/003_world.sql`)
 
-Remplie par `archcore import` à partir des tables du client.
+Remplie par `archcore import`. Les tables de valeurs viennent des tables du serveur d'origine (épisode 8) :
+lignes et valeurs EP8, noms et visuels du client joints par TID, lignes d'Archonia écartées (règles et
+chiffres dans [[Outils|FR-Outils]], « Valeurs de l'épisode 8 »). La colonne « Source » donne le fichier du
+client ; la table EP8 de même nom (`characterdatatable.txt`, `skillconst.txt`, `levelupexp.ini`…) fournit
+les valeurs.
 
 | Table | Source dans le client | Contenu |
 |---|---|---|
@@ -66,16 +71,16 @@ Remplie par `archcore import` à partir des tables du client.
 | `skill_level` | `SKILL_CONST.txt`, `Skill_Const2.txt` | Valeurs de chaque niveau de chaque compétence (colonnes non vides, en JSON ; groupes `point.`, `percent.`, `magnify.` ; celles de `Skill_Const2.txt`, suffixées de « 2 », sous `point2.`, `percent2.`…) |
 | `skill_mastery` | `SkillMastery_High.txt`, `SkillMastery_Heroic.txt` | Arbres de maîtrise : clé (TID du modèle, 10000 + race pour « 10004;4 »), compétence, arbre (1 supérieur, 2 héroïque), compétences exigées `[[TID, niveau]…]` (ConditionA, B), niveaux dans la classe d'un modèle `class_points` `[[TID du modèle, niveaux]…]` (ConditionC), total (ConditionD : niveaux cumulés, ou points héroïques) |
 | `product_category`, `product_compose`, `product_exp`, `product_gather`, `product_result_item` | `productcategory.txt`, `productcompose.txt`, `productexp.txt`, `productgather.txt`, `productresultitem.txt` | Production : compétence de chaque catégorie, 95 recettes (matériaux `[[TID, quantité]…]`, prix, niveau, chance), niveaux 1 à 15, 760 monstres récoltables, objets récoltés par ensemble et niveau (noms de compétence résolus par `SKILLTEMPLATE.ini`) |
-| `npc_spawn` | `npc.ini` | 567 PNJ : modèle, nom, position, orientation, fonctions brutes |
-| `client_table` | autres tables `.txt` | Lignes en JSON, pour les tables pas encore modélisées |
-| `monster_spawn` | tables du serveur d'origine (`spawndatatable.txt` + `spawninstancetable.txt`) | 12 802 points d'apparition, 36 960 créatures : modèle, niveau (celui du client), nombre, réapparition (plage `respawn_sec`–`respawn_max_sec` pour les boss de `UIBoss.xml`), position, rayon, nom public (`CharacterTemplatePublic.ini`) |
+| `npc_spawn` | `npc.ini` (fusion avec la table EP8) | 557 PNJ : modèle, nom, position, orientation, fonctions brutes |
+| `client_table` | autres tables | Textes entiers (ligne 0) : `itemoptiontable.txt`, `itemruneattributetable.txt`, `ItemConvertTable.txt`, `refineryrecipetable.txt` (tables EP8), `RegionTemplate.ini`, `TeleportPoint.ini` (EP8, gardés pour `export-client-tables`), `optionnumdroprate.txt`, `socketnumdroprate.txt` |
+| `monster_spawn` | tables du serveur d'origine (`spawndatatable.txt` + `spawninstancetable.txt`) | 12 802 points d'apparition, 36 960 créatures : modèle, niveau (celui du modèle EP8), nombre, réapparition (plage `respawn_sec`–`respawn_max_sec` pour les boss de `UIBoss.xml`), position, rayon, nom public (`CharacterTemplatePublic.ini`) |
 | `map_segment` | `world/node_data` du serveur d'origine | 45 312 secteurs : sol infranchissable et région par segment de 400 unités |
 | `map_height` | `world/b*x.ma2` du client (géométrie du sol) | 46 592 secteurs : hauteur du sol aux 17 × 17 coins de cellule (i16) |
 | `monster_drop` | `itemdroptable.txt` du serveur d'origine | 4 653 objets propres à 550 monstres : quantité, taux sur 100 000 |
 | `drop_group` | `groupdroprate.txt` du serveur d'origine | 28 groupes de butin ; les objets de chaque groupe viennent d'`item_data` (GroupID, DropRank, DropRate) |
 | `drop_rank_rate` | `droprankrate.txt` du serveur d'origine | Rangs d'objets (pour cent) selon le rang de butin du monstre |
 | `monster_ai` | `aidatatable.txt` du serveur d'origine | 7 674 IA (3 289 avec des compétences), désignées par `monster_spawn.ai_tid` : colonnes non vides en JSON, les colonnes répétées numérotées (`Skill1`, `SkillCondition1`, `SkillCount1`…) |
-| `region_template` | `RegionTemplate.ini` | 331 régions : nom, région parente, champ Type, sûreté (33 sûres), niveaux d'entrée `level_min` et `level_limit` (LevelMin, LevelLimit : étages de la Battle Square) |
+| `region_template` | `RegionTemplate.ini` | 331 régions : nom, région parente, champ Type, sûreté (33 sûres), niveaux d'entrée `level_min` et `level_limit` (LevelMin, LevelLimit : étages de la Battle Square), interdictions `disabled` (bits 1 DisableSummon, 2 DisableGo, 4 DisableParty, 8 DisableLogin), `item_section` (ItemSection : Heaven's Hell), point de résurrection propre `resurrection_x`, `resurrection_z` (ResurrectionX/Z) |
 | `region_glossary` | `RegionGlossary.txt` de chaque dossier de langue du client (`ini`, `ini_fr`…) | Nom affiché de chaque région par langue (clé : nom coréen de `RegionTemplate.ini`) : nom des régions taxées envoyé au client (AgpmTax) |
 | `boss_window` | `UIBoss.xml` | 25 boss de la fenêtre des boss d'Archonia : TID, ordre, catégorie (1 à 7), nom affiché |
 | `pvp_skull_chance`, `pvp_skull_level` | `pvpskulldroptable.txt` | Crânes de la Battle Square : chance (%) selon l'écart de niveau tueur − victime, niveau du crâne selon le niveau de la victime |

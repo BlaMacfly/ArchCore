@@ -1,7 +1,8 @@
 //! `archcore sim auction` : maison des ventes (AgpmAuction 0x0B) chez Fotherbee (« Item Trader », fonction 28).
 //!
 //! Ventes des deux personnages effacées ; en base, GmTest part de 1 000 000 pièces d'or, SimA de 500 000 et 50 CC. Le
-//! MJ ouvre la planche (op 9 → op 10), reçoit 5 potions (TID 190) et une Short Sword. Refus : épée sans catégorie,
+//! MJ ouvre la planche (op 9 → op 10), reçoit 5 potions (TID 190) et un objet sans catégorie de la maison des ventes (le
+//! premier de la base monde, « FirstCategory » vide : Bud Trophy dans la table de l'épisode 8). Refus : objet sans catégorie,
 //! prix sous 100 000, pile partielle (code 1). Il met les potions en vente pour 150 000 or et 20 CC : op 4 (code 0),
 //! op 1 ADD_SALES, potions retirées, 4 500 d'or de frais. SimA entre, ouvre la planche, cherche le TID 190 (op 12 :
 //! ligne avec docID, vendeur, prix, quantité), achète avec une mauvaise quantité (code 5) puis la pile (même IID dans
@@ -15,7 +16,6 @@ use archcore_net::{build_mini, decode_mini, Fields, Vec3};
 use std::time::Duration;
 
 const POTION: i64 = 190;
-const SWORD: i64 = 11;
 const TRADER: Vec3 = Vec3 { x: -471_700.0, y: 4_500.0, z: -61_850.0 };
 const STOP: i64 = 0x04;
 
@@ -124,11 +124,18 @@ pub async fn run(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> 
     anyhow::ensure!(a.world.expect_where(is_op(auction_op::ADD_SALES), 800, "ventes").await.is_err(), "boîte de ventes de {ca} non vide");
     open(&mut a).await?;
     let potions = give(&mut a, POTION, 5).await?;
-    let sword = give(&mut a, SWORD, 1).await?;
+    // Objet sans catégorie de la maison des ventes : lu dans la base (la table de l'épisode 8 en décide).
+    let plain: i64 = db
+        .world
+        .first("SELECT tid FROM item_data WHERE COALESCE(NULLIF(JSON_VALUE(raw, '$.FirstCategory'), ''), '0') = '0' AND stack = 1 ORDER BY tid LIMIT 1", ())
+        .await?
+        .map(|r| crate::db::col::<i64>(&r, "tid"))
+        .ok_or_else(|| anyhow::anyhow!("aucun objet sans catégorie dans item_data"))?;
+    let sword = give(&mut a, plain, 1).await?;
 
     step("mises en vente refusées");
     a.world.send(&schema::AUCTION, auction(auction_op::SELL, &a, sell(sword, 1, 200_000, 0))).await?;
-    expect_code(&mut a, auction_op::SELL, auction_result::FAILED, "épée sans catégorie").await?;
+    expect_code(&mut a, auction_op::SELL, auction_result::FAILED, "objet sans catégorie").await?;
     a.world.send(&schema::AUCTION, auction(auction_op::SELL, &a, sell(potions, 5, 50_000, 0))).await?;
     expect_code(&mut a, auction_op::SELL, auction_result::FAILED, "moins de 100 000 pièces d'or").await?;
     a.world.send(&schema::AUCTION, auction(auction_op::SELL, &a, sell(potions, 2, 150_000, 0))).await?;

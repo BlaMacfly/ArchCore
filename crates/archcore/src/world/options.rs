@@ -4,8 +4,12 @@
 //!   Option : TID, type (« Type » : une option au plus par type sur un objet), parties admises (Upper_Body,
 //!            Lower_Body, Weapon, Shield, Head, Ring, Necklace, Shoes, Gloves), rangs (« Rank_Min » — 0 vaut 1 —,
 //!            « Rank_Max »), niveau minimal de la source (« Level_limit »), poids (« Probability », 0 au-delà de
-//!            100 000), colonnes de caractéristiques. Une cellule « Refined » ou « Gacha » non vide (même « 0 »),
-//!            ou un « CategoryName », range l'option dans une autre famille : elle ne tombe pas avec le butin.
+//!            100 000), colonnes de caractéristiques. Une cellule « Refined » ou « Gacha » non vide (même « 0 »)
+//!            range l'option dans une autre famille : elle ne tombe pas avec le butin. La table est celle de l'épisode 8
+//!            (`archcore import`) : les options d'Archonia (« CategoryName » renseigné) n'y figurent plus ; une option
+//!            inconnue portée par un objet en base est ignorée (`archcore migrate-ep8` la retire).
+//!            « Item_Level_Min » et « Item_Level_Max » ne règlent pas le tirage : ni le lecteur d'Archonia
+//!            ni la table d'origine n'en tirent de règle (le premier ne les lit pas).
 //!   Tirage : nombre d'options entre « MinOption » et « MaxOption » de l'objet, pondéré par
 //!            optionnumdroprate.txt (colonne = MaxOption) ; puis, tant qu'il en manque, un type tiré au hasard
 //!            parmi ceux qui ont une option admise pour la partie, le rang de l'objet et le niveau de la source
@@ -17,11 +21,20 @@
 //!            l'objet pour l'affichage ; ceux du personnage viennent du serveur, qui ajoute les options portées.
 //!            Options à déclenchement (« skill_type ») : 1 critique, 2 étourdissement, 3 coup reçu changé en PV,
 //!            4 régénération, 5 blessure, 6 esquive ; « Critical » sans « skill_type » s'ajoute aux dégâts
-//!            critiques. Avec « Ignore_Physical_Defense_Rate », « Ignore_Attribute_Defense_Rate »,
-//!            « Critical_Defense_Rate » (résistance aux critiques) et « StunResistance » (lue, mais ni jouée ni
-//!            affichée : la fenêtre du client n'en montre que la part des compétences ; aucune option ne la remplit),
-//!            elles forment les effets de combat de l'équipement (`Gear`), joués par le combat. Les colonnes
-//!            bonus_*, on_hit_*… ne sont pas appliquées.
+//!            critiques. Avec « Ignore_Physical_Defense_Rate », « Ignore_Attribute_Defense_Rate » et
+//!            « Critical_Defense_Rate » (résistance aux critiques), elles forment les effets de combat de l'équipement
+//!            (`Gear`), joués par le combat. « StunResistance » est propre à Archonia : plus lue.
+//!            Pénétration (« Ignore_* », points de pour cent ôtés à la défense adverse, règle choisie) :
+//!            PhysicalAttackResist (résistance physique), BlockRate (blocage), SkillBlockRate (blocage des
+//!            compétences), EvadeRate et DodgeRate (esquive ; une option qui porte les deux compte le plus grand),
+//!            CriticalDefenseRate (résistance aux critiques), StunDefenseRate (protection contre l'étourdissement).
+//!            « skill_cast », « skill_delay » : facteurs d'attaque 3 et 4 (pour cent d'incantation et de relance en
+//!            moins, comme les range `Archonia.exe`). « bonus_exp », « bonus_money », « bonus_drop_rate » : pour cent
+//!            d'expérience, d'or et de butin en plus (l'unité de leurs descriptions, « Bonus Gold 10% »).
+//!            « Add_Debuff_Duration » : millisecondes ajoutées aux affaiblissements que pose le porteur. « skill_levelup » :
+//!            niveaux en plus de toutes les compétences apprises (AGPMSKILL op 14 au porteur, `skills.rs`).
+//!            « Heroic_Min_Damage », « Heroic_Max_Damage », « Heroic_Defense_Point » : facteurs héroïques (attribut 11,
+//!            `heroic.rs`). Les colonnes on_hit_* et les résistances héroïques (propres à Archonia) ne sont pas appliquées.
 //!   Options liées : un objet unique cite des groupes (« Link_id » d'itemdatatable.txt) ; chaque groupe donne
 //!            l'option dont « Level_min » ≤ niveau du porteur ≤ « Level_max », ajoutée comme les autres.
 //!   Réseau : AGPMITEM champ 20, mini-paquet de 5 UINT16 (TID des options).
@@ -39,9 +52,9 @@ pub const MAX_OPTIONS: usize = 5;
 const PART_COLUMNS: [&str; 9] = ["Upper_Body", "Lower_Body", "Weapon", "Shield", "Head", "Ring", "Necklace", "Shoes", "Gloves"];
 
 /// Colonnes qui décrivent l'option, pas ses effets.
-const META_COLUMNS: [&str; 25] = [
+const META_COLUMNS: [&str; 24] = [
     "tid", "Description", "Upper_Body", "Lower_Body", "Weapon", "Shield", "Head", "Ring", "Necklace", "Shoes", "Gloves", "Refined", "Gacha", "Type",
-    "CategoryName", "PointType", "Item_Level_Min", "Item_Level_Max", "Level_limit", "Rank_Min", "Rank_Max", "Probability", "Link_id", "Level_min", "Level_max",
+    "PointType", "Item_Level_Min", "Item_Level_Max", "Level_limit", "Rank_Min", "Rank_Max", "Probability", "Link_id", "Level_min", "Level_max",
 ];
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -56,8 +69,6 @@ pub struct ItemOption {
     pub rank_max: i64,
     /// Niveau minimal de la source (« Level_limit »).
     pub level_limit: i64,
-    /// Famille à part (« CategoryName » renseigné).
-    pub category: bool,
     /// Groupe d'options liées (« Link_id ») et niveaux du porteur où celle-ci vaut (« Level_min », « Level_max »).
     pub link: i64,
     pub link_level: (i64, i64),
@@ -205,14 +216,13 @@ impl OptionCatalog {
                 rank_min: num(cell(&header, r, "Rank_Min")) as i64,
                 rank_max: num(cell(&header, r, "Rank_Max")) as i64,
                 level_limit: num(cell(&header, r, "Level_limit")) as i64,
-                category: !cell(&header, r, "CategoryName").is_empty(),
                 link: num(cell(&header, r, "Link_id")) as i64,
                 link_level: (num(cell(&header, r, "Level_min")) as i64, num(cell(&header, r, "Level_max")) as i64),
                 probability: Some(num(cell(&header, r, "Probability")) as u64).filter(|p| *p <= 100_000).unwrap_or(0),
                 percent: !matches!(cell(&header, r, "PointType"), "" | "0"),
                 stats,
             };
-            if o.kind > 0 && o.probability > 0 && !o.refined && !o.gacha && !o.category {
+            if o.kind > 0 && o.probability > 0 && !o.refined && !o.gacha {
                 for slot in (0..PART_COLUMNS.len()).filter(|i| parts & (1 << i) != 0) {
                     c.pool.entry((o.kind, slot)).or_default().push(tid);
                 }
@@ -301,8 +311,10 @@ enum Target {
     /// Caractéristique (FOR, DEX… ; stockées × 100) ou vitesse de déplacement.
     Status(usize),
     PointMax(usize),
-    /// Dégâts min et max d'un attribut.
+    /// Dégâts min et max d'un attribut ; min seul, max seul.
     Damage(usize),
+    DamageMin(usize),
+    DamageMax(usize),
     DefensePoint(usize),
     DefenseRate(usize),
     Attack(usize),
@@ -330,6 +342,9 @@ const EFFECTS: &[(&str, &[Target], bool)] = {
         ("Poison_Defense_Point", &[DefensePoint(6)], false),
         ("Linghtning_Defense_Point", &[DefensePoint(7)], false),
         ("Ice_Defense_Point", &[DefensePoint(8)], false),
+        ("Heroic_Min_Damage", &[DamageMin(super::heroic::ATTR)], false),
+        ("Heroic_Max_Damage", &[DamageMax(super::heroic::ATTR)], false),
+        ("Heroic_Defense_Point", &[DefensePoint(super::heroic::ATTR)], false),
         ("PhysicalAttackResist", &[DefenseRate(0)], false),
         ("Magic Res.", &[DefenseRate(1)], false),
         ("Water Res.", &[DefenseRate(2)], false),
@@ -355,6 +370,8 @@ const EFFECTS: &[(&str, &[Target], bool)] = {
         ("Movement_Run_bonus", &[Status(8), Status(9)], true),
         ("ATK_Range_bonus", &[Attack(0)], false),
         ("ATK_Speed_bonus", &[Attack(2)], true),
+        ("skill_cast", &[Attack(3)], false),
+        ("skill_delay", &[Attack(4)], false),
     ]
 };
 
@@ -410,6 +427,14 @@ pub struct Gear {
     pub regen_mp: i32,
     /// Compétences des runes serties (« Skill_Name », « Skill_Level », « Skill_Rate ») : (TID, niveau, chance).
     pub rune_skills: Vec<(u32, u32, f64)>,
+    /// Expérience, or et butin en plus (pour cent : « bonus_exp », « bonus_money », « bonus_drop_rate »).
+    pub exp_pct: f64,
+    pub gold_pct: f64,
+    pub drop_pct: f64,
+    /// Affaiblissements posés par le porteur allongés de tant de millisecondes (« Add_Debuff_Duration »).
+    pub debuff_ms: u64,
+    /// Niveaux en plus de toutes les compétences apprises (« skill_levelup » : « Learned skills upgraded by n ranks »).
+    pub skill_levels: i64,
 }
 
 impl ItemOption {
@@ -464,7 +489,17 @@ impl OptionCatalog {
             g.mods.ignore_defense += o.stat("Ignore_Physical_Defense_Rate");
             g.mods.ignore_resist += o.stat("Ignore_Attribute_Defense_Rate");
             g.mods.crit_resist += o.stat("Critical_Defense_Rate");
-            g.mods.stun_resist += o.stat("StunResistance");
+            g.mods.ignore_phys_resist += o.stat("Ignore_PhysicalAttackResist");
+            g.mods.ignore_block += o.stat("Ignore_BlockRate");
+            g.mods.ignore_skill_block += o.stat("Ignore_SkillBlockRate");
+            g.mods.ignore_dodge += o.stat("Ignore_EvadeRate").max(o.stat("Ignore_DodgeRate"));
+            g.mods.ignore_crit_resist += o.stat("Ignore_CriticalDefenseRate");
+            g.mods.ignore_stun_protect += o.stat("Ignore_StunDefenseRate");
+            g.exp_pct += o.stat("bonus_exp");
+            g.gold_pct += o.stat("bonus_money");
+            g.drop_pct += o.stat("bonus_drop_rate");
+            g.debuff_ms += o.stat("Add_Debuff_Duration").max(0.0) as u64;
+            g.skill_levels += o.stat("skill_levelup").max(0.0) as i64;
         }
         g
     }
@@ -507,6 +542,8 @@ fn add(f: &mut crate::character::Factors, t: Target, op: impl Fn(i32) -> i32) {
             f.damage_min[i] = op(f.damage_min[i]);
             f.damage_max[i] = op(f.damage_max[i]);
         }
+        Target::DamageMin(i) => f.damage_min[i] = op(f.damage_min[i]),
+        Target::DamageMax(i) => f.damage_max[i] = op(f.damage_max[i]),
         Target::DefensePoint(i) => f.defense_point[i] = op(f.defense_point[i]),
         Target::DefenseRate(i) => f.defense_rate[i] = op(f.defense_rate[i]),
         Target::Attack(i) => f.attack[i] = op(f.attack[i]),
@@ -597,7 +634,7 @@ mod tests {
         let c = OptionCatalog::parse(table, "", "");
         let g = c.gear(&[2151, 890, 2161, 2171, 2181, 888, 2325, 2253, 13822, 50, 8121, 60]);
         assert_eq!((g.mods.crit_rate, g.mods.crit_dmg), (1.0, 161.0), "1 % de chance ; 110 %, +50 %, puis +1 % (13822, sans skill_type)");
-        assert_eq!((g.mods.crit_resist, g.mods.stun_resist), (1.0, 3.0));
+        assert_eq!(g.mods.crit_resist, 1.0, "StunResistance (Archonia) n'est pas lue");
         assert_eq!(g.stuns, vec![(1.0, 1000)]);
         assert_eq!((g.mods.to_hp_rate, g.mods.to_hp), (4.0, 10.0));
         assert_eq!((g.regen_hp, g.regen_mp), (20, 200));
@@ -607,6 +644,46 @@ mod tests {
         let mut f = crate::character::Factors::default();
         c.apply(&mut f, &[2325, 50]);
         assert_eq!((f.damage_min[6], f.damage_min[0]), (0, 3));
+    }
+
+    #[test]
+    fn penetration_bonus_et_affaiblissements() {
+        let table = "tid\tDescription\tType\tIgnore_PhysicalAttackResist\tIgnore_BlockRate\tIgnore_SkillBlockRate\tIgnore_EvadeRate\tIgnore_DodgeRate\tIgnore_CriticalDefenseRate\tIgnore_StunDefenseRate\tbonus_exp\tbonus_money\tbonus_drop_rate\tAdd_Debuff_Duration\tskill_cast\tskill_delay\r\n\
+            13002\tIgnore Physical Resistance +2%\t1\t2\r\n\
+            13031\tIgnore Block Rate +1%\t2\t\t1\r\n\
+            13062\tIgnore Skill Block Rate +2%\t3\t\t\t2\r\n\
+            13091\tIgnore Dodge +1%\t4\t\t\t\t1\t1\r\n\
+            13121\tIgnore Critical Hit Resistance +1%\t5\t\t\t\t\t\t1\r\n\
+            13622\tIgnore Stun Resistance +1%\t6\t\t\t\t\t\t\t1\r\n\
+            380\tBonus Exp 4%\t7\t\t\t\t\t\t\t\t4\r\n\
+            320\tBonus Gold 10%\t8\t\t\t\t\t\t\t\t\t10\r\n\
+            2217\tBonus drop rate +10%\t9\t\t\t\t\t\t\t\t\t\t10\r\n\
+            13650\tIncreases duration of debuffs by 1 sec\t10\t\t\t\t\t\t\t\t\t\t\t1000\r\n\
+            851\tReduces skill cast time by 4%\t11\t\t\t\t\t\t\t\t\t\t\t\t4\r\n\
+            2234\tReduces skill cooldown time by 5%\t12\t\t\t\t\t\t\t\t\t\t\t\t\t5\r\n";
+        let c = OptionCatalog::parse(table, "", "");
+        let g = c.gear(&[13002, 13031, 13062, 13091, 13121, 13622, 380, 320, 2217, 13650]);
+        let m = &g.mods;
+        assert_eq!((m.ignore_phys_resist, m.ignore_block, m.ignore_skill_block, m.ignore_dodge, m.ignore_crit_resist, m.ignore_stun_protect), (2.0, 1.0, 2.0, 1.0, 1.0, 1.0), "esquive : une fois pour les deux colonnes");
+        assert_eq!((g.exp_pct, g.gold_pct, g.drop_pct, g.debuff_ms), (4.0, 10.0, 10.0, 1000));
+        // Incantation et relance : facteurs d'attaque 3 et 4.
+        let mut f = crate::character::Factors::default();
+        c.apply(&mut f, &[851, 2234]);
+        assert_eq!((f.attack[3], f.attack[4]), (4, 5));
+    }
+
+    #[test]
+    fn option_inconnue_ignoree() {
+        // 13437 (option d'Archonia) n'est plus dans la table EP8 : un objet en base qui la porte n'en tire rien.
+        let table = "tid\tDescription\tWeapon\tType\tRank_Min\tRank_Max\tProbability\tLink_id\tLevel_min\tLevel_max\tPhysicalDamage\r\n\
+            10\tW Damage +2\tO\t1\t1\t4\t1\t\t\t\t2\r\n";
+        let c = OptionCatalog::parse(table, "", "");
+        let sword = EquipData { kind: super::super::equipment::KIND_WEAPON, part: 10, level: 10, rank: 1, min_option: 1, max_option: 1, ..Default::default() };
+        let mut rng = rand::rngs::StdRng::seed_from_u64(1);
+        assert!((0..50).all(|_| c.roll_options(&sword, 10, &mut rng) == vec![10]));
+        let mut f = crate::character::Factors::default();
+        c.apply(&mut f, &[13437, 10]);
+        assert_eq!(f.damage_min[0], 2, "option inconnue sans effet, sans erreur");
     }
 
     #[test]

@@ -74,6 +74,7 @@ db\start-mariadb.cmd                          # local MariaDB instance (Windows)
 archcore db-init --account test test          # schema + test account
 archcore decrypt                              # decrypts the client tables
 archcore import                               # imports the tables into MariaDB
+archcore export-client-tables <folder>        # value tables for ArchRust (server-data/)
 archcore                                      # login on 11002, world on 11008
 archcore sim client test test Testeur         # replays a full client, without the game
 ```
@@ -204,6 +205,7 @@ db\start-mariadb.cmd                          # instance MariaDB locale (Windows
 archcore db-init --account test test          # schéma + compte de test
 archcore decrypt                              # déchiffre les tables du client
 archcore import                               # importe les tables dans MariaDB
+archcore export-client-tables <dossier>       # tables de valeurs pour ArchRust (server-data/)
 archcore                                      # login sur 11002, monde sur 11008
 archcore sim client test test Testeur         # rejoue un client complet, sans le jeu
 ```

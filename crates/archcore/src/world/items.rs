@@ -119,6 +119,13 @@ pub fn cash_mini(in_use: bool) -> Vec<u8> {
     build_mini(s, &Fields::new(s).with(0, i64::from(in_use)))
 }
 
+/// Mini Cash complet d'un objet à durée (`lifetime.rs`) : 0 « en cours d'utilisation » (0 non, 1 oui, 2 en pause), 1 temps
+/// de jeu restant (ms), 2 date d'expiration (secondes Unix).
+pub fn cash_mini_full(in_use: i64, remain_ms: i64, expire_at: i64) -> Vec<u8> {
+    let s = &mini::ITEM_CASH;
+    build_mini(s, &Fields::new(s).with(0, in_use).with(1, remain_ms).with(2, expire_at.max(0) as u64))
+}
+
 /// AGPMITEM op 26 : mini Cash de l'objet `iid` (« en cours d'utilisation » ou non) ; le client rafraîchit son
 /// inventaire Cash, et avec lui la disponibilité du sac du familier.
 pub fn use_time_packet(iid: u32, owner: u32, in_use: bool) -> Vec<u8> {
@@ -137,10 +144,15 @@ pub fn item_add(iid: u32, tid: u32, owner: Option<u32>, count: i64, status: i64,
 /// AGPMITEM op 0 d'un objet connu, avec ses options (champ 20) et son identifiant stable (champ 26 : l'IID, qui est
 /// l'identifiant en base ; le commutateur d'équipement, `itemset.rs`, désigne les objets par lui).
 pub fn item_add_of(i: &InventoryItem, owner: u32, status: i64, grid: Option<Grid>) -> Vec<u8> {
+    item_add_with_cash(i, owner, status, grid, (status == item_status::CASH_INVENTORY).then(|| cash_mini(false)))
+}
+
+/// Comme `item_add_of`, avec le mini Cash donné (champ 23 : objet à durée, `lifetime.rs`).
+pub fn item_add_with_cash(i: &InventoryItem, owner: u32, status: i64, grid: Option<Grid>, cash: Option<Vec<u8>>) -> Vec<u8> {
     let s = &schema::ITEM;
     let f = Fields::new(s).with(0, item_op::ADD).with(1, status).with(2, i.iid).with(3, i.tid).with(4, owner).with(5, i.count).with(26, i.iid as u64);
     let f = f.with_opt(grid_field(status), grid.filter(|_| sends_grid(status)).map(grid_mini));
-    let f = f.with_opt(23, (status == item_status::CASH_INVENTORY).then(|| cash_mini(false)));
+    let f = f.with_opt(23, cash);
     // Durabilité entamée : facteur « objet » (champ 10) ; pleine, le client garde celle du modèle.
     let f = f.with_opt(10, (i.durability >= 0).then(|| durability_factors(i.durability)));
     build_packet(s, &f.with_opt(20, (!i.options.is_empty()).then(|| super::options::options_mini(&i.options))))
@@ -295,6 +307,20 @@ pub struct EquipData {
     /// Monture (partie 14) : vitesse de course à cheval (« Run_Buff ») et modèle de la monture (« SubType »).
     pub run_buff: i32,
     pub ride_tid: i64,
+    /// Section d'objets (« Item_section_num ») : l'objet ne compte pas dans les régions de même « ItemSection »
+    /// (`regions.rs`) ; 0 : aucune.
+    pub section: i64,
+    /// Dégâts héroïques (min, max) et défense héroïque (« Heroic_Min_Damage », « Heroic_Max_Damage »,
+    /// « Heroic_Defense_Point » : `heroic.rs`).
+    pub heroic_min: i32,
+    pub heroic_max: i32,
+    pub heroic_def: i32,
+    /// Esquive en plus (« PDR » des bottes : DR, facteur « points max » 9) ; le client ne lit pas la colonne mais
+    /// affiche le DR reçu.
+    pub pdr: i32,
+    /// Caractéristiques en plus (« CON_Bonus_Point », « STR_… », « INT_… », « DEX_… », « Wis_… » des anneaux), dans
+    /// l'ordre constitution, force, intelligence, dextérité, sagesse.
+    pub stat_bonus: [i32; 5],
 }
 
 impl EquipData {
@@ -359,6 +385,12 @@ impl EquipData {
             unbreakable,
             run_buff: num("Run_Buff") as i32,
             ride_tid: num("SubType"),
+            section: num("Item_section_num"),
+            heroic_min: num("Heroic_Min_Damage") as i32,
+            heroic_max: num("Heroic_Max_Damage") as i32,
+            heroic_def: num("Heroic_Defense_Point") as i32,
+            pdr: num("PDR") as i32,
+            stat_bonus: ["CON_Bonus_Point", "STR_Bonus_Point", "INT_Bonus_Point", "DEX_Bonus_Point", "Wis_Bonus_Point"].map(|k| num(k) as i32),
         })
     }
 }
@@ -400,6 +432,10 @@ pub struct ItemCatalog {
     pub speed_potions: std::collections::HashSet<u32>,
     /// Consommables à compétence, orbes de résurrection et objets d'oubli des compétences, par TID (`consumables.rs`).
     pub uses: HashMap<u32, super::consumables::ItemUse>,
+    /// Objets Cash à durée (temps de jeu ou date d'expiration), par TID (`lifetime.rs`).
+    pub lifespans: HashMap<u32, super::lifetime::Lifespan>,
+    /// Numéro de quête des objets de quête (« QuestItem »), par TID (`quests.rs`).
+    pub quest_items: HashMap<u32, u32>,
 }
 
 /// Bonus d'une ligne de la table `item_transform` (ItemTransformTable.txt).
@@ -446,6 +482,11 @@ impl ItemCatalog {
             rows.iter().filter_map(|r| Some((col::<u32>(r, "tid"), serde_json::from_str::<serde_json::Value>(&col::<String>(r, "raw")).ok()?))).collect();
         let mut morph: HashMap<u32, super::morph::Potion> = raws.iter().filter_map(|(tid, raw)| super::morph::Potion::from_raw(raw).map(|p| (*tid, p))).collect();
         let uses: HashMap<u32, super::consumables::ItemUse> = raws.iter().filter_map(|(tid, raw)| super::consumables::ItemUse::from_raw(raw).map(|u| (*tid, u))).collect();
+        let lifespans: HashMap<u32, super::lifetime::Lifespan> = raws.iter().filter_map(|(tid, raw)| super::lifetime::Lifespan::from_raw(raw).map(|l| (*tid, l))).collect();
+        let quest_items: HashMap<u32, u32> = raws
+            .iter()
+            .filter_map(|(tid, raw)| raw.get("QuestItem")?.as_str()?.trim().parse::<u32>().ok().filter(|q| *q > 0).map(|q| (*tid, q)))
+            .collect();
         let speed_potions = raws
             .iter()
             .filter(|(_, raw)| usable_type_of(raw) == super::morph::USABLE_SPEED && matches!(raw.get("SubType").and_then(|v| v.as_str()).map(str::trim), Some("1" | "2")))
@@ -474,7 +515,8 @@ impl ItemCatalog {
             morph.len(),
             uses.len()
         );
-        Ok(ItemCatalog { items, shops, use_skill, morph, speed_potions, uses })
+        info!("{} objet(s) à durée, {} objet(s) de quête", lifespans.len(), quest_items.len());
+        Ok(ItemCatalog { items, shops, use_skill, morph, speed_potions, uses, lifespans, quest_items })
     }
 
     pub fn get(&self, tid: u32) -> Option<&ItemData> {
@@ -545,6 +587,8 @@ pub struct Inventory {
     pub sub_sent: bool,
     /// Ramassage automatique du sac du familier coupé (op 30 à 0 ; `characters.pet_auto_pick`).
     pub no_auto_pick: bool,
+    /// Durée de vie commencée des objets à durée (colonnes `remain_ms`, `expire_at` : `lifetime.rs`), par IID.
+    pub life: BTreeMap<u32, super::lifetime::Life>,
 }
 
 /// Toutes les cases d'une grille (sac, ligne, colonne), dans l'ordre.
@@ -583,6 +627,12 @@ impl Inventory {
                 stored_status::SUB_INVENTORY => inv.sub.insert(iid, item),
                 _ => inv.items.insert(iid, item),
             };
+        }
+        // Objets à durée commencés (lifetime.rs) ; rien si les colonnes manquent (base pas encore migrée).
+        if let Ok(rows) = db.characters.rows("SELECT id, remain_ms, expire_at FROM character_items WHERE character_id = ? AND (remain_ms <> 0 OR expire_at <> 0)", (character_id,)).await {
+            for r in &rows {
+                inv.life.insert(col(r, "id"), super::lifetime::Life { remain_ms: col(r, "remain_ms"), expire_at: col(r, "expire_at") });
+            }
         }
         // Ramassage automatique du sac du familier : actif si la colonne manque (base pas encore migrée).
         if let Ok(Some(r)) = db.characters.first("SELECT pet_auto_pick FROM characters WHERE id = ?", (character_id,)).await {
@@ -748,6 +798,7 @@ impl Inventory {
             m.remove(&iid);
         }
         self.in_use.remove(&iid);
+        self.life.remove(&iid);
         db.characters.exec("DELETE FROM character_items WHERE id = ? AND character_id = ?", (iid, self.character_id)).await?;
         Ok(())
     }
@@ -761,7 +812,8 @@ impl Inventory {
             out.extend(convert_add(i, self.character_id));
         }
         for i in self.cash.values() {
-            out.push(item_add_of(i, self.character_id, item_status::CASH_INVENTORY, None));
+            let cash = super::lifetime::cash_mini_of(self, i.iid);
+            out.push(item_add_with_cash(i, self.character_id, item_status::CASH_INVENTORY, None, Some(cash)));
             out.extend(convert_add(i, self.character_id));
         }
         for i in self.equipment.values() {
@@ -852,6 +904,7 @@ impl Inventory {
         }
         self.holder(iid).map(|m| m.remove(&iid));
         self.in_use.remove(&iid);
+        self.life.remove(&iid);
         None
     }
 

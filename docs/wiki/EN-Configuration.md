@@ -42,6 +42,7 @@ unknown key (typo) is reported.
 | `WorldServer.Name` / `WorldServer.Group` | `ArchCore` | World and group name in the server list |
 | `WorldServer.PublicAddress` | `127.0.0.1` | World address sent to the client. Change it for a server reachable from the Internet. On startup, the world writes `PublicAddress:Port` to the `world` table, under `WorldServer.Name` and `WorldServer.Group` (23 characters max) |
 | `Client.DataDir` | `../client/ArchLord/Game` | The client's `Game` folder, used by the import and translation tools |
+| `Client.TablesDir` | *(empty)* | Folder written by `archcore export-client-tables`: the world server announces its `tables.toml` fingerprint to ArchRust clients (`client-tables/1` capability); empty: nothing announced |
 | `World.Language` | `fr` | NPC title language (`data/i18n/npc-titles-<lang>.json`); `en` keeps them in English |
 | `World.ViewRadius` | `8000` | Range of normal chat and `SAY` AddOn messages. NPCs, monsters, players and ground items are seen by sector (see [[Network protocol|EN-Network-protocol]]) |
 | `World.MonsterDensity` | `1` | Multiplies the number of monsters at each spawn point (rounded, at least 1). The server tables are sparse in places: 2 or 3 come closer to the original game's density |
@@ -71,6 +72,11 @@ unknown key (typo) is reported.
 | `Recall.AllowInCombat` | `0` | 1 = recall allowed in combat, for the caster and for the member; always refused when dead, in a siege at war, in a Shrine during a battle, in the Battle Square and in regions without resurrection (careful ArchCore choice) |
 | `Recall.ExcludedItems` | `4817` | TIDs of usage 15 items that do not recall (Bead of Nothernland, unrelated description) |
 | `Social.MinIntervalMs` | `1000` | Minimum delay between two social actions of a player; a closer one is ignored (anti-flood, ArchCore's choice) |
+| `Party.InviteLevelGap` | `10` | Party invitation refused (management op 13) when the invitee is at least that many levels below the inviter; 0 = no rule |
+| `Party.EffectRange` | `1600` | Party effect area: members closer than that many units to the leader (original range unknown: the spheres' one) |
+| `Party.BonusPercentPerMember` | `2` | Party bonus per member in the area beyond the first: percent of damage (archer or other leader) or defense (knight leader); proposal to be validated in game |
+| `Party.BonusPointsPerMember` | `50` | Party bonus of a mage leader: max HP and MP per member in the area beyond the first |
+| `Party.BonusMaxLevelGap` | `20` | No party bonus when the level gap between its members exceeds this value |
 | `Bank.SecretSafeMaxExtraPages` | `3` | Secret Safe (usage 21): extra bank pages (1 to 3) beyond which it is refused; 3 = the client's refusal (4 pages), item 3916's text announces 3 pages (2). ArchCore's choice |
 | `Convert.LuckyScrollBonus` | `0` | Switched-on Fortune Manual (usage 25): percentage points added to the success of a stone or rune setting and of a reinforcement (0 to 100), one used up per attempt; original value unknown, 0: no effect |
 | `ReturnToLogin.LoginAddress` | empty | "host:port" address of the login server given to the client to go back to character selection; empty: the client uses the one it logged in to |
@@ -92,6 +98,18 @@ unknown key (typo) is reported.
 | `Archlord.PortalMinutes` | `10` | Rensphere war: length of the "portal" step before the "fight" step |
 | `Archlord.SkyMinutes` | `5` | Length of the 12-hour clock shift of Day and Night |
 | `Tax.PayoutDay`, `Tax.PayoutHour` | `1`, `0` | Weekly payout of the region taxes: day (1 Monday to 7 Sunday) and hour (`World.TimeZone`) |
+| `Rules.Heroic` | `1` | Heroic system (`heroic.rs`): heroic part of hits and skills (heroic damage minus heroic defense, resistance chosen by the attacker's class, 80 % at most, against a player only). Proposed rule |
+| `Rules.Ammunition` | `1` | Ammunition (`ammo.rs`): one arrow (194) or bolt (238) per hit with a bow or crossbow, `cost_arrow` per skill; without any, result 2 / 3 or refusal 12 |
+| `Rules.WeaponRequirement` | `1` | Weapon required by a skill (`requirement.rs`, `requirement` column): cast refused (action 8), passive without effect |
+| `Rules.ItemLifetime` | `1` | Timed items (`lifetime.rs`): play time (`RemainTime`) and expiry date (`ExpireTime`) of Cash items counted down; at the end, message 5 and the item is consumed |
+| `Rules.DeathStrike` | `1` | Death Strike: instant death of an ordinary monster (neither boss nor siege object), the passive's `death` chance |
+| `Rules.ForcedMove` | `1` | Skill forced moves (`move_pos`: target pulled into contact, monster rush; Body Check knockback) |
+| `Rules.KnockbackUnit` | `100` | Game units per `move_distance` point (Body Check knockback; the table's unit is unknown) |
+| `Rules.ShrinkPercent` | `30` | Shrink (status 25): percent of attack range and physical damage removed (ArchCore's choice) |
+| `Rules.ConfusionIntervalMs` | `1500` | Confusion and berserk of a monster (statuses 21 and 24): delay between two hits on a random or the nearest target |
+| `Rules.ProvokeSeconds` | `10` | Provoke, Zone Provoke: how long the monster keeps the caster as its target |
+| `Rules.MonsterKin` | `1` | Monster summons, followers and reinforcement (`ai_kin.rs`, aidatatable `SummonTID`, `FollowerTID`, `PinchMonster` columns) |
+| `Rules.PinchHpPercent` | `30` | HP threshold (percent) under which a monster calls its reinforcement (`PinchMonster`), once per life |
 | `AntiCheat.Enabled` | `1` | Server-side anti-cheat checks: positions sent by the client and normal hit rate (see [[Administration|EN-Administration]]); `0`: off (the packet limit stays) |
 | `AntiCheat.Action` | `log` | Sanction for a player reaching `AntiCheat.Threshold` anomalies: `log` (journal only), `kick` (disconnect, no reconnection wait) or `ban` (account ban, then disconnect) |
 | `AntiCheat.Threshold`, `AntiCheat.WindowMinutes` | `10`, `10` | Anomalies of one character within the sliding window (minutes) that trigger the sanction |

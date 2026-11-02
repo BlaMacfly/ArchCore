@@ -1,10 +1,11 @@
-//! Raffinage : recettes de `RefineryItem2.txt`, la table que lit `Archonia.exe` (à défaut,
-//! `refineryrecipetable.txt` des tables du serveur d'origine, sans les colonnes « Keep »).
+//! Raffinage : recettes de `refineryrecipetable.txt`, la table de l'épisode 8 (`archcore import`) ;
+//! `RefineryItem2.txt` d'Archonia n'est plus lue.
 //!
 //! ```text
 //!   Recette : identifiant, ingrédients (« Resource TID » et « Resource Count »), prix en or (« Combine Use
-//!        Price »), ce que l'objet produit garde de l'équipement fourni (« Keep Reinforcement Level », « Keep
-//!        Item Socket Count », « Keep Socketed Items », « Keep Item Options »). Ses « MakeItem Total » lignes,
+//!        Price »). Les colonnes « Keep … » d'Archonia (ce que l'objet produit garde de l'équipement fourni)
+//!        manquent à la table de l'épisode 8 : l'objet produit est neuf, ses options et ses sockets tirés comme
+//!        ceux d'un objet créé. Ses « MakeItem Total » lignes,
 //!        de même identifiant, sont autant d'issues équiprobables : objet produit et quantité, objet bonus,
 //!        nombre d'options (« Item Option Min/Max ») et de sockets (« Socket Inchant Min/Max ») de l'objet
 //!        produit. Une recette se reconnaît à ses ingrédients, dans n'importe quel ordre.
@@ -29,19 +30,9 @@ pub struct Outcome {
     pub sockets: (i64, i64),
 }
 
-/// Ce que l'objet produit garde de l'équipement fourni.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct Keep {
-    pub level: bool,
-    pub sockets: bool,
-    pub filled: bool,
-    pub options: bool,
-}
-
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Recipe {
     pub id: u32,
-    pub keep: Keep,
     /// Ingrédients triés par TID : (TID, quantité).
     pub resources: Vec<(u32, i64)>,
     pub price: i64,
@@ -81,11 +72,10 @@ impl Recipes {
         if spheres.is_empty() {
             crate::warn!("raffinage : aucune sphère d'alchimie dans refinery_object (lancer archcore import)");
         }
-        for name in ["RefineryItem2.txt", "refineryrecipetable.txt"] {
-            let row = db.world.first("SELECT data FROM client_table WHERE name = ? AND row_idx = 0", (name,)).await?;
-            let Some(text) = row.and_then(|r| serde_json::from_str::<String>(&col::<String>(&r, "data")).ok()) else { continue };
+        let row = db.world.first("SELECT data FROM client_table WHERE name = 'refineryrecipetable.txt' AND row_idx = 0", ()).await?;
+        if let Some(text) = row.and_then(|r| serde_json::from_str::<String>(&col::<String>(&r, "data")).ok()) {
             let r = Self { spheres, ..Self::parse(&text) };
-            crate::info!("raffinage : {} recette(s) ({name}), {} sphère(s) d'alchimie", r.by_id.len(), r.spheres.len());
+            crate::info!("raffinage : {} recette(s) (refineryrecipetable.txt), {} sphère(s) d'alchimie", r.by_id.len(), r.spheres.len());
             return Ok(r);
         }
         crate::warn!("raffinage : aucune table de recettes dans client_table (lancer archcore import)");
@@ -119,10 +109,8 @@ impl Recipes {
                 options: (n(col("Item Option Min")), n(col("Item Option Max"))),
                 sockets: (n(col("Socket Inchant Min")), n(col("Socket Inchant Max"))),
             };
-            let flag = |name: &str| n(col(name)) != 0;
             let e = out.by_id.entry(id).or_insert_with(|| Recipe {
                 id,
-                keep: Keep { level: flag("Keep Reinforcement Level"), sockets: flag("Keep Item Socket Count"), filled: flag("Keep Socketed Items"), options: flag("Keep Item Options") },
                 resources: normalize(resources),
                 price: n(col("Combine Use Price")),
                 timer_ms: n(col("timer(msec)")),
@@ -300,14 +288,6 @@ async fn refine(ctx: &super::WorldCtx, st: &mut super::WorldState, sid: u32, id:
         p.send_raw(packet(op::RESULT, cid, Some(result::FULL_INVENTORY), None, None));
         return Ok(());
     }
-    // Équipement fourni dont l'objet produit garde les caractéristiques (« Keep ») : celui du même modèle,
-    // sinon le premier équipement des ingrédients.
-    let source = {
-        let ingredients: Vec<super::items::InventoryItem> = take.iter().filter_map(|(iid, _)| p.inventory.get(*iid).cloned()).collect();
-        let equip = |i: &&super::items::InventoryItem| ctx.catalog.get(i.tid).is_some_and(|d| d.equip.is_some());
-        let first = recipe.outcomes.first().map(|o| o.tid).unwrap_or(0);
-        ingredients.iter().find(|i| i.tid == first && equip(i)).or_else(|| ingredients.iter().find(equip)).cloned()
-    };
     for (iid, n) in &take {
         match p.inventory.consume(&ctx.db, *iid, *n).await? {
             Some(left) => p.send_raw(item_count(&left, cid)),
@@ -333,7 +313,7 @@ async fn refine(ctx: &super::WorldCtx, st: &mut super::WorldState, sid: u32, id:
             if created {
                 let (options, conv) = {
                     let mut rng = rand::thread_rng();
-                    produced(ctx, tid, main.then_some(&outcome), main.then_some(recipe.keep), source.as_ref(), &mut rng)
+                    produced(ctx, tid, main.then_some(&outcome), &mut rng)
                 };
                 p.inventory.set_generated(&ctx.db, it.iid, &options, conv.sockets).await?;
                 if conv.level > 0 || !conv.filled.is_empty() {
@@ -363,10 +343,9 @@ async fn refine(ctx: &super::WorldCtx, st: &mut super::WorldState, sid: u32, id:
     Ok(())
 }
 
-/// Options et conversion d'un objet produit : repris de l'équipement fourni selon « Keep », sinon tirés
-/// (options entre « Item Option Min » et « Max », sockets entre « Socket Inchant Min » et « Max », comme
-/// pour un objet neuf ; à défaut, ceux d'un objet neuf).
-fn produced(ctx: &super::WorldCtx, tid: u32, outcome: Option<&Outcome>, keep: Option<Keep>, source: Option<&super::items::InventoryItem>, rng: &mut impl Rng) -> (Vec<u16>, super::convert::ItemConvert) {
+/// Options et conversion d'un objet produit, neuf : options entre « Item Option Min » et « Max », sockets entre
+/// « Socket Inchant Min » et « Max » ; à défaut, ceux d'un objet créé.
+fn produced(ctx: &super::WorldCtx, tid: u32, outcome: Option<&Outcome>, rng: &mut impl Rng) -> (Vec<u16>, super::convert::ItemConvert) {
     let Some(e) = ctx.catalog.get(tid).and_then(|d| d.equip.as_ref()) else { return (Vec::new(), Default::default()) };
     let level = e.level.max(1);
     let (mut options, sockets) = super::options::generate(&ctx.catalog, &ctx.options, tid, level, rng);
@@ -378,21 +357,6 @@ fn produced(ctx: &super::WorldCtx, tid: u32, outcome: Option<&Outcome>, keep: Op
         }
         if o.sockets.1 > 0 {
             conv.sockets = super::options::roll_count(&ctx.options.socket_rates, o.sockets.0.max(1), o.sockets.1, rng).clamp(0, super::convert::MAX_SOCKETS as i64) as u8;
-        }
-    }
-    if let (Some(k), Some(src)) = (keep, source) {
-        if k.options {
-            options = src.options.clone();
-        }
-        if k.level {
-            conv.level = src.conv.level;
-        }
-        if k.sockets {
-            conv.sockets = conv.sockets.max(src.conv.sockets);
-        }
-        if k.filled {
-            conv.filled = src.conv.filled.clone();
-            conv.sockets = conv.sockets.max(conv.filled.len() as u8);
         }
     }
     (options, conv)
@@ -435,12 +399,13 @@ mod tests {
     }
 
     #[test]
-    fn format_du_client() {
+    fn colonnes_d_archonia_ignorees() {
+        // Colonnes « Keep … » d'Archonia : ignorées ; les ingrédients se repèrent par le nom de leur colonne.
         let t = "Recipe ID\tMakeItem Total\tKeep Skill Bonus\tKeep Reinforcement Level\tKeep Item Socket Count\tKeep Socketed Items\tKeep Item Options\tMakeItem TID\tMakeItem Name\tMakeItem Count\tMakeItem IsFail\tBonusItem TID\tBonusItem Name\tItem Option Min\tItem Option Max\tSocket Inchant Min\tSocket Inchant Max\tCombine Use Price\ttimer(msec)\tResource TotalCount\tResource TID\tResource Name\tResource Count\tResource TID\tResource Name\tResource Count\r\n\
 183\t1\t\t1\t\t1\t\t5429\tDagger\t1\t0\t\t\t1\t1\t1\t1\t5000\t\t2\t258\tStone\t1\t5429\tDagger\t1\r\n";
         let r = Recipes::parse(t);
         let d = &r.by_id[&183];
-        assert_eq!((d.keep, d.price, d.resources.clone()), (Keep { level: true, sockets: false, filled: true, options: false }, 5000, vec![(258, 1), (5429, 1)]));
+        assert_eq!((d.price, d.resources.clone()), (5000, vec![(258, 1), (5429, 1)]));
         assert_eq!(d.outcomes[0].options, (1, 1));
     }
 }

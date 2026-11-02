@@ -1,7 +1,7 @@
 # État et feuille de route
 
-> **Épisode.** Monde de l'épisode 8 « The Dark Revelation » (2012) et extensions d'Archonia ; systèmes de la
-> sortie d'origine. Détail par épisode : [[Épisode du jeu|FR-Episode]].
+> **Épisode.** Monde de l'épisode 8 « The Dark Revelation » (2012) ; valeurs de jeu des tables du serveur
+> d'origine de l'épisode 8 (ajouts d'Archonia écartés) ; systèmes de la sortie d'origine. Détail par épisode : [[Épisode du jeu|FR-Episode]].
 
 ## Fonctionne avec le vrai client
 
@@ -9,7 +9,7 @@
 - Poignée de main chiffrée, liste des mondes, connexion au compte.
 - Liste des personnages et écran de création.
 - Entrée dans le monde, avec un village de départ par race.
-- Apparition des 567 PNJ autour du joueur, avec titres traduits.
+- Apparition des PNJ autour du joueur (557 depuis le passage aux valeurs de l'épisode 8), avec titres traduits.
 - Interface du client en français, accents compris (traduction en cours).
 - Déplacement du joueur, avec sauvegarde de la position.
 - Dialogue avec les PNJ : les fonctions de npc.ini (dialogue, boutique, quêtes) sont envoyées avec
@@ -22,7 +22,7 @@
 
 - Créatures : 36 960 monstres placés d'après les tables du serveur d'origine, hors du sol infranchissable,
   avec leurs caractéristiques (niveau, vitesses, PV). Vus et ciblés en jeu lors d'un premier essai ;
-  l'envoi des PV, ajouté depuis, reste à vérifier. Niveaux repris du client Archonia et réapparition des
+  l'envoi des PV, ajouté depuis, reste à vérifier. Niveaux du modèle dans les tables de l'épisode 8 et réapparition des
   boss d'après sa fenêtre des boss ; bilan de fidélité dans [[Épisode du jeu|FR-Episode]].
 - Combat au corps à corps contre les monstres : approche, coups (chance de toucher, dégâts selon la
   classe), mort, expérience et montée de niveau (caractéristiques, PV et PM selon GrowUpFactor), cadavre
@@ -207,7 +207,8 @@
   critiques et à l'étourdissement) envoyé au joueur à l'entrée en jeu et à chaque changement de ses effets, part des
   compétences seule (passives comprises) : le client ajoute lui-même celle des objets. Résistance aux critiques
   (`critical_defence_percent2`, option `Critical_Defense_Rate`) ôtée de la chance de coup critique de l'assaillant
-  (règle déduite) ; résistance à l'étourdissement (`stun_resistance`, `StunResistance`) lue, affichée seulement ;
+  (règle déduite) ; résistance à l'étourdissement (`stun_resistance`, `StunResistance`) propre à Archonia, plus lue
+  depuis le 2 novembre 2026 ;
   option à `Critical` sans `skill_type` (13822) comptée en dégâts critiques, comme le client. Validé au simulateur le
   1er novembre 2026 (scénario `ignore`), à confirmer en jeu avec la fenêtre d'ArchRust.
 - Consommables, mort et oubli des compétences (`world/consumables.rs`) : objets à compétence (ragoûts, potions de
@@ -269,6 +270,58 @@
   (11, aucune compétence dans les données), Map of Asylum (16, rien au serveur), Plastic Surgeon Coupon (32), parchemins
   de quête (33) ; Sentence Combination (23) : effet inconnu. Côté ArchRust : bouton « Reset Selected » (op 13),
   glisser du Release of Agreement (op 12), grille Ex, refus local `BankSlotFull`.
+- Règles portées par les tables de l'épisode 8 (`combat.rs`, `effects.rs`, `skills.rs`, `options.rs`, `ai.rs`,
+  `regions.rs`) : esquive des monstres (`DR` de CharacterDataTable dans la chance de toucher) ; renforcements
+  `point.dmg_min/max_*` (dégâts élémentaires), `point.physical_resistance` et option `PhysicalAttackResist` (dégâts
+  physiques reçus réduits, 80 % au plus pour un joueur ; `Physical_Resistance` des monstres), `point.skill_block`,
+  option `SkillBlockRate` et `Skill_Block` des monstres (compétence offensive bloquée, 80 % au plus), `point.atk_range`
+  (mètres) ; préférence de cible des monstres (`HateRace`, `HateClass` d'aidatatable : dégâts pesés, distance divisée
+  pour un préventif) ; incantation et relance réduites (`point.skill_cast`, `point.skill_delay`, options `skill_cast`,
+  `skill_delay` aux facteurs d'attaque 3 et 4, plafond `applied_cooldown_cap`) et PM (`cost_mp_decrease`) ; options
+  `Ignore_*` (sept pénétrations, en points), `bonus_exp`, `bonus_money`, `bonus_drop_rate` (pour cent) et
+  `Add_Debuff_Duration` ; `bonus_money` des compétences ; blocage (options `BlockRate`) et esquive des options contre
+  les monstres et entre joueurs ; second coup de Skill_Const2 (`damage_*2`, 15 compétences) ; régions
+  `DisableSummon` (rappel de groupe), `DisableGo` (`/go`), `DisableParty`, `DisableLogin` (placé au point de la région
+  ou au village), `ItemSection` avec `Item_section_num` (objets qui ne comptent pas dans Heaven's Hell) et
+  `ResurrectionX/Z` (résurrection dans la région). `Item_Level_Min/Max` des options ne règlent pas le tirage (ni
+  Archonia ni la table d'origine ne s'en servent). Colonnes propres à Archonia : les 589 options à `CategoryName`, toutes
+  d'Archonia, ne sont jamais tirées (connues seulement pour un objet déjà en base) ; plus lues :
+  `StunResistance` et `magnify.stun_resistance` (case 0xbc du bloc des caractéristiques secondaires à 0) ;
+  `Critical_Defense_Rate` de CharacterDataTable n'était pas lu. Formules choisies, aucun binaire ne les montrant
+  (voir [[Protocole réseau|FR-Protocole-reseau]]). Tests unitaires ; scénarios du simulateur repassés le 2 novembre 2026 (série complète : seuls `divide` et `guildstage` échouent, comme avant), à confirmer en jeu.
+- Règles restantes des données (2 novembre 2026, valeurs des tables de l'épisode 8 ; propositions réglables `Rules.*`,
+  aucun binaire ne les montrant) : système héroïque (`heroic.rs` : dégâts et défense héroïques des objets, options,
+  effets et monstres, résistances mêlée, distance, magie des effets ; part héroïque au point 19 des coups normaux, des
+  compétences `dmg_heroic`, `dmg_heroic_percent`, pénalité d'écart de niveau, et des dégâts sur la durée
+  `dot_dmg_heroic`) ; munitions (`ammo.rs` : flèche 194 ou carreau 238 par coup à l'arc ou à l'arbalète, `cost_arrow`
+  des compétences, résultats 2 et 3, refus 12, katariya et chakram sans munition) ; arme exigée (`requirement.rs` :
+  masque de `requirement`, refus action 8, passives sans effet, désarmement) ; objets à durée (`lifetime.rs` : temps
+  de jeu `RemainTime` décompté en usage, date `ExpireTime` absolue, mini Cash complet, op 26, message système 5 puis
+  objet consommé ; ni échange ni vente des objets de quête et des objets à durée commencée) ; états (codes 26 à 33
+  d'Archonia ramenés à la valeur EP8 de la compétence, 9 halte, 10 invisibilité ; règles de 5, 6, 7, 18, 19, 21, 23,
+  24, 25 : `status_rules.rs`) ; effets de compétence (`skill_extra.rs` : `move_pos`, recul de Body Check, Death Strike
+  résultat 13, zones au sol `at_field` des compétences et des invocations, enchaînements 3 et 4, compétences
+  additionnelles des invocations, `skill_levelup` 1, 2, 4, détection, Redemption par AGPMCHARACTER op 24, `disturb`,
+  `target_restriction`, provocation) ; IA des monstres (`ai_kin.rs` : invocations `SummonTID`, suiveurs `FollowerTID`,
+  renfort `PinchMonster`) ; `PDR` des bottes dans l'esquive, bonus de caractéristiques des anneaux, `QuestItem` = numéro
+  de quête (objet détruit à l'abandon et à la fin de la quête). Non faits : endurance des familiers (le client
+  d'Archonia ne l'affiche pas : familier « Immortal »), apprivoisement (aucune compétence dans les tables), pause des
+  objets à durée (op 25), enchaînements 1, 2, 6, 7, 8, renvoi héroïque, `Skill_plus` (champ 21 : l'option
+  `skill_levelup` vaut toujours pour toutes les compétences). Tests unitaires ; scénarios `ammo` et `lifetime`
+  (nouveaux), les scénarios à compétences portent désormais une arme ; à confirmer en jeu.
+- Ops de protocole manquantes (relevé d'Archonia du 2 novembre 2026) : quêtes (op 14 suivi à l'écran, 10 au plus,
+  enregistré dans `character_quests.journal` et renvoyé au 5ᵉ entier de l'op 4 ; ops 8 et 9 inventaire plein) ;
+  groupe (op 2 : zone d'effet et bonus du groupe, règles réglables `Party.*` ; gestion ops 9, 12 et 13, refus d'un invité
+  d'au moins 10 niveaux de moins) ; PvP (ops 6, 8, 10, 12, 14, 16 : listes d'ennemis et guildes ennemies, qui se frappent
+  sans Ctrl hors zone sûre ; portail refusé à un joueur qui a des ennemis, op 18 code 11) ; combats de guildes (op 14
+  combattants choisis pour les types 3 et 4, ops 26 et 27 combattants et listes, op 46 manche 1 ; op 42 trêve refusée) ;
+  compétences (op 6 liste des effets, op 15 recharges remises à zéro quand les effets tombent, op 14 bonus de niveau
+  des options `skill_levelup`, appliqué aux lancements) ; discussion (op 4 destinataire absent, ops 1 à 3 blocage des
+  chuchotements) ; objets (op 15 or jeté au sol, sans propriétaire ; op 28 recharge par modèle) ; AGPMCHARACTER op 8
+  avant de fermer une session reprise par une autre connexion ; portails (ops 2, 3 et 6). Écartées : quêtes 11 à 13,
+  objets 8 et 29, compétences 9, 10, 16 et 17, PvP 17. Tests unitaires ; scénarios `quest`, `party`, `pk`, `pvp`,
+  `guildbattle`, `guildrelation`, `chat` et `gold` (nouveau) au simulateur le 2 novembre 2026, à confirmer en jeu
+  (règles du bonus du groupe en particulier).
 - Client ArchRust ([dépôt à part](https://github.com/BlaMacfly/ArchRust)) : combat (attaque, coups, mort, résurrection, butin), groupes, autres
   joueurs, inventaire et équipement, PNJ (dialogue, boutique, banque et achat de pages, quêtes), compétences
   (instructeurs, lancement, barre de raccourcis), portails de téléportation (fenêtre et chargement d'origine, confirmation des zones de combat entre joueurs,
@@ -290,6 +343,13 @@
   [[Administration|FR-Administration]].
 
 ## Prochaines étapes
+
+0. Valeurs de l'épisode 8 (2 novembre 2026) : import (valeurs des tables du serveur d'origine, noms du client,
+   résumé par table), export des tables pour ArchRust (`archcore export-client-tables`, empreinte annoncée par
+   la capacité `client-tables/1`), migration des personnages (`archcore migrate-ep8`, quarantaine réversible)
+   faits ; série complète du simulateur repassée. Restent les essais en jeu (infobulles, prix, délais de
+   relance, raffinage, portails, quêtes restantes), puis la bascule du serveur principal (réimport,
+   `migrate-ep8 --apply`, export) avec l'accord de l'utilisateur, et l'équilibrage façon épisode 8.
 
 1. Création complète d'un personnage et visibilité entre deux joueurs : vérifiées le 25 octobre 2026 avec
    deux clients ArchRust sur le serveur de test (création, entrée à Golundo, refus d'un nom déjà pris,

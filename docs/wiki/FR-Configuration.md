@@ -42,6 +42,7 @@ défaut, avec un avertissement dans le journal ; une clé inconnue (faute de fra
 | `WorldServer.Name` / `WorldServer.Group` | `ArchCore` | Nom du monde et de son groupe dans la liste des serveurs |
 | `WorldServer.PublicAddress` | `127.0.0.1` | Adresse du monde envoyée au client. À changer pour un serveur accessible depuis Internet. Au démarrage, le monde inscrit `PublicAddress:Port` dans la table `world`, sous `WorldServer.Name` et `WorldServer.Group` (23 caractères au plus) |
 | `Client.DataDir` | `../client/ArchLord/Game` | Dossier `Game` du client, utilisé par les outils d'import et de traduction |
+| `Client.TablesDir` | *(vide)* | Dossier écrit par `archcore export-client-tables` : le serveur monde annonce aux clients ArchRust l'empreinte de son `tables.toml` (capacité `client-tables/1`) ; vide : rien d'annoncé |
 | `World.Language` | `fr` | Langue des titres de PNJ (`data/i18n/npc-titles-<langue>.json`) ; `en` les laisse en anglais |
 | `World.ViewRadius` | `8000` | Portée de la discussion normale et des messages d'AddOn `SAY`. PNJ, monstres, joueurs et objets au sol se voient par secteurs (voir [[Protocole réseau|FR-Protocole-reseau]]) |
 | `World.MonsterDensity` | `1` | Multiplie le nombre de monstres de chaque point d'apparition (arrondi, au moins 1). Les tables du serveur sont peu peuplées par endroits : 2 ou 3 rapprochent de la densité du jeu d'origine |
@@ -71,6 +72,11 @@ défaut, avec un avertissement dans le journal ; une clé inconnue (faute de fra
 | `Recall.AllowInCombat` | `0` | 1 = rappel permis en combat, du lanceur comme du membre ; toujours refusé au mort, en siège en guerre, dans un Shrine en combat, dans la Battle Square et dans les régions sans résurrection (choix prudent d'ArchCore) |
 | `Recall.ExcludedItems` | `4817` | TID des objets d'usage 15 qui ne rappellent pas (Bead of Nothernland, description sans rapport) |
 | `Social.MinIntervalMs` | `1000` | Délai minimal entre deux actions sociales d'un joueur ; une action plus rapprochée est ignorée (anti-inondation, choix d'ArchCore) |
+| `Party.InviteLevelGap` | `10` | Invitation de groupe refusée (gestion op 13) quand l'invité a au moins tant de niveaux de moins que l'invitant ; 0 = pas de règle |
+| `Party.EffectRange` | `1600` | Zone d'effet du groupe : membres à moins de tant d'unités du chef (portée d'origine inconnue : celle des sphères) |
+| `Party.BonusPercentPerMember` | `2` | Bonus du groupe par membre dans la zone au-delà du premier : pour cent de dégâts (chef archer ou autre) ou de défense (chef chevalier) ; proposition à valider en jeu |
+| `Party.BonusPointsPerMember` | `50` | Bonus du groupe d'un chef mage : PV et PM maximaux par membre dans la zone au-delà du premier |
+| `Party.BonusMaxLevelGap` | `20` | Aucun bonus du groupe quand l'écart de niveau entre ses membres dépasse cette valeur |
 | `Bank.SecretSafeMaxExtraPages` | `3` | Secret Safe (usage 21) : pages de banque en plus (1 à 3) au-delà desquelles il est refusé ; 3 = le refus du client (4 pages), le texte de l'objet 3916 annonce 3 pages (2). Choix d'ArchCore |
 | `Convert.LuckyScrollBonus` | `0` | Fortune Manual (usage 25) allumé : points de pour cent ajoutés à la réussite d'un sertissage de pierre ou de rune et d'un renforcement (0 à 100), un exemplaire consommé par tentative ; valeur d'origine inconnue, 0 : sans effet |
 | `ReturnToLogin.LoginAddress` | vide | Adresse « hôte:port » du serveur de connexion donnée au client pour revenir à la sélection des personnages ; vide : le client reprend celle où il s'est connecté |
@@ -92,6 +98,18 @@ défaut, avec un avertissement dans le journal ; une clé inconnue (faute de fra
 | `Archlord.PortalMinutes` | `10` | Guerre de Rensphere : durée de l'étape « portail » avant l'étape « combat » |
 | `Archlord.SkyMinutes` | `5` | Durée du décalage de 12 h de l'horloge par Day and Night |
 | `Tax.PayoutDay`, `Tax.PayoutHour` | `1`, `0` | Versement hebdomadaire des taxes des régions : jour (1 lundi à 7 dimanche) et heure (fuseau `World.TimeZone`) |
+| `Rules.Heroic` | `1` | Système héroïque (`heroic.rs`) : part héroïque des coups et des compétences (dégâts héroïques moins défense héroïque, résistance selon la classe de l'assaillant, 80 % au plus, contre un joueur seulement). Règle proposée |
+| `Rules.Ammunition` | `1` | Munitions (`ammo.rs`) : une flèche (194) ou un carreau (238) par coup à l'arc ou à l'arbalète, `cost_arrow` par compétence ; sans munition, résultat 2 / 3 ou refus 12 |
+| `Rules.WeaponRequirement` | `1` | Arme exigée par une compétence (`requirement.rs`, colonne `requirement`) : lancement refusé (action 8), passive sans effet |
+| `Rules.ItemLifetime` | `1` | Objets à durée (`lifetime.rs`) : temps de jeu (`RemainTime`) et date d'expiration (`ExpireTime`) des objets Cash décomptés ; à la fin, message 5 et objet consommé |
+| `Rules.DeathStrike` | `1` | Death Strike : mort instantanée d'un monstre ordinaire (ni boss, ni objet de siège), chance `death` de la passive |
+| `Rules.ForcedMove` | `1` | Déplacements forcés des compétences (`move_pos` : cible tirée au contact, ruée d'un monstre ; recul de Body Check) |
+| `Rules.KnockbackUnit` | `100` | Unités du jeu par point de `move_distance` (recul de Body Check ; unité de la table inconnue) |
+| `Rules.ShrinkPercent` | `30` | Rétrécissement (état 25) : pour cent de portée d'attaque et de dégâts physiques ôtés (choix d'ArchCore) |
+| `Rules.ConfusionIntervalMs` | `1500` | Confusion et berserk d'un monstre (états 21 et 24) : délai entre deux coups sur une cible tirée au hasard ou la plus proche |
+| `Rules.ProvokeSeconds` | `10` | Provoke, Zone Provoke : durée pendant laquelle le monstre garde le lanceur pour cible |
+| `Rules.MonsterKin` | `1` | Invocations, suiveurs et renfort des monstres (`ai_kin.rs`, colonnes `SummonTID`, `FollowerTID`, `PinchMonster` d'aidatatable) |
+| `Rules.PinchHpPercent` | `30` | Seuil de PV (pour cent) sous lequel un monstre appelle son renfort (`PinchMonster`), une fois par vie |
 | `AntiCheat.Enabled` | `1` | Contrôles anti-triche côté serveur : positions envoyées par le client et cadence des coups normaux (voir [[Administration|FR-Administration]]) ; `0` : désactivés (la limite de paquets reste) |
 | `AntiCheat.Action` | `log` | Sanction d'un joueur qui atteint `AntiCheat.Threshold` anomalies : `log` (journal seul), `kick` (déconnexion, sans attente de reconnexion) ou `ban` (bannissement du compte, puis déconnexion) |
 | `AntiCheat.Threshold`, `AntiCheat.WindowMinutes` | `10`, `10` | Anomalies d'un personnage dans la fenêtre glissante (minutes) qui déclenchent la sanction |

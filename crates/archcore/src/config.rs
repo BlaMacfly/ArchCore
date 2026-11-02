@@ -119,6 +119,18 @@ pub struct WorldConfig {
     /// Actions sociales (`world/social.rs`) : délai minimal entre deux actions d'un joueur, en millisecondes
     /// (`Social.MinIntervalMs`, 1000 ; anti-inondation, choix d'ArchCore).
     pub social_min_interval_ms: u64,
+    /// Groupes (`world/party.rs`) : invitation refusée (gestion op 13) quand l'invité a au moins tant de niveaux de moins
+    /// que l'invitant (`Party.InviteLevelGap`, 10, texte du client ; 0 : sans règle). Zone d'effet du groupe : membres à
+    /// moins de `Party.EffectRange` unités du chef (1600, portée des sphères ; inconnue). Bonus du groupe (op 2,
+    /// champ 9 ; règles d'origine inconnues, proposition à valider en jeu) : par membre dans la zone au-delà du premier,
+    /// `Party.BonusPercentPerMember` pour cent de dégâts (chef archer, ou d'une autre classe que chevalier et mage) ou
+    /// de défense (chef chevalier) (2), `Party.BonusPointsPerMember` PV et PM max (chef mage) (50) ; aucun quand l'écart
+    /// de niveau des membres dépasse `Party.BonusMaxLevelGap` (20, texte du client).
+    pub party_invite_level_gap: i32,
+    pub party_effect_range: f64,
+    pub party_bonus_percent: i64,
+    pub party_bonus_points: i64,
+    pub party_bonus_max_level_gap: i32,
     /// Secret Safe (`world/bank.rs`, objets d'usage 21) : pages de banque en plus au-delà desquelles il est refusé
     /// (`Bank.SecretSafeMaxExtraPages`, 3 : le refus du client, soit 4 pages ; le texte de l'objet 3916 annonce 3 pages,
     /// soit 2). Choix d'ArchCore.
@@ -179,6 +191,9 @@ pub struct WorldConfig {
     /// Interface SOAP d'administration (`soap/`, réglages `SOAP.*`).
     #[serde(skip)]
     pub soap: SoapConfig,
+    /// Règles de jeu proposées d'après les tables de l'épisode 8 (réglages `Rules.*`).
+    #[serde(skip)]
+    pub rules: RulesConfig,
 }
 
 /// Sanction d'un joueur qui cumule les anomalies (`AntiCheat.Action`).
@@ -239,6 +254,71 @@ impl Default for AntiCheatConfig {
             packet_burst: 500,
         }
     }
+}
+
+/// Règles de jeu que ni Archonia ni les tables ne tranchent (`Rules.*`) : chacune est une proposition d'après les colonnes
+/// de l'épisode 8, documentée dans son module et réglable ici. Lue partout par `rules()` (valeurs par défaut sans
+/// configuration, dans les tests).
+#[derive(Clone, Debug, PartialEq)]
+pub struct RulesConfig {
+    /// Système héroïque (`world/heroic.rs`) : parts héroïques des coups et des compétences (`Rules.Heroic`, 1).
+    pub heroic: bool,
+    /// Munitions (`world/ammo.rs`) : flèches et carreaux consommés à l'arc et à l'arbalète (`Rules.Ammunition`, 1).
+    pub ammunition: bool,
+    /// Arme exigée par une compétence (`world/requirement.rs`, colonne `requirement`) : lancement refusé, passive sans
+    /// effet (`Rules.WeaponRequirement`, 1).
+    pub weapon_requirement: bool,
+    /// Objets à durée (`world/lifetime.rs`) : temps de jeu et date d'expiration décomptés (`Rules.ItemLifetime`, 1).
+    pub item_lifetime: bool,
+    /// Death Strike (`world/skill_extra.rs`) : mort instantanée d'un monstre ordinaire (`Rules.DeathStrike`, 1).
+    pub death_strike: bool,
+    /// Déplacements forcés des compétences (`move_pos`, recul de Body Check : `Rules.ForcedMove`, 1) ; unités du jeu
+    /// par point de `move_distance` (`Rules.KnockbackUnit`, 100 : la table l'exprime sans doute en mètres).
+    pub forced_move: bool,
+    pub knockback_unit: f64,
+    /// Rétrécissement (état 25, `world/status_rules.rs`) : portée d'attaque et dégâts physiques ôtés, pour cent
+    /// (`Rules.ShrinkPercent`, 30).
+    pub shrink_percent: f64,
+    /// Confusion et berserk d'un monstre (états 21 et 24) : délai entre deux coups sur une cible tirée au hasard ou la
+    /// plus proche, en millisecondes (`Rules.ConfusionIntervalMs`, 1500).
+    pub confusion_interval_ms: u64,
+    /// Provocation (Provoke, Zone Provoke) : durée en secondes (`Rules.ProvokeSeconds`, 10).
+    pub provoke_secs: u64,
+    /// Suiveurs, invocations et renfort des monstres (`world/ai_kin.rs`, colonnes d'aidatatable : `Rules.MonsterKin`,
+    /// 1) ; seuil de PV du renfort, pour cent (`Rules.PinchHpPercent`, 30).
+    pub monster_kin: bool,
+    pub pinch_hp_percent: f64,
+}
+
+impl Default for RulesConfig {
+    fn default() -> Self {
+        RulesConfig {
+            heroic: true,
+            ammunition: true,
+            weapon_requirement: true,
+            item_lifetime: true,
+            death_strike: true,
+            forced_move: true,
+            knockback_unit: 100.0,
+            shrink_percent: 30.0,
+            confusion_interval_ms: 1500,
+            provoke_secs: 10,
+            monster_kin: true,
+            pinch_hp_percent: 30.0,
+        }
+    }
+}
+
+static RULES: std::sync::OnceLock<RulesConfig> = std::sync::OnceLock::new();
+
+/// Règles de jeu du serveur (`Rules.*`) : celles de la configuration chargée, sinon les valeurs par défaut.
+pub fn rules() -> &'static RulesConfig {
+    RULES.get_or_init(RulesConfig::default)
+}
+
+/// Fixe les règles de jeu (au démarrage du serveur monde ; sans effet si elles ont déjà été lues).
+pub fn set_rules(r: RulesConfig) {
+    let _ = RULES.set(r);
 }
 
 /// Interface SOAP d'administration (`soap/`), compatible avec celle d'AzerothCore et de TrinityCore : désactivée par défaut
@@ -312,6 +392,9 @@ pub struct DatabaseConfig {
 #[serde(default, rename_all = "camelCase")]
 pub struct ClientConfig {
     pub data_dir: String,
+    /// Dossier écrit par `archcore export-client-tables` : le serveur monde annonce l'empreinte de son `tables.toml`
+    /// (capacité `client-tables/1`) ; vide : rien d'annoncé.
+    pub tables_dir: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -377,6 +460,11 @@ impl Default for WorldConfig {
             recall_allow_in_combat: false,
             recall_excluded_items: vec![4817],
             social_min_interval_ms: 1000,
+            party_invite_level_gap: 10,
+            party_effect_range: 1600.0,
+            party_bonus_percent: 2,
+            party_bonus_points: 50,
+            party_bonus_max_level_gap: 20,
             bank_secret_safe_max_extra_pages: 3,
             convert_lucky_scroll_bonus: 0,
             return_login_address: String::new(),
@@ -402,6 +490,7 @@ impl Default for WorldConfig {
             tax_payout_hour: 0,
             anticheat: AntiCheatConfig::default(),
             soap: SoapConfig::default(),
+            rules: RulesConfig::default(),
         }
     }
 }
@@ -425,7 +514,7 @@ impl Default for DatabaseConfig {
 
 impl Default for ClientConfig {
     fn default() -> Self {
-        ClientConfig { data_dir: "../client/ArchLord/Game".into() }
+        ClientConfig { data_dir: "../client/ArchLord/Game".into(), tables_dir: String::new() }
     }
 }
 
@@ -587,6 +676,7 @@ fn read_world(s: &Settings, cfg: &mut Config) {
     let d = WorldConfig::default();
     read_common(s, cfg);
     cfg.client.data_dir = s.string("Client.DataDir", &ClientConfig::default().data_dir);
+    cfg.client.tables_dir = s.string("Client.TablesDir", "");
     let time_zone = match s.string("World.TimeZone", "local").to_ascii_lowercase().as_str() {
         "utc" => TimeZone::Utc,
         "local" => TimeZone::Local,
@@ -639,6 +729,21 @@ fn read_world(s: &Settings, cfg: &mut Config) {
         max_packets_per_second: s.parse("AntiCheat.MaxPacketsPerSecond", ac.max_packets_per_second),
         packet_burst: s.parse("AntiCheat.PacketBurst", ac.packet_burst),
     };
+    let rd = RulesConfig::default();
+    let rules = RulesConfig {
+        heroic: s.flag("Rules.Heroic", rd.heroic),
+        ammunition: s.flag("Rules.Ammunition", rd.ammunition),
+        weapon_requirement: s.flag("Rules.WeaponRequirement", rd.weapon_requirement),
+        item_lifetime: s.flag("Rules.ItemLifetime", rd.item_lifetime),
+        death_strike: s.flag("Rules.DeathStrike", rd.death_strike),
+        forced_move: s.flag("Rules.ForcedMove", rd.forced_move),
+        knockback_unit: s.parse("Rules.KnockbackUnit", rd.knockback_unit).clamp(0.0, 1000.0),
+        shrink_percent: s.parse("Rules.ShrinkPercent", rd.shrink_percent).clamp(0.0, 90.0),
+        confusion_interval_ms: s.parse("Rules.ConfusionIntervalMs", rd.confusion_interval_ms).max(300),
+        provoke_secs: s.parse("Rules.ProvokeSeconds", rd.provoke_secs).max(1),
+        monster_kin: s.flag("Rules.MonsterKin", rd.monster_kin),
+        pinch_hp_percent: s.parse("Rules.PinchHpPercent", rd.pinch_hp_percent).clamp(1.0, 99.0),
+    };
     let sd = SoapConfig::default();
     let soap = SoapConfig {
         enabled: s.flag("SOAP.Enabled", sd.enabled),
@@ -683,6 +788,11 @@ fn read_world(s: &Settings, cfg: &mut Config) {
         recall_allow_in_combat: s.flag("Recall.AllowInCombat", d.recall_allow_in_combat),
         recall_excluded_items: s.string("Recall.ExcludedItems", "4817").split(',').filter_map(|t| t.trim().parse().ok()).collect(),
         social_min_interval_ms: s.parse("Social.MinIntervalMs", d.social_min_interval_ms),
+        party_invite_level_gap: s.parse("Party.InviteLevelGap", d.party_invite_level_gap).max(0),
+        party_effect_range: s.parse("Party.EffectRange", d.party_effect_range).max(0.0),
+        party_bonus_percent: s.parse("Party.BonusPercentPerMember", d.party_bonus_percent).clamp(0, 30),
+        party_bonus_points: s.parse("Party.BonusPointsPerMember", d.party_bonus_points).clamp(0, 8000),
+        party_bonus_max_level_gap: s.parse("Party.BonusMaxLevelGap", d.party_bonus_max_level_gap).max(0),
         bank_secret_safe_max_extra_pages: s.parse("Bank.SecretSafeMaxExtraPages", d.bank_secret_safe_max_extra_pages).clamp(1, 3),
         convert_lucky_scroll_bonus: s.parse("Convert.LuckyScrollBonus", d.convert_lucky_scroll_bonus).min(100),
         return_login_address: s.string("ReturnToLogin.LoginAddress", &d.return_login_address),
@@ -712,6 +822,7 @@ fn read_world(s: &Settings, cfg: &mut Config) {
         tax_payout_hour: s.parse("Tax.PayoutHour", d.tax_payout_hour).min(23),
         anticheat,
         soap,
+        rules,
         language: s.string("World.Language", &d.language),
         rates,
         gm_command_levels,
@@ -862,6 +973,11 @@ pub fn to_values(cfg: &Config, which: Which) -> Vec<(String, String)> {
             put("Recall.AllowInCombat", (w.recall_allow_in_combat as i64).to_string());
             put("Recall.ExcludedItems", w.recall_excluded_items.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(","));
             put("Social.MinIntervalMs", w.social_min_interval_ms.to_string());
+            put("Party.InviteLevelGap", w.party_invite_level_gap.to_string());
+            put("Party.EffectRange", fmt_num(w.party_effect_range));
+            put("Party.BonusPercentPerMember", w.party_bonus_percent.to_string());
+            put("Party.BonusPointsPerMember", w.party_bonus_points.to_string());
+            put("Party.BonusMaxLevelGap", w.party_bonus_max_level_gap.to_string());
             put("Bank.SecretSafeMaxExtraPages", w.bank_secret_safe_max_extra_pages.to_string());
             put("Convert.LuckyScrollBonus", w.convert_lucky_scroll_bonus.to_string());
             put("ReturnToLogin.LoginAddress", w.return_login_address.clone());
@@ -896,12 +1012,26 @@ pub fn to_values(cfg: &Config, which: Which) -> Vec<(String, String)> {
             put("AntiCheat.AttackTolerance", fmt_num(ac.attack_tolerance));
             put("AntiCheat.MaxPacketsPerSecond", ac.max_packets_per_second.to_string());
             put("AntiCheat.PacketBurst", ac.packet_burst.to_string());
+            let r = &w.rules;
+            put("Rules.Heroic", (r.heroic as i64).to_string());
+            put("Rules.Ammunition", (r.ammunition as i64).to_string());
+            put("Rules.WeaponRequirement", (r.weapon_requirement as i64).to_string());
+            put("Rules.ItemLifetime", (r.item_lifetime as i64).to_string());
+            put("Rules.DeathStrike", (r.death_strike as i64).to_string());
+            put("Rules.ForcedMove", (r.forced_move as i64).to_string());
+            put("Rules.KnockbackUnit", fmt_num(r.knockback_unit));
+            put("Rules.ShrinkPercent", fmt_num(r.shrink_percent));
+            put("Rules.ConfusionIntervalMs", r.confusion_interval_ms.to_string());
+            put("Rules.ProvokeSeconds", r.provoke_secs.to_string());
+            put("Rules.MonsterKin", (r.monster_kin as i64).to_string());
+            put("Rules.PinchHpPercent", fmt_num(r.pinch_hp_percent));
             put("World.ExitOnRestart", (w.exit_on_restart as i64).to_string());
             put("SOAP.Enabled", (w.soap.enabled as i64).to_string());
             put("SOAP.IP", w.soap.ip.clone());
             put("SOAP.Port", w.soap.port.to_string());
             put("SOAP.MinGmLevel", w.soap.min_gm_level.to_string());
             put("Client.DataDir", cfg.client.data_dir.clone());
+            put("Client.TablesDir", cfg.client.tables_dir.clone());
             let mut races: Vec<&String> = w.start_positions.keys().collect();
             races.sort();
             for r in races {

@@ -10,7 +10,9 @@ dossier désigné par `ARCHCORE_CONF_DIR` (voir [[Configuration|FR-Configuration
 | `archcore db-init [--account nom mdp [mj]]` | Crée les bases, rejoue la base de référence et applique les migrations manquantes ; avec `--account`, crée ou met à jour un compte |
 | `archcore db-check` | Contrôle de cohérence, en lecture seule : versions du schéma, références entre bases, plages d'identifiants ; se termine en erreur sur une anomalie grave (voir [[Base de données\|FR-Base-de-donnees]]) |
 | `archcore decrypt [source] [destination]` | Déchiffre `Game/ini` (RC4, MD5(« 1111 »)) vers `data/client-ini` |
-| `archcore import [dossier] [--server dossier]` | Importe `data/client-ini` dans `archcore_world` (CP949 → UTF-8) et la hauteur du sol depuis `world/b*x.ma2` du dossier Game (`map_height`, quelques minutes) ; avec les tables du serveur d'origine (`--server`, ou `data/server-ini` s'il existe), importe aussi les apparitions de monstres et la carte serveur ; applique enfin la couche de contenu `content/*.sql` et note chaque source dans `import_run` |
+| `archcore import [dossier] [--server dossier]` | Importe dans `archcore_world` les valeurs de l'épisode 8 (tables du serveur d'origine, `--server` ou `data/server-ini`, exigées) avec les noms, visuels et tables purement clientes de `data/client-ini` (CP949 → UTF-8, voir « Valeurs de l'épisode 8 » plus bas), la hauteur du sol depuis `world/b*x.ma2` du dossier Game (`map_height`, quelques minutes), les apparitions de monstres, le butin et la carte serveur ; applique enfin la couche de contenu `content/*.sql`, note chaque source dans `import_run` et affiche le résumé des lignes gardées et écartées par table |
+| `archcore export-client-tables <dossier> [--game dossier]` | Écrit depuis la base monde les tables de valeurs au format du client, pour ArchRust (voir « Export pour le client ») |
+| `archcore migrate-ep8 [--apply \| --restore n]` | Rapport, puis migration des personnages existants vers les valeurs de l'épisode 8 (voir « Migration des personnages ») |
 | `archcore content` | Réapplique la couche de contenu `content/*.sql` à la base monde, sans réimporter (voir [[Base de données\|FR-Base-de-donnees]]) |
 | `archcore sim client\|move\|shop\|addon\|lang\|combat\|equip\|potion\|scroll\|patrol\|bag\|skill\|effects\|bank\|portal\|guild\|guildlead\|guildmark\|guildbattle\|guildrelation\|guildwarehouse\|guildstage\|gm\|trade\|quest\|mobskill\|counter\|partyskill\|mastery …` | Clients simulés (voir plus bas) |
 | `archcore i18n strings [Game]` | Liste les textes encore en anglais dans `data/i18n/pending-en.json` |
@@ -552,6 +554,59 @@ Le même personnage (`sima` / `SimA` par défaut) entre en jeu plusieurs fois av
 Il faut avoir lancé `archcore db-init` (tables `language`, `localized_text`, colonne `account.language`) ;
 `archcore i18n db fr` est facultatif, les titres de PNJ traduits servant de repli.
 
+## Valeurs de l'épisode 8
+
+`archcore import` prend les valeurs de jeu dans les tables du serveur d'origine (« tables EP8 ») et dans le
+client d'Archonia seulement les noms, les visuels et les tables purement clientes (`tools/ep8.rs`) :
+
+| Règle | Détail |
+|---|---|
+| Présence | Une ligne de valeurs (compétence, niveau de compétence, objet, option, rune, modèle, recette, région, boutique, point de téléportation) n'existe que si elle existe dans la table EP8 ; une ligne propre à la table EP8 que le client ne connaît pas (38 boutiques, 21 PNJ « Trainer » / « Event », 5 points de téléportation, colonne `NPC Arena Coin`) n'est pas importée |
+| Valeurs | Colonnes de la table EP8 ; les colonnes d'Archonia (`CategoryName` des options, `AlwaysSuccess` des runes, `Keep …` du raffinage, `Critical_Defense_Rate`, `Regen_HP` des monstres…) ne sont pas lues : la règle tombe sur la valeur neutre d'origine (objet raffiné neuf, rune selon `Success_Rate`) |
+| Noms | Ceux du client, joints par TID (`ItemName`, `Name`, `Description` des options) |
+| Compétences | `skilltemplate.ini`, `skillspec.txt`, `skillconst.txt`, `skillconst2.txt` ; la jointure nom → TID se fait avec le modèle EP8 (930 s'y appelle « <Battle>Skill Upgrade », le nom du 524 est mal encodé côté client) ; `skill_template` garde le nom et les icônes du client |
+| Expérience | Niveaux 1 à 100 de la table EP8, 101 à 121 du client (seul barème connu au-delà) |
+| Croissance | `growupfactor.ini` ; le modèle 1276 (ArchLord), absent de la table EP8, garde la croissance du client |
+| PNJ | Fusion de `npc.ini` : nom du client ; modèle, position et événements EP8 (listes Function / EventID parallèles, élément par élément) ; quêtes (fonction 27), réparation (17) et avis de recherche (32) du client, que la table EP8 a retirés ; boutique EP8 si elle est importée, sinon celle du client ; un PNJ déplacé de plus de 1 000 unités hors du terrain du client garde sa position ; PNJ au modèle hors EP8 (2207) et PNJ 814 et 526 écartés. 35 numéros désignent un autre PNJ dans la table EP8 (sapins de Noël, PNJ « Event » à la place des maîtres des titres, des superviseurs de la Battle Square…) : ces PNJ du client gardent leurs valeurs, ceux de la table EP8 ne sont pas importés |
+| Tables purement clientes | Quêtes (39 retirées : les 30 qui citent un monstre ou un objet à rapporter hors EP8, et 9 dont la récompense « TID;nombre » est un objet d'Archonia — Shard of Rebirth, Tempering Gem… ; leurs groupes vidés aussi), maîtrises, titres, production, fenêtre des boss (13 boss d'Archonia retirés), sièges : gardées, sans les lignes qui citent un TID hors EP8 |
+| Partage des dégâts | Colonne `divide` de la table EP8 (Divine Protection 1, Martyr's Mark 2) : le lanceur prend la part de son groupe ; le bit 16 qu'Archonia y ajoutait n'est plus exigé |
+| Régénération des monstres | Pas de colonne d'origine : règle d'ArchCore (soignés en revenant à leur point d'apparition) |
+
+Résumé du dernier import (bases de copie) : 16 973 objets gardés (3 848 écartés), 2 028 modèles (428),
+1 825 compétences (923), 10 910 niveaux de compétence (2 042), 5 025 options (1 097), 532 runes (606),
+4 541 recettes (1 190), 300 régions (31), 301 points de téléportation (5), 557 PNJ (2 du client, 8 au modèle
+d'Archonia ; 56 de la table EP8 non importés), 144 boutiques (39), 14 quêtes (39), 12 boss (13).
+
+## Export pour le client
+
+`archcore export-client-tables <dossier>` écrit, depuis la base monde (couche `content/` comprise), les
+tables de valeurs au format exact du client (`tools/export.rs`), pour le dossier « données du serveur »
+d'ArchRust (`server-data/` à côté de `realmlist.wtf`, lu avant les packs) :
+
+- `ini/` et chaque dossier de langue du client (`ini_fr`, `ini_de`…) qui a sa copie de la table ; noms de
+  fichiers du client (`itemdatatable.txt`, `SKILL_CONST.txt`, `RefineryItem2.txt`, `LevelUpExp.txt`…) ;
+- en-têtes et ordre des colonnes du client ; une colonne propre à Archonia reste présente et vide ;
+- texte en clair, fins de ligne CRLF, page de code du dossier : CP949 pour `ini/` et `ini_ko`,
+  Windows-1252 pour `ini_fr`, `ini_de`, `ini_es`, Shift-JIS pour `ini_ja`, GBK pour `ini_zh` ;
+- dans un dossier de langue, les textes traduits du client sont gardés, les valeurs viennent de la base ;
+- `tables.toml` à la racine : `format`, `fingerprint` (« sha256:… », chemins et contenus des fichiers),
+  `software`, `generated`.
+
+Avec `Client.TablesDir` (voir [[Configuration|FR-Configuration]]), le serveur monde lit cette empreinte au
+démarrage et l'annonce aux clients ArchRust (capacité `client-tables/1`, [[Extensions ArchRust|FR-Extensions-ArchRust]]).
+Le dossier Game du client vient de `Client.DataDir`, ou de `--game`.
+
+## Migration des personnages
+
+`archcore migrate-ep8` compare les personnages à la base monde EP8 et écrit un rapport par personnage :
+objets hors EP8, options et runes retirées, niveaux de compétence au-delà du maximum EP8 (140 compétences
+passent de 20 à 15 niveaux), compétences hors EP8. Avec `--apply`, dans une transaction et sans rien
+détruire (table `ep8_quarantine`, voir [[Base de données|FR-Base-de-donnees]]) : objets hors EP8 mis en
+quarantaine (avec les courriers et ventes qui les citaient), options et runes hors EP8 retirées, niveaux
+ramenés au maximum, compétences hors EP8 retirées, et oubli des compétences offert à tous (« skill init »
+remis à vide), les coûts en points des niveaux ayant changé. `--restore n` annule la passe n. Sauvegarder
+les bases (`mariadb-dump`) avant `--apply`.
+
 ## Tables du serveur d'origine
 
 Les apparitions de monstres et la carte serveur ne sont pas dans le client : elles viennent des tables du
@@ -560,7 +615,7 @@ serveur d'origine d'ArchLord, à placer dans `data/server-ini` (jamais versionn�
 
 | Fichier | Contenu | Table |
 |---|---|---|
-| `spawndatatable.txt` | Quoi : groupe, modèle et niveau du monstre, nombre, délai de réapparition, guerre de siège. Le niveau retenu est celui de `CharacterDataTable.txt` du client quand il y figure ; le délai des boss vient de la fenêtre des boss du client (`UIBoss.xml`) | `monster_spawn` |
+| `spawndatatable.txt` | Quoi : groupe, modèle et niveau du monstre, nombre, délai de réapparition, guerre de siège. Le niveau retenu est celui du modèle dans `characterdatatable.txt` (EP8) ; le délai des boss vient de la fenêtre des boss du client (`UIBoss.xml`) | `monster_spawn` |
 | `spawninstancetable.txt` | Où : position, orientation, rayon de chaque point (un nom peut avoir plusieurs positions) | `monster_spawn` |
 | `world/node_data` (à côté ou dans le dossier voisin) | Carte : 16 × 16 segments de 400 unités par secteur, sol infranchissable et région | `map_segment` |
 | `itemdroptable.txt` | Objets propres à chaque monstre : quantité, taux sur 100 000 | `monster_drop` |

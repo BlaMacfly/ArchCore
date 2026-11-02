@@ -22,19 +22,42 @@
 //! 100) : voir [`murderer_level`].
 //! Avis de recherche (droit de la victime de mettre son tueur à prix, prime touchée sur un criminel recherché, qui
 //! n'est pas innocent) : voir `wanted.rs`.
-use super::combat::{self, Attacker, Defender, REACH_TOLERANCE};
+//!
+//! Listes d'ennemis tenues par le client (le serveur d'origine ne les a pas laissées : moments choisis par ArchCore) :
+//! ```text
+//!   ← op 6 INIT_ENEMY (1)            à l'entrée en jeu, et après la mort du joueur (ses inimitiés tombent : op 4)
+//!   ← op 8 UPDATE_ENEMY (1, 2, 5)    ennemi connu qui frappe de nouveau, si le mode de la zone a changé ou toutes les
+//!                                    30 s (au lieu d'un nouvel op 2)
+//!   ← op 10 ADD_ENEMY_GUILD (1, 8, 5) un membre de la guilde G attaque (attaque forcée, hors zone sûre) un membre de la
+//!                                    guilde H : G est envoyée aux membres en ligne de H, qui peuvent alors frapper sans
+//!                                    Ctrl tout membre de G hors zone sûre (comme le client, `FUN_1402d8b90`)
+//!   ← op 16 UPDATE_ENEMY_GUILD       nouvelle agression de G (même rythme que l'op 8) ; l'inimitié dure `ENEMY_TIME`
+//!   ← op 12 REMOVE_ENEMY_GUILD (1, 8) à son expiration
+//!   ← op 14 INIT_ENEMY_GUILD (1)     à l'entrée en jeu et à chaque changement de guilde, suivie des guildes ennemies de
+//!                                    la nouvelle guilde (op 10)
+//!   ← op 18 code 11 (« PvP_Msg_CannotUseTeleport ») : portail refusé à un joueur qui a des ennemis (l'op 17 du client
+//!                                    lève un événement d'interface absent de UI_1024X768.ini : rien ne s'afficherait)
+//! ```
+use super::combat::{self, REACH_TOLERANCE};
 use super::skills::CharismaSource;
 use super::{WorldCtx, WorldState};
 use crate::character::unix_now;
 use crate::{debug, info};
 use archcore_net::schema;
 use archcore_net::{build_packet, Fields};
+use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 pub mod op {
     pub const INFO: i64 = 0;
     pub const ADD_ENEMY: i64 = 2;
     pub const REMOVE_ENEMY: i64 = 4;
+    pub const INIT_ENEMY: i64 = 6;
+    pub const UPDATE_ENEMY: i64 = 8;
+    pub const ADD_ENEMY_GUILD: i64 = 10;
+    pub const REMOVE_ENEMY_GUILD: i64 = 12;
+    pub const INIT_ENEMY_GUILD: i64 = 14;
+    pub const UPDATE_ENEMY_GUILD: i64 = 16;
     pub const SYSTEM_MESSAGE: i64 = 18;
 }
 
@@ -45,6 +68,8 @@ pub mod code {
     pub const NOW_PVP: i64 = 3;
     pub const NONE_PVP: i64 = 4;
     pub const DEAD: i64 = 5;
+    /// Portail refusé à un joueur en combat entre joueurs : « PvP_Msg_CannotUseTeleport ».
+    pub const CANNOT_USE_TELEPORT: i64 = 11;
     pub const KILL_PLAYER: i64 = 12;
     /// « You moved to a Battle Square. »
     pub const MOVE_BATTLE_SQUARE: i64 = 13;
@@ -65,8 +90,11 @@ pub mod mode {
 
 /// Niveau minimal des deux joueurs (valeur du client).
 pub const MIN_LEVEL: i32 = 20;
-/// Durée d'une inimitié, prolongée à chaque coup.
+/// Durée d'une inimitié, prolongée à chaque coup (aussi celle d'une guilde ennemie).
 pub const ENEMY_TIME: Duration = Duration::from_secs(300);
+/// Un ennemi (ou une guilde ennemie) connu qui frappe de nouveau est rafraîchi chez le client (op 8, op 16) au plus
+/// tous les tant, ou dès que le mode de la zone change.
+pub const ENEMY_REFRESH: Duration = Duration::from_secs(30);
 /// Durée du statut de premier attaquant et du délai de meurtrier (plafonds du client).
 pub const CRIMINAL_SECS: i64 = 1200;
 pub const MURDERER_SECS: i64 = 7200;
@@ -87,11 +115,66 @@ pub struct Enemy {
     pub until: Instant,
     /// Ce joueur a attaqué l'autre le premier.
     pub aggressor: bool,
+    /// Mode de la zone et instant annoncés au client (op 2, puis op 8).
+    pub mode: i64,
+    pub shown_at: Instant,
 }
 
 #[derive(Default)]
 pub struct PvpState {
     pub enemies: Vec<Enemy>,
+    /// Mort : inimitiés levées et liste vidée (op 6) au prochain tour, après le bilan du meurtre (`on_kill`).
+    pub reset_pending: bool,
+}
+
+/// Guilde ennemie : jusqu'à quand, mode de la zone de la dernière agression, instant annoncé.
+#[derive(Clone, Copy, Debug)]
+pub struct GuildEnemy {
+    pub until: Instant,
+    pub mode: i64,
+    pub shown_at: Instant,
+}
+
+/// Guildes ennemies : (guilde qui tient la liste, guilde ennemie, qui a attaqué l'un de ses membres).
+#[derive(Default)]
+pub struct GuildEnemies {
+    pub list: HashMap<(u32, u32), GuildEnemy>,
+}
+
+impl GuildEnemies {
+    /// La guilde `owner` tient `enemy` pour ennemie.
+    pub fn holds(&self, owner: u32, enemy: u32) -> bool {
+        self.list.contains_key(&(owner, enemy))
+    }
+
+    /// Agression d'un membre de `enemy` sur un membre de `owner` en `mode` : op 10 (nouvelle), op 16 (rafraîchie : mode
+    /// changé ou plus de `ENEMY_REFRESH`), ou rien.
+    pub fn aggression(&mut self, owner: u32, enemy: u32, mode: i64, now: Instant) -> Option<i64> {
+        let until = now + ENEMY_TIME;
+        match self.list.get_mut(&(owner, enemy)) {
+            None => {
+                self.list.insert((owner, enemy), GuildEnemy { until, mode, shown_at: now });
+                Some(op::ADD_ENEMY_GUILD)
+            }
+            Some(e) => {
+                e.until = until;
+                if e.mode == mode && now.duration_since(e.shown_at) < ENEMY_REFRESH {
+                    return None;
+                }
+                (e.mode, e.shown_at) = (mode, now);
+                Some(op::UPDATE_ENEMY_GUILD)
+            }
+        }
+    }
+
+    /// Retire et rend les inimitiés échues.
+    pub fn expired(&mut self, now: Instant) -> Vec<(u32, u32)> {
+        let gone: Vec<(u32, u32)> = self.list.iter().filter(|(_, e)| now >= e.until).map(|(k, _)| *k).collect();
+        for k in &gone {
+            self.list.remove(k);
+        }
+        gone
+    }
 }
 
 impl PvpState {
@@ -108,6 +191,69 @@ fn base(op: i64, cid: u32) -> Fields {
 pub fn message(code: i64, param: Option<i64>, text: Option<&str>) -> Vec<u8> {
     let f = Fields::new(&schema::PVP).with(0, op::SYSTEM_MESSAGE).with(1, code).with_opt(3, param);
     build_packet(&schema::PVP, &f.with_opt(8, text))
+}
+
+/// Ops 10, 12 et 16 : guilde ennemie `guild` ajoutée, retirée ou rafraîchie chez `cid` ; op 14 (sans guilde) : liste
+/// vidée.
+pub fn enemy_guild_packet(o: i64, cid: u32, guild: Option<&str>, zone: Option<i64>) -> Vec<u8> {
+    build_packet(&schema::PVP, &base(o, cid).with_opt(8, guild).with_opt(5, zone))
+}
+
+/// Op 14 puis op 10 pour chaque guilde ennemie de la guilde du joueur (entrée en jeu, changement de guilde).
+pub fn send_enemy_guilds(st: &WorldState, sid: u32) {
+    let Some(p) = st.players.get(&sid) else { return };
+    let cid = p.ch.id;
+    p.send_raw(enemy_guild_packet(op::INIT_ENEMY_GUILD, cid, None, None));
+    let Some(gid) = st.guilds.of_cid.get(&cid).copied() else { return };
+    for ((owner, enemy), e) in &st.pvp_guilds.list {
+        if *owner == gid {
+            if let Some(g) = st.guilds.by_id.get(enemy) {
+                p.send_raw(enemy_guild_packet(op::ADD_ENEMY_GUILD, cid, Some(&g.name), Some(e.mode)));
+            }
+        }
+    }
+}
+
+/// Changement de guilde du personnage `cid` (adhésion, départ, exclusion, dissolution) : listes renvoyées s'il est en jeu.
+pub fn on_guild_change(st: &WorldState, cid: u32) {
+    if let Some(sid) = st.by_cid.get(&cid).copied() {
+        send_enemy_guilds(st, sid);
+    }
+}
+
+/// Entrée en jeu : liste d'ennemis vide (op 6), guildes ennemies (op 14, op 10).
+pub fn on_enter(st: &WorldState, sid: u32) {
+    let Some(p) = st.players.get(&sid) else { return };
+    p.send_raw(build_packet(&schema::PVP, &base(op::INIT_ENEMY, p.ch.id)));
+    send_enemy_guilds(st, sid);
+}
+
+/// Envoie un paquet de guilde ennemie (ops 10, 12, 16) à chaque membre en ligne de la guilde `owner`.
+fn to_guild(st: &WorldState, owner: u32, o: i64, enemy_name: &str, zone: Option<i64>) {
+    let Some(g) = st.guilds.by_id.get(&owner) else { return };
+    for m in g.members.values().filter(|m| m.active()) {
+        if let Some(p) = st.by_cid.get(&m.cid).and_then(|s| st.players.get(s)).filter(|p| p.in_game) {
+            p.send_raw(enemy_guild_packet(o, p.ch.id, Some(enemy_name), zone));
+        }
+    }
+}
+
+/// Coup de `sid` sur `tsid` hors zone sûre : la guilde de l'agresseur devient ennemie de celle de la victime (guildes
+/// différentes, non alliées).
+fn guild_aggression(st: &mut WorldState, sid: u32, tsid: u32, zone: i64, now: Instant) {
+    if zone == mode::SAFE {
+        return;
+    }
+    let (Some(g), Some(h)) = (st.guilds.of_cid.get(&cid_of(st, sid)).copied(), st.guilds.of_cid.get(&cid_of(st, tsid)).copied()) else { return };
+    if g == h || super::guild::relation::allied(st, g, h) {
+        return;
+    }
+    let Some(o) = st.pvp_guilds.aggression(h, g, zone, now) else { return };
+    let name = st.guilds.by_id.get(&g).map(|x| x.name.clone()).unwrap_or_default();
+    if o == op::ADD_ENEMY_GUILD {
+        info!("[pvp] la guilde {name} devient ennemie de {}", st.guilds.by_id.get(&h).map_or("?", |x| x.name.as_str()));
+    }
+    to_guild(st, h, o, &name, Some(zone));
 }
 
 /// Op 0 : victoires, défaites et mode de la zone du joueur.
@@ -179,8 +325,9 @@ pub fn check(ctx: &WorldCtx, st: &WorldState, sid: u32, tsid: u32, forced: bool)
     if ma == mode::COMBAT && friend {
         return Err(Refusal(Some(code::CANNOT_ATTACK_FRIEND)));
     }
-    // Guildes hostiles : ennemies hors zone sûre.
-    if matches!((ga, gc), (Some(x), Some(y)) if super::guild::relation::hostile(st, x, y)) {
+    // Guildes hostiles : ennemies hors zone sûre ; de même la guilde qui a attaqué un membre de celle de l'agresseur
+    // (guilde ennemie, op 10).
+    if matches!((ga, gc), (Some(x), Some(y)) if super::guild::relation::hostile(st, x, y) || st.pvp_guilds.holds(x, y)) {
         return Ok(());
     }
     if !forced {
@@ -210,9 +357,16 @@ pub fn on_hit(ctx: &WorldCtx, st: &mut WorldState, sid: u32, tsid: u32, now: Ins
     let (acid, tcid) = (cid_of(st, sid), cid_of(st, tsid));
     let known = st.players.get(&sid).is_some_and(|p| p.pvp.enemy(tcid).is_some());
     if known {
+        guild_aggression(st, sid, tsid, zone, now);
         for (me, other) in [(sid, tcid), (tsid, acid)] {
-            if let Some(e) = st.players.get_mut(&me).and_then(|p| p.pvp.enemies.iter_mut().find(|e| e.cid == other)) {
-                e.until = now + ENEMY_TIME;
+            let Some(p) = st.players.get_mut(&me) else { continue };
+            let my_cid = p.ch.id;
+            let Some(e) = p.pvp.enemies.iter_mut().find(|e| e.cid == other) else { continue };
+            e.until = now + ENEMY_TIME;
+            // Op 8 : mode et instant rafraîchis chez le client.
+            if e.mode != zone || now.duration_since(e.shown_at) >= ENEMY_REFRESH {
+                (e.mode, e.shown_at) = (zone, now);
+                p.send_raw(build_packet(&schema::PVP, &base(op::UPDATE_ENEMY, my_cid).with(2, other).with(5, zone)));
             }
         }
         return;
@@ -220,12 +374,14 @@ pub fn on_hit(ctx: &WorldCtx, st: &mut WorldState, sid: u32, tsid: u32, now: Ins
     for (me, other, aggressor) in [(sid, tsid, true), (tsid, sid, false)] {
         let other_cid = cid_of(st, other);
         let Some(p) = st.players.get_mut(&me) else { continue };
-        p.pvp.enemies.push(Enemy { cid: other_cid, until: now + ENEMY_TIME, aggressor });
+        p.pvp.enemies.push(Enemy { cid: other_cid, until: now + ENEMY_TIME, aggressor, mode: zone, shown_at: now });
         if p.pvp.enemies.len() == 1 {
             p.send_raw(message(code::NOW_PVP, None, None));
         }
         p.send_raw(build_packet(&schema::PVP, &base(op::ADD_ENEMY, p.ch.id).with(2, other_cid).with(5, zone)));
     }
+    // Guilde de l'agresseur ennemie de celle de la victime (op 10), après l'inimitié individuelle (op 2).
+    guild_aggression(st, sid, tsid, zone, now);
     // Premier attaquant : attaque forcée en zone libre sur un innocent (un criminel recherché ne l'est pas) ; jamais dans
     // les zones de combat organisé (Battleground, Battle Square, Shrine).
     if super::battlesquare::free_kill_zone(ctx, st, sid) {
@@ -362,6 +518,11 @@ pub async fn attack_step(ctx: &WorldCtx, st: &mut WorldState, sid: u32, target: 
     }
     let Some(killed) = strike(st, sid, tsid, target, forced, now) else { return Ok(()) };
     on_hit(ctx, st, sid, tsid, now);
+    // Enchaînement 3 : l'effet additionnel de la cible sur son assaillant (skill_extra.rs).
+    if !killed {
+        let me = cid_of(st, sid);
+        super::skill_extra::on_bearer_hit(ctx, st, tsid, me, now);
+    }
     if killed {
         st.players.get_mut(&sid).unwrap().attack = None;
         on_kill(ctx, st, sid, tsid).await?;
@@ -376,19 +537,8 @@ pub fn strike(st: &mut WorldState, sid: u32, tsid: u32, target: u32, forced: boo
     if combat::dist2d(p.ch.pos(), t.ch.pos()) > reach + REACH_TOLERANCE {
         return None;
     }
-    let attacker = Attacker::of_player(p);
-    let defender = attacker.pierce(&Defender::of_player(&t.factors));
-    let (outcome, parts) = {
-        let mut rng = rand::thread_rng();
-        let (outcome, damage) = combat::strike(&mut rng, &attacker, &defender);
-        let (outcome, damage) = super::effects::critical(&mut rng, &super::effects::of_player(p), super::effects::of_player(t).crit_resist, outcome, damage);
-        let mut parts = vec![(combat::RESULT_PHYSICAL, damage)];
-        if damage > 0 {
-            let chance = combat::spirit_chance(true, attacker.level, defender.level);
-            parts.extend(combat::spirit_hits(&mut rng, chance, &combat::spirit_ranges(&p.factors), &defender.resist, true));
-        }
-        (outcome, parts)
-    };
+    // Toucher, esquive et blocage de la cible, critique, part élémentaire (combat.rs).
+    let (outcome, parts) = combat::versus(&mut rand::thread_rng(), p, t);
     let speed = p.factors.attack[2].max(1) as u64;
     let cid = p.ch.id;
     let me = st.players.get_mut(&sid).unwrap();
@@ -404,8 +554,26 @@ pub fn strike(st: &mut WorldState, sid: u32, tsid: u32, target: u32, forced: boo
     Some(st.players.get(&tsid).is_some_and(|x| x.dead))
 }
 
-/// Fin des inimitiés échues et des statuts de premier attaquant.
+/// Fin des inimitiés échues et des statuts de premier attaquant ; listes des joueurs morts vidées ; guildes ennemies
+/// échues.
 pub fn step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) {
+    // Mort : chaque inimitié levée des deux côtés (op 4), puis la liste vidée (op 6).
+    let dead: Vec<u32> = st.players.iter().filter(|(_, p)| p.pvp.reset_pending).map(|(sid, _)| *sid).collect();
+    for sid in dead {
+        let others: Vec<u32> = st.players[&sid].pvp.enemies.iter().filter_map(|e| st.by_cid.get(&e.cid).copied()).collect();
+        for o in others {
+            part(st, sid, o);
+        }
+        let p = st.players.get_mut(&sid).unwrap();
+        p.pvp.reset_pending = false;
+        p.pvp.enemies.clear();
+        p.send_raw(build_packet(&schema::PVP, &base(op::INIT_ENEMY, p.ch.id)));
+    }
+    for (owner, enemy) in st.pvp_guilds.expired(now) {
+        let name = st.guilds.by_id.get(&enemy).map(|g| g.name.clone()).unwrap_or_default();
+        debug!("[pvp] guilde {name} : plus ennemie de la guilde {owner}");
+        to_guild(st, owner, op::REMOVE_ENEMY_GUILD, &name, None);
+    }
     let mut ended = Vec::new();
     let mut cleared = Vec::new();
     let unix = unix_now();
@@ -455,6 +623,24 @@ mod tests {
     #[test]
     fn paliers_de_meurtrier() {
         assert_eq!([0, 39, 40, 59, 60, 99, 100, 5000].map(murderer_level), [0, 0, 1, 1, 2, 2, 3, 3]);
+    }
+
+    #[test]
+    fn guildes_ennemies() {
+        let now = Instant::now();
+        let mut g = GuildEnemies::default();
+        assert_eq!(g.aggression(1, 2, mode::FREE, now), Some(op::ADD_ENEMY_GUILD));
+        assert!(g.holds(1, 2) && !g.holds(2, 1), "seule la guilde attaquée la tient pour ennemie");
+        assert_eq!(g.aggression(1, 2, mode::FREE, now + Duration::from_secs(5)), None, "rafraîchie trop tôt");
+        assert_eq!(g.aggression(1, 2, mode::COMBAT, now + Duration::from_secs(6)), Some(op::UPDATE_ENEMY_GUILD), "mode changé");
+        assert_eq!(g.aggression(1, 2, mode::COMBAT, now + Duration::from_secs(40)), Some(op::UPDATE_ENEMY_GUILD));
+        assert!(g.expired(now + Duration::from_secs(300)).is_empty(), "prolongée à chaque agression");
+        assert_eq!(g.expired(now + Duration::from_secs(341)), vec![(1, 2)]);
+        assert!(!g.holds(1, 2));
+        let p = decode_packet(&schema::PVP, &enemy_guild_packet(op::ADD_ENEMY_GUILD, 7, Some("SimLead"), Some(mode::FREE))).unwrap();
+        assert_eq!((p.int(0), p.int(1), p.text(8).as_deref(), p.int(5)), (Some(10), Some(7), Some("SimLead"), Some(2)));
+        let p = decode_packet(&schema::PVP, &enemy_guild_packet(op::INIT_ENEMY_GUILD, 7, None, None)).unwrap();
+        assert_eq!((p.int(0), p.int(1), p.text(8)), (Some(14), Some(7), None));
     }
 
     #[test]

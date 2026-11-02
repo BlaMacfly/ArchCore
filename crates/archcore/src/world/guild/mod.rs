@@ -180,6 +180,8 @@ pub struct Guild {
     pub succession: Option<u32>,
     /// Combat de guildes en cours (ou en préparation), demande de combat faite ou reçue.
     pub battle: Option<battle::Battle>,
+    /// Combattants choisis par le chef (op 14) pour le prochain combat de type 3 ou 4.
+    pub battle_persons: Vec<String>,
     pub offer: Option<battle::Offer>,
     /// Alliance et hostilités.
     pub relations: relation::Relations,
@@ -524,7 +526,7 @@ pub async fn on_packet(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet
         }
         Some(society::OP) => society::on_packet(ctx, st, sid, p).await,
         Some(mark::BUY) => mark::on_packet(ctx, st, sid, p, false).await,
-        Some(battle::op::REQUEST..=battle::op::CANCEL_REJECT | battle::op::WITHDRAW) => battle::on_packet(ctx, st, sid, p).await,
+        Some(battle::op::BATTLE_PERSON | battle::op::REQUEST..=battle::op::CANCEL_REJECT | battle::op::WITHDRAW) => battle::on_packet(ctx, st, sid, p).await,
         Some(relation::op::JOINT_REQUEST..=relation::op::HOSTILE_LEAVE) => relation::on_packet(ctx, st, sid, p).await,
         Some(mark::BUY_FORCE) => mark::on_packet(ctx, st, sid, p, true).await,
         op => {
@@ -606,6 +608,8 @@ async fn create(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> an
     send_to(st, sid, add_packet(g));
     send_to(st, sid, join_packet(g, &g.members[&cid]));
     announce_link(st, cid);
+    // Guilde nouvelle : listes des guildes ennemies vidées (AgpmPvP op 14).
+    crate::world::pvp::on_guild_change(st, cid);
     send_to(st, sid, system_packet(code::CREATE_COMPLETE, None, None));
     info!("[guilde] {} crée la guilde {name} ({cost} pièce(s))", st.players[&sid].ch.name);
     super::tax::collect(ctx, st, &taxed).await?;
@@ -709,6 +713,8 @@ async fn join(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> anyh
     g.invited.retain(|x| *x != cid);
     g.members.insert(cid, m);
     st.guilds.of_cid.insert(cid, gid);
+    // Guildes ennemies de la nouvelle guilde (AgpmPvP op 14 puis op 10).
+    crate::world::pvp::on_guild_change(st, cid);
     let g = &st.guilds.by_id[&gid];
     let m = &g.members[&cid];
     send_to(st, sid, add_packet(g));
@@ -743,6 +749,7 @@ async fn remove_member(ctx: &WorldCtx, st: &mut WorldState, gid: u32, cid: u32, 
     }
     st.guilds.by_id.get_mut(&gid).unwrap().members.remove(&cid);
     st.guilds.of_cid.remove(&cid);
+    crate::world::pvp::on_guild_change(st, cid);
     info!("[guilde] {} quitte {} (op {leave_op})", m.name, st.guilds.by_id[&gid].name);
     Ok(())
 }
@@ -829,7 +836,10 @@ async fn destroy(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> a
     let g = st.guilds.by_id.remove(&gid).unwrap();
     for cid in g.members.keys() {
         st.guilds.of_cid.remove(cid);
+        crate::world::pvp::on_guild_change(st, *cid);
     }
+    // Ses inimitiés de guilde tombent avec elle.
+    st.pvp_guilds.list.retain(|(owner, enemy), _| *owner != gid && *enemy != gid);
     info!("[guilde] {} dissout {}", st.players[&sid].ch.name, g.name);
     Ok(())
 }

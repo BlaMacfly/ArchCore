@@ -24,6 +24,8 @@ use std::time::{Duration, Instant};
 /// Opérations AGPMITEM de l'utilisation.
 pub const USE_ITEM: i64 = 3;
 pub const USE_ITEM_BY_TID: i64 = 4;
+/// Recharge partagée des objets d'un modèle (serveur → client).
+pub const UPDATE_COOLDOWN: i64 = 28;
 /// Combat : durée après le dernier coup donné ou reçu.
 pub const COMBAT_TIME: Duration = Duration::from_secs(10);
 /// Régénération : intervalle.
@@ -129,6 +131,13 @@ fn send_factors(st: &WorldState, sid: u32) {
 }
 
 /// AGPMITEM op 4 : objet utilisé.
+/// AGPMITEM op 28 (UPDATE_COOLDOWN) : recharge restante des objets du modèle `tid` (3 TID, 4 CID, 5 entier non relevé
+/// laissé à 0, 18 temps restant en ms).
+pub fn cooldown_packet(tid: u32, cid: u32, left: Duration) -> Vec<u8> {
+    let s = &schema::ITEM;
+    build_packet(s, &Fields::new(s).with(0, UPDATE_COOLDOWN).with(3, tid).with(4, cid).with(5, 0).with(18, left.as_millis() as u64))
+}
+
 pub fn used_packet(tid: u32, cid: u32, delay: Duration) -> Vec<u8> {
     let s = &schema::ITEM;
     build_packet(s, &Fields::new(s).with(0, USE_ITEM_BY_TID).with(3, tid).with(4, cid).with(12, cid).with(18, delay.as_millis() as u64))
@@ -147,6 +156,11 @@ pub async fn use_item(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet,
     }
     // De l'inventaire, de l'inventaire Cash (familiers, objets de la boutique) ou du sac du familier.
     let Some(item) = player.inventory.get_usable(iid).cloned() else { return Ok(()) };
+    // Objets interdits (`disturb` 4, skill_extra.rs).
+    if player.skills.status_sent & super::effects::status::NO_ITEM != 0 {
+        debug!("[objet] {} : objets interdits (interruption)", player.ch.name);
+        return Ok(());
+    }
     // Orbe de résurrection : le mort seul s'en sert (consumables.rs).
     if let Some(u) = catalog.uses.get(&item.tid).filter(|u| u.usable_type == super::consumables::USABLE_REVERSE_ORB) {
         return super::consumables::use_reverse_orb(ctx, st, sid, &item, u, now).await;
@@ -248,6 +262,10 @@ pub fn regen_step(st: &mut WorldState, now: Instant) {
             continue;
         }
         p.timers.regen_at = now + REGEN_INTERVAL;
+        // Maladie (état 23, status_rules.rs) : aucune régénération.
+        if super::status_rules::no_regen(p.skills.status_sent) {
+            continue;
+        }
         // Options de régénération de l'équipement : en combat aussi.
         let before = (p.factors.point[POINT_HP], p.factors.point[POINT_MP]);
         p.factors.point[POINT_HP] = (p.factors.point[POINT_HP] + p.gear.regen_hp.max(0)).min(p.factors.point_max[0]);
@@ -271,6 +289,12 @@ pub fn regen_step(st: &mut WorldState, now: Instant) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn recharge_par_modele() {
+        let p = archcore_net::decode_packet(&schema::ITEM, &cooldown_packet(190, 7, Duration::from_millis(1500))).unwrap();
+        assert_eq!((p.int(0), p.int(3), p.int(4), p.int(5), p.int(18)), (Some(UPDATE_COOLDOWN), Some(190), Some(7), Some(0), Some(1500)));
+    }
 
     fn hurt(hp: i32, mp: i32) -> Factors {
         let mut f = Factors::default();

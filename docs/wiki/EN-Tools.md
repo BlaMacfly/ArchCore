@@ -10,7 +10,9 @@ named by `ARCHCORE_CONF_DIR` (see [[Configuration|EN-Configuration]]).
 | `archcore db-init [--account name pass [gm]]` | Creates the databases, replays the baseline and applies the missing migrations; with `--account`, creates or updates an account |
 | `archcore db-check` | Read-only consistency check: schema versions, references between databases, identifier ranges; exits with an error on a serious anomaly (see [[Database\|EN-Database]]) |
 | `archcore decrypt [source] [destination]` | Decrypts `Game/ini` (RC4, MD5("1111")) into `data/client-ini` |
-| `archcore import [folder] [--server folder]` | Imports `data/client-ini` into `archcore_world` (CP949 → UTF-8) and the ground height from the Game folder's `world/b*x.ma2` (`map_height`, a few minutes); with the original server tables (`--server`, or `data/server-ini` if it exists), also imports monster spawns and the server map; finally applies the `content/*.sql` content layer and records each source in `import_run` |
+| `archcore import [folder] [--server folder]` | Imports into `archcore_world` the episode 8 values (original server tables, `--server` or `data/server-ini`, required) with the names, visuals and purely client tables of `data/client-ini` (CP949 → UTF-8, see "Episode 8 values" below), the ground height from the Game folder's `world/b*x.ma2` (`map_height`, a few minutes), monster spawns, drops and the server map; finally applies the `content/*.sql` content layer, records each source in `import_run` and prints the summary of rows kept and dropped per table |
+| `archcore export-client-tables <folder> [--game folder]` | Writes the value tables from the world database in the client format, for ArchRust (see "Export for the client") |
+| `archcore migrate-ep8 [--apply \| --restore n]` | Report, then migration of existing characters to the episode 8 values (see "Character migration") |
 | `archcore content` | Applies the `content/*.sql` content layer to the world database again, without reimporting (see [[Database\|EN-Database]]) |
 | `archcore sim client\|move\|shop\|addon\|lang\|combat\|equip\|potion\|scroll\|patrol\|bag\|skill\|effects\|bank\|portal\|guild\|guildlead\|guildmark\|guildbattle\|guildrelation\|guildwarehouse\|guildstage\|gm\|trade\|quest\|mobskill\|counter\|partyskill\|mastery …` | Simulated clients (see below) |
 | `archcore i18n strings [Game]` | Lists the texts still in English in `data/i18n/pending-en.json` |
@@ -544,6 +546,59 @@ capability:
 `archcore db-init` must have been run (`language` and `localized_text` tables, `account.language` column);
 `archcore i18n db fr` is optional, the translated NPC titles serving as fallback.
 
+## Episode 8 values
+
+`archcore import` takes game values from the original server tables ("EP8 tables") and, from the Archonia
+client, only names, visuals and purely client tables (`tools/ep8.rs`):
+
+| Rule | Detail |
+|---|---|
+| Presence | A value row (skill, skill level, item, option, rune, template, recipe, region, shop, teleport point) exists only if it exists in the EP8 table; a row of the EP8 table the client does not know (38 shops, 21 "Trainer" / "Event" NPCs, 5 teleport points, the `NPC Arena Coin` column) is not imported |
+| Values | Columns of the EP8 table; Archonia's columns (options' `CategoryName`, runes' `AlwaysSuccess`, refining's `Keep …`, `Critical_Defense_Rate`, monsters' `Regen_HP`…) are not read: the rule falls back to the original neutral value (refined item is new, rune by `Success_Rate`) |
+| Names | The client's, joined by TID (`ItemName`, `Name`, options' `Description`) |
+| Skills | `skilltemplate.ini`, `skillspec.txt`, `skillconst.txt`, `skillconst2.txt`; the name → TID join uses the EP8 template (930 is "<Battle>Skill Upgrade" there, 524's name is badly encoded on the client side); `skill_template` keeps the client's name and icons |
+| Experience | Levels 1 to 100 from the EP8 table, 101 to 121 from the client (only known scale beyond) |
+| Growth | `growupfactor.ini`; template 1276 (ArchLord), missing from the EP8 table, keeps the client's growth |
+| NPCs | `npc.ini` merge: client name; EP8 template, position and events (parallel Function / EventID lists, element by element); quests (27), repair (17) and wanted board (32) from the client, which the EP8 table removed; EP8 shop if imported, otherwise the client's; an NPC moved more than 1,000 units off the client's terrain keeps its position; NPCs with a non-EP8 template (2207) and NPCs 814 and 526 dropped. 35 numbers point to another NPC in the EP8 table (Christmas trees, "Event" NPCs instead of title managers, Battle Square supervisors…): those client NPCs keep their values, the EP8 table's are not imported |
+| Purely client tables | Quests (39 removed: the 30 citing a non-EP8 monster or item to bring back, and 9 whose "TID;count" reward is an Archonia item — Shard of Rebirth, Tempering Gem…; their emptied groups too), masteries, titles, production, boss window (13 Archonia bosses removed), sieges: kept, without rows citing a non-EP8 TID |
+| Damage sharing | `divide` column of the EP8 table (Divine Protection 1, Martyr's Mark 2): the caster takes the share of the party; the bit 16 Archonia added is no longer required |
+| Monster regeneration | No original column: ArchCore rule (healed when they return to their spawn point) |
+
+Summary of the last import (copy databases): 16,973 items kept (3,848 dropped), 2,028 templates (428),
+1,825 skills (923), 10,910 skill levels (2,042), 5,025 options (1,097), 532 runes (606), 4,541 recipes
+(1,190), 300 regions (31), 301 teleport points (5), 557 NPCs (2 from the client, 8 with an Archonia template;
+56 of the EP8 table not imported), 144 shops (39), 14 quests (39), 12 bosses (13).
+
+## Export for the client
+
+`archcore export-client-tables <folder>` writes, from the world database (`content/` layer included), the
+value tables in the client's exact format (`tools/export.rs`), for ArchRust's "server data" folder
+(`server-data/` next to `realmlist.wtf`, read before the packs):
+
+- `ini/` and every client language folder (`ini_fr`, `ini_de`…) that has its own copy of the table; client
+  file names (`itemdatatable.txt`, `SKILL_CONST.txt`, `RefineryItem2.txt`, `LevelUpExp.txt`…);
+- client headers and column order; a column specific to Archonia stays present and empty;
+- plain text, CRLF line endings, the folder's code page: CP949 for `ini/` and `ini_ko`, Windows-1252 for
+  `ini_fr`, `ini_de`, `ini_es`, Shift-JIS for `ini_ja`, GBK for `ini_zh`;
+- in a language folder, the client's translated texts are kept, values come from the database;
+- `tables.toml` at the root: `format`, `fingerprint` ("sha256:…", paths and contents of the files),
+  `software`, `generated`.
+
+With `Client.TablesDir` (see [[Configuration|EN-Configuration]]), the world server reads that fingerprint at
+start-up and announces it to ArchRust clients (`client-tables/1` capability,
+[[ArchRust extensions|EN-ArchRust-extensions]]). The client's Game folder comes from `Client.DataDir`, or
+`--game`.
+
+## Character migration
+
+`archcore migrate-ep8` compares characters with the EP8 world database and writes a report per character:
+non-EP8 items, options and runes removed, skill levels above the EP8 maximum (140 skills go from 20 to 15
+levels), non-EP8 skills. With `--apply`, in one transaction and without destroying anything (table
+`ep8_quarantine`, see [[Database|EN-Database]]): non-EP8 items quarantined (with the mail and sales citing
+them), non-EP8 options and runes removed, levels brought down to the maximum, non-EP8 skills removed, and a
+free skill reset offered to everyone ("skill init" emptied), as the point costs of levels changed.
+`--restore n` undoes pass n. Back up the databases (`mariadb-dump`) before `--apply`.
+
 ## Original server tables
 
 Monster spawns and the server map are not in the client: they come from the original ArchLord server
@@ -551,7 +606,7 @@ tables, to be placed in `data/server-ini` (never committed) or pointed to with `
 
 | File | Content | Table |
 |---|---|---|
-| `spawndatatable.txt` | What: group, monster template and level, count, respawn delay, siege war. The level kept is the client's `CharacterDataTable.txt` one when listed there; boss delays come from the client's boss window (`UIBoss.xml`) | `monster_spawn` |
+| `spawndatatable.txt` | What: group, monster template and level, count, respawn delay, siege war. The level kept is the template's in `characterdatatable.txt` (EP8); boss delays come from the client's boss window (`UIBoss.xml`) | `monster_spawn` |
 | `spawninstancetable.txt` | Where: position, orientation, radius of each point (a name may have several positions) | `monster_spawn` |
 | `world/node_data` (next to it or in the sibling folder) | Map: 16 × 16 segments of 400 units per sector, blocked ground and region | `map_segment` |
 | `itemdroptable.txt` | Each monster's own items: count, rate out of 100,000 | `monster_drop` |

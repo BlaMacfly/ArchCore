@@ -11,7 +11,9 @@
 //!             attaques ou compétences interdites, invincibilités…), portés par l'effet. Sur une cible, ils
 //!             prennent avec la chance « skill_rate » (toujours sans elle) et durent « stun_time » ms, sinon
 //!             « duration ». L'état d'un personnage, union de ceux de ses effets, part dans le champ 17
-//!             d'AGPMCHARACTER (op 1).
+//!             d'AGPMCHARACTER (op 1). Code 9 : halte (ni compétence ni attaque), 10 : invisibilité ; codes 26 à 33
+//!             (ajouts d'Archonia) : valeur EP8 de la compétence (`ep8_special_status`). Interruption (`disturb`) :
+//!             attaque, déplacement, objet (bit propre au serveur), compétence. Règles des états : `status_rules.rs`.
 //!   Combat : melee_attack 106, 109, 110 ajoutent « skill_rate » à la chance de coup critique et « critical »
 //!             aux dégâts critiques (en pour cent) ; reflect_melee_attack 2 (bouclier) ajoute « skill_rate » à
 //!             la chance de bloquer, comme « point.physical_block » ; convert_type 1 et 2 changent un coup reçu
@@ -20,8 +22,18 @@
 //!             dégâts d'un coup de monstre reçu.
 //!             Résistance aux critiques (« critical_defence_percent2 » de Skill_Const2, sauf la contre-attaque ;
 //!             « Critical_Defense_Rate » des options) : ôtée de la chance de coup critique de l'assaillant (déduit).
-//!             Résistance à l'étourdissement (« stun_resistance » de SKILL_CONST, « StunResistance » des options) :
-//!             seulement affichée, aucune règle de jeu connue (l'étourdissement suit « stun_protect »).
+//!             Résistance à l'étourdissement (« magnify.stun_resistance » de SKILL_CONST, « StunResistance » des
+//!             options) : colonnes propres à Archonia, absentes des tables de l'épisode 8 : plus lues ; la case du
+//!             bloc des caractéristiques secondaires (0xbc) reste à 0. L'étourdissement suit « stun_protect ».
+//!   Renforcements (`point.*` de SKILL_CONST, épisode 8) : dégâts élémentaires « dmg_min_* », « dmg_max_* » ajoutés à ceux
+//!             du porteur ; « physical_resistance » (réduction des dégâts physiques reçus, en pour cent) et
+//!             « skill_block » (chance de bloquer une compétence) ajoutés aux facteurs de défense 0 et 10, comme les
+//!             options ; « atk_range » (en mètres, ×100 comme la portée des compétences) à la portée d'attaque ;
+//!             « skill_cast » et « skill_delay » (pour cent d'incantation et de relance en moins) aux facteurs
+//!             d'attaque 3 et 4, comme les options du même nom (`Archonia.exe` range celles-ci dans ces facteurs) ;
+//!             « cost_mp_decrease » (pour cent, négatif : PM coûtés en moins), « bonus_money » (or en plus, même unité
+//!             que « bonus_exp »). Les colonnes « percent.* » de ces facteurs ne sont pas lues (une compétence au
+//!             plus chacune).
 //!   Paquets : AGPMSKILL op 4 (effet ajouté : identifiant de la compétence, porteur, champ 8 = mini SKILL_BUFF
 //!             TID, durée, TID du lanceur) et op 5 (effet retiré : TID), aux joueurs qui voient le porteur.
 //!             AGPMSKILL op 3 (porteur, champ 9 = bloc de 220 octets) au joueur seul, à l'entrée en jeu et à chaque
@@ -49,7 +61,16 @@ pub mod op {
     pub const UPDATE_ATTACH_DATA: i64 = 3;
     pub const ADD_BUFF: i64 = 4;
     pub const REMOVE_BUFF: i64 = 5;
+    /// Liste complète des effets d'un personnage (champ 8) : le client remplace ou ajoute chacun.
+    pub const ALL_BUFFED_SKILL: i64 = 6;
+    /// Bonus de niveau de toutes les compétences (champ 1, moins de 31).
+    pub const MODIFIED_SKILL_LEVEL: i64 = 14;
+    /// Recharge d'une compétence remise à zéro (1 identifiant, 4 TID).
+    pub const INIT_COOLTIME: i64 = 15;
 }
+
+/// Bonus de niveau des compétences accepté par le client (op 14).
+pub const MAX_SKILL_LEVEL_BONUS: i64 = 30;
 
 /// États spéciaux d'un personnage (bits du champ 17 d'AGPMCHARACTER).
 pub mod status {
@@ -82,6 +103,15 @@ pub mod status {
     pub const BERSERK: u64 = 0x800_0000_0000;
     pub const SHRINK: u64 = 0x1000_0000_0000;
     pub const DISEASE: u64 = 0x2000_0000_0000;
+    /// Halte (code 9 de special_status, bit 0x400 du masque de la compétence chez Archonia, qui le nomme ainsi) : ni
+    /// compétence ni attaque, comme les deux bits du client qu'ArchCore envoie pour elle.
+    pub const HALT: u64 = DISABLE_SKILL | DISABLE_NORMAL_ATK;
+    /// Invisibilité (code 10, bit 0x200 du masque d'Archonia) : l'état « transparent » du personnage.
+    pub const INVISIBLE: u64 = TRANSPARENT;
+    /// Objets interdits (`disturb` 4, `skill_extra.rs`) : bit propre au serveur, jamais envoyé au client (`for_client`).
+    pub const NO_ITEM: u64 = 1 << 62;
+    /// Bits propres au serveur.
+    pub const SERVER_ONLY: u64 = NO_ITEM;
     /// Ni déplacement ni action.
     pub const HELPLESS: u64 = STUN | FREEZE | SLEEP;
     pub const NO_MOVE: u64 = HELPLESS | HOLD;
@@ -91,8 +121,9 @@ pub mod status {
     pub const UNTOUCHABLE: u64 = INVINCIBLE | TRANSPARENT;
 }
 
-/// États d'un code de la colonne special_status (1 étourdissement… 25 rétrécissement) ; 9 (« halte »)
-/// interdit compétences et attaques.
+/// États d'un code de la colonne special_status (1 étourdissement… 25 rétrécissement) ; 9 halte (compétences et attaques
+/// interdites), 10 invisibilité. Les codes 26 à 33 sont des ajouts d'Archonia, absents de l'épisode 8 : aucun état
+/// (`ep8_special_status` les remplace par la valeur EP8 de la compétence quand elle en a une).
 pub fn status_of_code(code: i64) -> u64 {
     use status::*;
     match code {
@@ -104,8 +135,8 @@ pub fn status_of_code(code: i64) -> u64 {
         6 => NOT_ADD_AGGRO,
         7 => HIDE_AGGRO,
         8 => STUN_PROTECT,
-        9 => DISABLE_SKILL | DISABLE_NORMAL_ATK,
-        10 => TRANSPARENT,
+        9 => HALT,
+        10 => INVISIBLE,
         11 => HALF_TRANSPARENT,
         12 => NORMAL_ATK_INVINCIBLE,
         13 => SKILL_ATK_INVINCIBLE,
@@ -128,6 +159,66 @@ pub fn status_of_code(code: i64) -> u64 {
 /// Champ special_status de SKILL_SPEC : codes séparés par « ; » (ceux à partir de 1000 règlent autre chose).
 pub fn parse_status(s: &str) -> u64 {
     s.split(';').filter_map(|v| v.trim().parse::<i64>().ok()).filter(|v| *v < 1000).fold(0, |acc, v| acc | status_of_code(v))
+}
+
+/// États de l'épisode 8 des compétences dont Archonia a changé la colonne special_status (codes 26 à 33 qu'il a
+/// ajoutés, ou un autre code) : valeur de la table EP8 de la même compétence (vide : aucun état). Les tables EP8
+/// importées ont déjà ces valeurs ; la correspondance sert quand la colonne vient encore du client.
+pub const EP8_SPECIAL_STATUS: [(&str, &str); 20] = [
+    ("Cure", ""),
+    ("Righteous Smite", "25"),
+    ("Scorpion Trap", "20"),
+    ("Storm Bite", "25"),
+    ("Soul Bane", ""),
+    ("Cry of Disorder", "21"),
+    ("Painting Attack", "21"),
+    ("Crimson Eye", "24"),
+    ("Zone of Terrible Corpses", "22"),
+    ("Eye of the Red Ranger", "22"),
+    ("Spectral Storm", "21"),
+    ("Iron Protector", ""),
+    ("Shrinking Punch", "25"),
+    ("Dragon Boon", ""),
+    ("Resounding Destroyer", "20"),
+    ("Lightning Frenzy Assault", "24"),
+    ("Frightful Wingover", "22"),
+    ("Oppressive Blow", "25"),
+    ("Arena Ban", ""),
+    ("Stun Immunity", ""),
+];
+
+/// Colonne special_status d'une compétence ramenée à l'épisode 8 : la valeur EP8 de la compétence quand Archonia l'a
+/// changée (`EP8_SPECIAL_STATUS`), sinon la colonne sans ses codes 26 à 33.
+pub fn ep8_special_status(name: &str, raw: &str) -> String {
+    if let Some((_, v)) = EP8_SPECIAL_STATUS.iter().find(|(n, _)| *n == name) {
+        return (*v).to_string();
+    }
+    raw.split(';').map(str::trim).filter(|c| !c.parse::<i64>().is_ok_and(|v| (26..=33).contains(&v))).collect::<Vec<_>>().join(";")
+}
+
+/// États portés par la colonne `disturb` de SKILL_SPEC (interruption, `skill_extra.rs`) : bits 1 attaque normale, 2
+/// déplacement, 4 objet, 8 compétence (valeur modulo 1000 ; au-delà, un réglage non lu, comme pour special_status).
+pub fn disturb_status(v: i64) -> u64 {
+    let v = v.max(0) % 1000;
+    let mut out = 0;
+    if v & 0x1 != 0 {
+        out |= status::DISABLE_NORMAL_ATK;
+    }
+    if v & 0x2 != 0 {
+        out |= status::HOLD;
+    }
+    if v & 0x4 != 0 {
+        out |= status::NO_ITEM;
+    }
+    if v & 0x8 != 0 {
+        out |= status::DISABLE_SKILL;
+    }
+    out
+}
+
+/// États tels que le client les reçoit : sans les bits propres au serveur.
+pub fn for_client(status: u64) -> u64 {
+    status & !status::SERVER_ONLY
 }
 
 /// Modificateurs de caractéristiques d'un effet (ou leur somme).
@@ -162,8 +253,6 @@ pub struct Mods {
     pub stun_protect: f64,
     /// Résistance aux critiques (pour cent, ôtée de la chance de coup critique de l'assaillant).
     pub crit_resist: f64,
-    /// Résistance à l'étourdissement (« stun_resistance », « StunResistance ») : affichée, pas jouée.
-    pub stun_resist: f64,
     /// Contre-attaque : chance (pour cent) de renvoyer à son auteur les dégâts d'un coup reçu.
     pub counter: f64,
     /// Défense ignorée par les coups du porteur (pour cent) : défense physique, résistances élémentaires.
@@ -184,6 +273,38 @@ pub struct Mods {
     /// SKILL_CONST ; leur unité est réglable (`Skill.GameBonusDivisor`, `consumables.rs`).
     pub exp_bonus: f64,
     pub drop_bonus: f64,
+    /// Or en plus (« bonus_money »), même unité que `exp_bonus`.
+    pub gold_bonus: f64,
+    /// Dégâts élémentaires (min, max) en plus (« point.dmg_min_* », « point.dmg_max_* »), ordre des attributs 1 à 8.
+    pub spirit_dmg: [(f64, f64); 8],
+    /// Réduction des dégâts physiques reçus (pour cent, « physical_resistance ») et chance de bloquer une compétence
+    /// (« skill_block »).
+    pub phys_resist: f64,
+    pub skill_block: f64,
+    /// Portée d'attaque en plus (unités du jeu ; la table l'exprime en mètres).
+    pub atk_range: f64,
+    /// Incantation et relance plus courtes (pour cent, « skill_cast », « skill_delay » ; négatif : plus longues), PM
+    /// coûtés en plus (pour cent, « cost_mp_decrease » ; négatif : en moins).
+    pub skill_cast: f64,
+    pub skill_delay: f64,
+    pub mp_cost_pct: f64,
+    /// Pénétration des défenses de la cible (options « Ignore_* », points de pour cent ôtés de la chance ou de la
+    /// réduction adverse) : résistance physique, blocage, blocage des compétences, esquive, résistance aux critiques,
+    /// protection contre l'étourdissement.
+    pub ignore_phys_resist: f64,
+    pub ignore_block: f64,
+    pub ignore_skill_block: f64,
+    pub ignore_dodge: f64,
+    pub ignore_crit_resist: f64,
+    pub ignore_stun_protect: f64,
+    /// Système héroïque (`heroic.rs`) : dégâts (min, max) en plus (« point.dmg_min_heroic », « point.dmg_max_heroic »),
+    /// défense (« point.def_point_heroic ») et résistances mêlée, distance, magie (pour cent,
+    /// « point.heroic_melee_Resistance »… : facteurs de défense 12 à 14).
+    pub heroic_dmg: (f64, f64),
+    pub heroic_def: f64,
+    pub heroic_resist: [f64; 3],
+    /// Niveaux de toutes les compétences en plus (« skill_levelup » d'une compétence de type 1, `skill_extra.rs`).
+    pub skill_levels: f64,
 }
 
 /// Colonnes de défense élémentaire de SKILL_CONST, dans l'ordre des attributs 1 à 8.
@@ -205,9 +326,9 @@ impl Heal {
 }
 
 /// Éléments des dégâts sur la durée : colonne de SKILL_CONST et indice dans le résultat (9 physique, 10 magie
-/// … 17 glace).
-pub const DOT_COLUMNS: [(&str, usize); 9] =
-    [("a", 9), ("magic", 10), ("water", 11), ("fire", 12), ("earth", 13), ("air", 14), ("poison", 15), ("thunder", 16), ("ice", 17)];
+/// … 17 glace, 19 héroïque : « dot_dmg_heroic », `heroic.rs`).
+pub const DOT_COLUMNS: [(&str, usize); 10] =
+    [("a", 9), ("magic", 10), ("water", 11), ("fire", 12), ("earth", 13), ("air", 14), ("poison", 15), ("thunder", 16), ("ice", 17), ("heroic", 19)];
 
 fn num(c: &serde_json::Value, k: &str) -> f64 {
     c.get(k).and_then(|v| v.as_str()).and_then(|s| s.trim().parse::<f64>().ok()).unwrap_or(0.0)
@@ -237,6 +358,17 @@ impl Mods {
             spirit_defense: SPIRIT_DEFENSE_COLUMNS.map(|e| p(&format!("def_point_{e}"))),
             exp_bonus: num(c, "bonus_exp"),
             drop_bonus: num(c, "bonus_drop_rate"),
+            gold_bonus: num(c, "bonus_money"),
+            spirit_dmg: SPIRIT_DEFENSE_COLUMNS.map(|e| (p(&format!("dmg_min_{e}")), p(&format!("dmg_max_{e}")))),
+            phys_resist: p("physical_resistance"),
+            skill_block: p("skill_block"),
+            atk_range: p("atk_range") * 100.0,
+            skill_cast: p("skill_cast"),
+            skill_delay: p("skill_delay"),
+            mp_cost_pct: num(c, "cost_mp_decrease"),
+            heroic_dmg: (p("dmg_min_heroic"), p("dmg_max_heroic")),
+            heroic_def: p("def_point_heroic"),
+            heroic_resist: [p("heroic_melee_Resistance"), p("heroic_ranged_Resistance"), p("heroic_magic_Resistance")],
             ..Default::default()
         }
     }
@@ -271,7 +403,6 @@ impl Mods {
         self.to_mp += o.to_mp;
         self.stun_protect += o.stun_protect;
         self.crit_resist += o.crit_resist;
-        self.stun_resist += o.stun_resist;
         self.counter += o.counter;
         self.ignore_defense += o.ignore_defense;
         self.ignore_resist += o.ignore_resist;
@@ -284,6 +415,30 @@ impl Mods {
         }
         self.exp_bonus += o.exp_bonus;
         self.drop_bonus += o.drop_bonus;
+        self.gold_bonus += o.gold_bonus;
+        for i in 0..8 {
+            self.spirit_dmg[i].0 += o.spirit_dmg[i].0;
+            self.spirit_dmg[i].1 += o.spirit_dmg[i].1;
+        }
+        self.phys_resist += o.phys_resist;
+        self.skill_block += o.skill_block;
+        self.atk_range += o.atk_range;
+        self.skill_cast += o.skill_cast;
+        self.skill_delay += o.skill_delay;
+        self.mp_cost_pct += o.mp_cost_pct;
+        self.ignore_phys_resist += o.ignore_phys_resist;
+        self.ignore_block += o.ignore_block;
+        self.ignore_skill_block += o.ignore_skill_block;
+        self.ignore_dodge += o.ignore_dodge;
+        self.ignore_crit_resist += o.ignore_crit_resist;
+        self.ignore_stun_protect += o.ignore_stun_protect;
+        self.heroic_dmg.0 += o.heroic_dmg.0;
+        self.heroic_dmg.1 += o.heroic_dmg.1;
+        self.heroic_def += o.heroic_def;
+        for i in 0..3 {
+            self.heroic_resist[i] += o.heroic_resist[i];
+        }
+        self.skill_levels += o.skill_levels;
     }
 }
 
@@ -498,7 +653,7 @@ pub fn counter(rng: &mut impl rand::Rng, m: &Mods) -> bool {
 /// AGPMCHARACTER op 1 : états spéciaux de `cid`.
 pub fn status_packet(cid: u32, status: u64) -> Vec<u8> {
     let c = &schema::CHARACTER;
-    build_packet(c, &Fields::new(c).with(0, 1).with(1, cid).with(17, status as i64))
+    build_packet(c, &Fields::new(c).with(0, 1).with(1, cid).with(17, for_client(status) as i64))
 }
 
 /// Ajoute un effet : remplace celui de la même compétence ; refusé si la liste est pleine.
@@ -539,6 +694,25 @@ pub fn apply(f: &mut Factors, m: &Mods) {
     for (i, d) in m.spirit_defense.iter().enumerate() {
         f.defense_point[i + 1] = (f.defense_point[i + 1] as f64 + d) as i32;
     }
+    for (i, (lo, hi)) in m.spirit_dmg.iter().enumerate() {
+        f.damage_min[i + 1] = (f.damage_min[i + 1] as f64 + lo).max(0.0) as i32;
+        f.damage_max[i + 1] = (f.damage_max[i + 1] as f64 + hi).max(f.damage_min[i + 1] as f64) as i32;
+    }
+    // Facteurs de défense « taux » : 0 résistance physique, 10 blocage des compétences (ceux des options aussi).
+    f.defense_rate[0] = (f.defense_rate[0] as f64 + m.phys_resist) as i32;
+    f.defense_rate[10] = (f.defense_rate[10] as f64 + m.skill_block) as i32;
+    if m.atk_range != 0.0 {
+        f.attack[0] = (f.attack[0] as f64 + m.atk_range).max(50.0) as i32;
+    }
+    // Héroïque (`heroic.rs`) : dégâts et défense d'attribut 11, résistances mêlée, distance, magie (12 à 14).
+    f.damage_min[super::heroic::ATTR] = (f.damage_min[super::heroic::ATTR] as f64 + m.heroic_dmg.0).max(0.0) as i32;
+    f.damage_max[super::heroic::ATTR] = (f.damage_max[super::heroic::ATTR] as f64 + m.heroic_dmg.1).max(0.0) as i32;
+    f.defense_point[super::heroic::ATTR] = (f.defense_point[super::heroic::ATTR] as f64 + m.heroic_def).max(0.0) as i32;
+    for (i, r) in m.heroic_resist.iter().enumerate() {
+        f.defense_rate[super::heroic::ATTR + 1 + i] = (f.defense_rate[super::heroic::ATTR + 1 + i] as f64 + r) as i32;
+    }
+    f.attack[3] = (f.attack[3] as f64 + m.skill_cast) as i32;
+    f.attack[4] = (f.attack[4] as f64 + m.skill_delay) as i32;
     f.point_max[8] = (f.point_max[8] as f64 + m.hit).max(0.0) as i32;
     f.point_max[9] = (f.point_max[9] as f64 + m.evade).max(0.0) as i32;
     f.status[8] = pct(f.status[8] as f64, m.movement_pct).max(0.0) as i32;
@@ -554,6 +728,31 @@ pub fn heal(f: &mut Factors, h: &Heal) {
     let mp = f.point[1] as f64 + h.mp + f.point_max[1] as f64 * h.mp_pct / 100.0;
     f.point[POINT_HP] = (hp as i32).clamp(1, f.point_max[0].max(1));
     f.point[1] = (mp as i32).clamp(0, f.point_max[1].max(0));
+}
+
+/// Dégâts élémentaires (min, max) d'un monstre sous effets, ordre des attributs 1 à 8.
+pub fn monster_spirit(spirit: &[(i32, i32); 8], m: &Mods) -> [(f64, f64); 8] {
+    std::array::from_fn(|i| {
+        let lo = (spirit[i].0 as f64 + m.spirit_dmg[i].0).max(0.0);
+        (lo, (spirit[i].1.max(spirit[i].0) as f64 + m.spirit_dmg[i].1).max(lo))
+    })
+}
+
+/// Allonge de `extra_ms` un affaiblissement posé (option « Add_Debuff_Duration » de son lanceur) : durée, fin et fin de
+/// ses états.
+pub fn lengthen(e: &mut Effect, extra_ms: u64) {
+    if extra_ms == 0 || e.ends_at.is_none() {
+        return;
+    }
+    let extra = Duration::from_millis(extra_ms);
+    e.duration_ms += extra_ms;
+    e.ends_at = e.ends_at.map(|t| t + extra);
+    e.status_until = e.status_until.map(|t| t + extra);
+}
+
+/// Chance (pour cent) d'une défense de la cible diminuée de la pénétration de l'assaillant, jamais négative.
+pub fn pierced(rate: f64, ignore: f64) -> f64 {
+    (rate - ignore.max(0.0)).max(0.0)
 }
 
 /// Défense physique d'un monstre sous effets.
@@ -585,6 +784,32 @@ pub fn add_packet(owner: u32, e: &Effect) -> Vec<u8> {
     build_packet(k, &Fields::new(k).with(0, op::ADD_BUFF).with(1, e.skill_id).with(2, base(owner)).with(8, vec![Value::Bytes(buff)]))
 }
 
+/// Mini SKILL_BUFF d'un effet : TID, durée restante (ms), TID du lanceur.
+fn buff_mini(e: &Effect, now: Instant) -> Vec<u8> {
+    let b = &mini::SKILL_BUFF;
+    let left = e.ends_at.map_or(e.duration_ms, |t| t.saturating_duration_since(now).as_millis() as u64);
+    build_mini(b, &Fields::new(b).with(0, e.tid).with(1, left as i64).with(2, e.caster_tid))
+}
+
+/// AGPMSKILL op 6 : tous les effets annoncés de `owner` (à l'entrée en jeu, à son apparition chez un autre joueur).
+pub fn all_buffs_packet(owner: u32, list: &[&Effect], now: Instant) -> Vec<u8> {
+    let buffs: Vec<Value> = list.iter().take(96).map(|e| Value::Bytes(buff_mini(e, now))).collect();
+    let k = &schema::SKILL;
+    build_packet(k, &Fields::new(k).with(0, op::ALL_BUFFED_SKILL).with(2, base(owner)).with(8, buffs))
+}
+
+/// AGPMSKILL op 15 : la recharge de la compétence `skill_id` (TID `tid`) de `owner` est remise à zéro.
+pub fn init_cooltime_packet(owner: u32, skill_id: u32, tid: u32) -> Vec<u8> {
+    let k = &schema::SKILL;
+    build_packet(k, &Fields::new(k).with(0, op::INIT_COOLTIME).with(1, skill_id).with(2, base(owner)).with(4, tid))
+}
+
+/// AGPMSKILL op 14 : bonus de niveau de toutes les compétences de `owner` (options « skill_levelup » portées).
+pub fn skill_level_bonus_packet(owner: u32, bonus: i64) -> Vec<u8> {
+    let k = &schema::SKILL;
+    build_packet(k, &Fields::new(k).with(0, op::MODIFIED_SKILL_LEVEL).with(1, bonus.clamp(0, MAX_SKILL_LEVEL_BONUS)).with(2, base(owner)))
+}
+
 /// AGPMSKILL op 5 : effet retiré de `owner`.
 pub fn remove_packet(owner: u32, e: &Effect) -> Vec<u8> {
     let b = &mini::SKILL_BUFF;
@@ -600,9 +825,10 @@ pub const ATTACH_LEN: usize = 220;
 pub const ATTACH_OFFSETS: [usize; 8] = [0x08, 0x0c, 0x2c, 0x3c, 0xa4, 0xa8, 0xb0, 0xbc];
 
 /// Part des compétences des caractéristiques secondaires : taux et dégâts critiques, coup reçu changé en PV
-/// (chance, part), défense et résistances ignorées, résistance aux critiques, à l'étourdissement.
+/// (chance, part), défense et résistances ignorées, résistance aux critiques ; la résistance à l'étourdissement (0xbc)
+/// reste à 0 (colonne propre à Archonia, plus lue).
 pub fn attach_values(m: &Mods) -> [i32; 8] {
-    [m.crit_rate, m.crit_dmg, m.to_hp_rate, m.to_hp, m.ignore_defense, m.ignore_resist, m.crit_resist, m.stun_resist].map(|v| v.round() as i32)
+    [m.crit_rate, m.crit_dmg, m.to_hp_rate, m.to_hp, m.ignore_defense, m.ignore_resist, m.crit_resist, 0.0].map(|v| v.round() as i32)
 }
 
 /// Bloc de 220 octets : les valeurs à leurs décalages, le reste à zéro.
@@ -653,6 +879,46 @@ mod tests {
     }
 
     #[test]
+    fn renforcements_de_l_episode_8() {
+        // Ancient's Favour : +30 de feu ; Death Pact : +50 % de résistance physique et de blocage des compétences ;
+        // portée +3 m ; incantation −10 %, relance +5 % ; Mana Effect : −10 % de PM.
+        let c = serde_json::json!({ "point.dmg_min_fire": "30", "point.dmg_max_fire": "30", "point.physical_resistance": "50", "point.skill_block": "50",
+            "point.atk_range": "3", "point.skill_cast": "10", "point.skill_delay": "-5", "cost_mp_decrease": "-10", "bonus_money": "20" });
+        let m = Mods::from_consts(&c);
+        assert_eq!((m.spirit_dmg[2], m.phys_resist, m.skill_block, m.atk_range), ((30.0, 30.0), 50.0, 50.0, 300.0));
+        assert_eq!((m.skill_cast, m.skill_delay, m.mp_cost_pct, m.gold_bonus), (10.0, -5.0, -10.0, 20.0));
+        let mut f = Factors::default();
+        f.attack[0] = 180;
+        f.defense_rate[0] = 5;
+        f.damage_min[3] = 2;
+        f.damage_max[3] = 4;
+        apply(&mut f, &m);
+        assert_eq!((f.damage_min[3], f.damage_max[3], f.defense_rate[0], f.defense_rate[10]), (32, 34, 55, 50));
+        assert_eq!((f.attack[0], f.attack[3], f.attack[4]), (480, 10, -5));
+        // Portée réduite de 40 m (Venom Spray) : 50 unités au moins.
+        apply(&mut f, &Mods { atk_range: -4000.0, ..Default::default() });
+        assert_eq!(f.attack[0], 50);
+        // Monstre : ses dégâts élémentaires sous effets.
+        let mut weak = Mods::default();
+        weak.spirit_dmg[1] = (-50.0, -50.0);
+        weak.spirit_dmg[2] = (5.0, 5.0);
+        let spirit = monster_spirit(&[(0, 0), (10, 20), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0)], &weak);
+        assert_eq!((spirit[1], spirit[2]), ((0.0, 0.0), (5.0, 5.0)));
+        assert_eq!((pierced(20.0, 5.0), pierced(3.0, 5.0), pierced(10.0, -4.0)), (15.0, 0.0, 10.0));
+    }
+
+    #[test]
+    fn affaiblissement_allonge() {
+        let now = Instant::now();
+        let mut e = Effect { status: status::STUN, status_until: Some(now + Duration::from_secs(2)), ..effect(1, Mods::default(), Some(now + Duration::from_secs(5))) };
+        lengthen(&mut e, 3000);
+        assert_eq!((e.duration_ms, e.ends_at, e.status_until), (4000, Some(now + Duration::from_secs(8)), Some(now + Duration::from_secs(5))));
+        let mut passive = effect(2, Mods::default(), None);
+        lengthen(&mut passive, 3000);
+        assert_eq!(passive.duration_ms, 1000, "une passive ne s'allonge pas");
+    }
+
+    #[test]
     fn effets_sur_un_joueur() {
         let mut f = Factors::default();
         f.status[1] = 3000;
@@ -694,6 +960,20 @@ mod tests {
         assert_eq!(parse_status("9"), status::DISABLE_SKILL | status::DISABLE_NORMAL_ATK);
         assert_eq!(parse_status("17"), status::STUN_PROTECT | status::SLOW_INVINCIBLE);
         assert_eq!(parse_status("0"), 0);
+        assert_eq!((parse_status("9"), parse_status("10")), (status::HALT, status::INVISIBLE), "halte, invisibilité");
+        // Codes d'Archonia ramenés à l'épisode 8 : valeur EP8 de la compétence, sinon codes 26 à 33 écartés.
+        assert_eq!(ep8_special_status("Scorpion Trap", "29"), "20");
+        assert_eq!(ep8_special_status("Cry of Disorder", "24"), "21");
+        assert_eq!(ep8_special_status("Storm Bite", "29"), "25");
+        assert_eq!(ep8_special_status("Cure", "26"), "");
+        assert_eq!(ep8_special_status("Crimson Eye", "24"), "24");
+        assert_eq!(ep8_special_status("Autre", "1;31;1003"), "1;1003");
+        assert_eq!(parse_status(&ep8_special_status("Scorpion Trap", "29")), status::HOLD);
+        assert_eq!(parse_status("29;33"), 0, "codes d'Archonia : aucun état");
+        // Interruption : 11 = attaque, déplacement, compétence ; 1002 : déplacement ; 4 : objets (bit propre au serveur).
+        assert_eq!(disturb_status(11), status::DISABLE_NORMAL_ATK | status::HOLD | status::DISABLE_SKILL);
+        assert_eq!(disturb_status(1002), status::HOLD);
+        assert_eq!(for_client(disturb_status(15)), status::DISABLE_NORMAL_ATK | status::HOLD | status::DISABLE_SKILL);
         let now = Instant::now();
         let mut list = vec![
             Effect { status: status::STUN, status_until: Some(now + Duration::from_secs(3)), ..effect(1, Mods::default(), Some(now + Duration::from_secs(8))) },
@@ -736,9 +1016,9 @@ mod tests {
 
     #[test]
     fn bloc_des_competences() {
-        let m = Mods { crit_rate: 3.0, crit_dmg: 120.0, to_hp_rate: 5.0, to_hp: 10.0, ignore_defense: 4.0, ignore_resist: 2.0, crit_resist: 16.0, stun_resist: -5.0, defense: 9.0, ..Default::default() };
+        let m = Mods { crit_rate: 3.0, crit_dmg: 120.0, to_hp_rate: 5.0, to_hp: 10.0, ignore_defense: 4.0, ignore_resist: 2.0, crit_resist: 16.0, defense: 9.0, ..Default::default() };
         let v = attach_values(&m);
-        assert_eq!(v, [3, 120, 5, 10, 4, 2, 16, -5]);
+        assert_eq!(v, [3, 120, 5, 10, 4, 2, 16, 0], "résistance à l'étourdissement (Archonia) : 0");
         let p = archcore_net::decode_packet(&schema::SKILL, &attach_packet(0x5000_0001, &v)).unwrap();
         assert_eq!(p.int(0), Some(op::UPDATE_ATTACH_DATA));
         let owner = archcore_net::decode_mini(&mini::SKILL_BASE, p.bytes(2).unwrap()).unwrap();
@@ -747,7 +1027,7 @@ mod tests {
         assert_eq!(b.len(), ATTACH_LEN);
         let at = |off: usize| i32::from_le_bytes(b[off..off + 4].try_into().unwrap());
         assert_eq!((at(0x08), at(0x0c), at(0x2c), at(0x3c)), (3, 120, 5, 10));
-        assert_eq!((at(0xa4), at(0xa8), at(0xb0), at(0xbc)), (4, 2, 16, -5));
+        assert_eq!((at(0xa4), at(0xa8), at(0xb0), at(0xbc)), (4, 2, 16, 0));
         let rest: u32 = (0..ATTACH_LEN).step_by(4).filter(|o| !ATTACH_OFFSETS.contains(o)).map(|o| at(o).unsigned_abs()).sum();
         assert_eq!(rest, 0, "le reste du bloc est nul");
         assert!(p.int(1).is_none() && p.list(8).is_none(), "ni compétence ni effets");
@@ -820,5 +1100,19 @@ mod tests {
         assert_eq!(p.int(0), Some(op::ADD_BUFF));
         let list = p.list(8).expect("liste des effets");
         assert_eq!(list.len(), 1);
+    }
+
+    #[test]
+    fn liste_recharge_et_bonus_de_niveau() {
+        let now = Instant::now();
+        let (a, b) = (effect(20, Mods::default(), Some(now + Duration::from_secs(5))), effect(21, Mods::default(), Some(now + Duration::from_secs(9))));
+        let p = archcore_net::decode_packet(&schema::SKILL, &all_buffs_packet(0x10, &[&a, &b], now)).unwrap();
+        assert_eq!((p.int(0), p.list(8).map(|l| l.len())), (Some(op::ALL_BUFFED_SKILL), Some(2)));
+        let p = archcore_net::decode_packet(&schema::SKILL, &all_buffs_packet(0x10, &[], now)).unwrap();
+        assert_eq!(p.list(8).map(|l| l.len()).unwrap_or(0), 0, "liste vide");
+        let p = archcore_net::decode_packet(&schema::SKILL, &init_cooltime_packet(0x10, 7, 1439)).unwrap();
+        assert_eq!((p.int(0), p.int(1), p.int(4)), (Some(15), Some(7), Some(1439)));
+        let p = archcore_net::decode_packet(&schema::SKILL, &skill_level_bonus_packet(0x10, 45)).unwrap();
+        assert_eq!((p.int(0), p.int(1)), (Some(14), Some(MAX_SKILL_LEVEL_BONUS)), "moins de 31");
     }
 }

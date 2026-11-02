@@ -51,20 +51,42 @@ archcore import      # data/client-ini → archcore_world
 ```
 
 The client tables are RC4-encrypted, with a key derived from MD5("1111"), and written in CP949. The
-import converts them to UTF-8: character templates, experience, NPCs, items, shops, skills, quests. It
-also reads the ground height from the world geometry (the client's `world/`), which takes a few minutes.
+import converts them to UTF-8. It also reads the ground height from the world geometry (the client's
+`world/`), which takes a few minutes.
 
-**Monsters, drops and map.** They are not in the client: they come from the original ArchLord server
-tables (`spawndatatable.txt`, `spawninstancetable.txt`, `itemdroptable.txt`, `groupdroprate.txt`,
-`droprankrate.txt` and `world/node_data`), which ArchCore does not ship. Put them in `data/server-ini`
-(never versioned), or point to their folder:
+**Episode 8 values.** Game values (skills, items, options, runes, monsters, refining, regions, shops,
+teleports, experience) come from the **original ArchLord server tables**; the client only provides names,
+visuals and purely client tables (quests, masteries, titles, production), without Archonia's own rows.
+These tables also provide monsters, drops and the map (`spawndatatable.txt`, `itemdroptable.txt`,
+`world/node_data`…). ArchCore does not ship them: put them in `data/server-ini` (never versioned), or
+point to their folder. The import refuses to start without them:
 
 ```bash
 archcore import data/client-ini --server path/to/ini
 ```
 
-Without them the server starts, but the world has no monsters. The files are detailed in
+The import ends with a summary: rows kept and dropped, table by table. Rules and files are detailed in
 [[Tools|EN-Tools]].
+
+**Export the tables for ArchRust.** For the ArchRust client to show the same values as the server
+(tooltips, prices, cooldowns), write them in the client format into its "server data" folder
+(`server-data/` next to `realmlist.wtf`), then point the world server to that folder:
+
+```bash
+archcore export-client-tables path/to/server-data
+```
+
+```ini
+# config/world.conf
+Client.TablesDir = "path/to/server-data"
+```
+
+The folder holds `ini/` and one folder per client language (`ini_fr/`…), and `tables.toml` with the
+tables' fingerprint; the server announces it to ArchRust, which reports a missing or stale folder. Run the
+export again after each import (or `archcore content`). This folder is game data: never versioned.
+
+**Existing characters.** A database created before the switch to episode 8 is updated with
+`archcore migrate-ep8` (report), then `archcore migrate-ep8 --apply` after a backup (see [[Tools|EN-Tools]]).
 
 ## 5. Start the server
 

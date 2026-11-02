@@ -105,7 +105,7 @@ pub(super) async fn worms(w: &mut InWorld) -> anyhow::Result<Vec<i64>> {
 }
 
 /// Frappe les vers les uns après les autres jusqu'à recevoir un paquet qui vérifie `pred` (`secs` au plus).
-async fn hunt(w: &mut InWorld, pred: impl Fn(&Recv) -> bool, secs: u64, what: &str) -> anyhow::Result<Recv> {
+pub(super) async fn hunt(w: &mut InWorld, pred: impl Fn(&Recv) -> bool, secs: u64, what: &str) -> anyhow::Result<Recv> {
     let (act, c) = (&schema::OPT_CHAR_ACTION, &schema::CHARACTER);
     let mut dead: HashSet<i64> = HashSet::new();
     let t0 = std::time::Instant::now();
@@ -218,9 +218,13 @@ pub async fn divide(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) 
     let db = crate::db::Databases::new(&cfg.database);
     let id = character_id(&db, ca).await?;
     db.characters.exec("INSERT INTO character_skills (character_id, skill_tid, level) VALUES (?, ?, 7) ON DUPLICATE KEY UPDATE level = 7", (id, MARTYR)).await?;
+    // Niveau de personnage exigé par le niveau 7, lu dans la base (83 dans la table de l'épisode 8).
+    let sql = "SELECT JSON_VALUE(consts, '$.require_level') AS r FROM skill_level WHERE tid = ? AND level = 7";
+    let required: i64 = db.world.first(sql, (MARTYR,)).await?.and_then(|r| crate::db::col::<Option<String>>(&r, "r")).and_then(|r| r.trim().parse().ok()).unwrap_or(71);
 
     step(&format!("{ca} et {cb} entrent en jeu et forment un groupe"));
     let mut a = enter(&cfg, ua, pa, ca, "A-").await?;
+    super::hold_weapon(&mut a).await?;
     let mut b = enter(&cfg, ub, pb, cb, "B-").await?;
     // B n'a pas de droits MJ : A (MJ) le pose, le serveur refusant qu'il se téléporte lui-même.
     super::gm_place(&mut a, cb, HUNT).await?;
@@ -230,12 +234,14 @@ pub async fn divide(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) 
     }
     let (acid, bcid) = (a.cid as i64, b.cid as i64);
     let martyr = a.skills.iter().find(|s| s.1 == MARTYR).map(|s| s.0).ok_or_else(|| anyhow::anyhow!("Martyr's Mark absente"))?;
+    // Invitation refusée à 10 niveaux d'écart (party.rs) : le MJ se met au niveau de l'invité (rétabli à la fin).
+    gm(&mut a, &format!("/level {}", b.level.max(1))).await?;
     a.world.send(pm, Fields::new(pm).with(0, 0).with(1, acid).with(2, bcid)).await?;
     b.world.expect_where(|q| q.is(pm, Some(0)), 3000, "invitation").await?;
     b.world.send(pm, Fields::new(pm).with(0, 2).with(1, bcid).with(2, acid)).await?;
     a.world.expect_where(|q| q.is(pm, Some(2)), 3000, "groupe formé").await?;
     let level = a.level.max(1);
-    gm(&mut a, "/level 71").await?;
+    gm(&mut a, &format!("/level {}", required.max(71))).await?;
     gm(&mut a, "/invincible 1").await?;
     gm(&mut a, "/recast").await?;
 
@@ -285,17 +291,19 @@ pub async fn dispel(user: &str, pass: &str, char_name: &str) -> anyhow::Result<(
     step("préparation : Blade Sting et Antimagic en base");
     let db = crate::db::Databases::new(&cfg.database);
     let id = character_id(&db, char_name).await?;
-    // Blade Sting niveau 10 : 33 s d'affaiblissement, le temps d'approcher et de lancer Antimagic.
-    for (tid, level) in [(BLADE_STING, 10), (ANTIMAGIC, 1)] {
+    // Blade Sting niveau 1 (160 %, 10 s d'affaiblissement) : avec l'épée qu'elle exige (requirement.rs), un niveau plus
+    // haut tue le ver d'un coup ; 10 s laissent le temps de lancer Antimagic.
+    for (tid, level) in [(BLADE_STING, 1), (ANTIMAGIC, 1)] {
         db.characters.exec("INSERT INTO character_skills (character_id, skill_tid, level) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE level = ?", (id, tid, level, level)).await?;
     }
     step(&format!("{char_name} entre en jeu"));
     let mut w = enter(&cfg, user, pass, char_name, "").await?;
+    super::hold_weapon(&mut w).await?;
     let level = w.level.max(1);
     let ids: Vec<i64> = [BLADE_STING, ANTIMAGIC].iter().map(|t| w.skills.iter().find(|s| s.1 == *t).map(|s| s.0).unwrap_or(0)).collect();
     anyhow::ensure!(ids.iter().all(|i| *i != 0), "compétences absentes : {:?}", w.skills);
-    // Niveau 30 : assez de PM pour Blade Sting niveau 10 (85), qui blesse sans tuer d'un coup.
-    gm(&mut w, "/level 30").await?;
+    // Niveau 22 (exigé par Blade Sting niveau 1, 40 PM) : il blesse sans tuer d'un coup.
+    gm(&mut w, "/level 22").await?;
     gm(&mut w, "/invincible 1").await?;
     gm(&mut w, "/recast").await?;
     let worm = worms(&mut w).await?[0];
@@ -313,7 +321,7 @@ pub async fn dispel(user: &str, pass: &str, char_name: &str) -> anyhow::Result<(
     w.world.send(k, cast_fields(ids[1], worm)).await?;
     w.world.expect_where(|q| q.is(k, Some(8)) && q.int(1) == Some(ids[1]), 30_000, "Antimagic").await?;
     w.world.expect_where(|q| q.is(k, Some(5)) && q.int(1) == Some(ids[0]) && skill_owner(q, 2) == Some(worm), 1500, "affaiblissement retiré").await?;
-    println!("  ✓ Blade Sting retiré par la purge, sans attendre sa fin (33 s)");
+    println!("  ✓ Blade Sting retiré par la purge, sans attendre sa fin (10 s)");
 
     gm(&mut w, "/invincible 0").await?;
     gm(&mut w, &format!("/level {level}")).await?;
@@ -324,7 +332,8 @@ pub async fn dispel(user: &str, pass: &str, char_name: &str) -> anyhow::Result<(
 }
 
 /// Défense ignorée : épée avec une pierre d'eau (3 à 3), Ver vert résistant à 50 % : la part d'eau d'un coup vaut
-/// 3 ; sous Stunner niveau 20 (48 % des résistances ignorées), 4.
+/// 3 ; sous Stunner à son plus haut niveau (lu dans la base : 15 dans la table de l'épisode 8, 38 % des résistances
+/// ignorées, niveau 65 exigé), 2 × 3 × (1 − 50 % × (1 − 38 %)) = 4.
 pub async fn ignore(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
     const WATER_STONE: &str = "201";
     const STUNNER: i64 = 167;
@@ -333,7 +342,19 @@ pub async fn ignore(user: &str, pass: &str, char_name: &str) -> anyhow::Result<(
     let (k, act) = (&schema::SKILL, &schema::OPT_CHAR_ACTION);
     let db = crate::db::Databases::new(&cfg.database);
     let id = character_id(&db, char_name).await?;
-    db.characters.exec("INSERT INTO character_skills (character_id, skill_tid, level) VALUES (?, ?, 20) ON DUPLICATE KEY UPDATE level = 20", (id, STUNNER)).await?;
+    // Plus haut niveau de Stunner, part des résistances ignorée et niveau exigé : valeurs de la base.
+    let top = db
+        .world
+        .first(
+            "SELECT level, JSON_VALUE(consts, '$.\"percent2.ignore_attribute_defence_percent2\"') AS p, JSON_VALUE(consts, '$.require_level') AS r FROM skill_level WHERE tid = ? ORDER BY level DESC LIMIT 1",
+            (STUNNER,),
+        )
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Stunner sans niveaux"))?;
+    let max_level: i64 = crate::db::col(&top, "level");
+    let ignored: f64 = crate::db::col::<Option<String>>(&top, "p").and_then(|p| p.trim().parse().ok()).unwrap_or(0.0);
+    let required: i64 = crate::db::col::<Option<String>>(&top, "r").and_then(|p| p.trim().parse().ok()).unwrap_or(0);
+    db.characters.exec("INSERT INTO character_skills (character_id, skill_tid, level) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE level = VALUES(level)", (id, STUNNER, max_level)).await?;
     step(&format!("{char_name} entre en jeu ; épée et pierre d'eau"));
     let mut w = enter(&cfg, user, pass, char_name, "").await?;
     let iid = armed(&db, &mut w, WATER_STONE, "").await?;
@@ -353,10 +374,10 @@ pub async fn ignore(user: &str, pass: &str, char_name: &str) -> anyhow::Result<(
     anyhow::ensure!(before == 3, "part d'eau {before} (attendu 2 × 3 × 50 %)");
     println!("  ✓ part d'eau {before}");
 
-    step("Stunner niveau 20");
+    step(&format!("Stunner niveau {max_level} ({ignored} % des résistances ignorées)"));
     let stunner = w.skills.iter().find(|s| s.1 == STUNNER).map(|s| s.0).ok_or_else(|| anyhow::anyhow!("Stunner absente"))?;
-    // Niveau 60 : assez de PM (150) ; la part d'eau ne dépend que de la pierre.
-    gm(&mut w, "/level 60").await?;
+    // Niveau 60 au moins (assez de PM), et celui que le niveau de Stunner exige ; la part d'eau ne dépend que de la pierre.
+    gm(&mut w, &format!("/level {}", required.max(60))).await?;
     gm(&mut w, "/recast").await?;
     w.world.send(k, cast_fields(stunner, me)).await?;
     w.world.expect_where(|q| q.is(k, Some(4)) && q.int(1) == Some(stunner), 10_000, "effet").await?;
@@ -369,8 +390,10 @@ pub async fn ignore(user: &str, pass: &str, char_name: &str) -> anyhow::Result<(
     println!("  ✓ AGPMSKILL op 3 : résistance ignorée {} % (0xa8)", at(0xa8));
     let q = hunt(&mut w, water, 120, "part d'eau").await?;
     let after = q.fields().bytes(3).and_then(|f| shown_damage(f, WATER)).unwrap_or(0);
-    anyhow::ensure!(after == 4, "part d'eau {after} sous Stunner (attendu 2 × 3 × 74 % = 4)");
-    println!("  ✓ part d'eau {after} : résistance 50 % → 26 %");
+    let resist = 50.0 * (1.0 - ignored / 100.0);
+    let expected = (6.0 * (1.0 - resist / 100.0)) as i64;
+    anyhow::ensure!(after == expected, "part d'eau {after} sous Stunner (attendu 2 × 3 × {} % = {expected})", 100.0 - resist);
+    println!("  ✓ part d'eau {after} : résistance 50 % → {resist} %");
 
     destroy(&mut w, iid).await?;
     gm(&mut w, "/invincible 0").await?;

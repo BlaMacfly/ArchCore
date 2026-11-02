@@ -36,6 +36,8 @@
 
 pub mod addon;
 pub mod ai;
+pub mod ai_kin;
+pub mod ammo;
 pub mod anticheat;
 pub mod archlord;
 pub mod auction;
@@ -55,7 +57,9 @@ pub mod equipment;
 pub mod evolution;
 pub mod gm;
 pub mod guild;
+pub mod heroic;
 pub mod items;
+pub mod lifetime;
 pub mod itemset;
 pub mod lang;
 pub mod loot;
@@ -84,11 +88,14 @@ pub mod recovery;
 pub mod regions;
 pub mod remission;
 pub mod repair;
+pub mod requirement;
 pub mod ride;
 pub mod sector;
 pub mod shrine;
+pub mod skill_extra;
 pub mod skills;
 pub mod social;
+pub mod status_rules;
 pub mod summons;
 pub mod tax;
 pub mod titles;
@@ -116,6 +123,8 @@ use tokio::sync::Mutex;
 
 /// Drapeaux de déplacement : 0x04 arrêt + 0x08 synchronisation.
 pub const MOVE_STOP_SYNC: i64 = 0x0c;
+/// AGPMCHARACTER op 8 : la session est reprise par une autre connexion du même compte (rappel 0x43 du client).
+pub const DISCONNECT_BY_ANOTHER_USER: i64 = 8;
 
 pub struct WorldCtx {
     pub db: Databases,
@@ -252,6 +261,8 @@ pub struct Player {
     /// Effets de combat de l'équipement porté (options à déclenchement, runes à compétence), recalculés avec
     /// les facteurs.
     pub gear: options::Gear,
+    /// Bonus du groupe porté (membre dans la zone d'effet, `party::step`), ajouté aux facteurs.
+    pub party_bonus: party::Bonus,
     /// Combat entre joueurs : ennemis déclarés (pvp.rs).
     pub pvp: pvp::PvpState,
     /// Pardonneur auprès duquel la fenêtre de rémission est ouverte.
@@ -347,10 +358,18 @@ pub struct WorldState {
     pub channels: channel::Channels,
     /// Avis de recherche en cours (wanted.rs).
     pub wanted: wanted::Board,
+    /// Guildes ennemies (AgpmPvP ops 10 à 16, pvp.rs).
+    pub pvp_guilds: pvp::GuildEnemies,
     /// Combats de Shrine annoncés ou en cours (shrine.rs).
     pub shrines: shrine::Shrines,
     /// Fenêtre des boss : dernières morts, dernier combat (boss.rs).
     pub bosses: boss::Bosses,
+    /// Zones au sol, résurrections proposées, monstres provoqués (skill_extra.rs).
+    pub extra: skill_extra::ExtraState,
+    /// Suiveurs, invocations et renforts des monstres (ai_kin.rs).
+    pub kin: ai_kin::Kin,
+    /// Prochain décompte des objets à durée (lifetime.rs).
+    pub lifetime_at: Option<Instant>,
     /// Horaire du Battleground (battlesquare.rs).
     pub battleground: battlesquare::BattlegroundClock,
     /// Châteaux, candidatures et sièges en cours (siege/).
@@ -522,6 +541,10 @@ impl Connection for WorldConn {
             }
             // Action sociale (« Emotes ») : relayée autour du joueur.
             ptype::CHARACTER if p.int(0) == Some(social::SOCIAL_ANIMATION) => social::on_packet(ctx, &mut st, self.sid, &p),
+            // Réponse à une résurrection proposée par un autre joueur (Redemption, skill_extra.rs).
+            ptype::CHARACTER if matches!(p.int(0), Some(skill_extra::RESURRECTION_BY_OTHER | skill_extra::REQUEST_RESURRECTION_NOW)) => {
+                skill_extra::on_reply(ctx, &mut st, self.sid, &p)
+            }
             ptype::CHARACTER => debug!("[world] #{} AGPMCHARACTER op {:?} (ignoré)", s.id(), p.int(0)),
             ptype::CHATTING => chat::on_chatting(&world, &mut st, self.sid, &p).await?,
             ptype::OPT_CHAR_MOVE => presence::on_move(ctx, &mut st, self.sid, &p),
@@ -556,7 +579,7 @@ impl Connection for WorldConn {
             ptype::PARTY => party::on_party(&mut st, self.sid, &p),
             // Rappel accepté : le membre est téléporté près du lanceur.
             ptype::PARTY_MANAGEMENT if p.int(0) == Some(party::mgmt::ACCEPT_RECALL) => party::accept_recall(ctx, &mut st, self.sid, &p).await?,
-            ptype::PARTY_MANAGEMENT => party::on_management(&mut st, self.sid, &p),
+            ptype::PARTY_MANAGEMENT => party::on_management(ctx, &mut st, self.sid, &p),
             ptype::RETURN_TO_LOGIN => return_login::on_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::QUEST => quests::on_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::EVENT_QUEST => quests::on_event(ctx, &mut st, self.sid, &p),
@@ -667,6 +690,10 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
     for old in previous {
         warn!("[world] #{} {} entre de nouveau : la session #{old} est fermée", s.id(), account.username);
         let sess = st.players[&old].sess.clone();
+        // AGPMCHARACTER op 8 (DISCONNECT_BY_ANOTHER_USER, champ 1 = CID) : l'ancien client affiche « Your account has
+        // been logged on at another location » avant la coupure.
+        let c = &schema::CHARACTER;
+        sess.send(c, Fields::new(c).with(0, DISCONNECT_BY_ANOTHER_USER).with(1, st.players[&old].ch.id));
         remove_player(ctx, st, old).await;
         st.evicted.insert(old);
         sess.close();
@@ -713,9 +740,23 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
         Some(t) => (t, Some(t.class as i64)),
         None => (tpl, None),
     };
-    let mut factors = equipment::with_equipment(make_factors(tpl, Some(&ch)), &equipment::worn(&inventory, &ctx.catalog, &ctx.convert, form_class));
-    ctx.options.apply(&mut factors, &equipment::worn_options(&inventory, &ctx.catalog, &ctx.options, ch.level as i64, form_class));
-    let gear = equipment::worn_gear(ctx, &inventory, ch.level as i64, form_class);
+    // Région sans entrée en jeu (DisableLogin, regions.rs) : au point de résurrection de la région, sinon au village de
+    // la race.
+    if ctx.regions.forbids(ctx.map.region(ch.pos_x, ch.pos_z), regions::disable::LOGIN) {
+        let region = ctx.map.region(ch.pos_x, ch.pos_z);
+        let to = match ctx.regions.own_point(region) {
+            Some((x, z)) => Some((x, ctx.map.height(x, z).map(f64::from).unwrap_or(ch.pos_y), z)),
+            None => ctx.config.world.start_positions.get(&tpl.race.to_string()).or_else(|| ctx.config.world.start_positions.get("1")).map(|v| (v.x, v.y, v.z)),
+        };
+        if let Some((x, y, z)) = to {
+            info!("[world] {} : entrée refusée dans la région {region:?}, placé en {x:.0}, {z:.0}", ch.name);
+            ch.set_pos(archcore_net::Vec3::new(x as f32, y as f32, z as f32));
+        }
+    }
+    let section = equipment::item_section(ctx, ch.pos());
+    let mut factors = equipment::with_equipment(make_factors(tpl, Some(&ch)), &equipment::worn(&inventory, &ctx.catalog, &ctx.convert, form_class, section));
+    ctx.options.apply(&mut factors, &equipment::worn_options(&inventory, &ctx.catalog, &ctx.options, ch.level as i64, form_class, section));
+    let gear = equipment::worn_gear(ctx, &inventory, ch.level as i64, form_class, section);
     skills::refresh_points(&ctx.skills, &skills, &mut factors);
     // Compétences du titre équipé : passives tant qu'il l'est (titles.rs).
     skills.title_skills = titles.skills(&ctx.titles);
@@ -798,6 +839,7 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
             gm_speed: 1,
             ui_status,
             gear,
+            party_bonus: party::Bonus::default(),
             pvp: pvp::PvpState::default(),
             remission_keeper: None,
             recipes,
@@ -861,6 +903,13 @@ fn enter_world(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle) {
     if let Some(p) = st.players.get_mut(&sid) {
         effects::sync_attach(p, true);
     }
+    // Liste complète de ses effets (AGPMSKILL op 6) et bonus de niveau des compétences de ses options (op 14).
+    if let (Some(p), Some(buffs)) = (st.players.get(&sid), skills::all_buffs(st, sid, true)) {
+        p.send_raw(buffs);
+        if p.gear.skill_levels > 0 {
+            p.send_raw(effects::skill_level_bonus_packet(p.ch.id, p.gear.skill_levels));
+        }
+    }
     let Some(p) = st.players.get(&sid) else { return };
     let mv = &schema::OPT_CHAR_MOVE;
     p.send(mv, Fields::new(mv).with(0, p.ch.id).with(1, pos).with(2, pos).with(5, MOVE_STOP_SYNC).with(6, 0));
@@ -876,10 +925,12 @@ fn enter_world(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle) {
     ui_status::on_enter(st, sid);
     // Recettes de cuisine et d'alchimie connues (AgpmProduct op 1).
     product::on_enter(st, sid);
-    // Victoires et défaites entre joueurs, mode de la zone (AgpmPvP op 0).
+    // Victoires et défaites entre joueurs, mode de la zone (AgpmPvP op 0) ; listes d'ennemis et guildes ennemies (ops 6,
+    // 14, 10).
     if let Some(p) = st.players.get(&sid) {
         p.send_raw(pvp::info_packet(p.ch.id, p.ch.pvp_win, p.ch.pvp_lose, pvp::zone_mode(ctx, st, sid)));
     }
+    pvp::on_enter(st, sid);
     let p = &st.players[&sid];
     let c = &schema::CHARACTER;
     p.send(c, Fields::new(c).with(0, 1).with(1, p.ch.id).with(4, 2).with(5, move_mini(MoveMini { pos, dest: None, flags: 0 })));
@@ -1142,6 +1193,10 @@ pub async fn teleport(ctx: &WorldCtx, st: &mut WorldState, sid: u32, x: f64, y: 
     summons::follow_teleport(ctx, st, sid);
     // Arrivée dans la Battle Square : messages d'entrée.
     battlesquare::on_arrival(st, sid, before, ctx.map.region(x, z));
+    // Section d'objets de la région (ItemSection) changée : facteurs recalculés (equipment.rs).
+    if ctx.regions.item_section(before) != ctx.regions.item_section(ctx.map.region(x, z)) {
+        equipment::refresh_factors(ctx, st, sid);
+    }
     ctx.db.characters.exec("UPDATE characters SET pos_x = ?, pos_y = ?, pos_z = ? WHERE id = ?", (pos.x as f64, pos.y as f64, pos.z as f64, id)).await?;
     info!("[mj] {name} téléporté en {}, {}, {} ({sent} PNJ envoyé(s))", pos.x, pos.y, pos.z);
     Ok(pos)

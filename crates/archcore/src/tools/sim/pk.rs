@@ -6,6 +6,9 @@
 //! (op 0, messages 12 et 5), inimitié levée (op 4, message 4) et 20 points de meurtrier (victime innocente de plus
 //! de 4 niveaux en dessous, attaquée en premier). Les niveaux sont remis à la fin ; les points restent en base
 //! (`isole.sh` les efface).
+//! Listes d'ennemis : chacun fonde sa guilde (SimPkA, SimPkB) ; à l'attaque forcée, la victime reçoit la guilde de
+//! l'agresseur comme guilde ennemie (op 10, mode 2) ; après sa mort, sa liste d'ennemis est vidée (op 6) ; la
+//! dissolution des guildes vide la liste des guildes ennemies (op 14).
 
 use super::{enter_world, step, Recv};
 use archcore_net::schema::{self, chat_type, mini};
@@ -14,6 +17,9 @@ use archcore_net::{build_mini, decode_mini, Fields, Vec3};
 /// Nord d'Anchorville, région 0 (libre).
 const SPOT: Vec3 = Vec3 { x: -466_468.0, y: 4_700.0, z: -50_010.0 };
 const STOP: i64 = 0x04;
+const GUILD_A: &str = "SimPkA";
+const GUILD_B: &str = "SimPkB";
+const GUILD_PASSWORD: &str = "simpass";
 
 fn murderer_points(bytes: &[u8]) -> Option<i64> {
     let f = decode_mini(&mini::CHAR_FACTORS, bytes).ok()?;
@@ -28,6 +34,8 @@ pub async fn run(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> 
 
     step(&format!("{ca} (niveau 40) et {cb} (niveau 20) au nord d'Anchorville"));
     let mut a = enter_world(&cfg, ua, pa, ca, "A-").await?;
+    // Dual Slash exige une arme (requirement.rs).
+    super::hold_weapon(&mut a).await?;
     let mut b = enter_world(&cfg, ub, pb, cb, "B-").await?;
     let (acid, bcid) = (a.cid, b.cid);
     let (level_a, level_b) = (a.level, b.level);
@@ -41,6 +49,21 @@ pub async fn run(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> 
     b.world.send(mv, place(bcid)).await?;
     tokio::time::sleep(std::time::Duration::from_millis(800)).await;
 
+    step("chacun fonde sa guilde : SimPkA, SimPkB");
+    let gd = &schema::GUILD;
+    for cmd in ["/money 20000".to_string(), format!("/money 20000 \"{cb}\"")] {
+        a.world.send(ch, say(acid, &cmd)).await?;
+        a.world.expect_where(|q| q.ptype == ch.id, 5000, "réponse du MJ").await?;
+    }
+    for (w, name) in [(&mut a, GUILD_A), (&mut b, GUILD_B)] {
+        let cid = w.cid;
+        w.world.send(gd, Fields::new(gd).with(0, 0).with(1, cid).with(2, name).with(9, GUILD_PASSWORD)).await?;
+        w.world.expect_where(|q| q.is(gd, Some(0)), 3000, "guilde créée").await?;
+        // Changement de guilde : listes des guildes ennemies vidées (op 14).
+        w.world.expect_where(|q| q.is(pvp, Some(14)), 3000, "op 14").await?;
+    }
+    println!("  ✓ guildes créées (op 14 chez chacun)");
+
     step(&format!("{ca} attaque {cb} sans Ctrl : refusé"));
     a.world.send(act, Fields::new(act).with(0, acid).with(1, bcid).with(6, 0)).await?;
     anyhow::ensure!(a.world.expect_where(|q| q.is(pvp, Some(2)), 1500, "inimitié").await.is_err(), "inimitié créée sans attaque forcée");
@@ -53,9 +76,19 @@ pub async fn run(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> 
     let add_b = b.world.expect_where(|q| q.is(pvp, Some(2)), 3000, "op 2 chez la victime").await?;
     anyhow::ensure!(add_b.int(2) == Some(acid as i64), "op 2 chez {cb} : {:?}", add_b.int(2));
     println!("  ✓ ennemis l'un de l'autre, zone libre (mode 2)");
+    let enemy_guild = b.world.expect_where(|q| q.is(pvp, Some(10)), 3000, "guilde ennemie (op 10)").await?;
+    anyhow::ensure!(enemy_guild.fields().text(8).as_deref() == Some(GUILD_A) && enemy_guild.int(5) == Some(2), "op 10 : {:?}, mode {:?}", enemy_guild.fields().text(8), enemy_guild.int(5));
+    println!("  ✓ {GUILD_A} guilde ennemie chez {cb} (op 10, mode 2)");
     let flag = a.world.expect_where(|q: &Recv| q.is(c, Some(1)) && q.int(1) == Some(acid as i64) && q.int(12).is_some(), 3000, "statut criminel").await?;
     anyhow::ensure!(flag.int(12) == Some(1) && flag.int(25).is_some_and(|s| s > 1100), "champ 12 {:?}, 25 {:?}", flag.int(12), flag.int(25));
     println!("  ✓ {ca} premier attaquant (champ 12 = 1, {} s)", flag.int(25).unwrap_or(0));
+    // Avec des ennemis, pas de portail : AgpmPvP op 18 code 11, puis AGPMEVENTTELEPORT op 6.
+    let (tp, eb) = (&schema::EVENT_TELEPORT, &mini::EVENT_BASE);
+    let portal = build_mini(eb, &Fields::new(eb).with(0, 1).with(1, 139_331_500).with(3, 13));
+    a.world.send(tp, Fields::new(tp).with(0, 4).with(1, portal).with(2, acid)).await?;
+    a.world.expect_where(|q| q.is(pvp, Some(18)) && q.int(1) == Some(11), 3000, "message 11 (portail interdit)").await?;
+    a.world.expect_where(|q| q.is(tp, Some(6)), 3000, "demande au portail ignorée (op 6)").await?;
+    println!("  ✓ portail refusé à {ca} : message 11, op 6");
 
     step(&format!("{ca} lance Dual Slash sur {cb}"));
     let dual = a.skills.iter().find(|s| s.1 == 1).map(|s| s.0 as i64).ok_or_else(|| anyhow::anyhow!("{ca} ne connaît pas Dual Slash"))?;
@@ -72,6 +105,9 @@ pub async fn run(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> 
     let dead = b.world.expect_where(|q| q.is(pvp, Some(18)) && q.int(1) == Some(5), 5000, "message 5 (défaite)").await?;
     anyhow::ensure!(dead.fields().text(8).as_deref() == Some(ca), "vainqueur annoncé : {:?}", dead.fields().text(8));
     println!("  ✓ messages 12 et 5");
+    let init = b.world.expect_where(|q| q.is(pvp, Some(6)), 5000, "liste d'ennemis vidée (op 6)").await?;
+    anyhow::ensure!(init.int(1) == Some(bcid as i64), "op 6 : {:?}", init.int(1));
+    println!("  ✓ {cb} mort : liste d'ennemis vidée (op 6)");
     let points = a.world.expect_where(|q| q.is(c, Some(1)) && q.int(1) == Some(acid as i64) && q.fields().bytes(7).and_then(murderer_points).is_some_and(|p| p > 0), 5000, "points de meurtrier").await?;
     let points = points.fields().bytes(7).and_then(murderer_points).unwrap_or(0);
     anyhow::ensure!(points >= 20, "points de meurtrier : {points}");
@@ -93,6 +129,15 @@ pub async fn run(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> 
     let m = decode_mini(rmini, answer.fields().bytes(2).unwrap_or_default())?;
     anyhow::ensure!(m.int(0) == Some(1), "rémission pendant le délai : type {:?}, résultat {:?}", m.int(0), m.int(1));
     println!("  ✓ refusée pendant le délai de 2 heures (type 1)");
+
+    step("dissolution des guildes : op 14");
+    for (w, name) in [(&mut a, GUILD_A), (&mut b, GUILD_B)] {
+        let cid = w.cid;
+        w.world.send(gd, Fields::new(gd).with(0, 6).with(1, cid).with(2, name).with(9, GUILD_PASSWORD)).await?;
+        w.world.expect_where(|q| q.is(gd, Some(6)), 3000, "guilde dissoute").await?;
+        w.world.expect_where(|q| q.is(pvp, Some(14)), 3000, "op 14").await?;
+    }
+    println!("  ✓ guildes dissoutes, listes des guildes ennemies vidées");
 
     step("remise des niveaux");
     for cmd in [format!("/level {level_a}"), format!("/level {} \"{cb}\"", level_b.max(1))] {

@@ -4,7 +4,7 @@
 //! GmTest (MJ) part avec Dual Slash au niveau 2 seulement (ses compétences sont remises à la fin) et une chaîne
 //! « skill init » vide. Scorching Stew (TID 111) : effet 459 (AGPMSKILL op 4, 300 s), op 4 de l'objet avec la recharge de
 //! la compétence (420 000 ms), second ragoût refusé (op 5). Janus Talisman of Growth LV1 (50101) : effet 1801 de 30 min
-//! (durée de l'objet). Reverse Orb (1054) : refusé vivant (op 5) ; mort (/kill), il ressuscite sur place (op 1 champ 11 = 0,
+//! (durée de l'objet, objet à date d'expiration : op 26, pas consommé). Reverse Orb (1054) : refusé vivant (op 5) ; mort (/kill), il ressuscite sur place (op 1 champ 11 = 0,
 //! op 4, op 18 de 1 800 000 ms) ; mort de nouveau, le second orbe est refusé (op 18 puis op 27 code 3) et GmTest rentre
 //! au village (op 9). Maître des compétences (0x3B op 8, sans événement) : Dual Slash retirée (AGPMSKILL op 1), 560 pièces
 //! rendues (80 + 480), op 23 (« 1 »), op 9 résultat 0 ; une seconde demande, puis une autre après reconnexion (chaîne
@@ -138,11 +138,13 @@ async fn scenario(cfg: &crate::config::Config, db: &crate::db::Databases, id: u3
     step("Janus Talisman of Growth LV1 : effet de 30 min");
     let talisman = add_item(&mut w, TALISMAN, 1).await?;
     use_item(&mut w, talisman).await?;
+    // Objet Cash à date d'expiration (« ExpireTime » 30, lifetime.rs) : en cours d'utilisation (op 26, avant l'effet),
+    // pas consommé.
+    w.world.expect_where(|q| q.is(it, Some(26)) && q.int(2) == Some(talisman), 3000, "talisman en cours d'utilisation (op 26)").await?;
     let duration = effect_on(&mut w, GROWTH).await?;
     anyhow::ensure!(duration == 1_800_000, "effet du talisman {duration} ms");
-    w.world.expect_where(|q| q.is(it, Some(1)) && q.int(2) == Some(talisman), 3000, "talisman consommé").await?;
     used(&mut w, TALISMAN).await?;
-    println!("  ✓ effet {GROWTH} (30 min), talisman consommé");
+    println!("  ✓ effet {GROWTH} (30 min), talisman en cours d'utilisation jusqu'à sa date (op 26)");
 
     step("Reverse Orb : refusé vivant, résurrection sur place, recharge");
     let orb = add_item(&mut w, REVERSE_ORB, 2).await?;

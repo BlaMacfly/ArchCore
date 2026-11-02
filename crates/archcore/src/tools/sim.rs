@@ -16,17 +16,20 @@
 //!   archcore sim bag [compte] [mdp] [perso]                   séparer, réunir et détruire une pile ; ressusciter au point de la région ; compte MJ
 //!   archcore sim skill [compte] [mdp] [perso]                 maître des compétences : apprendre, refus, amélioration ; Dual Slash sur un Ver vert ; compte MJ
 //!   archcore sim bank [compte] [mdp] [perso]                  banque chez Holly : dépôt d'objet et d'argent, reconnexion, retrait ; compte MJ
-//!   archcore sim party [A… B…]                                groupe SimA + SimB : invitation (nom inconnu, puis CID), acceptation, liste, réglage, chef, exclusion
+//!   archcore sim party [A… B…]                                groupe SimA (niveau 20) + SimB (niveau 5) : invitation (nom inconnu, écart de niveau op 13,
+//!                                                             puis par SimB), acceptation, liste, zone et bonus (op 2), réglage, chef (refus op 12), exclusion
 //!   archcore sim trade [A… B…]                                échange GmTest ↔ SimA : objet et argent, verrou, échange ; refus ; A compte MJ
-//!   archcore sim quest [compte] [mdp] [perso]                 quêtes : prendre, refus, terminer (objets rapportés, récompense), abandonner ; compte MJ
+//!   archcore sim quest [compte] [mdp] [perso]                 quêtes : prendre, refus, inventaire plein (op 8), terminer (objets rapportés, récompense),
+//!                                                             suivi à l'écran (op 14, relu au 5ᵉ entier de l'op 4), abandonner ; compte MJ
 //!   archcore sim portal [compte] [mdp] [perso]                portail d'Anchorville : demande de loin, trajet payant, trajet non relié refusé, retour ; compte MJ
-//!   archcore sim pvp [compte] [mdp] [perso]                   zones de combat entre joueurs : demande ignorée en combat, arène de guilde, « Retour » (op 7) ; compte MJ (pvp.rs)
+//!   archcore sim pvp [compte] [mdp] [perso]                   zones de combat entre joueurs : demande refusée en combat (op 6), arène de guilde, « Retour » (op 7, refus op 2) ; compte MJ (pvp.rs)
 //!   archcore sim reconnect [A… B…]                            reconnexion automatique (0x63) : coupure, mauvaise clé, reprise, départ après 60 s (reconnect.rs)
 //!   archcore sim lastrefine [compte] [mdp] [perso]            commande MJ /last_refine : refus, relance de la dernière recette ; compte MJ (last_refine.rs)
 //!   archcore sim product [compte] [mdp] [perso]               production : Collection Skill chez Kauman, récolte de Vers verts, Cooking et recette chez Lucy, fabrication ; compte MJ (product.rs)
 //!   archcore sim guild [A… B…]                                guilde GmTest + SimA : création, invitation, discussion, annonce, départ, exclusion, dissolution
 //!   archcore sim guildlead [A… B…]                            guilde GmTest + SimA + 18 comptes d'appoint : liste et recherche, agrandissement, second, passation
-//!   archcore sim guildbattle [A… B…]                        combats de guildes : défi, refus, acceptation, annulation, début, coups, score, abandon, mort du chef, bilan
+//!   archcore sim guildbattle [A… B…]                        combats de guildes : défi, refus, acceptation, annulation, début (ops 46, 27), coups, score (op 26), abandon, mort du chef,
+//!                                                             survie individuelle avec combattants choisis (op 14), bilan
 //!   archcore sim guildmark [A… B…]                          emblèmes : achat (refus, fond, or), annonce, même emblème (code 59, op 33), relecture
 //!   archcore sim guildrelation [A… B…]                      alliances et hostilités : demande, refus, accord, départ, trêve, relecture, dissolution
 //!   archcore sim guildwarehouse [A… B…]                     entrepôt de guilde : gardien (fonction 35), effectif, dépôt, droits, dissolution refusée, retrait
@@ -50,7 +53,10 @@
 //!   archcore sim usables [A… B…]                              objets sans compétence, GmTest (MJ) + SimA : Return Orb (AGPMSKILL op 13), Secret Safe,
 //!                                                             /safekeeper, /merchant, Release of Agreement (op 12), feu d'artifice vu par SimA,
 //!                                                             Fortune Manual et talisman (op 26), /nick (champ 27), /go (usables.rs)
-//!   archcore sim chat [A… B…]                                 préfixes d'Archonia en type 0 (« /p », « /g », « /s »), commande inconnue sans réponse, « /race » avec Race Trumpet (chat.rs)
+//!   archcore sim chat [A… B…]                                 préfixes d'Archonia en type 0 (« /p », « /g », « /s »), commande inconnue sans réponse, « /race » avec Race Trumpet,
+//!                                                             chuchotements : destinataire absent (op 4), blocage (ops 1 à 3) (chat.rs)
+//!   archcore sim gold [A… B…]                                 or jeté (AGPMITEM op 15) : refus (0, plus que l'or porté), pile sans propriétaire vue des deux,
+//!                                                             ramassée par SimA (op 11, op 12) (sim/gold.rs)
 //!   archcore sim channel [A… B…]                              salons de discussion : création, nom pris, entrée, message, mot de passe, invitation, recherche, sortie (channel.rs)
 //!   archcore sim customize [A… B…]                            coiffeur Gladiol : ouverture, refus faute d'or, achat d'une coiffure vue par SimA, coiffure d'origine remise (customize.rs)
 //!   archcore sim wanted [A… B…]                               avis de recherche : meurtre d'un innocent (op 6), mise à prix, tableau chez Rembrandt, prime touchée (wanted.rs)
@@ -82,6 +88,7 @@
 //!   archcore sim refinery [compte] [mdp] [perso]              sphère d'alchimie : refus (trop loin, objet inconnu, pas de recette), devis et raffinage de la grille, raffinage d'une recette ; compte MJ
 //!   archcore sim convert [compte] [mdp] [perso]               forgeron Halo : socket, pierre d'eau, renforcement +2, état relu à la reconnexion ; compte MJ
 //!   archcore sim heroic|divide|dispel|ignore|rune|trigger      compétences et objets (voir `sim/competences.rs`) ; compte MJ
+//!   archcore sim ammo|lifetime|deathstrike                     munitions et arme exigée (SimArcher), objets à durée, Death Strike (voir `sim/rules.rs`) ; compte MJ
 //! ```
 //! À lancer contre un serveur de test (`ARCHCORE_CONF_DIR`) : les personnages sont créés au besoin,
 //! déplacés, et `sim shop` leur donne 1000 pièces d'or.
@@ -105,6 +112,7 @@ mod competences;
 mod consumables;
 mod customize;
 mod evolution;
+mod gold;
 mod guilds;
 mod lang;
 mod last_refine;
@@ -128,6 +136,7 @@ mod recall;
 mod reconnect;
 mod repair;
 mod ride;
+mod rules;
 mod summons;
 mod tax;
 mod usables;
@@ -183,6 +192,7 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         Some("morph") => Box::pin(morph::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("evolution") => Box::pin(evolution::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "test"), &a(5, "test"), &a(6, "SimScion"))).await,
         Some("ride") => Box::pin(ride::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "SimDepart"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
+        Some("gold") => Box::pin(gold::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("chat") => Box::pin(chat::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("channel") => Box::pin(channel::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("customize") => Box::pin(customize::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
@@ -224,7 +234,10 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         Some("ignore") => Box::pin(competences::ignore(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("rune") => Box::pin(competences::rune(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("trigger") => Box::pin(competences::trigger(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
-        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol|bag|skill|effects|status|bank|portal|pvp|reconnect|lastrefine|product|guild|guildlead|guildbattle|guildrelation|guildwarehouse|guildmark|guildstage|gm|buddy|mail|repair|ride|morph|evolution|auction|itemset|nature|summons|petbag|consumables|usables|chat|channel|customize|wanted|shrine|battlesquare|boss|siege|archlord|tax|title|cheat|recall|social|quickbelt|returnlogin|trade|party|quest|mobskill|counter|partyskill|mastery [arguments]"),
+        Some("ammo") => Box::pin(rules::ammo(&a(1, "simarcher"), &a(2, "simarcher"), &a(3, "SimArcher"))).await,
+        Some("lifetime") => Box::pin(rules::lifetime(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
+        Some("deathstrike") => Box::pin(rules::death_strike(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
+        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol|bag|skill|effects|status|bank|portal|pvp|reconnect|lastrefine|product|guild|guildlead|guildbattle|guildrelation|guildwarehouse|guildmark|guildstage|gm|buddy|mail|repair|ride|morph|evolution|auction|itemset|nature|summons|petbag|consumables|usables|chat|gold|channel|customize|wanted|shrine|battlesquare|boss|siege|archlord|tax|title|cheat|recall|social|quickbelt|returnlogin|trade|party|quest|mobskill|counter|partyskill|mastery [arguments]"),
     }
 }
 
@@ -434,6 +447,8 @@ pub struct InWorld {
     /// Quêtes à l'entrée : terminées (drapeaux de l'op 5) et en cours (op 4).
     pub quests_done: Vec<u32>,
     pub quests_active: Vec<i64>,
+    /// Quêtes en cours suivies à l'écran (5ᵉ entier du QUEST_INFO de l'op 4).
+    pub quests_tracked: Vec<i64>,
     /// Compétences reçues à l'entrée (vue op 2, champ 8) : (identifiant, TID, niveau).
     pub skills: Vec<(i64, i64, i64)>,
     /// Langue appliquée annoncée par un `LANGUAGE_ACK` reçu pendant l'entrée (langue du compte).
@@ -677,7 +692,7 @@ pub async fn enter_world_opts(cfg: &Config, user: &str, pass: &str, char_name: &
     let (mut durabilities, mut rides) = (Vec::new(), Vec::new());
     let (transform, tid) = (me.int(18).unwrap_or(0), me.int(2).unwrap_or(0));
     let mut effects = Vec::new();
-    let (mut quests_done, mut quests_active) = (Vec::new(), Vec::new());
+    let (mut quests_done, mut quests_active, mut quests_tracked) = (Vec::new(), Vec::new(), Vec::new());
     let mut language_ack = None;
     loop {
         let p = world
@@ -725,6 +740,9 @@ pub async fn enter_world_opts(cfg: &Config, user: &str, pass: &str, char_name: &
         }
         if p.is(&schema::QUEST, Some(4)) {
             quests_active.push(p.int(4).unwrap_or(0));
+            if p.fields().bytes(3).and_then(|b| decode_mini(&mini::QUEST_INFO, b).ok()).and_then(|i| i.int(4)) == Some(1) {
+                quests_tracked.push(p.int(4).unwrap_or(0));
+            }
             continue;
         }
         if p.ptype == schema::QUEST.id {
@@ -768,7 +786,7 @@ pub async fn enter_world_opts(cfg: &Config, user: &str, pass: &str, char_name: &
     println!("  niveau {level}, {} compétence(s) : {skills:?}", skills.len());
     println!("  entrée en jeu confirmée");
     println!("  quêtes : terminées {quests_done:?}, en cours {quests_active:?}");
-    Ok(InWorld { world, cid, start, monsters, npcs, level, bank_money, bank_size, items, quests_done, quests_active, skills, language_ack, converts, durabilities, transform, rides, tid, effects, game_ms, time_speed, timer_at, server_time, item_keys })
+    Ok(InWorld { world, cid, start, monsters, npcs, level, bank_money, bank_size, items, quests_done, quests_active, quests_tracked, skills, language_ack, converts, durabilities, transform, rides, tid, effects, game_ms, time_speed, timer_at, server_time, item_keys })
 }
 
 async fn client(user: &str, pass: &str, char_name: &str, commands: &[String]) -> anyhow::Result<()> {
@@ -1482,14 +1500,14 @@ async fn bag(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Quêtes « personnelles » (prises depuis le journal) : Shattered Roots (rapporter 50 Corrupted Root Cores,
-/// récompense Tempering Gem), Gladiator's Demise (prise puis abandonnée), Winged Menace (niveau 25 à 40).
+/// Quêtes « personnelles » (prises depuis le journal), celles que garde l'épisode 8 : Cold-Blooded Threat (tuer des
+/// monstres 1387 — compteur rempli en base entre deux connexions —, récompense lue dans la base), Silent Guardians
+/// (prise puis abandonnée), Winged Menace (niveau 25 à 40).
 async fn quest(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
-    const ROOTS: i64 = 4632; // niveau 120, 50 × objet 15513
-    const CORES: i64 = 15513;
-    const GEM: i64 = 65461;
-    const GLADIATOR: i64 = 4611; // niveau 99 à 120
+    const ROOTS: i64 = 4621; // Cold-Blooded Threat, niveau 70 à 120
+    const GLADIATOR: i64 = 4622; // Silent Guardians, niveau 75 à 120
     const WINGED: i64 = 4599; // niveau 25 à 40
+    const SWORD: i64 = 11; // Short Sword : une case chacune
     let cfg = crate::config::load()?;
     let (qs, ch, it) = (&schema::QUEST, &schema::CHATTING, &schema::ITEM);
     let say = |cid: u32, text: &str| Fields::new(ch).with(0, 0).with(1, cid).with(2, chat_type::NORMAL).with(6, crate::tools::to_cp1252(text));
@@ -1506,29 +1524,59 @@ async fn quest(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
     }
     let ask = |op: i64, tid: i64| Fields::new(qs).with(0, op).with(1, me).with(4, tid);
 
-    step("prendre Shattered Roots");
+    // Objectif et récompense de la quête, lus dans la base (table cliente gardée par l'import).
+    let db = crate::db::Databases::new(&cfg.database);
+    let sql = "SELECT JSON_VALUE(data, '$.Complete_MonsterA_Count') AS n, JSON_VALUE(data, '$.Gift_ItemA_Tid') AS g FROM quest_template WHERE tid = ?";
+    let row = db.world.first(sql, (ROOTS,)).await?.ok_or_else(|| anyhow::anyhow!("quête {ROOTS} absente"))?;
+    let goal: i64 = crate::db::col::<Option<String>>(&row, "n").and_then(|n| n.trim().parse().ok()).unwrap_or(1);
+    let gift: i64 = crate::db::col::<Option<String>>(&row, "g").and_then(|g| g.split(';').next()?.trim().parse().ok()).ok_or_else(|| anyhow::anyhow!("quête {ROOTS} sans récompense"))?;
+    let char_id = character_id(&db, char_name).await?;
+
+    step("prendre Cold-Blooded Threat");
     w.world.send(qs, ask(0, ROOTS)).await?;
     let r = w.world.expect_where(result(1, ROOTS), 3000, "acceptation").await?;
     anyhow::ensure!(r.int(6) == Some(1), "refusée : {:?}", r.int(6));
     println!("  ✓ acceptée");
 
-    step("terminer sans les objets : refus");
+    step("terminer sans les objectifs : refus");
     w.world.send(qs, ask(2, ROOTS)).await?;
     let r = w.world.expect_where(result(3, ROOTS), 3000, "refus").await?;
-    anyhow::ensure!(r.int(6) == Some(0), "terminée sans les objets");
+    anyhow::ensure!(r.int(6) == Some(0), "terminée sans les objectifs");
     println!("  ✓ refusée (objectifs non remplis)");
 
-    step("50 Corrupted Root Cores, puis terminer");
-    w.world.send(ch, say(w.cid, &format!("/create \"{char_name}\" {CORES} 50"))).await?;
-    let made = w.world.expect_where(|q| q.is(it, None) && q.int(3) == Some(CORES), 3000, "objets de quête").await?;
-    let cores = made.int(2).unwrap_or(0);
+    step(&format!("{goal} monstres comptés (en base, entre deux connexions) ; inventaire plein : récompense impossible (op 8)"));
+    drop(w);
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    db.characters.exec("UPDATE character_quests SET count_a = ? WHERE character_id = ? AND quest_tid = ?", (goal, char_id, ROOTS)).await?;
+    db.close().await;
+    let mut w = enter_world(&cfg, user, pass, char_name, "").await?;
+    // Cases restantes remplies d'épées (une par case), jusqu'au refus « inventaire plein ».
+    let mut swords = Vec::new();
+    for _ in 0..80 {
+        w.world.send(ch, say(w.cid, &format!("/create \"{char_name}\" {SWORD} 1"))).await?;
+        let r = w.world.expect_where(|q| (q.is(it, Some(0)) && q.int(3) == Some(SWORD)) || system(q), 3000, "épée").await?;
+        if r.ptype == ch.id {
+            break;
+        }
+        swords.push(r.int(2).unwrap_or(0));
+        w.world.expect_where(system, 3000, "réponse MJ").await?;
+    }
     w.world.send(qs, ask(2, ROOTS)).await?;
-    w.world.expect_where(|q| q.is(it, Some(1)) && q.int(2) == Some(cores), 3000, "objets rapportés").await?;
+    let full = w.world.expect_where(|q| result(3, ROOTS)(q) || result(8, ROOTS)(q), 3000, "op 8").await?;
+    anyhow::ensure!(full.int(0) == Some(8) && full.int(1) == Some(me), "op {:?} au lieu de l'op 8", full.int(0));
+    println!("  ✓ {} épée(s) : op 8, quête gardée", swords.len());
+    for iid in &swords {
+        w.world.send(it, Fields::new(it).with(0, 21).with(2, *iid)).await?;
+        w.world.expect_where(|q| q.is(it, Some(1)) && q.int(2) == Some(*iid), 3000, "épée détruite").await?;
+    }
+
+    step("terminer");
+    w.world.send(qs, ask(2, ROOTS)).await?;
     let r = w.world.expect_where(result(3, ROOTS), 3000, "fin").await?;
     anyhow::ensure!(r.int(6) == Some(1), "fin refusée");
-    let gem = w.world.expect_where(|q| q.is(it, None) && q.int(3) == Some(GEM), 3000, "récompense").await?;
+    let gem = w.world.expect_where(|q| q.is(it, None) && q.int(3) == Some(gift), 3000, "récompense").await?;
     let gem_iid = gem.int(2).unwrap_or(0);
-    println!("  ✓ terminée : 50 objets repris, Tempering Gem reçue");
+    println!("  ✓ terminée : récompense {gift} reçue");
 
     step("refus : déjà terminée, niveau");
     w.world.send(qs, ask(0, ROOTS)).await?;
@@ -1537,19 +1585,31 @@ async fn quest(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
     anyhow::ensure!(w.world.expect_where(result(1, WINGED), 3000, "refus").await?.int(6) == Some(0), "niveau ignoré");
     println!("  ✓ refusées (déjà terminée ; niveau 25 à 40)");
 
-    step("prendre puis abandonner Gladiator's Demise");
+    step("prendre Silent Guardians et la suivre à l'écran (op 14, comme le client à la prise)");
     w.world.send(qs, ask(0, GLADIATOR)).await?;
     anyhow::ensure!(w.world.expect_where(result(1, GLADIATOR), 3000, "acceptation").await?.int(6) == Some(1), "refusée");
-    w.world.send(qs, ask(6, GLADIATOR)).await?;
-    anyhow::ensure!(w.world.expect_where(result(7, GLADIATOR), 3000, "abandon").await?.int(6) == Some(1), "abandon refusé");
-    println!("  ✓ prise puis abandonnée");
+    let track = |on: i64| {
+        let m = &mini::QUEST_INFO;
+        ask(14, GLADIATOR).with(3, build_mini(m, &Fields::new(m).with(0, GLADIATOR).with(1, 0).with(2, 0).with(3, 0).with(4, on)))
+    };
+    w.world.send(qs, track(1)).await?;
+    println!("  ✓ prise et suivie");
 
-    step("reconnexion : journal");
+    step("reconnexion : quêtes terminées, suivi relu (5ᵉ entier de l'op 4)");
     drop(w);
     let mut w = enter_world(&cfg, user, pass, char_name, "").await?;
-    anyhow::ensure!(w.quests_done.contains(&(ROOTS as u32)), "Shattered Roots absente des quêtes terminées");
+    anyhow::ensure!(w.quests_done.contains(&(ROOTS as u32)), "Cold-Blooded Threat absente des quêtes terminées");
+    anyhow::ensure!(w.quests_tracked.contains(&GLADIATOR), "Silent Guardians n'est plus suivie : {:?}", w.quests_tracked);
+    println!("  ✓ Cold-Blooded Threat terminée, Silent Guardians suivie à l'écran");
+
+    step("retirer du suivi, puis abandonner");
+    w.world.send(qs, track(0)).await?;
+    w.world.send(qs, ask(6, GLADIATOR)).await?;
+    anyhow::ensure!(w.world.expect_where(result(7, GLADIATOR), 3000, "abandon").await?.int(6) == Some(1), "abandon refusé");
+    drop(w);
+    let mut w = enter_world(&cfg, user, pass, char_name, "").await?;
     anyhow::ensure!(!w.quests_active.contains(&GLADIATOR), "quête abandonnée encore au journal");
-    println!("  ✓ Shattered Roots terminée, Gladiator's Demise absente du journal");
+    println!("  ✓ Silent Guardians absente du journal");
 
     // Remise en état : niveau, quête, récompense.
     for cmd in [format!("/questreset {ROOTS}"), format!("/level {level}")] {
@@ -1893,6 +1953,8 @@ async fn refusal(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> 
 async fn party(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> anyhow::Result<()> {
     const SPOT: Vec3 = Vec3 { x: -476_000.0, y: 4_422.0, z: -61_000.0 };
     const STOP: i64 = 0x04;
+    const LEVEL_A: i64 = 20;
+    const LEVEL_B: i64 = 5;
     let cfg = crate::config::load()?;
     let (mv, pt, pm) = (&schema::OPT_CHAR_MOVE, &schema::PARTY, &schema::PARTY_MANAGEMENT);
     let m = |op: i64| Fields::new(pm).with(0, op);
@@ -1904,6 +1966,17 @@ async fn party(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> an
     // téléportent eux-mêmes).
     start_at(&cfg, ca, SPOT).await?;
     start_at(&cfg, cb, SPOT).await?;
+    // Niveaux fixés pour la règle des 10 niveaux (op 13), remis à la fin.
+    let db = crate::db::Databases::new(&cfg.database);
+    let level_of = |r: Option<mysql_async::Row>| r.map(|r| crate::db::col::<i64>(&r, "level")).unwrap_or(1);
+    let levels = (
+        level_of(db.characters.first("SELECT level FROM characters WHERE name = ?", (ca.to_string(),)).await?),
+        level_of(db.characters.first("SELECT level FROM characters WHERE name = ?", (cb.to_string(),)).await?),
+    );
+    for (name, level) in [(ca, LEVEL_A), (cb, LEVEL_B)] {
+        db.characters.exec("UPDATE characters SET level = ? WHERE name = ?", (level, name.to_string())).await?;
+    }
+    db.close().await;
     let mut a = enter_world(&cfg, ua, pa, ca, "A-").await?;
     let mut b = enter_world(&cfg, ub, pb, cb, "B-").await?;
     for w in [&mut a, &mut b] {
@@ -1917,56 +1990,85 @@ async fn party(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> an
     a.world.expect_where(is_m(10), 3000, "refus : joueur absent").await?;
     println!("  ✓ op 10 (joueur absent)");
 
-    step(&format!("{ca} invite {cb}, qui accepte"));
+    step(&format!("{ca} (niveau {LEVEL_A}) invite {cb} (niveau {LEVEL_B}) : écart de niveau (op 13)"));
     a.world.send(pm, m(0).with(1, acid).with(2, bcid)).await?;
-    let inv = b.world.expect_where(is_m(0), 3000, "invitation reçue").await?;
-    anyhow::ensure!(inv.int(1) == Some(acid), "auteur de l'invitation {:?}", inv.int(1));
-    println!("  ✓ {cb} reçoit l'invitation de {}", inv.fields().text(3).unwrap_or_default());
-    b.world.send(pm, m(2).with(1, bcid).with(2, acid)).await?;
+    let gap = a.world.expect_where(is_m(13), 3000, "refus : écart de niveau").await?;
+    anyhow::ensure!(gap.int(1) == Some(acid) && gap.int(2) == Some(bcid), "op 13 : {:?} {:?}", gap.int(1), gap.int(2));
+    anyhow::ensure!(b.world.expect_where(is_m(0), 800, "invitation").await.is_err(), "{cb} invité malgré l'écart");
+    println!("  ✓ op 13, {cb} ne reçoit rien");
+
+    step(&format!("{cb} invite {ca}, qui accepte"));
+    b.world.send(pm, m(0).with(1, bcid).with(2, acid)).await?;
+    let inv = a.world.expect_where(is_m(0), 3000, "invitation reçue").await?;
+    anyhow::ensure!(inv.int(1) == Some(bcid), "auteur de l'invitation {:?}", inv.int(1));
+    println!("  ✓ {ca} reçoit l'invitation de {}", inv.fields().text(3).unwrap_or_default());
+    a.world.send(pm, m(2).with(1, acid).with(2, bcid)).await?;
     // Comme le serveur d'origine : le groupe est annoncé à chacun avant la confirmation d'acceptation (op 2).
     for (w, who) in [(&mut a, ca), (&mut b, cb)] {
         let add = w.world.expect_where(is_p(0), 3000, "groupe formé").await?;
         let list: Vec<i64> = add.fields().bytes(5).unwrap_or_default().chunks_exact(4).map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]) as i64).collect();
-        anyhow::ensure!(list == vec![acid, bcid], "liste des membres chez {who} : {list:?}");
+        anyhow::ensure!(list == vec![bcid, acid], "liste des membres chez {who} : {list:?}");
         w.world.expect_where(is_p(3), 3000, "membre annoncé").await?;
         println!("  ✓ {who} : groupe {} formé, membres {list:?} (chef en tête)", add.int(1).unwrap_or(0));
     }
-    a.world.expect_where(is_m(2), 3000, "acceptation annoncée").await?;
-    println!("  ✓ {ca} reçoit la confirmation (op 2)");
+    b.world.expect_where(is_m(2), 3000, "acceptation annoncée").await?;
+    println!("  ✓ {cb} reçoit la confirmation (op 2)");
+
+    step("zone d'effet et bonus du groupe (op 2) : chef chevalier, deux membres côte à côte");
+    for (w, who) in [(&mut a, ca), (&mut b, cb)] {
+        let up = w.world.expect_where(is_p(2), 3000, "op 2").await?;
+        let zone = decode_mini(&mini::PARTY_EFFECT_AREA, up.fields().bytes(7).unwrap_or_default())?;
+        let bonus = decode_mini(&mini::PARTY_BONUS, up.fields().bytes(9).unwrap_or_default())?;
+        let z: Vec<i64> = (0..5).map(|i| zone.int(i).unwrap_or(-1)).collect();
+        anyhow::ensure!(z == vec![1, 1, 0, 0, 0], "zone chez {who} : {z:?}");
+        anyhow::ensure!(bonus.int(1) == Some(2) && bonus.int(0) == Some(0), "bonus chez {who} : dégâts {:?}, défense {:?}", bonus.int(0), bonus.int(1));
+        println!("  ✓ {who} : zone {z:?}, défense +{} %", bonus.int(1).unwrap_or(0));
+    }
 
     step("discussion de groupe");
     let ch = &schema::CHATTING;
-    b.world.send(ch, Fields::new(ch).with(0, 0).with(1, b.cid).with(2, chat_type::PARTY).with(6, crate::tools::to_cp1252("En route"))).await?;
-    let heard = a.world.expect_where(|q| q.ptype == ch.id && q.int(2) == Some(chat_type::PARTY), 3000, "message de groupe").await?;
-    anyhow::ensure!(heard.fields().text(4).as_deref() == Some(cb), "émetteur {:?}", heard.fields().text(4));
-    println!("  ✓ {ca} reçoit le message de groupe de {cb}");
+    a.world.send(ch, Fields::new(ch).with(0, 0).with(1, a.cid).with(2, chat_type::PARTY).with(6, crate::tools::to_cp1252("En route"))).await?;
+    let heard = b.world.expect_where(|q| q.ptype == ch.id && q.int(2) == Some(chat_type::PARTY), 3000, "message de groupe").await?;
+    anyhow::ensure!(heard.fields().text(4).as_deref() == Some(ca), "émetteur {:?}", heard.fields().text(4));
+    println!("  ✓ {cb} reçoit le message de groupe de {ca}");
 
     step("le chef règle l'expérience selon le niveau");
-    a.world.send(pt, Fields::new(pt).with(0, 5).with(8, 1)).await?;
+    b.world.send(pt, Fields::new(pt).with(0, 5).with(8, 1)).await?;
     for (w, who) in [(&mut a, ca), (&mut b, cb)] {
         let up = w.world.expect_where(is_p(5), 3000, "réglage reçu").await?;
         anyhow::ensure!(up.int(8) == Some(1), "répartition {:?} chez {who}", up.int(8));
     }
     println!("  ✓ répartition « selon le niveau » annoncée aux deux");
-    b.world.send(pt, Fields::new(pt).with(0, 5).with(8, 0)).await?;
-    anyhow::ensure!(a.world.expect_where(is_p(5), 800, "réglage d'un non-chef").await.is_err(), "un non-chef a changé le réglage");
+    a.world.send(pt, Fields::new(pt).with(0, 5).with(8, 0)).await?;
+    anyhow::ensure!(b.world.expect_where(is_p(5), 800, "réglage d'un non-chef").await.is_err(), "un non-chef a changé le réglage");
     println!("  ✓ réglage refusé à un non-chef");
 
-    step(&format!("{ca} passe la main à {cb}"));
+    step(&format!("{ca}, qui n'est pas chef, veut passer la main : refus (op 12)"));
     a.world.send(pm, m(11).with(1, acid).with(2, bcid)).await?;
+    a.world.expect_where(is_m(12), 3000, "passage de chef refusé").await?;
+    println!("  ✓ op 12");
+
+    step(&format!("{cb} passe la main à {ca}"));
+    b.world.send(pm, m(11).with(1, bcid).with(2, acid)).await?;
     for (w, who) in [(&mut a, ca), (&mut b, cb)] {
         let d = w.world.expect_where(is_m(11), 3000, "passage de chef").await?;
-        anyhow::ensure!(d.int(1) == Some(bcid), "nouveau chef {:?} chez {who}", d.int(1));
+        anyhow::ensure!(d.int(1) == Some(acid), "nouveau chef {:?} chez {who}", d.int(1));
     }
-    println!("  ✓ {cb} est chef");
+    println!("  ✓ {ca} est chef");
 
-    step(&format!("{cb} exclut {ca} : groupe dissous"));
-    b.world.send(pm, m(4).with(1, bcid).with(2, acid)).await?;
+    step(&format!("{ca} exclut {cb} : groupe dissous"));
+    a.world.send(pm, m(4).with(1, acid).with(2, bcid)).await?;
     // Le retrait du groupe précède l'avis d'exclusion (op 4), comme sur le serveur d'origine.
-    a.world.expect_where(is_p(1), 3000, "groupe retiré chez A").await?;
-    a.world.expect_where(is_m(4), 3000, "exclusion reçue").await?;
-    b.world.expect_where(is_p(1), 3000, "groupe dissous chez B").await?;
-    println!("  ✓ {ca} exclu ; groupe dissous chez {cb} (un seul membre)");
+    b.world.expect_where(is_p(1), 3000, "groupe retiré chez B").await?;
+    b.world.expect_where(is_m(4), 3000, "exclusion reçue").await?;
+    a.world.expect_where(is_p(1), 3000, "groupe dissous chez A").await?;
+    println!("  ✓ {cb} exclu ; groupe dissous chez {ca} (un seul membre)");
+    drop((a, b));
+    let db = crate::db::Databases::new(&cfg.database);
+    for (name, level) in [(ca, levels.0), (cb, levels.1)] {
+        db.characters.exec("UPDATE characters SET level = ? WHERE name = ?", (level, name.to_string())).await?;
+    }
+    db.close().await;
     println!("\ngroupe à deux joueurs : OK");
     Ok(())
 }
@@ -2437,12 +2539,13 @@ async fn skill_effects(user: &str, pass: &str, char_name: &str) -> anyhow::Resul
     const SPEED_ATTACK: i64 = 4; // renforcement : vitesse d'attaque +18 %
     const DEFENSE_HOLD: i64 = 58; // passive : défense +20
     const LINEAR_BLOW: i64 = 57; // zone de 1000 autour de la cible
-    const BLADE_STING: i64 = 223; // affaiblissement de 6 s (esquive -6)
+    const BLADE_STING: i64 = 223; // affaiblissement (esquive) ; durée de la table de l'épisode 8 (10 s au niveau 1)
     const STOP: i64 = 0x04;
     let cfg = crate::config::load()?;
     let (k, sm, ch, mv, ov, c) = (&schema::SKILL, &schema::EVENT_SKILL_MASTER, &schema::CHATTING, &schema::OPT_CHAR_MOVE, &schema::OPT_VIEW, &schema::CHARACTER);
     step(&format!("{char_name} entre en jeu"));
     let mut w = enter_world(&cfg, user, pass, char_name, "").await?;
+    hold_weapon(&mut w).await?;
     let me = w.cid as i64;
     let say = |cid: u32, text: &str| Fields::new(ch).with(0, 0).with(1, cid).with(2, chat_type::NORMAL).with(6, crate::tools::to_cp1252(text));
     let system = |q: &Recv| q.ptype == ch.id && q.int(2) == Some(chat_type::WHOLE_WORLD);
@@ -2558,10 +2661,18 @@ async fn skill_effects(user: &str, pass: &str, char_name: &str) -> anyhow::Resul
     let owner = decode_mini(sb, on.fields().bytes(2).unwrap_or_default())?.int(1);
     anyhow::ensure!(owner == Some(victim), "affaiblissement posé sur {owner:?}, pas sur {victim}");
     w.world.send(mv, Fields::new(mv).with(0, w.cid).with(1, HUNT).with(2, HUNT).with(5, STOP).with(6, 0)).await?;
+    // Durée lue dans la base (« duration » de son plus haut niveau, table de l'épisode 8), plus 5 s.
+    let wait = {
+        let db = crate::db::Databases::new(&crate::config::load()?.database);
+        let sql = "SELECT MAX(CAST(JSON_VALUE(consts, '$.duration') AS UNSIGNED)) AS d FROM skill_level WHERE tid = ?";
+        let d = db.world.first(sql, (BLADE_STING,)).await?.map(|r| crate::db::col::<Option<u64>>(&r, "d").unwrap_or(0)).unwrap_or(0);
+        db.close().await;
+        d + 5_000
+    };
     let t0 = std::time::Instant::now();
     let off = w
         .world
-        .expect_where(|q| (q.is(k, Some(5)) && q.int(1) == Some(ids[&BLADE_STING])) || (q.is(c, Some(1)) && q.int(1) == Some(victim) && q.int(11) == Some(2)), 10_000, "fin de l'affaiblissement")
+        .expect_where(|q| (q.is(k, Some(5)) && q.int(1) == Some(ids[&BLADE_STING])) || (q.is(c, Some(1)) && q.int(1) == Some(victim) && q.int(11) == Some(2)), wait, "fin de l'affaiblissement")
         .await?;
     if off.ptype == k.id {
         println!("  ✓ posé sur le ver, retiré au bout de {:.1} s", t0.elapsed().as_secs_f64());
@@ -2590,6 +2701,7 @@ async fn skill_status(user: &str, pass: &str, char_name: &str) -> anyhow::Result
     let (k, sm, ch, mv, ov, c) = (&schema::SKILL, &schema::EVENT_SKILL_MASTER, &schema::CHATTING, &schema::OPT_CHAR_MOVE, &schema::OPT_VIEW, &schema::CHARACTER);
     step(&format!("{char_name} entre en jeu"));
     let mut w = enter_world(&cfg, user, pass, char_name, "").await?;
+    hold_weapon(&mut w).await?;
     let say = |cid: u32, text: &str| Fields::new(ch).with(0, 0).with(1, cid).with(2, chat_type::NORMAL).with(6, crate::tools::to_cp1252(text));
     let system = |q: &Recv| q.ptype == ch.id && q.int(2) == Some(chat_type::WHOLE_WORLD);
     let level = w.level.max(1);
@@ -2598,6 +2710,7 @@ async fn skill_status(user: &str, pass: &str, char_name: &str) -> anyhow::Result
     w.world.send(ch, say(w.cid, "/money 100000")).await?;
     w.world.expect_where(|q| q.is(c, Some(1)) && q.int(8) == Some(100_000), 3000, "argent").await?;
 
+    hold_item(&mut w, SIM_SHIELD).await?;
     step("Shield Bash chez Black");
     let id = match w.skills.iter().find(|s| s.1 == SHIELD_BASH) {
         Some(s) => s.0,
@@ -2708,6 +2821,7 @@ async fn skill(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
     let (k, sm, ch, mv, ov, c) = (&schema::SKILL, &schema::EVENT_SKILL_MASTER, &schema::CHATTING, &schema::OPT_CHAR_MOVE, &schema::OPT_VIEW, &schema::CHARACTER);
     step(&format!("{char_name} entre en jeu"));
     let mut w = enter_world(&cfg, user, pass, char_name, "").await?;
+    hold_weapon(&mut w).await?;
     let me = w.cid as i64;
     let say = |cid: u32, text: &str| Fields::new(ch).with(0, 0).with(1, cid).with(2, chat_type::NORMAL).with(6, crate::tools::to_cp1252(text));
     let system = |q: &Recv| q.ptype == ch.id && q.int(2) == Some(chat_type::WHOLE_WORLD);
@@ -2816,6 +2930,20 @@ async fn skill(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
     anyhow::ensure!(w.world.expect_where(|q| q.is(k, Some(7)) && q.int(1) == Some(id), 1500, "relance").await.is_err(), "relance acceptée trop tôt");
     println!("  ✓ refusée");
 
+    step("sans arme : Dual Slash refusée (action 8, arme exigée)");
+    let it = &schema::ITEM;
+    let sword = w.items.iter().find(|i| i.1 == SIM_SWORD && i.2 == 3).map(|i| i.0).ok_or_else(|| anyhow::anyhow!("épée portée introuvable"))?;
+    let any = build_mini(&mini::ITEM_GRID, &Fields::new(&mini::ITEM_GRID).with(0, -1).with(1, -1).with(2, -1));
+    w.world.send(it, Fields::new(it).with(0, 2).with(1, 2).with(2, sword).with(7, any)).await?;
+    w.world.expect_where(|q| q.is(it, Some(2)) && q.int(2) == Some(sword) && q.int(1) == Some(2), 3000, "épée rangée").await?;
+    w.world.send(k, cast(worm)).await?;
+    let refused = w.world.expect_where(|q| q.is(k, Some(7)) && q.int(1) == Some(id), 3000, "refus sans arme").await?;
+    let action = decode_mini(sa, refused.fields().bytes(6).unwrap_or_default())?.int(0);
+    anyhow::ensure!(action == Some(8), "type d'action {action:?} (attendu 8, arme exigée)");
+    println!("  ✓ refusée sans arme (action 8)");
+    w.world.send(it, Fields::new(it).with(0, 2).with(1, 3).with(2, sword)).await?;
+    w.world.expect_where(|q| q.is(it, Some(2)) && q.int(2) == Some(sword) && q.int(1) == Some(3), 3000, "épée reprise").await?;
+
     // Un déplacement arrête l'attaque automatique reprise après la compétence.
     w.world.send(mv, Fields::new(mv).with(0, w.cid).with(1, HUNT).with(2, HUNT).with(5, STOP).with(6, 0)).await?;
     w.world.send(ch, say(w.cid, "/invincible 0")).await?;
@@ -2851,6 +2979,35 @@ async fn trainer_event(w: &mut InWorld) -> anyhow::Result<Vec<u8>> {
 }
 
 /// AGPMSKILL op 7 : lancer la compétence `id` sur `target`.
+/// Short Sword (guerrier, 11 à 13) : arme que tiennent les scénarios qui lancent des compétences, presque toutes exigeant
+/// une arme (colonne `requirement` de SKILL_SPEC, `world/requirement.rs`).
+pub const SIM_SWORD: i64 = 11;
+
+/// Wood Shield (guerrier humain ou orc) : bouclier des compétences qui en exigent un (Shield Bash).
+pub const SIM_SHIELD: i64 = 8;
+
+/// Tient une Short Sword : reçue (/additem, compte MJ) puis portée, sauf si le personnage en porte déjà une.
+pub async fn hold_weapon(w: &mut InWorld) -> anyhow::Result<()> {
+    hold_item(w, SIM_SWORD).await
+}
+
+/// Porte l'objet `tid` : reçu (/additem, compte MJ) puis porté, sauf s'il l'est déjà.
+pub async fn hold_item(w: &mut InWorld, tid: i64) -> anyhow::Result<()> {
+    if w.items.iter().any(|i| i.1 == tid && i.2 == 3) {
+        return Ok(());
+    }
+    let (it, ch) = (&schema::ITEM, &schema::CHATTING);
+    let say = Fields::new(ch).with(0, 0).with(1, w.cid).with(2, chat_type::NORMAL).with(6, crate::tools::to_cp1252(&format!("/additem {tid} 1")));
+    w.world.send(ch, say).await?;
+    let added = w.world.expect_where(|q| q.is(it, Some(0)) && q.int(3) == Some(tid) && q.int(1) == Some(2), 3000, "objet reçu").await?;
+    let iid = added.int(2).unwrap_or(0);
+    w.world.send(it, Fields::new(it).with(0, 2).with(1, 3).with(2, iid)).await?;
+    w.world.expect_where(|q| q.is(it, Some(2)) && q.int(2) == Some(iid) && q.int(1) == Some(3), 3000, "objet porté").await?;
+    w.items.push((iid, tid, 3, 1));
+    println!("  objet {tid} porté (compétences à arme exigée)");
+    Ok(())
+}
+
 fn cast_fields(id: i64, target: i64) -> Fields {
     let (k, sb, sa) = (&schema::SKILL, &mini::SKILL_BASE, &mini::SKILL_ACTION);
     let act = build_mini(sa, &Fields::new(sa).with(0, 0).with(1, build_mini(sb, &Fields::new(sb).with(0, 3).with(1, target))));
@@ -3055,9 +3212,17 @@ async fn party_skill(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str)
     start_at(&cfg, ca, SPOT).await?;
     start_at(&cfg, cb, SPOT).await?;
     let mut a = enter_world(&cfg, ua, pa, ca, "A-").await?;
+    hold_weapon(&mut a).await?;
     let mut b = enter_world(&cfg, ub, pb, cb, "B-").await?;
     let (acid, bcid) = (a.cid as i64, b.cid as i64);
     let song = a.skills.iter().find(|s| s.1 == MARCHING_SONG).map(|s| s.0).ok_or_else(|| anyhow::anyhow!("Marching Song absente"))?;
+    // Invitation refusée à 10 niveaux d'écart (party.rs) : l'invité est mis au niveau du MJ, rétabli à la fin.
+    let raised = a.level > b.level + 9;
+    if raised {
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        a.world.send(ch, Fields::new(ch).with(0, 0).with(1, a.cid).with(2, chat_type::NORMAL).with(6, crate::tools::to_cp1252(&format!("/level {} \"{cb}\"", a.level)))).await?;
+        a.world.expect_where(|q| q.ptype == ch.id && q.int(2) == Some(chat_type::WHOLE_WORLD), 3000, "niveau de l'invité").await?;
+    }
     a.world.send(pm, Fields::new(pm).with(0, 0).with(1, acid).with(2, bcid)).await?;
     b.world.expect_where(|q| q.is(pm, Some(0)), 3000, "invitation").await?;
     b.world.send(pm, Fields::new(pm).with(0, 2).with(1, bcid).with(2, acid)).await?;
@@ -3096,6 +3261,11 @@ async fn party_skill(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str)
     a.world.send(pm, Fields::new(pm).with(0, 3).with(1, acid)).await?;
     a.world.send(ch, say(a.cid, &format!("/level {level}"))).await?;
     a.world.expect_where(|q| system(q) && q.fields().text(6).is_some_and(|t| t.contains(&format!("niveau {level}"))), 5000, "niveau rétabli").await?;
+    if raised {
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        a.world.send(ch, say(a.cid, &format!("/level {} \"{cb}\"", b.level.max(1)))).await?;
+        a.world.expect_where(system, 3000, "niveau de l'invité rétabli").await?;
+    }
     println!("\ncompétences de groupe : OK");
     Ok(())
 }

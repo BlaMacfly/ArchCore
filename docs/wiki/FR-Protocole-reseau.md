@@ -162,6 +162,14 @@ est inconnu, il ignore l'objet sans rien afficher.
 sont mis bout à bout dans le **champ 6** du paquet de vue 0x42 **op 2**. La grille d'inventaire du
 client fait 5 sacs de 5 × 5 cases (grille de type 1).
 
+**Or jeté** : **op 15** (client, boîte « Inventory_DropMoneyYes » de l'inventaire : champ 4 = CID, champ 5 = montant ;
+pas de réponse). La somme (1 au moins, pas plus que l'or porté, pas pendant un échange) est retirée de l'or du joueur
+(op 1 du personnage, champ 8) et tombe à ses pieds en une pile d'or (TID 268) **sans propriétaire** (champ 4 absent),
+ramassable par tous (op 11, op 12) ; elle disparaît au bout de 45 s. **Op 28** (UPDATE_COOLDOWN, serveur : 3 TID, 4 CID,
+5 entier laissé à 0, 18 temps restant en ms) : recharge des objets d'un modèle ; envoyée à 0 par la commande MJ
+`/recast`. Op 8 (annuler le parchemin de retour) n'a aucun appelant dans le client ; op 29 (endurance du familier) :
+format non établi ; ni l'une ni l'autre ne sont gérées.
+
 ## Boutiques des PNJ (type 0x32, AgcmEventNPCTrade)
 
 Drapeaux de champs sur **2 octets** :
@@ -250,6 +258,11 @@ nom cible (49), message (bloc mémoire).
   17 jaune, 19 trompette de race, 20 cri des éléments ; 17, 19 et 20 sans en-tête ni nom. ArchCore répond au MJ et
   envoie ses messages système en type 7, ses annonces en type 10 (noms corrigés le 28 octobre 2026 :
   `WHOLE_WORLD`, `SYSTEM_LEVEL3`, `NOTICE_LEVEL1` ; valeurs envoyées inchangées).
+- Chuchotements : destinataire absent → **op 4** (champ 1 = CID de l'émetteur, champ 5 = nom du destinataire ; le
+  client écrit « `<nom>` is not connected. » dans l'onglet système). Le client envoie l'**op 1** (champ 1 = CID) pour
+  bloquer les chuchotements reçus et l'**op 2** pour les débloquer ; ArchCore les renvoie (le client note le blocage)
+  et garde le blocage jusqu'à la déconnexion. Un chuchotement vers un joueur qui bloque donne à l'émetteur l'**op 3**
+  (champ 5 = nom : « `<nom>` is blocking whispering. ») et n'est pas transmis.
 
 ## Cris de zone (type 0x4C, AgpmAreaChatting)
 
@@ -455,7 +468,10 @@ l'objet est créé : butin d'un monstre (niveau de la source = niveau du monstre
   option de ce type au poids (`Probability`, 0 au-delà de 100 000). Admise : la partie de l'objet est cochée
   (une arme tenue à gauche prend les options d'arme), le rang de l'objet est entre `Rank_Min` (0 vaut 1) et
   `Rank_Max`, le niveau de la source vaut au moins `Level_limit` (et 1 à 120). Une cellule `Refined` ou
-  `Gacha` non vide (même « 0 »), ou un `CategoryName`, range l'option dans une autre famille, hors butin.
+  `Gacha` non vide (même « 0 ») range l'option dans une autre famille, hors butin. `CategoryName` est propre à
+  Archonia (colonne absente de la table d'origine, aucune de ses 589 options n'y figure) : ces options ne sont jamais
+  tirées (butin, options liées), seulement appliquées si un objet déjà en base les porte. `Item_Level_Min` et `Item_Level_Max` ne règlent pas le tirage (Archonia ne les lit pas, la
+  table d'origine les lit sans s'en servir).
 - **Réseau** : AGPMITEM champ 20, mini-paquet de 5 UINT16 (TID), dans chaque op 0 d'un objet connu
   (inventaire, équipement vu des autres, banque, échange, objet au sol). Le client applique lui-même les options
   aux facteurs de l'objet pour l'infobulle (« Additional Ability », `Description` de la table).
@@ -477,8 +493,12 @@ l'objet est créé : butin d'un monstre (niveau de la source = niveau du monstre
   `dot_damage_time`, qui remplace `duration` ; ces dégâts ne s'ajoutent pas aux facteurs), 6 esquive
   (`evade_rate` : chance d'éviter un coup de monstre, résultat 7). `Ignore_Physical_Defense_Rate` et
   `Ignore_Attribute_Defense_Rate` s'ajoutent à la défense ignorée, `Critical_Defense_Rate` à la résistance aux
-  critiques (section Compétences) ; `StunResistance` est lue mais ni jouée ni affichée (aucune option ne la
-  remplit ; la fenêtre du client n'en montre que la part des compétences). L'étourdissement
+  critiques (section Compétences) ; `StunResistance`, propre à Archonia, n'est pas lue. Pénétrations (`Ignore_*`,
+  points de pour cent ôtés à la défense de la cible) : `PhysicalAttackResist`, `BlockRate`, `SkillBlockRate`,
+  `EvadeRate` et `DodgeRate` (une fois pour les deux), `CriticalDefenseRate`, `StunDefenseRate`. `skill_cast` et
+  `skill_delay` vont aux facteurs d'attaque 3 et 4 ; `bonus_exp`, `bonus_money`, `bonus_drop_rate` majorent en pour
+  cent l'expérience, l'or et le taux de butin du porteur ; `Add_Debuff_Duration` allonge (ms) les affaiblissements
+  qu'il pose. L'étourdissement
   part dans l'état du monstre (AGPMCHARACTER op 1, champ 17), la blessure dans ses PV (op 1) ; aucun paquet
   d'effet ne les annonce.
 
@@ -758,6 +778,17 @@ l'indice 4), TID, statut, action, points, effets actifs. À l'entrée en jeu, ch
 Les points de compétence valent le niveau du personnage (plus un par niveau de 50 à 70) moins les points
 exigés par chaque niveau appris ; ils sont envoyés dans les facteurs « dirt » du personnage (indice 5).
 
+**Effets et niveaux.** **Op 6** (ALL_BUFFED_SKILL : 2 base, 8 minis SKILL_BUFF {TID, durée restante, TID du lanceur})
+: tous les effets en cours d'un personnage, au joueur à l'entrée en jeu et aux autres à son apparition. **Op 15**
+(INIT_COOLTIME : 1 identifiant, 2 base, 4 TID) : quand tous les effets d'un joueur tombent (mort, purge), la recharge
+de chaque compétence dont il s'était lui-même donné l'effet est remise à zéro ; aussi par `/recast`. **Op 14**
+(MODIFIED_SKILL_LEVEL : 1 bonus, moins de 31, 2 base) : niveaux en plus de toutes les compétences apprises, somme des
+colonnes `skill_levelup` des options portées (« Learned skills upgraded by n ranks »), envoyé à l'entrée en jeu et à
+chaque changement ; le serveur lance les compétences à ce niveau (dernier niveau de la compétence au plus, pas les
+compétences de production). L'op 16 (niveau d'une seule compétence) n'est pas envoyée : aucune option des données n'en
+donne (`Skill_id`, `Skill_level` vides) ; l'op 10 (effet secondaire) non plus, faute de savoir quand l'envoyer ; l'op 17
+est un ajout d'Archonia.
+
 **Maître des compétences.** Les PNJ « Instructeur » portent la fonction 25, avec la race et la classe
 enseignées (`SkillRaceType`, `SkillClassType`), envoyées dans leur vue (mini INT8, INT8).
 AGPMEVENTSKILLMASTER (0x3B, drapeaux 1) : op, événement, CID, identifiant de compétence, TID, résultat,
@@ -835,9 +866,37 @@ dégâts) : résultat 1, puis les facteurs du joueur (op 1, champ 7).
 Sword Stopper, et Natural Warrior ; pas Counter Attack, dont l'infobulle ne l'annonce pas) et l'option
 `Critical_Defense_Rate` forment la résistance aux critiques de la cible : elle est ôtée de la chance de coup
 critique de l'assaillant (règle déduite ; un affaiblissement comme Defence Breaker la rend négative). La
-résistance à l'étourdissement (`stun_resistance` de SKILL_CONST, colonne rangée après `FACTOR_MAGNIFY` : Free
-Will, Stun Protection 100, Terrifying Nemesis négative) n'est qu'affichée : aucune règle de jeu n'est connue,
-l'étourdissement suit la protection (état 8).
+résistance à l'étourdissement (`stun_resistance` de SKILL_CONST, colonne rangée après `FACTOR_MAGNIFY`) est propre
+à Archonia, absente des tables de l'épisode 8 : elle n'est plus lue et la case 0xbc du bloc ci-dessous reste à 0 ;
+l'étourdissement suit la protection (état 8), diminuée de l'`Ignore_StunDefenseRate` du lanceur.
+
+**Règles de l'épisode 8 portées par les tables.** Formules choisies par ArchCore : les tables en donnent les valeurs,
+aucun binaire ne montre le calcul (le client reçoit les résultats).
+
+- *Toucher* : chance = niveau / (niveau + niveau de la cible) × AR / (AR + DR) × 290 (10 à 95 %), DR d'un monstre
+  compris (`DR` de CharacterDataTable, plus les `evade_rate` de ses effets).
+- *Résistance physique* : dégâts physiques après la défense × (100 − r) / 100, au moins 1 ; r = facteur de défense 0
+  d'un joueur (`PhysicalAttackResist` des options, `point.physical_resistance` des effets ; 80 au plus) ou
+  `Physical_Resistance` d'un monstre (100 au plus), moins l'`Ignore_PhysicalAttackResist` de l'assaillant. Coups
+  normaux et compétences.
+- *Blocage des compétences* : une compétence offensive est bloquée (ni dégâts ni effet) avec la chance de la cible
+  (facteur de défense 10 : `SkillBlockRate`, `point.skill_block` ; `Skill_Block` d'un monstre), moins
+  l'`Ignore_SkillBlockRate` du lanceur, 80 % au plus.
+- *Esquive et blocage d'un joueur* : contre un monstre et entre joueurs, esquive des options et des effets, puis
+  blocage (compétences et `BlockRate` des options, facteur de défense 9), chacun 80 % au plus, moins l'`Ignore_EvadeRate`
+  / `Ignore_DodgeRate` et l'`Ignore_BlockRate` de l'assaillant (résultats 7 et 9).
+- *Renforcements* : `point.dmg_min_*` / `dmg_max_*` s'ajoutent aux dégâts élémentaires, `point.atk_range` (mètres,
+  ×100) à la portée d'attaque (50 au moins), `point.skill_cast` / `skill_delay` aux facteurs d'attaque 3 et 4.
+- *Incantation et relance* : × (100 − s) / 100, s = facteur d'attaque 3 ou 4 (−100 à 90) ; la réduction de relance ne
+  dépasse pas `applied_cooldown_cap` de SKILL_SPEC (pour cent). PM : × (100 + c) / 100, c = somme des
+  `cost_mp_decrease` des effets (négatif : moins de PM). Durées réduites envoyées dans l'op 7.
+- *Second coup* (Skill_Const2 : `damage_a2`, `damage_a_PERCENT2`, `damage_<élément>2`, `…_PERCENT2`) : une seconde
+  part calculée comme la première s'ajoute au même résultat.
+- *Préférence de cible* (aidatatable : `HateRace` 인간/오크/문엘프, `HateClass` 전사/궁수/법사, avec leurs pour cent) :
+  les dégâts d'un agresseur de la race ou de la classe haïe sont multipliés par ces pour cent (les deux se cumulent) ;
+  un monstre préventif divise la distance de chaque joueur par le même poids.
+- *Bonus d'or* : `bonus_money` des effets (÷ `Skill.GameBonusDivisor`, comme l'expérience) et des options (pour cent)
+  majorent l'or lâché au tueur.
 
 **Caractéristiques secondaires (AGPMSKILL op 3).** À l'entrée en jeu et à chaque changement de ses effets
 (effet posé, retiré ou échu, purge, mort, passive apprise ou améliorée), le joueur reçoit seul AGPMSKILL
@@ -969,9 +1028,12 @@ Battle Square, salles et entrées des donjons. Dans Archonia (AgcmUIEventTelepor
 
 **Refus.** Le client n'envoie pas l'op 4 en mode combat (10 s après le dernier coup donné ou reçu, ou une
 compétence offensive) : message `Teleport_CombatMode` dans la discussion ; ni métamorphosé (champ 18 du
-personnage) : `Teleport_TransformChar`. ArchCore ignore de même les ops 0, 4 et 7 d'un joueur mort ou en
-combat, et, sous métamorphose (sauf l'ArchLord), les ops 0, 4 et 7 avec un message système. Un départ annulé est
-signalé par l'**op 2** (fermeture de l'écran de chargement).
+personnage) : `Teleport_TransformChar`. ArchCore refuse de même les ops 0, 4 et 7 d'un joueur mort, en combat ou qui
+a des ennemis (AgpmPvP op 18 code 11), et, sous métamorphose (sauf l'ArchLord), avec un message système. Une demande
+(op 4) refusée reçoit l'**op 6** (REQUEST_IGNORED : 1 EVENT_BASE, 2 CID ; la fenêtre ne s'ouvre pas) ; un trajet ou un
+retour refusé, et une demande en attente annulée par une marche, l'**op 2** (CANCELED : 2 CID ; liste et chargement
+refermés). L'**op 3** (CUSTOM_POS : 2 CID, 4 position) fait partir vers une position libre (rappel de groupe), suivie
+du déplacement et de l'op 8.
 
 ## Banque (types 0x36, 0x04 et 0x02)
 
@@ -1080,7 +1142,16 @@ deuxième pour 22 et 23), sont hors combat (24, 25), le chef adverse est en lign
 combats de guilde (option 0x04 : code 43). Le chef adverse reçoit l'op 15, le demandeur le code 28 et le
 statut 1 ; sans réponse en 60 secondes, la demande tombe. Refus (op 17) : code 30. Acceptation (op 16) :
 statut 2 et GUILD_BATTLE aux deux guildes ; le combat commence `Guild.BattleReadySeconds` plus tard (op 21,
-statut 3), puis l'horloge (op 22) part chaque seconde. Annulation (op 18, puis 19 ou 20 ; code 33 au refus) :
+statut 3), puis l'horloge (op 22) part chaque seconde ; au début aussi, **op 46** (manche : 1, au premier des huit
+nombres du champ 4 et au champ 14 du combat ; ArchCore n'a pas de combat en plusieurs manches) et **op 27** (listes
+des combattants des deux camps : mini du champ 20 {U32 n1, bloc de n1 enregistrements de 0x48 octets de la guilde du
+champ 2, U32 n2, bloc de la guilde adverse} ; enregistrement (`FUN_1404dee40`) : nom zéro-terminé dans 0x38 octets,
+points, adversaires tués, morts (U32), puis un entier de sens inconnu, -1 = inchangé). À chaque adversaire tué,
+**op 26** aux deux guildes pour le tueur et la victime (champ 2 = guilde du destinataire, mini du champ 19 {guilde,
+nom, points, adversaires tués, morts}) ; op 27 de nouveau avec le résultat. Aux types 3 et 4, le chef choisit ses
+combattants dans la fenêtre `UI_GuildBattleMember` : **op 14** (1 CID, 2 guilde, mini du champ 18 {I16 nombre, bloc de
+(U16 longueur, nom sans zéro)}) juste avant la demande (op 15) ou l'acceptation (op 16) ; ce sont les combattants
+(ceux qui sont en ligne au début), sinon les membres en ligne au début. Annulation (op 18, puis 19 ou 20 ; code 33 au refus) :
 impossible à moins d'une minute du début (code 31). Pendant le combat, les membres des deux guildes peuvent se
 frapper ; un adversaire tué rapporte un point (op 23). Fin : à la durée (scores comparés), abandon « GG »
 (op 24, refusé avant le début : code 35 ; résultats 4 et 5), mort du chef adverse (type 2) ou plus aucun
@@ -1099,7 +1170,7 @@ GUILD_BATTLE réduit à son champ 0) ; 37 et 43 portent aussi le CID (1). Seuls 
 | 35, 36 | → | Refus (code 0x44 au demandeur), accord ; ← 36 à chaque guilde de l'alliance : 17 l'alliée, 6 date d'entrée, 11 rôle (2 fondatrice, 1 autre) |
 | 37 | ↔ | Départ de l'alliance (17 = sa propre guilde) ; ← 37 : 17 la partante, 3 la nouvelle fondatrice si la fondatrice part |
 | 38, 39, 40 | ↔ | Déclaration d'hostilité, refus (0x52), accord ; ← 40 aux deux guildes : 17 l'hostile, 6 date |
-| 41 | ↔ | Demande de trêve, transmise au chef visé comme l'op 38 ; Archonia la refuse par l'op 39 (0x57) |
+| 41 | ↔ | Demande de trêve, transmise au chef visé comme l'op 38 ; Archonia la refuse par l'op 39 : le demandeur reçoit l'**op 42** (2 sa guilde, 17 {guilde qui refuse}) : `Guild_Hostile_Leave_Reject` |
 | 43 | ↔ | Trêve acceptée ; ← 43 aux deux guildes : 17 l'autre |
 
 Une alliance a une fondatrice et 3 autres guildes au plus (le client n'en garde pas plus, FUN_1401ff510) ;
@@ -1153,6 +1224,9 @@ bonus, répartition des objets).
 | 4 | exclusion par le chef ; l'exclu reçoit l'op 4 |
 | 11 | passage de chef ; le groupe reçoit l'op 11 (auteur = nouveau chef) |
 | 5, 6, 7, 8, 10 | échecs : déjà dans un autre groupe, déjà membre, groupe plein, pas chef, joueur absent |
+| 9 | échec sans précision (« You cannot form a party. ») : région sans groupes, invitations en attente trop nombreuses |
+| 12 | passage de chef refusé (pas chef, cible hors du groupe) |
+| 13 | invitation refusée : l'invité a au moins `Party.InviteLevelGap` (10) niveaux de moins que l'invitant |
 
 Un groupe compte cinq membres au plus, chef en tête ; un joueur garde seize invitations en attente au plus.
 À l'acceptation, le groupe est formé (deux membres) ou agrandi. Le nouveau membre reçoit la fiche de chaque
@@ -1165,6 +1239,16 @@ Les membres d'un groupe se voient à toute distance ; un membre déconnecté qui
 d'un monstre tué se partage entre les membres vivants assez proches (5 × 5 secteurs autour du monstre),
 selon les dégâts infligés ou selon le niveau : cette répartition est un ajout d'ArchCore, le serveur
 d'origine ne la décrit pas. L'or et les objets tombent encore au sol pour le tueur.
+
+**Zone d'effet et bonus (op 2 du type 0x08).** Champ 7 : mini de 5 octets, un par membre dans l'ordre de la liste
+(1 : à moins de `Party.EffectRange` unités du chef) ; champ 9 : mini {dégâts I8 et défense I8 en pour cent, PV max
+I16, PM max I16} ; drapeaux des deux minis sur 1 octet. Le client montre l'icône de zone selon la classe du chef
+(chevalier, archer, mage) et les textes `Party_Add_*` (`Party_Add_None` quand tout est nul). Règles d'origine
+inconnues, celles d'ArchCore sont réglables : avec n membres dans la zone, chacun d'eux reçoit (n − 1) ×
+`Party.BonusPercentPerMember` pour cent de défense (chef chevalier) ou de dégâts physiques (chef archer ou scion), ou
+(n − 1) × `Party.BonusPointsPerMember` PV et PM max (chef mage) ; rien quand l'écart de niveau des membres dépasse
+`Party.BonusMaxLevelGap` (20). Revue chaque seconde, op 2 aux membres à chaque changement ; le bonus s'ajoute aux
+facteurs. Le rappel de groupe fait partir le membre par l'**op 3** d'AGPMEVENTTELEPORT (position libre), puis l'op 8.
 
 ### Rappel de groupe (types 0x04 et 0x09)
 
@@ -1255,7 +1339,10 @@ résultat, récompense choisie, trois blocs de drapeaux.
 | 5 | serveur | Drapeaux des quêtes terminées, à l'entrée en jeu : champs 8, 9, 10 de 0x800 octets ; la quête TID est le bit TID % 16 384 du bloc TID / 16 384 (octet bit / 8, bit de poids faible d'abord) |
 | 6 | client | Abandonner (champ 4) |
 | 7 | serveur | Réponse (champs 4 et 6) |
+| 8 | serveur | Récompenses qui ne tiennent pas dans l'inventaire (champs 1 et 4) : sysstr 447, la quête reste en cours |
+| 9 | serveur | Objet remis au départ (`Quest_TransItemTid`, vide dans les données) qui ne tient pas : sysstr 440, quête non prise |
 | 10 | serveur | Progression (mini) : le client affiche « monstre n/total » |
+| 14 | client | Suivi à l'écran : champ 3 = mini {TID, 0, 0, 0, drapeau} (1 inscrire, 0 retirer), champ 4 = TID ; envoyé à la prise d'une quête et par la case « suivre » ; 10 quêtes au plus ; pas de réponse. Enregistré (`character_quests.journal`) et renvoyé au 5ᵉ entier du mini de l'op 4 |
 
 AGPMEVENTQUEST (0x3E, drapeaux 1 : op, événement, CID, entier) : le client demande la fenêtre des quêtes d'un
 PNJ (fonction 27) par l'op 0 ; le serveur la lui ouvre en renvoyant l'op 0.
@@ -1294,7 +1381,9 @@ après le paquet personnage de l'entrée en jeu.
 Type propre à ArchCore. Le client d'origine n'aiguille que les types 0x01 à 0x77 et ignore les autres ;
 un client ArchRust l'utilise après la poignée de main pour négocier ses extensions (`HELLO` /
 `HELLO_ACK`) puis échanger des messages d'AddOn. Le serveur n'en envoie jamais à une connexion qui n'a
-pas envoyé `HELLO`. Spécification complète : [[Extensions ArchRust|FR-Extensions-ArchRust]].
+pas envoyé `HELLO`. Depuis la version 1.2, avec la capacité `client-tables/1`, le `HELLO_ACK` porte au
+champ 21 l'empreinte des tables de valeurs exportées pour le client (`archcore export-client-tables`).
+Spécification complète : [[Extensions ArchRust|FR-Extensions-ArchRust]].
 
 ## Reconnexion automatique (type 0x63, AgpmReconnect)
 
@@ -1342,6 +1431,17 @@ dessous après l'avoir attaqué en premier donne des points de meurtrier (facteu
 ni d'échange, prix des PNJ doublés), 60 (objets de genre 0x20 refusés par les PNJ, code 9), 100 (plus d'attaque
 forcée, expérience des monstres réduite de moitié). Tuer un joueur de son niveau ou plus rapporte autant de charisme
 que son niveau. Les montants (points, charisme) ne viennent pas du serveur d'origine, qui ne les a pas laissés.
+
+**Listes d'ennemis** (moments choisis par ArchCore, le serveur d'origine ne les a pas laissés) : op 6 (liste vidée) à
+l'entrée en jeu et après la mort du joueur (ses inimitiés tombent alors des deux côtés, op 4) ; op 8 (1, 2, 5) quand un
+ennemi connu frappe de nouveau, si le mode de la zone a changé ou toutes les 30 s. **Guildes ennemies** : quand un
+membre de la guilde G attaque (attaque forcée, hors zone sûre) un membre de la guilde H (non alliée), les membres en
+ligne de H reçoivent l'op 10 (1, 8 = G, 5 = mode), puis l'op 16 aux agressions suivantes (même rythme que l'op 8) ;
+l'inimitié dure 5 minutes prolongées à chaque agression, puis op 12 (1, 8). Les membres de H frappent alors sans Ctrl
+ceux de G hors zone sûre, comme le client le juge (`FUN_1402d8b90`). Op 14 (liste vidée) à l'entrée en jeu et à
+chaque changement de guilde, suivie des guildes ennemies de la nouvelle guilde. Un joueur qui a des ennemis ne prend
+pas de portail : op 18 code 11 (`PvP_Msg_CannotUseTeleport`) ; l'op 17 lève un événement d'interface absent de
+UI_1024X768.ini, elle n'est pas envoyée.
 
 **AGPMREMISSION** (drapeaux 1) : 0 op, 1 CID, 2 mini-paquet. Op 0 demande au pardonneur (fonction de PNJ 31, mini
 EVENT_BASE), op 1 accord (fenêtre `UI_Remission`), op 2 rémission : mini {type 4 = lettres de pardon} du client,
@@ -1960,6 +2060,24 @@ Au serveur de connexion, une clé valable (`account.return_key`, `ReturnToLogin.
 de la clé de hachage (AGPMLOGIN op 0) : le client se reconnecte avec l'identifiant et le mot de passe qu'il a gardés.
 Une clé inconnue, échue ou déjà servie est refusée par AGPMLOGIN op 15 (identifiants incorrects). La clé passe par
 la base : les deux serveurs peuvent tourner dans des processus séparés.
+
+## Règles restantes des données (types 0x02, 0x04, 0x05, 0x41, 0x44)
+
+Règles proposées d'après les tables de l'épisode 8, réglables (`Rules.*`, [[Configuration|FR-Configuration]]) ; le
+client n'en joue aucune, il n'en montre que les entrées et les sorties.
+
+| Règle | Paquets | Contenu |
+|---|---|---|
+| Part héroïque (`heroic.rs`) | 0x41 champ 3, AGPMSKILL op 8 | point 19 du résultat (en négatif), ajouté aux PV ôtés ; facteurs d'attribut 11 (dégâts min/max, défense) et 12 à 14 (résistances mêlée, distance, magie) envoyés avec les autres |
+| Munitions (`ammo.rs`) | 0x41 au seul joueur ; AGPMSKILL op 7 ; AGPMITEM op 2 / op 1 | coup sans munition : résultat 2 (flèches) ou 3 (carreaux), sans facteurs ; compétence : type d'action 12 au mini SKILL_ACTION ; chaque munition consommée : quantité de la pile (op 2) ou retrait (op 1) |
+| Arme exigée (`requirement.rs`) | AGPMSKILL op 7 au seul lanceur | type d'action 8 (« This skill cannot be used with the equipped weapon ») |
+| Cibles interdites (`target_restriction`) | AGPMSKILL op 7 au seul lanceur | type d'action 7 (cible invalide) |
+| Death Strike | 0x41 | résultat 13, dégâts = PV restants du monstre |
+| Objets à durée (`lifetime.rs`) | AGPMITEM op 0 et op 26, champ 23 ; 0x44 op 0 | mini Cash : 0 en cours d'utilisation (0, 1 ; 2 pause, non envoyé), 1 temps de jeu restant (ms, i64), 2 date d'expiration (secondes Unix, u64) ; op 26 à la première utilisation, chaque minute de temps de jeu et à la fin ; fin : message système code 5, nom de l'objet au champ 4, puis op 2 ou op 1 |
+| Redemption | AGPMCHARACTER op 24 | serveur → mort : champ 1 CID du mort, 3 nom du lanceur, 13 CID du lanceur (« … wants to resurrect you ») ; réponse du client par l'op 24 (champ 4 à 0 : refus) ou l'op 10 : résurrection sur place (op 1, statut d'action 0) |
+| Bonus de niveau | AGPMSKILL op 14 | champ 1 = options `skill_levelup` + effets de type 1 (Expert Skill…) ; types 2 et 4 comptés au seul serveur |
+| États | AGPMCHARACTER op 1, champ 17 | codes de special_status 26 à 33 (Archonia) ramenés à la valeur EP8 ; 9 halte (0x80000000 + 0x100000000), 10 invisibilité (0x200) ; `disturb` 1, 2, 8 → attaque, déplacement, compétence interdits (bits du client) ; 4 (objets) : bit propre au serveur, jamais envoyé |
+| Déplacements forcés | 0x40 | arrêt net du monstre à sa nouvelle place (drapeaux 0x0c), vue revue chez chacun |
 
 ## Types connus
 

@@ -25,6 +25,27 @@
 //! appliquées tant que la compétence est connue ; états spéciaux (étourdissement, sommeil…), posés sur la
 //! cible selon leur chance, et effets de combat (critiques, blocage, dégâts changés en PV ou PM, contre-attaque,
 //! résistances aux critiques et à l'étourdissement, `effects.rs`).
+//!
+//! Règles de l'épisode 8 portées par les tables, formules choisies (aucun binaire ne les montre ; le client reçoit les
+//! durées du serveur dans l'op 7) :
+//! ```text
+//!   Incantation, relance : × (100 − s) / 100, où s est le facteur d'attaque 3 (incantation) ou 4 (relance) du lanceur :
+//!             « skill_cast », « skill_delay » des options et « point.skill_cast », « point.skill_delay » de ses effets ;
+//!             s va de −100 (deux fois plus long) à 90. La réduction de relance ne dépasse pas « applied_cooldown_cap »
+//!             de SKILL_SPEC (pour cent) quand la compétence en a un. PM : × (100 + c) / 100, où c est la somme des
+//!             « cost_mp_decrease » des effets du lanceur (négatif : moins de PM), 0 au moins.
+//!   Blocage des compétences : une compétence offensive est bloquée (ni dégâts ni effet ; le résultat part sans dégâts)
+//!             avec la chance de la cible (facteur de défense 10 d'un joueur, « Skill_Block » d'un monstre, effets
+//!             compris), moins l'« Ignore_SkillBlockRate » du lanceur, 80 % au plus.
+//!   Second coup (Skill_Const2 : « damage_a2 », « damage_a_PERCENT2 », « damage_<élément>2 », « …_PERCENT2 ») : une
+//!             seconde part de dégâts, calculée comme la première, s'ajoute au même résultat (15 compétences).
+//!   Affaiblissements allongés de l'« Add_Debuff_Duration » des options du lanceur ; protection de la cible contre
+//!             l'étourdissement diminuée de son « Ignore_StunDefenseRate ».
+//! ```
+//! Règles proposées des colonnes de l'épisode 8 : arme exigée (`requirement`, refus action 8 : `requirement.rs`),
+//! munitions (`cost_arrow`, refus action 12 : `ammo.rs`), part héroïque des dégâts (`dmg_heroic` : `heroic.rs`), effets
+//! de `skill_extra.rs` (déplacements forcés, zones au sol, Redemption, provocation, bonus de niveau, cibles interdites).
+//!
 //! Les compétences amies visent leur lanceur ; celles de groupe (zone 303 de SKILL_SPEC), aussi les membres de
 //! son groupe dans leur rayon `area_r`. Maîtrises : une compétence des arbres supérieur et héroïque
 //! (SkillMastery_High.txt, SkillMastery_Heroic.txt) ne s'apprend qu'avec les compétences qu'elle exige à leur
@@ -222,6 +243,36 @@ pub struct SkillLevel {
     /// Famille et rang de l'effet (`skill_classify_id`, `skill_classify_level` de SKILL_CONST ; 0 : aucune famille) : deux
     /// effets de la même famille ne se cumulent pas (`consumables.rs`).
     pub classify: (i32, i32),
+    /// Second coup (Skill_Const2) : dégâts physiques fixes et pour cent, élémentaires (fixes, pour cent) dans l'ordre de
+    /// `SPIRIT`.
+    pub damage2: f64,
+    pub damage2_pct: f64,
+    pub spirit2: [(f64, f64); 8],
+    /// Réduction de relance permise au plus (pour cent, « applied_cooldown_cap » de SKILL_SPEC ; 0 : sans plafond).
+    pub cooldown_cap: f64,
+    /// Part héroïque d'un coup de compétence (`heroic.rs`) : « dmg_heroic » (fixe), « dmg_heroic_percent ».
+    pub dmg_heroic: f64,
+    pub dmg_heroic_pct: f64,
+    /// Flèches ou carreaux consommés par lancement (« cost_arrow », `ammo.rs`).
+    pub cost_arrow: u32,
+    /// Chance de mort instantanée (pour cent, « death » : Death Strike, `skill_extra.rs`).
+    pub death: f64,
+    /// Recul de la cible (« move_distance » : Body Check), en points de la table (`skill_extra.rs`).
+    pub move_distance: f64,
+    /// Compétence additionnelle (« additional_skilltid ») et sa durée (« additional_duration », secondes ; 0 : la
+    /// sienne) : compétences d'une invocation, effet posé sur l'assaillant (`skill_extra.rs`).
+    pub additional_skill: u32,
+    pub additional_secs: u64,
+    /// Niveaux de compétence en plus (« skill_levelup » de SKILL_CONST) et liste des compétences visées
+    /// (« specific_skill_levelup2 » de Skill_Const2) : voir `SkillTemplate::levelup_kind`.
+    pub levelup: i32,
+    pub levelup_list: Vec<u32>,
+    /// Zone au sol (`skill_extra.rs`) : dégâts fixes par élément à chaque période (« ea_damage_* » : indice dans le
+    /// résultat, dégâts), période (« interval », ms), PV et PM rendus à chaque période par une aura (« regen_hp »,
+    /// « regen_mp »).
+    pub area_damage: Vec<(usize, f64)>,
+    pub interval_ms: u64,
+    pub regen: (f64, f64),
 }
 
 /// Champs de SKILL_SPEC qui règlent les valeurs d'un niveau.
@@ -237,6 +288,10 @@ pub struct Spec {
     /// divide (partage des dégâts) et dispel_magic (purge), bruts.
     pub divide: i64,
     pub dispel_magic: i64,
+    /// applied_cooldown_cap : réduction de relance permise au plus (pour cent).
+    pub cooldown_cap: i64,
+    /// skill_levelup : nature du bonus de niveau (1 toutes les compétences, 2 celles des arbres de maîtrise, 4 une liste).
+    pub skill_levelup: i64,
 }
 
 /// Bits de la colonne reflect_melee_attack (au-delà des valeurs exactes 1, renvoi, et 2, bouclier).
@@ -245,12 +300,11 @@ pub mod reflect {
     pub const IGNORE_RESIST: i64 = 0x8;
 }
 
-/// Bits de la colonne divide : nature des dégâts partagés et qui les prend.
+/// Bits de la colonne divide : nature des dégâts partagés. Le lanceur prend la part des membres de son groupe (Divine
+/// Protection 1, Martyr's Mark 2 dans la table de l'épisode 8) ; le bit 0x10 qu'Archonia y ajoute (17, 18) n'est pas lu.
 pub mod divide {
     pub const SPIRIT: i64 = 0x1;
     pub const PHYSICAL: i64 = 0x2;
-    /// Le lanceur prend la part des membres de son groupe (Divine Protection, Martyr's Mark).
-    pub const CASTER: i64 = 0x10;
 }
 
 impl SkillLevel {
@@ -261,6 +315,7 @@ impl SkillLevel {
 
     pub fn with_spec(c: &serde_json::Value, sp: &Spec) -> Self {
         let num = |k: &str| c.get(k).and_then(|v| v.as_str()).and_then(|s| s.trim().parse::<f64>().ok()).unwrap_or(0.0);
+        let tids = |k: &str| c.get(k).and_then(|v| v.as_str()).map(creature_list).unwrap_or_default();
         let mut classes = 0u16;
         for (i, name) in CLASS_COLUMNS.iter().enumerate() {
             if num(&format!("require_class_{name}")) != 0.0 {
@@ -268,8 +323,10 @@ impl SkillLevel {
             }
         }
         let mut spirit = [(0.0, 0.0); 8];
+        let mut spirit2 = [(0.0, 0.0); 8];
         for (i, (name, _, _)) in SPIRIT.iter().enumerate() {
             spirit[i] = (num(&format!("damage_{name}")), num(&format!("damage_{name}_PERCENT")));
+            spirit2[i] = (num(&format!("damage_{name}2")), num(&format!("damage_{name}_PERCENT2")));
         }
         SkillLevel {
             classes,
@@ -308,6 +365,45 @@ impl SkillLevel {
             skill_type: num("skill_type") as i32,
             creature_tids: c.get("creature_tid").and_then(|v| v.as_str()).map(creature_list).unwrap_or_default(),
             classify: (num("skill_classify_id") as i32, num("skill_classify_level") as i32),
+            damage2: num("damage_a2"),
+            damage2_pct: num("damage_a_PERCENT2"),
+            spirit2,
+            cooldown_cap: sp.cooldown_cap.max(0) as f64,
+            dmg_heroic: num("dmg_heroic"),
+            dmg_heroic_pct: num("dmg_heroic_percent"),
+            cost_arrow: num("cost_arrow").max(0.0) as u32,
+            death: num("death"),
+            move_distance: num("move_distance").max(0.0),
+            additional_skill: num("additional_skilltid").max(0.0) as u32,
+            additional_secs: num("additional_duration").max(0.0) as u64,
+            levelup: num("skill_levelup") as i32,
+            levelup_list: tids("specific_skill_levelup2"),
+            area_damage: effects::DOT_COLUMNS.iter().map(|(k, i)| (*i, num(&format!("ea_damage_{k}")))).filter(|(_, d)| *d > 0.0).collect(),
+            interval_ms: num("interval").max(0.0) as u64,
+            regen: (num("regen_hp"), num("regen_mp")),
+        }
+    }
+
+    /// Le niveau a un second coup (Skill_Const2).
+    pub fn has_second_hit(&self) -> bool {
+        self.damage2 != 0.0 || self.damage2_pct != 0.0 || self.spirit2.iter().any(|(f, p)| *f != 0.0 || *p != 0.0)
+    }
+
+    /// Le niveau tel que le lance un personnage : incantation et relance réduites de `cast_pct` et `delay_pct` (facteurs
+    /// d'attaque 3 et 4), la réduction de relance plafonnée par `cooldown_cap` ; PM majorés de `mp_pct` (négatif : en
+    /// moins).
+    pub fn timed(&self, cast_pct: f64, delay_pct: f64, mp_pct: f64) -> SkillLevel {
+        let cast = cast_pct.clamp(-100.0, 90.0);
+        let mut delay = delay_pct.clamp(-100.0, 90.0);
+        if self.cooldown_cap > 0.0 {
+            delay = delay.min(self.cooldown_cap);
+        }
+        let scale = |ms: u64, pct: f64| (ms as f64 * (100.0 - pct) / 100.0).round().max(0.0) as u64;
+        SkillLevel {
+            cast_ms: scale(self.cast_ms, cast),
+            recast_ms: scale(self.recast_ms, delay),
+            cost_mp: (self.cost_mp as f64 * (100.0 + mp_pct.max(-100.0)) / 100.0).round().max(0.0) as i32,
+            ..self.clone()
         }
     }
 
@@ -336,6 +432,10 @@ fn combat_mods(c: &serde_json::Value, sp: &Spec) -> Mods {
     let num = |k: &str| c.get(k).and_then(|v| v.as_str()).and_then(|s| s.trim().parse::<f64>().ok()).unwrap_or(0.0);
     let rate = num("skill_rate");
     let mut m = Mods::from_consts(c);
+    // Bonus de niveau de toutes les compétences (skill_levelup 1 de SKILL_SPEC), tant que dure l'effet (skill_extra.rs).
+    if sp.skill_levelup == super::skill_extra::LEVELUP_ALL {
+        m.skill_levels += num("skill_levelup");
+    }
     if matches!(sp.melee_attack, 106 | 109 | 110) {
         m.crit_rate += rate;
         m.crit_dmg += num("critical");
@@ -360,8 +460,7 @@ fn combat_mods(c: &serde_json::Value, sp: &Spec) -> Mods {
     if sp.defense_melee_attack != 2 {
         m.crit_resist += num("percent2.critical_defence_percent2");
     }
-    // Résistance à l'étourdissement (SKILL_CONST, colonne rangée après FACTOR_MAGNIFY) : affichée seulement.
-    m.stun_resist += num("magnify.stun_resistance");
+    // « magnify.stun_resistance » (après FACTOR_MAGNIFY) : colonne propre à Archonia, absente de l'épisode 8 : pas lue.
     // Défense ignorée : montants de Skill_Const2.txt (colonnes après FACTOR_PERCENT2, d'où le préfixe).
     if sp.reflect_melee_attack > 2 {
         if sp.reflect_melee_attack & reflect::IGNORE_DEFENSE != 0 {
@@ -371,7 +470,7 @@ fn combat_mods(c: &serde_json::Value, sp: &Spec) -> Mods {
             m.ignore_resist += num("percent2.ignore_attribute_defence_percent2");
         }
     }
-    if sp.divide & divide::CASTER != 0 {
+    if sp.divide & (divide::PHYSICAL | divide::SPIRIT) != 0 {
         let share = num("divide_rate");
         if sp.divide & divide::PHYSICAL != 0 {
             m.share_physical += share;
@@ -454,6 +553,18 @@ pub struct SkillTemplate {
     /// l'effet (déduit : le client les lit sans s'en servir). Seule la Mutation s'en sert (`morph.rs`).
     pub downtime_id: i64,
     pub downtime_secs: u64,
+    /// Arme ou bouclier exigé (colonne `requirement` de SKILL_SPEC, rangée en masque : `requirement.rs`) ; 0 : rien.
+    pub requirement: u32,
+    /// Colonnes de SKILL_SPEC des effets de `skill_extra.rs` : déplacement forcé (`move_pos`), zone au sol
+    /// (`at_field`), enchaînement (`action_on_action`), détection (`detect`), résurrection d'autrui (`resurrection`),
+    /// cibles interdites (`target_restriction`), nature du bonus de niveau (`skill_levelup`).
+    pub move_pos: i64,
+    pub at_field: i64,
+    pub action_on_action: i64,
+    pub detect: i64,
+    pub resurrection: bool,
+    pub target_restriction: i64,
+    pub levelup_kind: i64,
     /// Niveau n à l'indice n - 1.
     pub levels: Vec<SkillLevel>,
 }
@@ -482,6 +593,14 @@ impl SkillTemplate {
     /// Compétence de production (unités du champ `attribute` à 8) : récolte, cuisine, alchimie.
     pub fn is_product(&self) -> bool {
         self.attribute % 10 == 8
+    }
+    /// Niveau `n` majoré du bonus `bonus` des options portées (« skill_levelup », AGPMSKILL op 14), sans dépasser le
+    /// dernier niveau de la compétence ; les compétences de production n'en profitent pas.
+    pub fn boosted(&self, n: u32, bonus: i64) -> u32 {
+        if self.is_product() || bonus <= 0 {
+            return n;
+        }
+        (n + bonus as u32).min((self.levels.len() as u32).max(n))
     }
     /// Valeurs du niveau `n` pour un lancement. SKILL_CONST ne donne que le niveau 1 des compétences de production,
     /// dont le niveau (1 à 15) vient de l'expérience : ce niveau 1 vaut pour tous.
@@ -577,7 +696,10 @@ impl SkillCatalog {
             let spec = serde_json::from_str::<serde_json::Value>(&col::<String>(r, "spec")).unwrap_or_default();
             let int = |k: &str| spec.get(k).and_then(|v| v.as_str()).and_then(|s| s.trim().parse::<i64>().ok()).unwrap_or(0);
             let tid: u32 = col(r, "tid");
-            let raw_status = spec.get("special_status").and_then(|v| v.as_str()).unwrap_or("");
+            let name: String = col(r, "name");
+            // Codes d'états d'Archonia (26 à 33…) ramenés à l'épisode 8, puis interruption (`disturb`).
+            let raw_status = effects::ep8_special_status(&name, spec.get("special_status").and_then(|v| v.as_str()).unwrap_or(""));
+            let status = effects::parse_status(&raw_status) | effects::disturb_status(int("disturb"));
             spec_of.insert(
                 tid,
                 Spec {
@@ -585,30 +707,40 @@ impl SkillCatalog {
                     reflect_melee_attack: int("reflect_melee_attack"),
                     convert_type: int("convert_type"),
                     defense_melee_attack: int("defense_melee_attack"),
-                    status: effects::parse_status(raw_status),
+                    status,
                     offensive: int("target") % 10 == 1,
                     divide: int("divide"),
                     dispel_magic: int("dispel_magic"),
+                    cooldown_cap: int("applied_cooldown_cap"),
+                    skill_levelup: int("skill_levelup"),
                 },
             );
             skills.insert(
                 tid,
                 SkillTemplate {
                     tid,
-                    name: col(r, "name"),
+                    name,
                     attribute: int("attribute"),
                     upgradable: int("upgradable"),
                     target: int("target"),
                     range_code: int("range"),
                     melee_attack: int("melee_attack"),
                     auto_attack: int("auto_attack") != 0,
-                    status: effects::parse_status(raw_status),
+                    status,
                     summons: int("summons"),
                     game_effect: int("game_effect"),
                     ride: int("ride") != 0,
                     transform_target: int("transform_target"),
                     downtime_id: int("downtime_id"),
                     downtime_secs: int("downtime_duration").max(0) as u64,
+                    requirement: super::requirement::mask_of(int("requirement")),
+                    move_pos: int("move_pos"),
+                    at_field: int("at_field"),
+                    action_on_action: int("action_on_action"),
+                    detect: int("detect"),
+                    resurrection: int("resurrection") != 0,
+                    target_restriction: int("target_restriction"),
+                    levelup_kind: int("skill_levelup"),
                     levels: Vec::new(),
                 },
             );
@@ -666,6 +798,11 @@ impl SkillCatalog {
         let mut v: Vec<u32> = self.skills.values().filter(|t| t.archlord_only()).map(|t| t.tid).collect();
         v.sort_unstable();
         v
+    }
+
+    /// La compétence figure dans un arbre de maîtrise (supérieur ou héroïque).
+    pub fn in_mastery(&self, tid: u32) -> bool {
+        self.masteries.contains_key(&tid)
     }
 
     /// TID d'une compétence d'après son nom (le plus petit si le nom revient).
@@ -734,6 +871,10 @@ pub struct PlayerSkills {
     pub attach_sent: [i32; 8],
     /// Compétences du titre équipé (`Skill_Tid_*` de title_template, `titles.rs`) : passives au niveau 1 tant qu'il l'est.
     pub title_skills: Vec<u32>,
+    /// Bits d'armes tenues (`requirement.rs`) : une passive qui en exige une autre ne compte pas.
+    pub held: u32,
+    /// Bonus de niveau de toutes les compétences envoyé au joueur (AGPMSKILL op 14).
+    pub levels_sent: i64,
 }
 
 impl PlayerSkills {
@@ -838,6 +979,10 @@ pub fn sync_passives(catalog: &SkillCatalog, skills: &mut PlayerSkills, caster_t
         let Some(t) = catalog.get(s.tid).filter(|t| t.nature().passive) else { continue };
         let Some(lv) = t.level(s.level).filter(|lv| !lv.mods.is_empty()) else { continue };
         if form.is_some() && lv.classes != 0 && !lv.allows(form) {
+            continue;
+        }
+        // Arme ou bouclier exigé et pas tenu (requirement.rs) : la passive ne compte pas.
+        if t.requirement != 0 && !super::requirement::met(t.requirement, skills.held) {
             continue;
         }
         effects::push(
@@ -960,17 +1105,36 @@ pub fn all_packets(p: &Player) -> Vec<u8> {
 /// élémentaires du personnage de la même façon, doublés, moins la résistance de la cible à l'élément. Une
 /// cible plus forte retire 5 % par niveau d'écart (80 % au plus) ; l'armure ne réduit que la part physique. Chaque part fait au moins 1.
 pub fn skill_damage(rng: &mut impl Rng, a: &Attacker, spirit_ranges: &[(f64, f64); 8], d: &Defender, lv: &SkillLevel) -> Vec<(usize, i32)> {
+    let mut out = phase(rng, a, spirit_ranges, d, (lv.damage, lv.damage_pct), &lv.spirit, true);
+    // Part héroïque (heroic.rs) : base × (100 + dmg_heroic_percent) / 100 + dmg_heroic, moins l'écart de niveau.
+    let base = super::heroic::hit(rng, a, d);
+    super::heroic::push(&mut out, super::heroic::skill_part(base, lv.dmg_heroic_pct, lv.dmg_heroic, a.level, d.level));
+    // Second coup de Skill_Const2 : ajouté, nature par nature, au premier.
+    if lv.has_second_hit() {
+        for (i, x) in phase(rng, a, spirit_ranges, d, (lv.damage2, lv.damage2_pct), &lv.spirit2, false) {
+            match out.iter_mut().find(|(j, _)| *j == i) {
+                Some((_, d)) => *d += x,
+                None => out.push((i, x)),
+            }
+        }
+    }
+    out
+}
+
+/// Une part de dégâts d'une compétence : physique (bonus fixe, pour cent) et élémentaire. `physical_by_default` : une part
+/// sans aucun dégât indiqué frappe quand même au physique (premier coup).
+fn phase(rng: &mut impl Rng, a: &Attacker, spirit_ranges: &[(f64, f64); 8], d: &Defender, (flat, pct): (f64, f64), spirit: &[(f64, f64); 8], physical_by_default: bool) -> Vec<(usize, i32)> {
     let penalty = (5 * (d.level - a.level).max(0)).min(80) as f64;
     let keep = (100.0 - penalty) / 100.0;
     let roll = |rng: &mut dyn rand::RngCore, (lo, hi): (f64, f64)| if hi > lo { rng.gen_range(lo..=hi) } else { lo };
     let mut out = Vec::new();
-    let has_spirit = lv.spirit.iter().any(|(f, p)| *f != 0.0 || *p != 0.0);
-    if lv.damage != 0.0 || lv.damage_pct != 0.0 || !has_spirit {
+    let has_spirit = spirit.iter().any(|(f, p)| *f != 0.0 || *p != 0.0);
+    if flat != 0.0 || pct != 0.0 || (physical_by_default && !has_spirit) {
         let raw = roll(rng, a.damage_range());
-        let x = (raw * (100.0 + lv.damage_pct) / 100.0 + lv.damage) * keep - d.defense;
-        out.push((RESULT_PHYSICAL, (x.round() as i32).max(1)));
+        let x = (raw * (100.0 + pct) / 100.0 + flat) * keep - d.defense;
+        out.push((RESULT_PHYSICAL, combat::physical_hit(x, d)));
     }
-    for (i, (flat, pct)) in lv.spirit.iter().enumerate() {
+    for (i, (flat, pct)) in spirit.iter().enumerate() {
         if *flat == 0.0 && *pct == 0.0 {
             continue;
         }
@@ -979,6 +1143,12 @@ pub fn skill_damage(rng: &mut impl Rng, a: &Attacker, spirit_ranges: &[(f64, f64
         out.push((SPIRIT[i].2, (x.round() as i32).max(1)));
     }
     out
+}
+
+/// Une compétence offensive est bloquée par sa cible (chance déjà diminuée de la pénétration du lanceur, 80 % au plus).
+pub fn skill_blocked(rng: &mut impl Rng, d: &Defender) -> bool {
+    let chance = d.skill_block.min(80.0);
+    chance > 0.0 && rng.gen_range(0.0..100.0) < chance
 }
 
 /// Fourchettes de dégâts élémentaires d'un joueur, dans l'ordre de `SPIRIT` (attributs 1 à 8).
@@ -1037,6 +1207,18 @@ fn request_cast(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) {
     let Some(t) = ctx.skills.get(owned.tid) else { return };
     if t.auto_attack || t.nature().passive {
         return;
+    }
+    // Arme ou bouclier exigé (requirement.rs ; désarmé : aucune arme) : refus, type d'action 8.
+    if !t.is_product() && t.requirement != 0 && !super::requirement::met(t.requirement, player.skills.held) {
+        info!("[compétence] {name} : {} refusée (arme exigée {:#x}, tenue {:#x})", t.name, t.requirement, player.skills.held);
+        player.send_raw(refusal_packet(player.ch.id, &owned, target, super::requirement::REFUSAL));
+        return stop(st, sid);
+    }
+    // Cible interdite (`target_restriction`, skill_extra.rs) : refus, type d'action 7.
+    if super::skill_extra::restricted(st, t, target) {
+        debug!("[compétence] {name} : {} ne vise pas {target:#x}", t.name);
+        player.send_raw(refusal_packet(player.ch.id, &owned, target, super::skill_extra::INVALID_TARGET));
+        return stop(st, sid);
     }
     // À cheval : compétences refusées (le client l'annonce par sysstr 320 ; récolte comprise, sysstr 527).
     if super::ride::is_mounted(&player.inventory) {
@@ -1114,6 +1296,11 @@ fn request_cast(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) {
             debug!("[compétence] {name} : {} vise un joueur sous une forme qui n'est pas ciblable", t.name);
             return;
         }
+        // Joueur invisible, sans détection (skill_extra.rs).
+        Some(tsid) if super::skill_extra::hidden_from(ctx, st, sid, tsid) => {
+            debug!("[compétence] {name} : {} vise un joueur invisible", t.name);
+            return;
+        }
         Some(tsid) => match super::pvp::check(ctx, st, sid, tsid, forced) {
             Ok(()) => true,
             Err(r) => {
@@ -1123,8 +1310,13 @@ fn request_cast(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) {
         },
         None => false,
     };
-    let target = if t.offensive() && (alive || foe) {
+    // Redemption (skill_extra.rs) : un joueur mort, en jeu.
+    let dead_friend = t.resurrection && st.by_cid.get(&target).filter(|s| **s != sid).and_then(|s| st.players.get(s)).is_some_and(|f| f.in_game && f.dead);
+    let target = if t.offensive() && (alive || foe) || dead_friend {
         target
+    } else if t.resurrection {
+        debug!("[compétence] {name} : {} vise {target:#x}, qui n'est pas un joueur mort", t.name);
+        return;
     } else if t.needs_target() {
         debug!("[compétence] {name} : {} vise {target:#x}, qui n'est pas un monstre vivant", t.name);
         return;
@@ -1160,14 +1352,17 @@ fn stop(st: &mut WorldState, sid: u32) {
 fn begin(ctx: &WorldCtx, st: &mut WorldState, sid: u32, cast: Cast, now: Instant) {
     let p = &st.players[&sid];
     let Some(owned) = p.skills.by_id(cast.skill_id).copied() else { return stop(st, sid) };
-    let Some((t, lv)) = ctx.skills.get(owned.tid).and_then(|t| Some((t, t.consts(owned.level)?))) else { return stop(st, sid) };
+    let bonus = super::skill_extra::level_bonus(ctx, p, owned.tid);
+    let Some((t, lv)) = ctx.skills.get(owned.tid).and_then(|t| Some((t, t.consts(t.boosted(owned.level, bonus)).or_else(|| super::skill_extra::provoke_level(t))?))) else {
+        return stop(st, sid);
+    };
     if p.dead {
         return stop(st, sid);
     }
     // Récolte : la cible est un cadavre, à `GATHER_RANGE` (product.rs).
     let product = t.is_product();
     let me = p.ch.pos();
-    let friend = st.by_cid.get(&cast.target).filter(|s| **s != sid).and_then(|s| st.players.get(s)).filter(|f| f.in_game && !f.dead).map(|f| f.ch.pos());
+    let friend = st.by_cid.get(&cast.target).filter(|s| **s != sid).and_then(|s| st.players.get(s)).filter(|f| f.in_game && (!f.dead || t.resurrection)).map(|f| f.ch.pos());
     let target: Option<Monster> = if cast.target == p.ch.id || friend.is_some() {
         None
     } else {
@@ -1201,10 +1396,20 @@ fn begin(ctx: &WorldCtx, st: &mut WorldState, sid: u32, cast: Cast, now: Instant
             return;
         }
     }
+    // Incantation et relance réduites (facteurs d'attaque 3 et 4 : options et effets), PM selon les effets.
+    let lv = &lv.timed(p.factors.attack[3] as f64, p.factors.attack[4] as f64, effects::total(&p.skills.effects).mp_cost_pct);
     let f = &p.factors;
     if f.point[1] < lv.cost_mp {
         send_system(st, sid, "Pas assez de PM.");
         return stop(st, sid);
+    }
+    // Flèches ou carreaux (« cost_arrow », ammo.rs) : refus, type d'action 12 ; payés à la fin de l'incantation.
+    if let Some((ammo, n)) = super::ammo::skill_cost(ctx, p, lv.cost_arrow) {
+        if super::ammo::count(&p.inventory, ammo) < n {
+            debug!("[compétence] {} : {} sans assez de munitions {ammo}", p.ch.name, t.name);
+            p.send_raw(refusal_packet(p.ch.id, &owned, cast.target, super::ammo::SKILL_REFUSAL));
+            return stop(st, sid);
+        }
     }
     if lv.cost_hp > 0 && f.point[POINT_HP] <= lv.cost_hp {
         send_system(st, sid, "Pas assez de PV.");
@@ -1241,10 +1446,17 @@ async fn complete(ctx: &WorldCtx, st: &mut WorldState, sid: u32, cast: Cast, now
     stop(st, sid);
     let p = &st.players[&sid];
     let Some(owned) = p.skills.by_id(cast.skill_id).copied() else { return Ok(()) };
-    let Some((t, lv)) = ctx.skills.get(owned.tid).and_then(|t| Some((t, t.level(owned.level)?))) else { return Ok(()) };
+    let bonus = super::skill_extra::level_bonus(ctx, p, owned.tid);
+    let Some((t, lv)) = ctx.skills.get(owned.tid).and_then(|t| Some((t, t.level(t.boosted(owned.level, bonus)).or_else(|| super::skill_extra::provoke_level(t))?))) else {
+        return Ok(());
+    };
     // Compétence de production : le lancement s'arrête là, la récolte arrive par AGPMPRODUCT op 2 (product.rs).
     if p.dead || t.is_product() {
         return Ok(());
+    }
+    // Munitions de la compétence (ammo.rs), payées au bout de l'incantation.
+    if let Some((ammo, n)) = super::ammo::skill_cost(ctx, p, lv.cost_arrow) {
+        super::ammo::consume(ctx, st, sid, ammo, n).await?;
     }
     // Compétences de l'ArchLord sur le monde : monture Alcadia, gardes royaux, ciel (archlord.rs).
     if super::archlord::on_cast(ctx, st, sid, t, lv, now) {
@@ -1261,6 +1473,17 @@ async fn complete(ctx: &WorldCtx, st: &mut WorldState, sid: u32, cast: Cast, now
         return Ok(());
     }
     let (caster_tid, me) = (p.ch.template_id, p.dest.unwrap_or_else(|| p.ch.pos()));
+    // Redemption : la résurrection est proposée au mort (skill_extra.rs).
+    if t.resurrection {
+        if let Some(tsid) = st.by_cid.get(&cast.target).copied().filter(|s| *s != sid) {
+            super::skill_extra::offer_resurrection(st, sid, tsid, now);
+        }
+        return Ok(());
+    }
+    // Zone au sol sur soi (Flame Force, Aura of Decay) : elle suit le lanceur (skill_extra.rs).
+    if t.at_field != 0 && super::skill_extra::cast_field(st, sid, &owned, t, lv, now) {
+        return Ok(());
+    }
     if !t.offensive() {
         // Compétence amie : son lanceur (soin, renforcement) et, pour une compétence de groupe, les membres de son
         // groupe dans la zone.
@@ -1333,8 +1556,15 @@ async fn complete(ctx: &WorldCtx, st: &mut WorldState, sid: u32, cast: Cast, now
     }
     foes.truncate(limit.saturating_sub(targets.len()).max(usize::from(!foes.is_empty())));
     let skill_name = t.name.clone();
+    let provoked = if super::skill_extra::is_provoke(t) { targets.clone() } else { Vec::new() };
     for target in targets {
         hit_monster(ctx, st, sid, &owned, t, lv, target, caster_tid, now).await?;
+    }
+    // Provocation (skill_extra.rs) : les monstres touchés prennent le lanceur pour cible.
+    if let Some(cid) = st.players.get(&sid).map(|p| p.ch.id) {
+        for m in provoked {
+            super::skill_extra::provoke(st, m, cid, now);
+        }
     }
     for foe in foes {
         hit_player(ctx, st, sid, &owned, lv, foe, caster_tid, now).await?;
@@ -1363,7 +1593,13 @@ async fn hit_monster(ctx: &WorldCtx, st: &mut WorldState, sid: u32, owned: &Owne
     let mods = st.monsters.mods(cid);
     let (attacker, spirit) = (Attacker::of_player(p), spirit_ranges(&p.factors));
     let defender = attacker.pierce(&Defender::of_monster(m.level as i32, &stats, &mods));
-    let damages = if t.instant_damage() { skill_damage(&mut rand::thread_rng(), &attacker, &spirit, &defender, lv) } else { Vec::new() };
+    let gear = (p.gear.debuff_ms, p.gear.mods.ignore_stun_protect);
+    // Blocage des compétences du monstre : ni dégâts ni effet.
+    let blocked = skill_blocked(&mut rand::thread_rng(), &defender);
+    let mut damages = if t.instant_damage() && !blocked { skill_damage(&mut rand::thread_rng(), &attacker, &spirit, &defender, lv) } else { Vec::new() };
+    // Invincibilité élémentaire du monstre (status_rules.rs).
+    super::status_rules::shield(st.monsters.status(cid, now), &mut damages);
+    let from = p.dest.unwrap_or_else(|| p.ch.pos());
     let total: i32 = damages.iter().map(|(_, d)| *d).sum();
     let target = st.monsters.get_mut(cid).unwrap();
     target.hp = (target.hp - total).max(0);
@@ -1382,6 +1618,12 @@ async fn hit_monster(ctx: &WorldCtx, st: &mut WorldState, sid: u32, owned: &Owne
     if hp == 0 {
         return combat::kill(ctx, st, sid, cid, now).await;
     }
+    if blocked {
+        debug!("[compétence] {} → {} : bloquée", t.name, m.name);
+        return Ok(());
+    }
+    // Cible tirée au contact du lanceur ou reculée (skill_extra.rs).
+    super::skill_extra::after_skill_hit(ctx, st, t, lv, from, cid);
     // Mutation : le monstre prend une forme d'animal pour la durée du niveau, passif (morph.rs).
     if t.is_mutation() {
         super::morph::mutate_monster(ctx, st, cid, &lv.creature_tids, lv.duration_ms, super::morph::downtime(ctx, t), now);
@@ -1390,7 +1632,7 @@ async fn hit_monster(ctx: &WorldCtx, st: &mut WorldState, sid: u32, owned: &Owne
         let n = purge_monster(ctx, st, cid, lv.dispel, now);
         debug!("[compétence] {} → {} : purge ({:#x}), {n} effet(s) retiré(s)", t.name, m.name, lv.dispel);
     }
-    let status = roll_status(&mut rand::thread_rng(), lv, &mods);
+    let status = roll_status(&mut rand::thread_rng(), lv, &Mods { stun_protect: effects::pierced(mods.stun_protect, gear.1), ..mods });
     if lv.leaves_effect(status) {
         let penalty = (5 * (m.level as i32 - attacker.level).max(0)).min(80) as f64;
         let dot = (!lv.dot.is_empty()).then(|| effects::Dot {
@@ -1399,7 +1641,8 @@ async fn hit_monster(ctx: &WorldCtx, st: &mut WorldState, sid: u32, owned: &Owne
             next_at: now + Duration::from_millis(lv.dot.interval_ms),
             caster_sid: sid,
         });
-        let e = Effect { caster_sid: sid, ..new_effect(owned, lv, caster_tid, status, dot, now) };
+        let mut e = Effect { caster_sid: sid, ..new_effect(owned, lv, caster_tid, status, dot, now) };
+        effects::lengthen(&mut e, gear.0);
         let list = st.monsters.effects.entry(cid).or_default();
         if let Some(old) = effects::push(list, e.clone()) {
             combat::broadcast(st, &watchers, &effects::remove_packet(cid, &old));
@@ -1425,12 +1668,16 @@ async fn hit_player(ctx: &WorldCtx, st: &mut WorldState, sid: u32, owned: &Owned
     let (attacker, spirit) = (Attacker::of_player(p), spirit_ranges(&p.factors));
     let defender = attacker.pierce(&Defender::of_player(&v.factors));
     let mods = effects::total(&v.skills.effects);
-    let shielded = v.invincible_until.is_some_and(|u| now < u);
-    let damages = if !shielded && ctx.skills.get(owned.tid).is_some_and(|t| t.instant_damage()) {
+    let gear = (p.gear.debuff_ms, p.gear.mods.ignore_stun_protect);
+    // Blocage des compétences de la cible : ni dégâts ni effet.
+    let shielded = v.invincible_until.is_some_and(|u| now < u) || skill_blocked(&mut rand::thread_rng(), &defender);
+    let mut damages = if !shielded && ctx.skills.get(owned.tid).is_some_and(|t| t.instant_damage()) {
         skill_damage(&mut rand::thread_rng(), &attacker, &spirit, &defender, lv)
     } else {
         Vec::new()
     };
+    // Invincibilité élémentaire de la cible (status_rules.rs).
+    super::status_rules::shield(v.skills.status_sent, &mut damages);
     let total: i32 = damages.iter().map(|(_, d)| *d).sum();
     let v = st.players.get_mut(&tsid).unwrap();
     let hp = (v.factors.point[POINT_HP] - total).max(0);
@@ -1452,9 +1699,11 @@ async fn hit_player(ctx: &WorldCtx, st: &mut WorldState, sid: u32, owned: &Owned
         combat::player_death(st, tsid);
         return super::pvp::on_kill(ctx, st, sid, tsid).await;
     }
-    let status = roll_status(&mut rand::thread_rng(), lv, &mods);
+    let status = roll_status(&mut rand::thread_rng(), lv, &Mods { stun_protect: effects::pierced(mods.stun_protect, gear.1), ..mods });
     if !shielded && lv.leaves_effect(status) {
-        add_player_effect(ctx, st, tsid, Effect { caster_sid: sid, ..new_effect(owned, lv, caster_tid, status, None, now) });
+        let mut e = Effect { caster_sid: sid, ..new_effect(owned, lv, caster_tid, status, None, now) };
+        effects::lengthen(&mut e, gear.0);
+        add_player_effect(ctx, st, tsid, e);
     }
     // Mutation : la cible prend une forme d'animal pour la durée du niveau (morph.rs).
     if let Some(t) = ctx.skills.get(owned.tid).filter(|t| !shielded && t.is_mutation()) {
@@ -1617,8 +1866,13 @@ pub fn purge_player(ctx: &WorldCtx, st: &mut WorldState, sid: u32, kinds: u64) -
         return 0;
     }
     let (cid, name) = (p.ch.id, p.ch.name.clone());
+    let none_left = !p.skills.effects.iter().any(|e| e.ends_at.is_some());
     for e in &gone {
         combat::send_around(st, sid, &effects::remove_packet(cid, e));
+    }
+    // Plus aucun effet (hors passives) : recharges de ses propres renforcements remises à zéro (op 15).
+    if none_left {
+        reset_own_cooldowns(st, sid, &gone);
     }
     super::equipment::refresh_factors(ctx, st, sid);
     sync_player_status(st, sid, Instant::now());
@@ -1685,9 +1939,14 @@ pub fn sync_player_status(st: &mut WorldState, sid: u32, now: Instant) {
     if status == p.skills.status_sent {
         return;
     }
-    p.skills.status_sent = status;
+    let old = std::mem::replace(&mut p.skills.status_sent, status);
+    // Compétences interdites (étourdissement, interruption…) : l'incantation en cours tombe.
+    if status & effects::status::NO_SKILL != 0 && matches!(p.skills.cast, Some(Cast { stage: Stage::Casting { .. }, .. })) {
+        p.skills.cast = None;
+    }
     let cid = p.ch.id;
     combat::send_around(st, sid, &effects::status_packet(cid, status));
+    super::status_rules::on_player_status(st, sid, old, status);
 }
 
 /// Annonce les états spéciaux d'un monstre s'ils ont changé.
@@ -1730,7 +1989,8 @@ pub fn party_near(st: &WorldState, sid: u32, center: Vec3, radius: f64) -> Vec<u
         .collect()
 }
 
-/// Retire les effets non passifs d'un joueur (mort) ; rend vrai s'il en avait.
+/// Retire les effets non passifs d'un joueur (mort) ; rend vrai s'il en avait. Les recharges des renforcements qu'il
+/// s'était lui-même donnés sont remises à zéro (op 15).
 pub fn clear_player_effects(st: &mut WorldState, sid: u32) -> bool {
     let Some(p) = st.players.get_mut(&sid) else { return false };
     let cid = p.ch.id;
@@ -1739,7 +1999,33 @@ pub fn clear_player_effects(st: &mut WorldState, sid: u32) -> bool {
     for e in &gone {
         combat::send_around(st, sid, &effects::remove_packet(cid, e));
     }
+    reset_own_cooldowns(st, sid, &gone);
     !gone.is_empty()
+}
+
+/// Tous les effets d'un joueur sont tombés (mort, purge) : pour chacun de ceux qu'il s'était donnés (compétence qu'il
+/// possède, non passive), la recharge de la compétence est remise à zéro, chez lui (op 15) et sur le serveur.
+pub fn reset_own_cooldowns(st: &mut WorldState, sid: u32, gone: &[Effect]) {
+    let Some(p) = st.players.get_mut(&sid) else { return };
+    let cid = p.ch.id;
+    let mut done = Vec::new();
+    for e in gone.iter().filter(|e| e.caster_sid == sid && e.ends_at.is_some()) {
+        let Some(s) = p.skills.list.iter_mut().find(|s| s.id == e.skill_id && s.tid == e.tid) else { continue };
+        if done.contains(&s.id) {
+            continue;
+        }
+        done.push(s.id);
+        s.ready_at = None;
+        let pkt = effects::init_cooltime_packet(cid, s.id, s.tid);
+        p.send_raw(pkt);
+    }
+}
+
+/// AGPMSKILL op 6 : effets annoncés (non passifs) du joueur `sid` ; `None` s'il n'en a pas, sauf avec `always`.
+pub fn all_buffs(st: &WorldState, sid: u32, always: bool) -> Option<Vec<u8>> {
+    let p = st.players.get(&sid)?;
+    let list: Vec<&Effect> = p.skills.effects.iter().filter(|e| e.ends_at.is_some() && announced(e)).collect();
+    (always || !list.is_empty()).then(|| effects::all_buffs_packet(p.ch.id, &list, Instant::now()))
 }
 
 /// Effets échus des joueurs et des monstres ; coups des dégâts sur la durée.
@@ -1782,8 +2068,9 @@ async fn effects_step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) -> anyh
             }
             super::equipment::refresh_factors(ctx, st, sid);
         }
-        for damages in ticks {
+        for mut damages in ticks {
             let Some(p) = st.players.get_mut(&sid).filter(|p| !p.dead) else { break };
+            super::status_rules::shield(p.skills.status_sent, &mut damages);
             let total: i32 = damages.iter().map(|(_, d)| *d).sum();
             let hp = (p.factors.point[POINT_HP] - total).max(0);
             p.factors.point[POINT_HP] = hp;
@@ -2117,6 +2404,7 @@ mod tests {
             downtime_id: 0,
             downtime_secs: 0,
             levels: vec![SkillLevel::from_consts(&consts), SkillLevel { require_level: 7, require_point: 1, upgrade_cost: 480, ..SkillLevel::from_consts(&consts) }],
+            ..Default::default()
         }
     }
 
@@ -2330,6 +2618,50 @@ mod tests {
     }
 
     #[test]
+    fn second_coup_et_blocage() {
+        let mut rng = rand::rngs::StdRng::seed_from_u64(5);
+        let a = Attacker { level: 10, class: 1, str_: 30.0, min_damage: 10.0, max_damage: 10.0, ..Default::default() };
+        // Close Skirmish : second coup de 27 % au physique et 14 % au feu (Skill_Const2).
+        let c = serde_json::json!({ "damage_a_PERCENT": "100", "damage_a_PERCENT2": "27", "damage_fire_PERCENT2": "14" });
+        let lv = SkillLevel::from_consts(&c);
+        assert!(lv.has_second_hit() && lv.damage2_pct == 27.0 && lv.spirit2[2] == (0.0, 14.0));
+        let mut fire = [(0.0, 0.0); 8];
+        fire[2] = (10.0, 10.0);
+        let d = skill_damage(&mut rng, &a, &fire, &Defender { level: 10, ..Default::default() }, &lv);
+        // Jet 20 à 20,5 : × 2 = 40 à 41, puis × 1,27 = 25 à 26 ; feu 10 × 1,14 × 2 = 23.
+        assert_eq!(d.len(), 2, "{d:?}");
+        assert!((65..=67).contains(&d[0].1) && d[0].0 == RESULT_PHYSICAL, "{d:?}");
+        assert_eq!(d[1], (12, 23));
+        assert!(!SkillLevel::from_consts(&serde_json::json!({ "damage_a_PERCENT": "100" })).has_second_hit());
+        // Résistance physique de la cible : 50 % du physique.
+        let one = SkillLevel::from_consts(&serde_json::json!({ "damage_a_PERCENT": "100" }));
+        let d = skill_damage(&mut rng, &a, &[(0.0, 0.0); 8], &Defender { level: 10, phys_resist: 50.0, ..Default::default() }, &one);
+        assert!((20..=21).contains(&d[0].1), "{d:?}");
+        // Blocage des compétences : 80 % au plus.
+        let wall = Defender { skill_block: 300.0, ..Default::default() };
+        let n = (0..10_000).filter(|_| skill_blocked(&mut rng, &wall)).count();
+        assert!((7600..8400).contains(&n), "{n}");
+        assert!((0..100).all(|_| !skill_blocked(&mut rng, &Defender::default())));
+    }
+
+    #[test]
+    fn incantation_et_relance_reduites() {
+        let lv = SkillLevel { cast_ms: 2000, recast_ms: 10_000, cost_mp: 50, ..Default::default() };
+        let t = lv.timed(10.0, 5.0, -10.0);
+        assert_eq!((t.cast_ms, t.recast_ms, t.cost_mp), (1800, 9500, 45));
+        let slow = lv.timed(-34.0, -85.0, 0.0);
+        assert_eq!((slow.cast_ms, slow.recast_ms, slow.cost_mp), (2680, 18_500, 50), "affaiblissements : plus long");
+        assert_eq!(lv.timed(500.0, 500.0, -500.0).cast_ms, 200, "90 % au plus ; PM à 0 au moins");
+        assert_eq!(lv.timed(0.0, 0.0, -500.0).cost_mp, 0);
+        // Plafond de SKILL_SPEC : Narcolepsy 70 %, Halt 1 %.
+        let capped = SkillLevel { cooldown_cap: 1.0, ..lv.clone() };
+        assert_eq!(capped.timed(0.0, 50.0, 0.0).recast_ms, 9900);
+        assert_eq!(capped.timed(0.0, -20.0, 0.0).recast_ms, 12_000, "le plafond ne retient pas un allongement");
+        let spec = Spec { cooldown_cap: 70, ..Default::default() };
+        assert_eq!(SkillLevel::with_spec(&serde_json::json!({}), &spec).cooldown_cap, 70.0);
+    }
+
+    #[test]
     fn points_heroiques() {
         assert_eq!((heroic_points_for_level(89), heroic_points_for_level(90), heroic_points_for_level(100)), (0, 1, 21));
         assert_eq!((heroic_points_for_level(110), heroic_points_for_level(115), heroic_points_for_level(120)), (41, 56, 71));
@@ -2367,16 +2699,18 @@ mod tests {
         let natural = SkillLevel::with_spec(&crit, &Spec::default());
         let counter = SkillLevel::with_spec(&crit, &Spec { defense_melee_attack: 2, ..Default::default() });
         assert_eq!((stopper.mods.crit_resist, natural.mods.crit_resist, counter.mods.crit_resist), (4.0, 4.0, 0.0));
+        // « magnify.stun_resistance » (Free Will, Terrifying Nemesis) : propre à Archonia, plus lue.
         let free = SkillLevel::from_consts(&serde_json::json!({ "magnify.stun_resistance": "100" }));
-        let nemesis = SkillLevel::from_consts(&serde_json::json!({ "magnify.stun_resistance": "-5" }));
-        assert_eq!((free.mods.stun_resist, nemesis.mods.stun_resist, free.mods.stun_protect), (100.0, -5.0, 0.0));
-        // Divine Protection (divide 17 : élémentaires) et Martyr's Mark (18 : physiques), sans partage sans le bit 16.
+        assert!(free.mods.is_empty());
+        // Divine Protection (divide 1 : élémentaires) et Martyr's Mark (2 : physiques) de la table de l'épisode 8 ; le bit 16
+        // d'Archonia (17, 18) ne change rien.
         let c = serde_json::json!({ "divide_rate": "40", "duration": "660000" });
-        let divine = SkillLevel::with_spec(&c, &Spec { divide: 17, ..Default::default() });
-        let martyr = SkillLevel::with_spec(&c, &Spec { divide: 18, ..Default::default() });
+        let divine = SkillLevel::with_spec(&c, &Spec { divide: 1, ..Default::default() });
+        let martyr = SkillLevel::with_spec(&c, &Spec { divide: 2, ..Default::default() });
         assert_eq!((divine.mods.share_spirit, divine.mods.share_physical, martyr.mods.share_physical), (40.0, 0.0, 40.0));
         assert!(divine.lasting());
-        assert!(SkillLevel::with_spec(&c, &Spec { divide: 2, ..Default::default() }).mods.is_empty());
+        assert_eq!(SkillLevel::with_spec(&c, &Spec { divide: 18, ..Default::default() }).mods.share_physical, 40.0);
+        assert!(SkillLevel::with_spec(&c, &Spec { divide: 0, ..Default::default() }).mods.is_empty());
         // Cure (dispel_magic 10002) : purge répétée toutes les « interval » ms ; Antimagic (16) : une fois.
         let cure = SkillLevel::with_spec(&serde_json::json!({ "duration": "60000", "interval": "1000", "skill_rate": "100" }), &Spec { dispel_magic: 10002, ..Default::default() });
         assert_eq!((cure.dispel, cure.purge_every_ms), (effects::dispel::DEBUFFS, Some(1000)));

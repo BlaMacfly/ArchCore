@@ -73,6 +73,13 @@ pub async fn run(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> 
     println!("  ✓ op 5 (aucun autre membre)");
 
     step(&format!("{ca} invite {cb}, qui accepte"));
+    // Invitation refusée à 10 niveaux d'écart (party.rs) : l'invité est mis au niveau du MJ, rétabli à la fin.
+    let raised = a.level > b.level + 9;
+    if raised {
+        let cmd = format!("/level {} \"{cb}\"", a.level);
+        gm(&mut a, &cmd).await?;
+        tokio::time::sleep(Duration::from_millis(300)).await;
+    }
     a.world.send(pm, Fields::new(pm).with(0, 0).with(1, acid).with(2, bcid)).await?;
     b.world.expect_where(is_m(0), 3000, "invitation reçue").await?;
     b.world.send(pm, Fields::new(pm).with(0, 2).with(1, bcid).with(2, acid)).await?;
@@ -121,6 +128,9 @@ pub async fn run(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> 
     println!("  ✓ op 4 (300 000 ms), second orbe refusé (op 5)");
     b.world.send(pm, Fields::new(pm).with(0, 3).with(1, bcid)).await?;
     gm(&mut a, "/recast").await?;
+    if raised {
+        gm(&mut a, &format!("/level {} \"{cb}\"", b.level.max(1))).await?;
+    }
     println!("\nrappel de groupe : OK");
     Ok(())
 }

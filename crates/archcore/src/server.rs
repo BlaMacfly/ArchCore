@@ -7,6 +7,8 @@ use std::time::Duration;
 /// Lance le serveur de connexion, le serveur monde, ou les deux.
 pub async fn run(mode: &str) -> anyhow::Result<()> {
     let config = Arc::new(crate::config::load_mode(mode)?);
+    // Règles de jeu réglables (`Rules.*`), lues partout par `config::rules()`.
+    crate::config::set_rules(config.world.rules.clone());
     let db = crate::db::Databases::new(&config.database);
     crate::world::set_slow_packet_ms(config.world.slow_packet_ms);
     // Débit de paquets permis par connexion, au login comme au monde (world/anticheat.rs).
@@ -21,6 +23,16 @@ pub async fn run(mode: &str) -> anyhow::Result<()> {
     // Langues proposées et textes localisés ; le résumé sert au HELLO_ACK des deux serveurs.
     let locale = crate::locale::Catalog::load(&db, &config.root, &config.world.language).await;
     crate::locale::install(locale.summary.clone());
+    // Empreinte des tables exportées pour le client (`archcore export-client-tables`), annoncée aux clients ArchRust.
+    if !config.client.tables_dir.is_empty() {
+        let dir = config.root.join(&config.client.tables_dir);
+        let found = crate::tools::export::read_fingerprint(&dir);
+        match &found {
+            Some(f) => info!("tables du client : empreinte {f} ({})", dir.display()),
+            None => crate::warn!("tables du client : pas d'empreinte valable dans {} (lancer archcore export-client-tables)", dir.join(crate::tools::export::MANIFEST_FILE).display()),
+        }
+        crate::ext::set_tables_fingerprint(found);
+    }
 
     // Inscription du monde avant le serveur de connexion : en mode `all`, sa première liste des
     // mondes porte déjà la bonne adresse (sinon, elle est relue toutes les 60 s).

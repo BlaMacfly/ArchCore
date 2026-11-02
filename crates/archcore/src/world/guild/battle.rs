@@ -12,7 +12,16 @@
 //!   21 ← début ; 22 ← horloge, chaque seconde ; 23 ← scores (soi, adverse, gain, gain adverse)
 //!   24 → abandon d'un chef (avant le début : code 35) ; 25 ← résultat (1 victoire, 2 nul, 3 défaite,
 //!        4 victoire et 5 défaite par abandon) ; 12 ← bilan (victoires, nuls, défaites, points) ; 11 ← statut
+//!   14 → combattants choisis par le chef (fenêtre `UI_GuildBattleMember`, juste avant la demande 15 ou l'acceptation
+//!        16) : 1 CID, 2 guilde, 18 { nombre, noms (U16 longueur, nom) }
+//!   26 ← un combattant (2 guilde du destinataire, 19 { sa guilde, son nom, points, adversaires tués, morts }) à chaque
+//!        changement de son score ; 27 ← listes des combattants des deux camps (2 guilde du destinataire, 20 { n1,
+//!        enregistrements de sa guilde, n2, de la guilde adverse }) au début et avec le résultat (op 25)
+//!   46 ← manche (2 guilde, 4 = { manche, … }, 17 { …, 14 = manche }) au début : 1 (ArchCore n'a pas de combat en
+//!        plusieurs manches)
 //! ```
+//! Enregistrement de l'op 27 (0x48 octets, `FUN_1404dee40` d'Archonia) : nom (0x38 octets, zéro final), points,
+//! adversaires tués, morts (U32), puis un entier dont le sens n'est pas connu (-1 : le client garde sa valeur).
 //! Les horodatages sont en secondes ; le client affiche délai + acceptation − horloge avant le début, puis
 //! durée + début − horloge (FUN_1408505a0). Types (« GuildBattleMode_* ») : 0 points, 1 élimination, 2 mort
 //! du chef, 3 survie de groupe, 4 survie individuelle ; durées et effectifs : listes du client
@@ -23,11 +32,12 @@
 //! chaque côté (les messages d'Archonia ont ces nombres en paramètre), délai de préparation de
 //! `Guild.BattleReadySeconds` (3 minutes par défaut), un point par adversaire tué ; la mort d'un chef finit le type 2 ; aux types 3 et 4, les
 //! combattants sont les membres en ligne au début, jusqu'à l'effectif choisi, et le dernier côté debout
-//! gagne ; à la fin du temps, le meilleur score gagne. Le bilan ajoute le score aux points de la guilde.
+//! gagne ; à la fin du temps, le meilleur score gagne. Le bilan ajoute le score aux points de la guilde. Si le chef a
+//! choisi ses combattants (op 14), ce sont eux (ceux qui sont en ligne au début), sinon les membres en ligne au début.
 //! Pendant le combat, les membres des deux guildes peuvent se frapper (`attack_step`).
 
 use super::{code, guild, mine, rank, send_to, send_to_guild, system_numbers, system_packet, Guild, Record};
-use crate::world::combat::{self, Attacker, Defender};
+use crate::world::combat;
 use crate::world::{WorldCtx, WorldState};
 use crate::{debug, info};
 use archcore_net::schema::{self, mini};
@@ -38,6 +48,7 @@ pub mod op {
     pub const UPDATE_STATUS: i64 = 11;
     pub const UPDATE_RECORD: i64 = 12;
     pub const BATTLE_INFO: i64 = 13;
+    pub const BATTLE_PERSON: i64 = 14;
     pub const REQUEST: i64 = 15;
     pub const ACCEPT: i64 = 16;
     pub const REJECT: i64 = 17;
@@ -49,7 +60,14 @@ pub mod op {
     pub const UPDATE_SCORE: i64 = 23;
     pub const WITHDRAW: i64 = 24;
     pub const RESULT: i64 = 25;
+    pub const BATTLE_MEMBER: i64 = 26;
+    pub const BATTLE_MEMBER_LIST: i64 = 27;
+    pub const BATTLE_ROUND: i64 = 46;
 }
+
+/// Taille d'un enregistrement de l'op 27 et de son nom.
+pub const MEMBER_RECORD: usize = 0x48;
+const RECORD_NAME: usize = 0x38;
 
 /// Statut de la guilde (champ 11).
 pub mod status {
@@ -128,6 +146,10 @@ pub struct Battle {
     /// Combattants (types 3 et 4) et morts au combat.
     pub fighters: Vec<u32>,
     pub dead: Vec<u32>,
+    /// Membres engagés au début (les combattants, sinon les membres en ligne) et score de chacun : CID → (adversaires
+    /// tués, morts) ; ops 26 et 27.
+    pub roster: Vec<u32>,
+    pub scores: std::collections::BTreeMap<u32, (u32, u32)>,
     /// Demande d'annulation de cette guilde, en attente.
     pub cancel_asked: bool,
 }
@@ -233,6 +255,9 @@ pub async fn on_packet(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet
         send_to(st, sid, system_packet(code::NOT_MASTER, None, None));
         return Ok(());
     }
+    if p.int(0) == Some(op::BATTLE_PERSON) {
+        return Ok(choose_persons(st, gid, p));
+    }
     let b = p.bytes(17).and_then(|b| decode_mini(&mini::GUILD_BATTLE, b).ok()).unwrap_or_else(bfields);
     let enemy_name = b.text(0).unwrap_or_default();
     match p.int(0) {
@@ -246,6 +271,43 @@ pub async fn on_packet(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet
         _ => {}
     }
     Ok(())
+}
+
+/// Noms du mini BATTLE_PERSON (champ 18) : nombre exigé, puis (U16 longueur, nom) mis bout à bout.
+pub fn person_names(raw: &[u8]) -> Vec<String> {
+    let Ok(f) = decode_mini(&mini::GUILD_BATTLE_PERSON, raw) else { return Vec::new() };
+    let (count, block) = (f.int(0).unwrap_or(0).max(0) as usize, f.bytes(1).unwrap_or_default());
+    let mut out = Vec::new();
+    let mut at = 0;
+    while out.len() < count && at + 2 <= block.len() {
+        let len = u16::from_le_bytes([block[at], block[at + 1]]) as usize;
+        let Some(name) = block.get(at + 2..at + 2 + len) else { break };
+        let end = name.iter().position(|b| *b == 0).unwrap_or(name.len());
+        out.push(archcore_net::text::decode(&name[..end]));
+        at += 2 + len;
+    }
+    out
+}
+
+/// Mini BATTLE_PERSON de `names` (comme le client l'envoie).
+pub fn person_mini(names: &[&str]) -> Vec<u8> {
+    let mut block = Vec::new();
+    for n in names {
+        let b = archcore_net::text::encode(n);
+        block.extend((b.len() as u16).to_le_bytes());
+        block.extend(b);
+    }
+    let s = &mini::GUILD_BATTLE_PERSON;
+    build_mini(s, &Fields::new(s).with(0, names.len() as i64).with(1, block))
+}
+
+/// Op 14 : le chef choisit les combattants (membres de sa guilde) du combat qu'il demande ou accepte.
+fn choose_persons(st: &mut WorldState, gid: u32, p: &Packet) {
+    let names = p.bytes(18).map(person_names).unwrap_or_default();
+    let g = st.guilds.by_id.get_mut(&gid).unwrap();
+    let known: Vec<String> = names.into_iter().filter(|n| g.members.values().any(|m| m.active() && m.name.eq_ignore_ascii_case(n))).collect();
+    info!("[guilde] {} choisit {} combattant(s) : {}", g.name, known.len(), known.join(", "));
+    g.battle_persons = known;
 }
 
 /// Op 15 : le chef de `gid` défie la guilde `enemy_name`.
@@ -305,6 +367,53 @@ fn clear_offer(st: &mut WorldState, o: &Offer) {
             g.offer = None;
         }
     }
+}
+
+/// Op 26 : ligne d'un combattant (`cid`, de la guilde `of`) envoyée à la guilde `to`.
+fn member_packet(st: &WorldState, to: &Guild, of: u32, cid: u32) -> Option<Vec<u8>> {
+    let g = st.guilds.by_id.get(&of)?;
+    let name = g.members.get(&cid)?.name.clone();
+    let (kills, deaths) = g.battle.as_ref().and_then(|b| b.scores.get(&cid)).copied().unwrap_or_default();
+    let m = &mini::GUILD_BATTLE_MEMBER;
+    let row = build_mini(m, &Fields::new(m).with(0, g.name.as_str()).with(1, name.as_str()).with(2, kills).with(3, kills).with(4, deaths));
+    Some(build_packet(&schema::GUILD, &guild(op::BATTLE_MEMBER).with(2, to.name.as_str()).with(19, row)))
+}
+
+/// Enregistrements de 0x48 octets (op 27) : nom, points, adversaires tués, morts, -1.
+pub fn member_records(rows: &[(String, u32, u32)]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(rows.len() * MEMBER_RECORD);
+    for (name, kills, deaths) in rows {
+        let mut r = vec![0u8; MEMBER_RECORD];
+        let n = archcore_net::text::encode(name);
+        let len = n.len().min(RECORD_NAME - 1);
+        r[..len].copy_from_slice(&n[..len]);
+        for (i, v) in [*kills, *kills, *deaths, u32::MAX].iter().enumerate() {
+            r[RECORD_NAME + i * 4..RECORD_NAME + i * 4 + 4].copy_from_slice(&v.to_le_bytes());
+        }
+        out.extend(r);
+    }
+    out
+}
+
+/// Op 27 : combattants des deux camps, vus de la guilde `gid`.
+fn member_list_packet(st: &WorldState, gid: u32) -> Option<Vec<u8>> {
+    let g = st.guilds.by_id.get(&gid)?;
+    let enemy = st.guilds.by_id.get(&g.battle.as_ref()?.enemy)?;
+    let rows = |x: &Guild| -> Vec<(String, u32, u32)> {
+        let Some(b) = x.battle.as_ref() else { return Vec::new() };
+        b.roster.iter().filter_map(|c| x.members.get(c).map(|m| (m.name.clone(), b.scores.get(c).map_or(0, |s| s.0), b.scores.get(c).map_or(0, |s| s.1)))).collect()
+    };
+    let (mine, theirs) = (rows(g), rows(enemy));
+    let l = &mini::GUILD_BATTLE_MEMBER_LIST;
+    let list = build_mini(l, &Fields::new(l).with(0, mine.len() as i64).with(1, member_records(&mine)).with(2, theirs.len() as i64).with(3, member_records(&theirs)));
+    Some(build_packet(&schema::GUILD, &guild(op::BATTLE_MEMBER_LIST).with(2, g.name.as_str()).with(20, list)))
+}
+
+/// Op 46 : manche `round` du combat de `g` (au premier entier du champ 4 et au champ 14 du combat).
+fn round_packet(g: &Guild, round: i64) -> Vec<u8> {
+    let mut numbers = vec![archcore_net::Value::Int(round)];
+    numbers.resize(8, archcore_net::Value::Int(0));
+    build_packet(&schema::GUILD, &guild(op::BATTLE_ROUND).with(2, g.name.as_str()).with(4, numbers).with(17, battle_mini(bfields().with(14, round))))
 }
 
 /// Op 16 : la guilde défiée accepte ; le combat commence dans `ready` secondes.
@@ -419,11 +528,16 @@ async fn finish(ctx: &WorldCtx, st: &mut WorldState, a: u32, b: u32, by_withdraw
         let Some(g) = st.guilds.by_id.get(&id) else { continue };
         let Some(bt) = g.battle.clone() else { continue };
         send_to_guild(st, g, None, &packet(op::RESULT, g, Some(full_battle(st, g, &bt))));
+        // Listes finales des combattants (le client ouvre la fenêtre du résultat).
+        if let Some(list) = member_list_packet(st, id) {
+            send_to_guild(st, g, None, &list);
+        }
         send_to_guild(st, g, None, &record_packet(g));
     }
     for id in [a, b] {
         if let Some(g) = st.guilds.by_id.get_mut(&id) {
             g.battle = None;
+            g.battle_persons.clear();
         }
         set_status(st, id, status::NONE);
     }
@@ -467,20 +581,34 @@ pub async fn step(ctx: &WorldCtx, st: &mut WorldState, at: Instant) -> anyhow::R
     Ok(())
 }
 
-/// Début du combat de `gid` (op 21) ; aux types 3 et 4, les combattants sont les membres en ligne.
+/// Début du combat de `gid` (op 21) ; aux types 3 et 4, les combattants sont ceux que le chef a choisis (op 14) et qui
+/// sont en ligne, sinon les membres en ligne, jusqu'à l'effectif ; op 46 (manche 1).
 fn start(st: &mut WorldState, gid: u32) {
     let g = &st.guilds.by_id[&gid];
     let mut b = g.battle.clone().unwrap();
+    let online: Vec<u32> = g.members.values().filter(|m| m.active() && st.by_cid.contains_key(&m.cid)).map(|m| m.cid).collect();
     if matches!(b.kind, kind::TOTAL_SURVIVAL | kind::PRIVATE_SURVIVAL) {
-        let mut online: Vec<u32> = g.members.values().filter(|m| m.active() && st.by_cid.contains_key(&m.cid)).map(|m| m.cid).collect();
-        online.truncate(if b.person > 0 { b.person as usize } else { online.len() });
-        b.fighters = online;
+        let chosen: Vec<u32> = g.battle_persons.iter().filter_map(|n| g.members.values().find(|m| m.name.eq_ignore_ascii_case(n)).map(|m| m.cid)).filter(|c| online.contains(c)).collect();
+        let mut fighters = if chosen.is_empty() { online.clone() } else { chosen };
+        fighters.truncate(if b.person > 0 { b.person as usize } else { fighters.len() });
+        b.fighters = fighters;
     }
+    b.roster = if b.fighters.is_empty() { online } else { b.fighters.clone() };
     st.guilds.by_id.get_mut(&gid).unwrap().battle = Some(b.clone());
     set_status(st, gid, status::BATTLE);
     let g = &st.guilds.by_id[&gid];
     send_to_guild(st, g, None, &packet(op::START, g, Some(full_battle(st, g, &b))));
-    info!("[guilde] {} entre en combat", g.name);
+    send_to_guild(st, g, None, &round_packet(g, 1));
+    info!("[guilde] {} entre en combat ({} combattant(s))", g.name, b.roster.len());
+    // Listes des deux camps, une fois que l'adversaire a aussi commencé (les deux guildes démarrent au même tour).
+    let enemy_started = st.guilds.by_id.get(&b.enemy).is_some_and(|e| e.status == status::BATTLE);
+    if enemy_started {
+        for id in [gid, b.enemy] {
+            if let (Some(g), Some(list)) = (st.guilds.by_id.get(&id), member_list_packet(st, id)) {
+                send_to_guild(st, g, None, &list);
+            }
+        }
+    }
 }
 
 /// Deux personnages se battent-ils dans un combat de guildes en cours ?
@@ -505,9 +633,11 @@ pub async fn on_kill(ctx: &WorldCtx, st: &mut WorldState, killer: u32, victim: u
         let b = g.battle.as_mut().unwrap();
         b.score += 1;
         b.up_score = 1;
+        b.scores.entry(killer).or_default().0 += 1;
         let e = st.guilds.by_id.get_mut(&vb).unwrap();
         let eb = e.battle.as_mut().unwrap();
         eb.up_score = 0;
+        eb.scores.entry(victim).or_default().1 += 1;
         if !eb.dead.contains(&victim) {
             eb.dead.push(victim);
         }
@@ -518,6 +648,15 @@ pub async fn on_kill(ctx: &WorldCtx, st: &mut WorldState, killer: u32, victim: u
         let other_name = st.guilds.by_id[&other].name.clone();
         let f = bfields().with(0, other_name.as_str()).with(9, b.score).with(10, eb.score).with(11, b.up_score).with(12, eb.up_score);
         send_to_guild(st, g, None, &packet(op::UPDATE_SCORE, g, Some(battle_mini(f))));
+    }
+    // Op 26 : lignes du tueur et de la victime, aux deux guildes, après les scores (op 23).
+    for to in [ka, vb] {
+        let Some(g) = st.guilds.by_id.get(&to) else { continue };
+        for (of, cid) in [(ka, killer), (vb, victim)] {
+            if let Some(pkt) = member_packet(st, g, of, cid) {
+                send_to_guild(st, g, None, &pkt);
+            }
+        }
     }
     let (vg, kg) = (&st.guilds.by_id[&vb], &st.guilds.by_id[&ka]);
     let b = vg.battle.as_ref().unwrap();
@@ -551,20 +690,8 @@ pub async fn attack_step(ctx: &WorldCtx, st: &mut WorldState, sid: u32, target: 
     if combat::dist2d(p.ch.pos(), t.ch.pos()) > reach + REACH_TOLERANCE {
         return Ok(());
     }
-    let attacker = Attacker::of_player(p);
-    let defender = attacker.pierce(&Defender::of_player(&t.factors));
-    let parts = {
-        let mut rng = rand::thread_rng();
-        let (outcome, damage) = combat::strike(&mut rng, &attacker, &defender);
-        let (outcome, damage) = crate::world::effects::critical(&mut rng, &crate::world::effects::of_player(p), crate::world::effects::of_player(t).crit_resist, outcome, damage);
-        let mut parts = vec![(combat::RESULT_PHYSICAL, damage)];
-        if damage > 0 {
-            let chance = combat::spirit_chance(true, attacker.level, defender.level);
-            parts.extend(combat::spirit_hits(&mut rng, chance, &combat::spirit_ranges(&p.factors), &defender.resist, true));
-        }
-        (outcome, parts)
-    };
-    let (outcome, parts) = parts;
+    // Toucher, esquive et blocage de la cible, critique, part élémentaire (combat.rs).
+    let (outcome, parts) = combat::versus(&mut rand::thread_rng(), p, t);
     let speed = p.factors.attack[2].max(1) as u64;
     let cid = p.ch.id;
     let me = st.players.get_mut(&sid).unwrap();
@@ -586,6 +713,24 @@ pub async fn attack_step(ctx: &WorldCtx, st: &mut WorldState, sid: u32, target: 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn combattants_et_listes() {
+        // Op 14 telle que le client l'envoie, relue.
+        let raw = archcore_net::build_packet(&schema::GUILD, &guild(op::BATTLE_PERSON).with(1, 7).with(2, "SimLead").with(18, person_mini(&["GmTest", "SimA"])));
+        let p = archcore_net::decode_packet(&schema::GUILD, &raw).unwrap();
+        assert_eq!(person_names(p.bytes(18).unwrap()), vec!["GmTest".to_string(), "SimA".to_string()]);
+        // Enregistrements de 0x48 octets : nom, points, tués, morts, -1.
+        let r = member_records(&[("GmTest".into(), 3, 1), ("SimA".into(), 0, 2)]);
+        assert_eq!(r.len(), 2 * MEMBER_RECORD);
+        let at = |o: usize| u32::from_le_bytes(r[o..o + 4].try_into().unwrap());
+        assert_eq!((&r[..7], at(0x38), at(0x3c), at(0x40), at(0x44) as i32), (&b"GmTest\0"[..], 3, 3, 1, -1));
+        assert_eq!((&r[0x48..0x4d], at(0x48 + 0x40)), (&b"SimA\0"[..], 2));
+        let g = Guild { name: "SimLead".into(), ..Default::default() };
+        let p = archcore_net::decode_packet(&schema::GUILD, &round_packet(&g, 1)).unwrap();
+        let b = decode_mini(&mini::GUILD_BATTLE, p.bytes(17).unwrap()).unwrap();
+        assert_eq!((p.int(0), p.text(2).as_deref(), b.int(14)), (Some(46), Some("SimLead"), Some(1)));
+    }
 
     #[test]
     fn mini_du_combat() {

@@ -6,6 +6,21 @@
 //! race (Anchorville, Golundo, Norine). Il ressuscite, ou rentre par parchemin, au point de résurrection de
 //! cette région le plus proche de lui (objets à événement 19 « binding » de type 1 des obj*.ini), parmi ceux
 //! que sa race et sa classe autorisent.
+//!
+//! Règles des régions (clés de RegionTemplate.ini, celles de la table d'origine) :
+//! ```text
+//!   DisableSummon   pas de rappel de groupe (orbes de rappel, `party.rs`) pour qui s'y trouve, lanceur ou membre ;
+//!   DisableGo       pas de `/go` (Gate of Phantom, `consumables.rs`) depuis la région ni vers un joueur qui s'y trouve ;
+//!   DisableParty    pas d'invitation dans un groupe, ni d'acceptation, pour qui s'y trouve (`party.rs`) ;
+//!   DisableLogin    pas d'entrée en jeu dans la région : le personnage arrive au point de résurrection de la région s'il
+//!                   y en a un, sinon au village de sa race (`mod.rs`) ;
+//!   ItemSection     les objets portés dont « Item_section_num » vaut ce nombre n'y comptent pas (comme un objet cassé :
+//!                   `equipment::counted`), facteurs recalculés à l'entrée et à la sortie. Heaven's Hell (180 à 183) et
+//!                   ses 826 objets uniques ;
+//!   ResurrectionX/Z point de résurrection de la région : qui meurt dans la région y ressuscite (à la hauteur du sol), à la
+//!                   place du village (chasses des seigneurs de château, Heaven's Hell, arènes…).
+//! ```
+//! Le sens précis des interdictions n'est écrit nulle part : ces lectures sont des choix d'ArchCore.
 
 use crate::db::{col, Databases};
 use crate::info;
@@ -14,6 +29,14 @@ use std::collections::HashMap;
 
 /// Sûreté d'une région (bits 2-3 du champ Type).
 pub const SAFE: i64 = 0;
+
+/// Bits `region_template.disabled` (clés Disable* de RegionTemplate.ini).
+pub mod disable {
+    pub const SUMMON: u32 = 1;
+    pub const GO: u32 = 2;
+    pub const PARTY: u32 = 4;
+    pub const LOGIN: u32 = 8;
+}
 
 /// Région de rattachement par défaut, selon la race (1 humain, 2 orc, 3 elfe de lune).
 pub fn default_region(race: i32) -> u16 {
@@ -42,12 +65,16 @@ pub struct Regions {
     parents: HashMap<u16, u16>,
     /// Niveaux d'entrée (LevelMin, LevelLimit ; 0 : aucun) des régions qui en ont : étages de la Battle Square.
     levels: HashMap<u16, (i32, i32)>,
+    /// Interdictions (bits `disable`), section d'objets (ItemSection), point de résurrection propre (X, Z).
+    disabled: HashMap<u16, u32>,
+    sections: HashMap<u16, i64>,
+    own_points: HashMap<u16, (f64, f64)>,
 }
 
 impl Regions {
     pub async fn load(db: &Databases) -> anyhow::Result<Self> {
         let mut r = Regions::default();
-        let Ok(rows) = db.world.rows("SELECT id, parent_id, safety, type_bits, level_min, level_limit FROM region_template", ()).await else {
+        let Ok(rows) = db.world.rows("SELECT id, parent_id, safety, type_bits, level_min, level_limit, disabled, item_section, resurrection_x, resurrection_z FROM region_template", ()).await else {
             crate::warn!("régions non chargées : lancer `archcore db-init` puis `archcore import`");
             return Ok(r);
         };
@@ -63,13 +90,32 @@ impl Regions {
             if min > 0 || limit > 0 {
                 r.levels.insert(id, (min, limit));
             }
+            let bits: u32 = col(row, "disabled");
+            if bits != 0 {
+                r.disabled.insert(id, bits);
+            }
+            let section: i64 = col(row, "item_section");
+            if section != 0 {
+                r.sections.insert(id, section);
+            }
+            let (x, z): (f64, f64) = (col(row, "resurrection_x"), col(row, "resurrection_z"));
+            if x != 0.0 || z != 0.0 {
+                r.own_points.insert(id, (x, z));
+            }
         }
         for row in db.world.rows("SELECT region_id, pos_x, pos_y, pos_z, race, class FROM resurrection_point", ()).await? {
             let pos = Vec3::new(col::<f64>(&row, "pos_x") as f32, col::<f64>(&row, "pos_y") as f32, col::<f64>(&row, "pos_z") as f32);
             r.points.entry(col::<u32>(&row, "region_id") as u16).or_default().push(ResurrectionPoint { pos, race: col(&row, "race"), class: col(&row, "class") });
         }
         let safe = r.safety.values().filter(|s| **s == SAFE).count();
-        info!("régions : {} ({safe} sûre(s)), {} point(s) de résurrection", r.safety.len(), r.points.values().map(Vec::len).sum::<usize>());
+        info!(
+            "régions : {} ({safe} sûre(s)), {} point(s) de résurrection, {} avec une interdiction, {} à objets réservés, {} à point propre",
+            r.safety.len(),
+            r.points.values().map(Vec::len).sum::<usize>(),
+            r.disabled.len(),
+            r.sections.len(),
+            r.own_points.len()
+        );
         Ok(r)
     }
 
@@ -108,6 +154,30 @@ impl Regions {
     /// Niveaux d'entrée (minimum, limite ; 0 : aucun) de la région ou, à défaut, de sa parente.
     pub fn level_range(&self, region: u16) -> Option<(i32, i32)> {
         self.levels.get(&region).or_else(|| self.parent(region).and_then(|p| self.levels.get(&p))).copied()
+    }
+
+    #[cfg(test)]
+    pub fn insert_rules(&mut self, region: u16, disabled: u32, section: i64, point: Option<(f64, f64)>) {
+        self.disabled.insert(region, disabled);
+        self.sections.insert(region, section);
+        if let Some(p) = point {
+            self.own_points.insert(region, p);
+        }
+    }
+
+    /// La région interdit ce que disent ces bits (`disable`) ; une région inconnue n'interdit rien.
+    pub fn forbids(&self, region: Option<u16>, bits: u32) -> bool {
+        region.and_then(|r| self.disabled.get(&r)).is_some_and(|b| b & bits != 0)
+    }
+
+    /// Section d'objets de la région (ItemSection) : les objets de ce « Item_section_num » n'y comptent pas ; 0 : aucune.
+    pub fn item_section(&self, region: Option<u16>) -> i64 {
+        region.and_then(|r| self.sections.get(&r)).copied().unwrap_or(0)
+    }
+
+    /// Point de résurrection propre à la région (ResurrectionX, ResurrectionZ).
+    pub fn own_point(&self, region: Option<u16>) -> Option<(f64, f64)> {
+        region.and_then(|r| self.own_points.get(&r)).copied()
     }
 
     /// Champ Type d'une région connue.
@@ -154,5 +224,16 @@ mod tests {
         r.insert_levels(195, Some(198), None);
         assert_eq!((r.level_range(195), r.level_range(198), r.level_range(9), r.parent(195)), (Some((20, 30)), Some((20, 30)), None, Some(198)));
         assert_eq!((default_region(1), default_region(2), default_region(3)), (9, 5, 26));
+    }
+
+    #[test]
+    fn regles_des_regions() {
+        let mut r = Regions::default();
+        r.insert_rules(312, disable::SUMMON | disable::GO | disable::PARTY | disable::LOGIN, 0, None);
+        r.insert_rules(183, 0, 1, Some((677469.0, 764938.0)));
+        assert!(r.forbids(Some(312), disable::PARTY) && r.forbids(Some(312), disable::LOGIN));
+        assert!(!r.forbids(Some(183), disable::PARTY) && !r.forbids(None, disable::GO) && !r.forbids(Some(9), disable::SUMMON));
+        assert_eq!((r.item_section(Some(183)), r.item_section(Some(312)), r.item_section(None)), (1, 0, 0));
+        assert_eq!((r.own_point(Some(183)), r.own_point(Some(312))), (Some((677469.0, 764938.0)), None));
     }
 }
