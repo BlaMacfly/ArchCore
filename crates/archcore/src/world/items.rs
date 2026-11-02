@@ -5,19 +5,32 @@
 //! TID qu'il ne connaît pas est ignoré. Les objets d'inventaire gardent comme IID leur identifiant en
 //! base ; les objets montrés par une boutique reçoivent des IID d'une plage à part, jamais enregistrés.
 //! Un objet équipé (statut 3) est enregistré avec le statut 1 et sa partie du corps dans `layer`.
+//!
+//! Inventaire Cash (statut 51) : les objets dont la colonne « Cash » d'itemdatatable n'est pas nulle (familiers compris,
+//! « Cash » = 6) y sont rangés, sans case envoyée (le client les place lui-même dans sa liste) et avec le mini Cash au
+//! champ 23 (octet « en cours d'utilisation »…, `mini::ITEM_CASH`). En base : statut 6, rang dans la liste en
+//! `row_idx`. Les objets Cash encore enregistrés dans l'inventaire ordinaire y sont déplacés à l'entrée en jeu
+//! (`sort_cash`). Choix d'ArchCore : les 9 têtes Cash qui se portent (partie 17) restent dans l'inventaire ordinaire,
+//! l'équipement depuis le statut 51 n'étant pas relevé. Sac du familier (statut 13, en base 7) : voir `pet_bag.rs`.
 
 use crate::db::{col, Databases};
 use crate::info;
 use mysql_async::Params;
 use archcore_net::schema::{self, mini};
 use archcore_net::{build_mini, build_packet, Fields};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::atomic::{AtomicU32, Ordering};
 
 pub mod item_op {
     pub const ADD: i64 = 0;
     pub const REMOVE: i64 = 1;
     pub const UPDATE: i64 = 2;
+    /// Arrêt d'un objet Cash en cours d'utilisation (client → serveur).
+    pub const UNUSE: i64 = 23;
+    /// Mini Cash d'un objet mis à jour (champ 23) : le client rafraîchit son inventaire Cash.
+    pub const UPDATE_USE_TIME: i64 = 26;
+    /// Ramassage automatique du sac du familier (champ 20, `mini::ITEM_AUTO_PICK`).
+    pub const CHANGE_AUTO_PICK: i64 = 30;
 }
 
 /// Statut d'un objet (champ 1 d'AGPMITEM).
@@ -28,6 +41,10 @@ pub mod item_status {
     pub const TRADE_GRID: i64 = 6;
     pub const BANK: i64 = 100;
     pub const NPC_TRADE: i64 = 10;
+    /// Sac du familier (`pet_bag.rs`).
+    pub const SUB_INVENTORY: i64 = 13;
+    /// Inventaire Cash.
+    pub const CASH_INVENTORY: i64 = 51;
 }
 
 /// Statut enregistré en base (colonne `character_items.status`), indépendant du protocole.
@@ -41,10 +58,18 @@ pub mod stored_status {
     pub const MAILBOX: i64 = 4;
     /// En vente dans la maison des ventes (`auction_sale.item_id`), rattachée au vendeur jusqu'à l'achat.
     pub const AUCTION: i64 = 5;
+    /// Inventaire Cash (statut 51) : rang dans la liste en `row_idx`.
+    pub const CASH_INVENTORY: i64 = 6;
+    /// Sac du familier (statut 13) : sac, ligne, colonne.
+    pub const SUB_INVENTORY: i64 = 7;
 }
 
 /// Inventaire : 4 sacs de 4 × 4 cases utilisés (la grille du client en a 5 × 5 × 5).
 pub const INVENTORY: (i64, i64, i64) = (4, 4, 4);
+/// Inventaire Cash : une liste de 200 places (1 × 200 × 1).
+pub const CASH_INVENTORY: (i64, i64, i64) = (1, 200, 1);
+/// Sac du familier : 4 sacs de 2 lignes × 4 colonnes (fenêtre `UI_SubInventory`).
+pub const SUB_INVENTORY: (i64, i64, i64) = (4, 2, 4);
 /// Grille d'une boutique : 1 page de 20 lignes × 4 colonnes (type de grille 6 du client).
 pub const SHOP_GRID: (i64, i64, i64) = (1, 20, 4);
 pub const SHOP_IID_BASE: u32 = 0x2000_0000;
@@ -72,14 +97,33 @@ pub enum Placement {
     Slot(Grid),
 }
 
-fn grid_mini(g: Grid) -> Vec<u8> {
+pub fn grid_mini(g: Grid) -> Vec<u8> {
     let s = &mini::ITEM_GRID;
     build_mini(s, &Fields::new(s).with(0, g[0]).with(1, g[1]).with(2, g[2]))
 }
 
-/// Champ AGPMITEM de la case selon le statut : 8 pour la banque, 7 sinon (inventaire, boutique, échange).
+/// Champ AGPMITEM de la case selon le statut : 8 pour la banque, 7 sinon (inventaire, boutique, échange, sac du
+/// familier).
 fn grid_field(status: i64) -> usize {
     if status == item_status::BANK { 8 } else { 7 }
+}
+
+/// La case part avec l'objet : ni pour un objet porté, ni pour l'inventaire Cash (le client choisit sa place).
+fn sends_grid(status: i64) -> bool {
+    status != item_status::EQUIP && status != item_status::CASH_INVENTORY
+}
+
+/// Champ 23 d'AGPMITEM (mini Cash) réduit à l'octet « en cours d'utilisation ».
+pub fn cash_mini(in_use: bool) -> Vec<u8> {
+    let s = &mini::ITEM_CASH;
+    build_mini(s, &Fields::new(s).with(0, i64::from(in_use)))
+}
+
+/// AGPMITEM op 26 : mini Cash de l'objet `iid` (« en cours d'utilisation » ou non) ; le client rafraîchit son
+/// inventaire Cash, et avec lui la disponibilité du sac du familier.
+pub fn use_time_packet(iid: u32, owner: u32, in_use: bool) -> Vec<u8> {
+    let s = &schema::ITEM;
+    build_packet(s, &Fields::new(s).with(0, item_op::UPDATE_USE_TIME).with(2, iid).with(4, owner).with(23, cash_mini(in_use)))
 }
 
 /// AGPMITEM op 0 (ajout). `grid` = [sac, ligne, colonne] pour l'inventaire, la banque, une boutique ou
@@ -95,7 +139,8 @@ pub fn item_add(iid: u32, tid: u32, owner: Option<u32>, count: i64, status: i64,
 pub fn item_add_of(i: &InventoryItem, owner: u32, status: i64, grid: Option<Grid>) -> Vec<u8> {
     let s = &schema::ITEM;
     let f = Fields::new(s).with(0, item_op::ADD).with(1, status).with(2, i.iid).with(3, i.tid).with(4, owner).with(5, i.count).with(26, i.iid as u64);
-    let f = f.with_opt(grid_field(status), grid.map(grid_mini));
+    let f = f.with_opt(grid_field(status), grid.filter(|_| sends_grid(status)).map(grid_mini));
+    let f = f.with_opt(23, (status == item_status::CASH_INVENTORY).then(|| cash_mini(false)));
     // Durabilité entamée : facteur « objet » (champ 10) ; pleine, le client garde celle du modèle.
     let f = f.with_opt(10, (i.durability >= 0).then(|| durability_factors(i.durability)));
     build_packet(s, &f.with_opt(20, (!i.options.is_empty()).then(|| super::options::options_mini(&i.options))))
@@ -125,22 +170,18 @@ pub fn item_remove(iid: u32, owner: Option<u32>) -> Vec<u8> {
 pub fn item_update(item: &InventoryItem, owner: u32, status: i64) -> Vec<u8> {
     let s = &schema::ITEM;
     let f = Fields::new(s).with(0, item_op::UPDATE).with(1, status).with(2, item.iid).with(3, item.tid).with(4, owner).with(5, item.count);
-    build_packet(s, &f.with_opt(grid_field(status), (status != item_status::EQUIP).then(|| grid_mini(item.grid))))
+    build_packet(s, &f.with_opt(grid_field(status), sends_grid(status).then(|| grid_mini(item.grid))))
 }
 
-/// AGPMITEM op 2 (mise à jour) de la quantité.
+/// AGPMITEM op 2 (mise à jour) de la quantité d'un objet de l'inventaire.
 pub fn item_count(item: &InventoryItem, owner: u32) -> Vec<u8> {
+    item_count_in(item, owner, item_status::INVENTORY)
+}
+
+/// AGPMITEM op 2 (mise à jour) de la quantité d'un objet au statut `status` (inventaire, Cash, sac du familier).
+pub fn item_count_in(item: &InventoryItem, owner: u32, status: i64) -> Vec<u8> {
     let s = &schema::ITEM;
-    build_packet(
-        s,
-        &Fields::new(s)
-            .with(0, item_op::UPDATE)
-            .with(1, item_status::INVENTORY)
-            .with(2, item.iid)
-            .with(3, item.tid)
-            .with(4, owner)
-            .with(5, item.count),
-    )
+    build_packet(s, &Fields::new(s).with(0, item_op::UPDATE).with(1, status).with(2, item.iid).with(3, item.tid).with(4, owner).with(5, item.count))
 }
 
 /// AGPMITEMCONVERT op 0 d'un objet converti, à envoyer après son AGPMITEM op 0 ; rien pour un objet
@@ -156,6 +197,10 @@ pub struct ItemData {
     pub name: String,
     pub npc_price: i64,
     pub pc_price: i64,
+    /// Boutique des Shrines : prix chez un PNJ en points de charisme (« NPC Charisma Price ») et en Shrine Coins
+    /// (« NPC Shrine Coin », objets `npc_trade::SHRINE_COIN`), en plus de l'or ; 0 : aucun.
+    pub charisma_price: i64,
+    pub coin_price: i64,
     pub stack: i64,
     /// Caractéristiques d'équipement, pour un objet qui se porte.
     pub equip: Option<EquipData>,
@@ -174,8 +219,8 @@ pub struct ItemData {
     pub kind: i64,
     /// Liaison (« BoundType ») : 1 lié dès l'obtention, 2 lié à l'usage ; 0 aucune.
     pub bound_type: i64,
-    /// Objet de la boutique payante (« Cash » non nul).
-    pub cash: bool,
+    /// Type d'objet de la boutique payante (« Cash » : 6 familier) ; 0 pour un objet ordinaire.
+    pub cash: i64,
     /// Consommable utilisable à cheval (« EnableOnRide »).
     pub enable_on_ride: bool,
     /// Catégories de la maison des ventes (« FirstCategory », « SecondCategory ») ; un objet sans les deux ne peut pas y
@@ -334,8 +379,9 @@ pub struct UseSkill {
 }
 
 impl UseSkill {
+    /// Première compétence de l'objet (les colonnes sont des listes « ; », voir `consumables::ItemUse`).
     pub fn from_raw(raw: &serde_json::Value) -> Option<Self> {
-        let num = |k: &str| raw.get(k).and_then(|v| v.as_str()).and_then(|t| t.trim().parse::<f64>().ok()).unwrap_or(0.0);
+        let num = |k: &str| raw.get(k).and_then(|v| v.as_str()).and_then(|t| t.split(';').next()?.trim().parse::<f64>().ok()).unwrap_or(0.0);
         let skill_tid = num("Use skill id");
         (skill_tid > 0.0).then(|| UseSkill { skill_tid: skill_tid as u32, level: (num("Use skill level") as u32).max(1), can_stop: num("CanStopUsingItem") != 0.0 })
     }
@@ -352,6 +398,8 @@ pub struct ItemCatalog {
     pub morph: HashMap<u32, super::morph::Potion>,
     /// Potions of Quickness et Beam (type d'usage 12, sous-type 1 ou 2), refusées sous métamorphose.
     pub speed_potions: std::collections::HashSet<u32>,
+    /// Consommables à compétence, orbes de résurrection et objets d'oubli des compétences, par TID (`consumables.rs`).
+    pub uses: HashMap<u32, super::consumables::ItemUse>,
 }
 
 /// Bonus d'une ligne de la table `item_transform` (ItemTransformTable.txt).
@@ -369,7 +417,7 @@ fn transform_bonus(r: &mysql_async::Row) -> super::morph::Bonus {
 
 impl ItemCatalog {
     pub async fn load(db: &Databases) -> anyhow::Result<Self> {
-        let rows = db.world.rows("SELECT tid, name, npc_price, pc_price, stack, raw FROM item_data", ()).await?;
+        let rows = db.world.rows("SELECT tid, name, npc_price, pc_price, npc_charisma_price, npc_shrine_coin, stack, raw FROM item_data", ()).await?;
         let use_skill: HashMap<u32, UseSkill> = rows
             .iter()
             .filter_map(|r| {
@@ -389,14 +437,15 @@ impl ItemCatalog {
                 let usable_type = raw.as_ref().map(usable_type_of).unwrap_or(0);
                 let option_tids = raw.as_ref().map(option_tids_of).unwrap_or_default();
                 let column = |k: &str| raw.as_ref().and_then(|v| v.get(k)?.as_str()?.trim().parse::<i64>().ok()).unwrap_or(0);
-                let (kind, bound_type, cash, enable_on_ride) = (column("Kind"), column("BoundType"), column("Cash") != 0, column("EnableOnRide") != 0);
+                let (kind, bound_type, cash, enable_on_ride) = (column("Kind"), column("BoundType"), column("Cash"), column("EnableOnRide") != 0);
                 let (auction_category, event_item) = ((column("FirstCategory"), column("SecondCategory")), column("EventItem") != 0);
-                (tid, ItemData { tid, name: col(r, "name"), npc_price: col(r, "npc_price"), pc_price: col(r, "pc_price"), stack: col::<i64>(r, "stack").max(1), equip, potion, scroll, stone, usable_type, option_tids, kind, bound_type, cash, enable_on_ride, auction_category, event_item })
+                (tid, ItemData { tid, name: col(r, "name"), npc_price: col(r, "npc_price"), pc_price: col(r, "pc_price"), charisma_price: col(r, "npc_charisma_price"), coin_price: col(r, "npc_shrine_coin"), stack: col::<i64>(r, "stack").max(1), equip, potion, scroll, stone, usable_type, option_tids, kind, bound_type, cash, enable_on_ride, auction_category, event_item })
             })
             .collect();
         let raws: Vec<(u32, serde_json::Value)> =
             rows.iter().filter_map(|r| Some((col::<u32>(r, "tid"), serde_json::from_str::<serde_json::Value>(&col::<String>(r, "raw")).ok()?))).collect();
         let mut morph: HashMap<u32, super::morph::Potion> = raws.iter().filter_map(|(tid, raw)| super::morph::Potion::from_raw(raw).map(|p| (*tid, p))).collect();
+        let uses: HashMap<u32, super::consumables::ItemUse> = raws.iter().filter_map(|(tid, raw)| super::consumables::ItemUse::from_raw(raw).map(|u| (*tid, u))).collect();
         let speed_potions = raws
             .iter()
             .filter(|(_, raw)| usable_type_of(raw) == super::morph::USABLE_SPEED && matches!(raw.get("SubType").and_then(|v| v.as_str()).map(str::trim), Some("1" | "2")))
@@ -417,8 +466,15 @@ impl ItemCatalog {
         for r in &lists {
             shops.entry(col(r, "template_id")).or_default().push(ShopEntry { tid: col(r, "tid"), count: col::<i64>(r, "count").max(1) });
         }
-        info!("{} objet(s) et {} boutique(s) chargé(s), {} objet(s) à compétence, {} potion(s) de métamorphose", items.len(), shops.len(), use_skill.len(), morph.len());
-        Ok(ItemCatalog { items, shops, use_skill, morph, speed_potions })
+        info!(
+            "{} objet(s) et {} boutique(s) chargé(s), {} objet(s) à compétence, {} potion(s) de métamorphose, {} consommable(s) à compétence ou de résurrection",
+            items.len(),
+            shops.len(),
+            use_skill.len(),
+            morph.len(),
+            uses.len()
+        );
+        Ok(ItemCatalog { items, shops, use_skill, morph, speed_potions, uses })
     }
 
     pub fn get(&self, tid: u32) -> Option<&ItemData> {
@@ -427,6 +483,11 @@ impl ItemCatalog {
 
     pub fn shop(&self, template: i64) -> &[ShopEntry] {
         self.shops.get(&template).map(Vec::as_slice).unwrap_or(&[])
+    }
+
+    /// Objet rangé dans l'inventaire Cash : « Cash » non nul, sauf un objet qui se porte (choix d'ArchCore, voir l'en-tête).
+    pub fn is_cash(&self, tid: u32) -> bool {
+        self.get(tid).is_some_and(|d| d.cash != 0 && d.equip.is_none())
     }
 }
 
@@ -473,6 +534,34 @@ pub struct Inventory {
     pub items: BTreeMap<u32, InventoryItem>,
     /// Objets équipés, par partie du corps (`grid` = [partie, 0, 0]).
     pub equipment: BTreeMap<i64, InventoryItem>,
+    /// Inventaire Cash (statut 51) : `grid` = [0, rang, 0].
+    pub cash: BTreeMap<u32, InventoryItem>,
+    /// Sac du familier (statut 13) : `grid` = [sac, ligne, colonne].
+    pub sub: BTreeMap<u32, InventoryItem>,
+    /// Objets Cash en cours d'utilisation (octet « inuse » du mini Cash) ; jamais enregistré : le familier ne revient
+    /// pas de lui-même à l'entrée en jeu.
+    pub in_use: BTreeSet<u32>,
+    /// Le sac du familier a été envoyé au client pendant cette session (`pet_bag.rs`).
+    pub sub_sent: bool,
+    /// Ramassage automatique du sac du familier coupé (op 30 à 0 ; `characters.pet_auto_pick`).
+    pub no_auto_pick: bool,
+}
+
+/// Toutes les cases d'une grille (sac, ligne, colonne), dans l'ordre.
+fn cells(dims: (i64, i64, i64)) -> impl Iterator<Item = Grid> {
+    let (l, r, c) = dims;
+    (0..l).flat_map(move |a| (0..r).flat_map(move |b| (0..c).map(move |d| [a, b, d])))
+}
+
+/// Case libre dans `dims` parmi `items`.
+pub fn is_free_in(items: &BTreeMap<u32, InventoryItem>, dims: (i64, i64, i64), g: Grid) -> bool {
+    let (l, r, c) = dims;
+    (0..l).contains(&g[0]) && (0..r).contains(&g[1]) && (0..c).contains(&g[2]) && !items.values().any(|i| i.grid == g)
+}
+
+/// Première case libre de `items` dans `dims`, dans le sac `layer` s'il est donné.
+pub fn free_in(items: &BTreeMap<u32, InventoryItem>, dims: (i64, i64, i64), layer: Option<i64>) -> Option<Grid> {
+    cells(dims).filter(|g| layer.is_none_or(|l| g[0] == l)).find(|g| is_free_in(items, dims, *g))
 }
 
 impl Inventory {
@@ -480,21 +569,108 @@ impl Inventory {
         let rows = db
             .characters
             .rows(
-                &format!("SELECT id, template_id, status, layer, row_idx, col_idx, count, {CONVERT_COLUMNS} FROM character_items WHERE character_id = ? AND status IN (?, ?)"),
-                (character_id, stored_status::INVENTORY, stored_status::EQUIP),
+                &format!("SELECT id, template_id, status, layer, row_idx, col_idx, count, {CONVERT_COLUMNS} FROM character_items WHERE character_id = ? AND status IN (?, ?, ?, ?)"),
+                (character_id, stored_status::INVENTORY, stored_status::EQUIP, stored_status::CASH_INVENTORY, stored_status::SUB_INVENTORY),
             )
             .await?;
         let mut inv = Inventory { character_id, ..Default::default() };
         for r in &rows {
             let iid: u32 = col(r, "id");
             let item = InventoryItem { iid, tid: col(r, "template_id"), count: col(r, "count"), grid: [col(r, "layer"), col(r, "row_idx"), col(r, "col_idx")], conv: convert_of(r), options: options_of(r), durability: durability_of(r) };
-            if col::<i64>(r, "status") == stored_status::EQUIP {
-                inv.equipment.insert(item.grid[0], item);
-            } else {
-                inv.items.insert(iid, item);
-            }
+            match col::<i64>(r, "status") {
+                stored_status::EQUIP => inv.equipment.insert(item.grid[0], item),
+                stored_status::CASH_INVENTORY => inv.cash.insert(iid, item),
+                stored_status::SUB_INVENTORY => inv.sub.insert(iid, item),
+                _ => inv.items.insert(iid, item),
+            };
+        }
+        // Ramassage automatique du sac du familier : actif si la colonne manque (base pas encore migrée).
+        if let Ok(Some(r)) = db.characters.first("SELECT pet_auto_pick FROM characters WHERE id = ?", (character_id,)).await {
+            inv.no_auto_pick = col::<i64>(&r, "pet_auto_pick") == 0;
         }
         Ok(inv)
+    }
+
+    /// Range dans l'inventaire Cash les objets Cash encore enregistrés dans l'inventaire ordinaire (objets d'avant
+    /// l'inventaire Cash, reçus hors ligne, par courrier ou par échange) ; leur case de l'inventaire se libère. Rend
+    /// leur nombre.
+    pub async fn sort_cash(&mut self, db: &Databases, catalog: &ItemCatalog) -> anyhow::Result<usize> {
+        let moved: Vec<u32> = self.items.values().filter(|i| catalog.is_cash(i.tid)).map(|i| i.iid).collect();
+        let mut n = 0;
+        for iid in moved {
+            let Some(g) = free_in(&self.cash, CASH_INVENTORY, None) else { break };
+            db.characters
+                .exec("UPDATE character_items SET status = ?, layer = ?, row_idx = ?, col_idx = ? WHERE id = ?", (stored_status::CASH_INVENTORY, g[0], g[1], g[2], iid))
+                .await?;
+            let mut item = self.items.remove(&iid).unwrap();
+            item.grid = g;
+            self.cash.insert(iid, item);
+            n += 1;
+        }
+        Ok(n)
+    }
+
+    /// Ajoute `count` objets Cash à l'inventaire Cash : sur une pile existante si possible, sinon à la première place
+    /// libre. Rend (objet, créé ?) ou `None` s'il est plein.
+    pub async fn add_cash(&mut self, db: &Databases, tid: u32, count: i64, max_stack: i64) -> anyhow::Result<Option<(InventoryItem, bool)>> {
+        self.add_to(db, tid, count, max_stack, stored_status::CASH_INVENTORY).await
+    }
+
+    /// Ajoute `count` objets au sac du familier (pile existante, sinon première case libre). `None` s'il est plein.
+    pub async fn add_sub(&mut self, db: &Databases, tid: u32, count: i64, max_stack: i64) -> anyhow::Result<Option<(InventoryItem, bool)>> {
+        self.add_to(db, tid, count, max_stack, stored_status::SUB_INVENTORY).await
+    }
+
+    /// Ajout à la grille du statut enregistré `stored` (Cash ou sac du familier).
+    async fn add_to(&mut self, db: &Databases, tid: u32, count: i64, max_stack: i64, stored: i64) -> anyhow::Result<Option<(InventoryItem, bool)>> {
+        let character_id = self.character_id;
+        let (map, dims) = if stored == stored_status::CASH_INVENTORY { (&mut self.cash, CASH_INVENTORY) } else { (&mut self.sub, SUB_INVENTORY) };
+        if let Some(pile) = map.values_mut().find(|i| max_stack > 1 && i.tid == tid && i.count + count <= max_stack) {
+            pile.count += count;
+            db.characters.exec("UPDATE character_items SET count = ? WHERE id = ?", (pile.count, pile.iid)).await?;
+            return Ok(Some((pile.clone(), false)));
+        }
+        let Some(g) = free_in(map, dims, None) else { return Ok(None) };
+        let iid = db.characters.exec(INSERT_ITEM, (character_id, tid, stored, g[0], g[1], g[2], count)).await? as u32;
+        let item = InventoryItem { iid, tid, count, grid: g, conv: Default::default(), options: Vec::new(), durability: DURABILITY_FULL };
+        map.insert(iid, item.clone());
+        Ok(Some((item, true)))
+    }
+
+    /// Objet que le joueur peut utiliser (AGPMITEM op 3) : de l'inventaire, de l'inventaire Cash ou du sac du familier.
+    pub fn get_usable(&self, iid: u32) -> Option<&InventoryItem> {
+        self.items.get(&iid).or_else(|| self.cash.get(&iid)).or_else(|| self.sub.get(&iid))
+    }
+
+    /// Statut AGPMITEM d'un objet de l'inventaire, de l'inventaire Cash ou du sac du familier.
+    pub fn status_of(&self, iid: u32) -> Option<i64> {
+        if self.items.contains_key(&iid) {
+            Some(item_status::INVENTORY)
+        } else if self.cash.contains_key(&iid) {
+            Some(item_status::CASH_INVENTORY)
+        } else if self.sub.contains_key(&iid) {
+            Some(item_status::SUB_INVENTORY)
+        } else {
+            None
+        }
+    }
+
+    /// AGPMITEM op 2 de la quantité d'un objet, avec le statut de sa grille.
+    pub fn count_packet(&self, item: &InventoryItem, owner: u32) -> Vec<u8> {
+        item_count_in(item, owner, self.status_of(item.iid).unwrap_or(item_status::INVENTORY))
+    }
+
+    /// Grille qui tient l'objet `iid` (inventaire, Cash, sac du familier).
+    fn holder(&mut self, iid: u32) -> Option<&mut BTreeMap<u32, InventoryItem>> {
+        if self.items.contains_key(&iid) {
+            Some(&mut self.items)
+        } else if self.cash.contains_key(&iid) {
+            Some(&mut self.cash)
+        } else if self.sub.contains_key(&iid) {
+            Some(&mut self.sub)
+        } else {
+            None
+        }
     }
 
     pub fn get(&self, iid: u32) -> Option<&InventoryItem> {
@@ -566,17 +742,26 @@ impl Inventory {
         }
     }
 
+    /// Retire un objet de l'inventaire, de l'inventaire Cash ou du sac du familier.
     pub async fn remove(&mut self, db: &Databases, iid: u32) -> anyhow::Result<()> {
-        self.items.remove(&iid);
+        if let Some(m) = self.holder(iid) {
+            m.remove(&iid);
+        }
+        self.in_use.remove(&iid);
         db.characters.exec("DELETE FROM character_items WHERE id = ? AND character_id = ?", (iid, self.character_id)).await?;
         Ok(())
     }
 
-    /// Paquets AGPMITEM d'ajout de tout l'inventaire et de l'équipement (entrée en jeu).
+    /// Paquets AGPMITEM d'ajout de tout l'inventaire, de l'inventaire Cash et de l'équipement (entrée en jeu). Le sac
+    /// du familier n'en est pas : le client n'en range les objets que si le sac est disponible (`pet_bag.rs`).
     pub fn add_packets(&self) -> Vec<Vec<u8>> {
         let mut out = Vec::new();
         for i in self.items.values() {
             out.push(item_add_of(i, self.character_id, item_status::INVENTORY, Some(i.grid)));
+            out.extend(convert_add(i, self.character_id));
+        }
+        for i in self.cash.values() {
+            out.push(item_add_of(i, self.character_id, item_status::CASH_INVENTORY, None));
             out.extend(convert_add(i, self.character_id));
         }
         for i in self.equipment.values() {
@@ -634,9 +819,10 @@ impl Inventory {
         Ok(Some(item))
     }
 
-    /// Retire `n` exemplaires d'un objet de l'inventaire : rend la pile restante, ou `None` s'il n'en reste rien.
+    /// Retire `n` exemplaires d'un objet de l'inventaire, de l'inventaire Cash ou du sac du familier : rend la pile
+    /// restante, ou `None` s'il n'en reste rien.
     pub async fn consume(&mut self, db: &Databases, iid: u32, n: i64) -> anyhow::Result<Option<InventoryItem>> {
-        let Some(item) = self.items.get_mut(&iid) else { return Ok(None) };
+        let Some(item) = self.holder(iid).and_then(|m| m.get_mut(&iid)) else { return Ok(None) };
         if item.count > n {
             item.count -= n;
             db.characters.exec("UPDATE character_items SET count = ? WHERE id = ?", (item.count, iid)).await?;
@@ -646,14 +832,15 @@ impl Inventory {
         Ok(None)
     }
 
-    /// Enregistre les options et les sockets tirés pour l'objet `iid` de l'inventaire.
+    /// Enregistre les options et les sockets tirés pour l'objet `iid` de l'inventaire (ou de l'inventaire Cash, du sac
+    /// du familier).
     pub async fn set_generated(&mut self, db: &Databases, iid: u32, options: &[u16], sockets: u8) -> anyhow::Result<()> {
         if options.is_empty() && sockets == 0 {
             return Ok(());
         }
         let column = super::options::options_column(options);
         db.characters.exec("UPDATE character_items SET option_tids = ?, socket_count = ? WHERE id = ?", (column, sockets, iid)).await?;
-        if let Some(i) = self.items.get_mut(&iid) {
+        if let Some(i) = self.holder(iid).and_then(|m| m.get_mut(&iid)) {
             i.options = options.to_vec();
             i.conv.sockets = sockets;
         }

@@ -64,6 +64,7 @@ pub async fn run(mode: &str) -> anyhow::Result<()> {
         let bosses = crate::world::boss::BossCatalog::load(&db).await;
         let skulls = crate::world::battlesquare::SkullTable::load(&db).await;
         let sieges = crate::world::siege::SiegeCatalog::load(&db).await;
+        let titles = crate::world::titles::TitleCatalog::load(&db, config.world.title_schola).await;
         let mut level_exp = Vec::new();
         for r in db.world.rows("SELECT level, exp FROM level_exp ORDER BY level", ()).await? {
             let level: usize = crate::db::col(&r, "level");
@@ -87,7 +88,7 @@ pub async fn run(mode: &str) -> anyhow::Result<()> {
             ..Default::default()
         };
         let w = Arc::new(crate::world::World {
-            ctx: crate::world::WorldCtx { db: db.clone(), templates: templates.clone(), config: config.clone(), npcs, catalog, map, level_exp, loot, regions, skills, quests, locale, portals, bank_slot_prices, convert, options, recipes, product, customize, shrines, bosses, skulls, sieges, view_radius: config.world.view_radius },
+            ctx: crate::world::WorldCtx { db: db.clone(), templates: templates.clone(), config: config.clone(), npcs, catalog, map, level_exp, loot, regions, skills, quests, locale, portals, bank_slot_prices, convert, options, recipes, product, customize, shrines, bosses, skulls, sieges, titles, view_radius: config.world.view_radius },
             state: tokio::sync::Mutex::new(state),
         });
         crate::world::presence::spawn_autosave(w.clone());

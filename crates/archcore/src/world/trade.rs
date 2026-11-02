@@ -6,7 +6,7 @@
 //!   B → op 4 (accepte) / op 5 (refuse)   A, B ← op 6 (début, champ 1 = soi, 2 = l'autre) / op 5 (fin, champ 1 = soi)
 //!   → op 9 (IID au champ 3, case visée au champ 7, genre de grille au champ 8) : objet mis dans la grille
 //!     d'échange (1 × 3 × 4) : soi ← AGPMITEM op 2 statut 6, l'autre ← AGPMITEM op 0 statut 6
-//!     (propriétaire = soi) ; op 10 le reprend
+//!     (propriétaire = soi) ; op 10 le reprend (champ 7 : case d'arrivée du sac, prise si elle est libre)
 //!   → op 23 (montant au champ 5) : soi ← op 23, l'autre ← op 24
 //!   → op 16 verrouille (soi ← 16 avec son CID au champ 1, l'autre ← 17 ; tous deux verrouillés ← 20) ;
 //!     op 18 déverrouille (soi ← 18 avec son CID, l'autre ← 19)
@@ -154,7 +154,11 @@ pub async fn on_packet(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet
         // Op 25 : jamais envoyée par le client (voir l'en-tête), tenue pour une annulation.
         op::CANCEL | op::REFUSE => cancel(st, sid),
         op::ADD => add(ctx, st, sid, p.int(3).unwrap_or(0) as u32, super::bank::grid_of(p.bytes(7)), p.int(8).unwrap_or(0)),
-        op::REMOVE => take_back(st, sid, p.int(3).unwrap_or(0) as u32),
+        op::REMOVE => {
+            // Case d'arrivée (champ 7) seulement pour le sac ordinaire (statut 2) ; 13 et 15 sont hors épisode 8.
+            let wanted = super::bank::grid_of(p.bytes(7)).filter(|_| p.int(5).unwrap_or(2) == 2);
+            take_back(ctx, st, sid, p.int(3).unwrap_or(0) as u32, wanted).await?
+        }
         op::UPDATE_MONEY => money(st, sid, p.int(5).unwrap_or(0)),
         op::LOCK => lock(st, sid),
         op::UNLOCK => unlock(st, sid),
@@ -292,21 +296,31 @@ fn add(ctx: &WorldCtx, st: &mut WorldState, sid: u32, iid: u32, wanted: Option<G
     info!("[échange] {} propose {} × {name}", st.players[&sid].ch.name, item.count);
 }
 
-fn take_back(st: &mut WorldState, sid: u32, iid: u32) {
-    let Some((mine, _)) = sides(st, sid) else { return cancel(st, sid) };
+/// Op 10 : l'objet revient dans le sac, sur la case `wanted` si elle est libre (sinon à sa case d'origine).
+async fn take_back(ctx: &WorldCtx, st: &mut WorldState, sid: u32, iid: u32, wanted: Option<Grid>) -> anyhow::Result<()> {
+    let Some((mine, _)) = sides(st, sid) else {
+        cancel(st, sid);
+        return Ok(());
+    };
     if mine.locked || !mine.items.contains_key(&iid) {
-        return;
+        return Ok(());
     }
-    let t = st.players.get_mut(&sid).unwrap().trade.as_mut().unwrap();
+    let p = st.players.get_mut(&sid).unwrap();
+    let t = p.trade.as_mut().unwrap();
     t.items.remove(&iid);
     t.offered.remove(&iid);
+    let moved = match wanted.filter(|g| p.inventory.is_free(*g)) {
+        Some(g) => p.inventory.move_to(&ctx.db, iid, g).await?,
+        None => None,
+    };
     let p = &st.players[&sid];
-    if let Some(item) = p.inventory.get(iid) {
+    if let Some(item) = moved.as_ref().or_else(|| p.inventory.get(iid)) {
         p.send_raw(item_update(item, p.ch.id, item_status::INVENTORY));
     }
     if let Some(peer) = st.players.get(&mine.peer) {
         peer.send_raw(item_remove(iid, Some(p.ch.id)));
     }
+    Ok(())
 }
 
 fn money(st: &mut WorldState, sid: u32, amount: i64) {

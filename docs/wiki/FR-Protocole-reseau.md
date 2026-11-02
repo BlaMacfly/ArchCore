@@ -147,12 +147,13 @@ Drapeaux de champs sur **4 octets**, 27 champs. Les principaux :
 | Champ | Contenu |
 |---|---|
 | 0 | op (INT8) : 0 ajout, 1 retrait, 2 mise à jour |
-| 1 | statut (INT8) : 2 inventaire, 10 boutique d'un PNJ |
+| 1 | statut (INT8) : 2 inventaire, 10 boutique d'un PNJ, 13 sac du familier, 51 inventaire Cash |
 | 2 | IID, identifiant de l'objet |
 | 3 | TID, modèle de l'objet |
 | 4 | CID du propriétaire |
 | 5 | quantité |
 | 7 | case : mini à 3 INT16 (sac, ligne, colonne) |
+| 23 | objet Cash : mini (« en cours d'utilisation », temps restant…), voir l'inventaire Cash |
 
 Le client crée l'objet à partir de son propre modèle, lu dans `ItemTemplateAll.ini`. Si le TID lui
 est inconnu, il ignore l'objet sans rien afficher.
@@ -187,6 +188,17 @@ Drapeaux de champs sur **2 octets** :
    l'op 3 avec le résultat : **0** réussi, **1** trop d'or.
 
 L'argent du personnage est mis à jour par un paquet personnage (type 2) op 1, champ 8.
+
+**Boutique des Shrines (épisode 8).** Un objet peut coûter, en plus de l'or, des points de charisme (colonne 29
+d'itemdatatable, « NPC Charisma Price », table `item_data.npc_charisma_price`) et des Shrine Coins (colonne 35, « NPC
+Shrine Coin », objets TID 53000 de l'inventaire, toutes piles comptées), multipliés par la quantité. Archonia ouvre
+pour tout achat la fenêtre `UI_SHRINEITEM_BUY_CONFIRM` qui affiche les trois prix, mais n'envoie aucun prix : le
+serveur relit le modèle. Contrôles dans l'ordre : charisme (résultat **10**, « NPCTMSG_NotEnoughCharisma »), pièces
+(**11**, « NPCTMSG_NotEnoughShrineCoin »), or (3), place (4) ; puis charisme, pièces, or et objet sont enregistrés
+ensemble (facteurs du personnage op 1, AGPMITEM op 2 ou op 1 des piles de pièces). La taxe et le doublement du
+meurtrier ne portent que sur l'or (choix d'ArchCore). Les monnaies d'Archonia (Archonium Coin, Siege Token,
+Bloodmark, résultats 12 à 14) sont ignorées. Aucune liste de vente des données ne propose ces objets : le mécanisme
+sert dès qu'une boutique en contient.
 
 ## Déplacement (type 0x40, AgpmOptimizedCharMove)
 
@@ -388,6 +400,47 @@ si le total tient dans une pile : la source disparaît (op 1), la cible est mise
 **op 17** sépare une pile (quantité au champ 5, case libre au champ 7) : la nouvelle pile arrive par op 0,
 l'ancienne est mise à jour par op 2. **Op 21** détruit un objet de l'inventaire (op 1 en réponse).
 
+## Inventaire Cash et sac du familier (type 0x04, statuts 51 et 13)
+
+**Inventaire Cash (statut 51).** Les objets dont la colonne `Cash` d'itemdatatable.txt n'est pas nulle (6 : familier)
+y sont rangés : AGPMITEM op 0 au statut 51, **sans case** (le client les place lui-même dans sa liste) et avec, au
+**champ 23**, le mini Cash relevé dans le client x64 (drapeaux 1) : 0 INT8 « en cours d'utilisation » (0 non, 1 oui,
+2 en pause), 1 INT64 temps restant, 2 UINT64 date d'expiration, 3 INT32 (sens non relevé), 4 INT64 (non lu par le
+client). ArchCore n'envoie que le champ 0. **Op 26** (champ 2 IID, 4 CID, 23 mini Cash) met l'objet à jour et fait
+rafraîchir l'inventaire Cash au client. Une utilisation (op 3) est admise depuis l'inventaire, l'inventaire Cash et le
+sac du familier ; la destruction (op 21), sauf pour un objet en cours d'utilisation. En base, statut 6, rang dans la
+liste en `row_idx` (200 places) ; un objet Cash encore enregistré dans l'inventaire ordinaire (objet d'avant
+l'inventaire Cash, reçu hors ligne, par courrier ou par échange) y passe à l'entrée en jeu et libère sa case. Choix
+d'ArchCore : les 9 têtes Cash qui se portent (partie 17) restent dans l'inventaire ordinaire.
+
+**Familier.** Utiliser l'objet (op 3) fait sortir la créature (AgpmSummons, type 8) et passe l'objet à 1 (op 26) ;
+le réutiliser, ou demander son arrêt par **op 23** (champ 2 IID ; objet à `CanStopUsingItem`), la renvoie, et l'objet
+repasse à 0, comme pour tout départ du familier (maître mort, parti, familier remplacé). L'état n'est pas enregistré :
+le familier ne revient pas de lui-même à l'entrée en jeu.
+
+**Sac du familier (statut 13).** 4 sacs × 2 lignes × 4 colonnes (fenêtre `UI_SubInventory`, touche V), case au
+champ 7. Il est disponible, comme le veut le client, quand un objet de l'inventaire Cash est en cours d'utilisation,
+de type Cash 6, utilisable, et que sa créature (`summons_tid` de sa compétence) a `PetType` = 1 dans
+CharacterDataTable ; sinon le client ignore les objets du statut 13. Les familiers 14821 à 15674 (ajouts d'Archonia,
+absents des tables EP8) sortent sans sac.
+
+| Geste | Paquet | Réponse |
+|---|---|---|
+| Déposer depuis l'inventaire (2), l'équipement (3) ou la banque (100, gardien à portée) | op 2, statut 13, IID, CID, champ 7 = case ; ligne et colonne à -1 (onglet d'un sac) : première case libre de ce sac ; sans champ 7 : première case libre | op 2 statut 13 avec la case ; sur une pile du même objet, réunion (op 1 de la source, op 2 de la cible) |
+| Déplacer dans le sac | op 2, statut 13, case | op 2 statut 13 (ou réunion) |
+| Sortir vers l'inventaire / la banque | op 2, statut 2 (champ 7) / 100 (champ 8) | op 2 au nouveau statut (ou réunion) |
+| Séparer une pile du sac | op 17, quantité au champ 5, case libre du sac au champ 7 | op 0 statut 13 de la nouvelle pile, op 2 de l'ancienne |
+| « Auto Pick Up ON/OFF » | **op 30**, champ 2 IID du familier, 4 CID, champ 20 = mini {INT16 0/1} | op 30 en écho |
+
+Tout refus (sac indisponible, case prise, sac ou inventaire plein, banque fermée) renvoie l'objet à sa place (op 2).
+Le sac part (op 0 statut 13) la première fois qu'il devient disponible dans la session, après les objets Cash ; le
+familier rappelé, le client ferme le sac et garde ses objets, invisibles, jusqu'au prochain appel. En base, statut 7
+(sac, ligne, colonne) ; la valeur de l'op 30 dans `characters.pet_auto_pick` (1 par défaut, comme le client). Choix
+d'ArchCore : au ramassage (op 11), un objet Cash va dans l'inventaire Cash, un autre dans l'inventaire, puis, s'il est
+plein, dans le sac du familier disponible ; pas de ramassage à la chute (règle de l'op 30 inconnue). Écartés (ajouts
+d'Archonia) : marquage des sacs par Ctrl+clic (ops 37/38) et « Sell All ». Non faits : achat en boutique vers le sac,
+retrait de la grille d'échange vers le sac, équipement depuis le sac, endurance des familiers.
+
 ## Options des objets (type 0x04, champ 20)
 
 Un équipement peut porter jusqu'à 5 options d'`itemoptiontable.txt` (importée dans `client_table`, avec
@@ -580,6 +633,22 @@ Format d'Archonia, drapeaux sur 2 octets : `INT8 INT32 PACKET[50] INT8 PACKET ME
 INT8 INT8 MEMORY_BLOCK` (opération, CID, barre de raccourcis, case changée, son contenu, barre encodée,
 potions, casque, seuils, temps de recharge encodés).
 
+### Barre de raccourcis (type 0x14, AgpmUIStatus)
+
+Cinq couches de dix cases, index = couche × 10 + colonne (0 à 49) ; chaque case est un mini `AGPMSKILL_BASE`
+(drapeaux 1 : `INT8` type de base, `INT32` identifiant) : **5** objet (IID), **7** compétence (identifiant
+d'instance de la compétence possédée). Le client n'affiche ni n'envoie d'autre type (actions sociales comprises).
+
+- **op 0** (serveur, entrée en jeu, après les objets et les compétences : le client remplace ses 50 cases et vide
+  celles dont il ne connaît pas la base) : champ 2 = les 50 minis (mini sans champ : case vide).
+- **op 1** (client, sans réponse) : champ 3 = case, champ 4 = mini (absent : case vidée) ; potions et seuils
+  facultatifs. La même base est retirée des autres cases de sa rangée de dix, comme le fait le client.
+
+Le serveur garde le **TID** de chaque case (table `character_quickbelt`) : à l'entrée suivante, une compétence est
+retrouvée par son TID (son identifiant d'instance change), un objet par son IID, sinon remplacé par un autre objet du
+même TID (pile consommée), sinon envoyé vide. Une base que le joueur n'a pas vide la case. L'op 2 (barre encodée en
+texte) n'est pas employée : aucun abonné dans le client.
+
 ## Parchemins de téléportation (type 0x04)
 
 Un parchemin (« Passport ») est un objet utilisable de `Type` 4 ; son `SubType` donne sa sorte : 0 retour au
@@ -589,6 +658,50 @@ téléporte le joueur (AGPMOPTIMIZEDCHARMOVE et AGPMCHARACTER). Le « village »
 la région de rattachement, comme pour la résurrection. Le retour au village (0 et 1) est refusé en combat. L'aller-retour mémorise
 l'endroit quitté et l'annonce par AGPMITEM **op 9** (champ 4 = CID) ; le client demande à y revenir par
 **op 6**, refusé en combat ; le serveur répond **op 10** (retour désactivé) et y ramène le joueur.
+
+## Consommables à compétence, résurrection par objet, oubli des compétences (types 0x04, 0x02, 0x05, 0x3B)
+
+**Consommables à compétence** : objets d'`ItemType` 1 qui ont un `Use skill id` (listes « ; », niveau `Use skill
+level`) : ragoûts, potions de vitesse, pierres, ailes, charmes (usage 12), costumes (31), talismans de Janus (37).
+AGPMITEM **op 3** → chaque compétence pose son effet sur le joueur, sans incantation (AGPMSKILL **op 4** autour de
+lui, facteurs par AGPMCHARACTER op 1), puis pile diminuée (op 2) ou objet retiré (op 1) et **op 4** (3 TID, 4 CID,
+12 CID, 18 recharge en ms). Durée : `duration` du niveau, sinon `Apply Effect Count` × `Apply Effect Time`, sinon la
+durée de l'objet (`RemainTime`, sinon `ExpireTime`, en minutes), sinon 24 h. Recharge : `Use Interval` + `Apply Effect
+Count` × `Apply Effect Time` par TID d'objet (celle qu'affiche la barre du client) et `recast_time` du niveau par TID de
+compétence (420 000 ms aux ragoûts) ; pendant la recharge, **AGPMITEM op 5** (3 TID, 4 CID) et un message système.
+Familles (`skill_classify_id`, `skill_classify_level` de SKILL_CONST, choix déduit) : un effet de la même famille est
+remplacé (AGPMSKILL op 5) si le nouveau est de rang égal ou supérieur, sinon l'objet est refusé (op 5). Un objet
+`CanStopUsingItem` n'est pas consommé : le réutiliser retire ses effets. Les effets apportent aussi la défense
+élémentaire (`point.def_point_*`, ajoutée aux résistances) et des bonus d'expérience (`bonus_exp`, sur l'expérience
+des monstres) et de butin (`bonus_drop_rate`, sur le taux de butin du tueur), en pour cent = valeur /
+`Skill.GameBonusDivisor` (10 ; unité inconnue). Les familiers restent à AgpmSummons.
+
+**Orbe de résurrection** (usage 14 ; 842 Resurrection Orb 90 s, 1054… Reverse Orb 30 min, « for Novices » niveaux
+1-30) : AGPMITEM op 3 du mort. Vivant : **op 5** (« Regeneration has failed »). Refus par **op 27 code 3**
+(« ReverseOrbError » : « You cannot use the resurrection item. ») pour l'ArchLord, en zone de siège en guerre, dans une
+région dont le `Type` n'a pas le bit 0x100 (Battle Square, prison, tribune du Battle Royale), en région de combat
+(sûreté 2) avec un orbe qui n'est pas Cash, hors des niveaux de l'orbe (`Level` « 1;30 »), ou pendant la recharge
+(précédé de l'op 18 avec le reste). Sinon : un exemplaire consommé, statut normal sur place, PV et PM pleins,
+invincible 10 s, AGPMCHARACTER op 1 (facteurs, champ 11 = 0) autour, **op 4** (3 TID, 4 CID, 18 recharge) puis
+**op 18** (4 CID, 18 recharge restante en ms) ; recharge commune à tous les orbes : `Use Interval`, sinon 900 000 ms.
+Pas de perte d'expérience. La résurrection sur place sans objet (AGPMCHARACTER op 10) n'est jamais envoyée par Archonia.
+
+**Oubli des compétences.** Gem of origin (usage 27) : AGPMITEM op 3 (refusée au mort et pendant l'évolution) →
+AGPMSKILL **op 1** (1 identifiant, 2 propriétaire) par compétence retirée, facteurs (points), objet consommé, op 4.
+Maître : AGPMEVENTSKILLMASTER **op 8** (champ 2 = CID, sans événement : envoyé depuis la fenêtre des compétences, si la
+chaîne « skill init » est vide) → op 1 par compétence, argent rendu (AGPMCHARACTER op 1 champ 8), **AGPMCHARACTER op 23**
+(1 CID, 19 « 1 ») puis **op 9** (2 CID, 5 résultat : 0 réussi, 1 échec — mort, évolution, déjà fait, rien à oublier —,
+2 pas de place pour le remboursement : l'argent dépasserait 1 000 000 000). Une seule fois par personnage : la chaîne
+(AGPMCHARACTER champ 19, CHAR[32], dans l'op 0 du personnage) est enregistrée dans `characters.skill_init` ; l'op 5 du
+maître porte au champ 7 « déjà fait » (1). Choix d'ArchCore : l'attaque normale, les compétences de l'ArchLord et
+celles de production restent ; le maître rend `skill_cost` du niveau 1 et `skill_upgrade_cost` des suivants (sans les
+taxes payées), la gemme ne rend que les points ; le charisme dépensé n'est pas rendu.
+
+**Perte d'expérience** : à la résurrection au village (AGPMCHARACTER op 9), `Death.ExpPenaltyPercent` de
+l'expérience du niveau (`Death.ExpPenaltyRoguePercent` pour un meurtrier de palier 3), sans descendre sous le début du
+niveau ; rien sous le niveau 6 ni après une mort en combat entre joueurs. Désactivée par défaut : Archonia masque
+les textes de l'épisode 8 (3 % au village, 5 % sur place, 10 % au meurtrier de palier 3). Active, AGPMCONFIG champ 1
+vaut 1.
 
 ## Compétences (types 0x05 et 0x3B)
 
@@ -613,7 +726,7 @@ AGPMEVENTSKILLMASTER (0x3B, drapeaux 1) : op, événement, CID, identifiant de c
 points. **Op 4** ouvre la fenêtre (réponse op 5, résultat 0) ; **op 1** apprend le TID du champ 4 :
 AGPMSKILL op 0 puis op 6 avec le résultat (0 réussi, 1 échec dont l'argent, 2 déjà apprise, 3 pas assez
 de points, 4 niveau trop bas, 5 classe) ; **op 2** améliore la compétence du champ 3 : AGPMSKILL **op 2**
-(nouveau niveau) puis op 3.
+(nouveau niveau) puis op 3 ; **op 8** oublie toutes les compétences (réponse op 9, voir plus haut).
 
 **Lancement.** Le client envoie AGPMSKILL **op 7** : identifiant et action (mini : type, cible en mini
 « base »). Le serveur vérifie la compétence, son délai de relance, les PM et PV, fait marcher le joueur
@@ -707,12 +820,24 @@ des dégâts reçus) n'est porté par aucune compétence des données d'Archonia
 
 **Maîtrises.** `SkillMastery_High.txt` (compétences supérieures) et `SkillMastery_Heroic.txt` (compétences
 héroïques) rangent les compétences en arbres, par modèle de classe (96 guerrier humain… 1722 slayer, d'après
-`SkillMasteryEvolution.txt`). Chaque compétence d'un arbre exige jusqu'à trois autres compétences à un niveau
-donné (colonnes ConditionA à C, « TID;points », le client affiche « %s Skill %d Points Requirement ») et un
-total de points dépensés (ConditionD : points de compétence dans l'arbre supérieur, « All Skills %d Points
-Requirement », points héroïques dans l'arbre héroïque, « Total Heroic Skill Points Required ») ; les points
-d'une compétence sont son niveau. Faute de quoi l'apprentissage est refusé : message système puis
-AGPMEVENTSKILLMASTER op 6, résultat 1. Capacitate (525) exige ainsi Marching Song (526) au niveau 4.
+`SkillMasteryEvolution.txt`). Conditions d'une compétence, comme les lit Archonia (chargeur FUN_140229e10,
+contrôle FUN_1402b8f40 ; arbre héroïque FUN_14022a510 et FUN_1402b9200) :
+- ConditionA et B, « TID;niveau » : une compétence à ce niveau (le client affiche « %s Skill %d Points
+  Requirement »).
+- ConditionC, « modèle;n » (« 1722;30 » des compétences 1155, 1165 et 1178 des arbres du Slayer, de l'Orbiter et du
+  Summoner) : n niveaux cumulés des compétences de la classe de ce modèle (colonne `require_class_*` de sa race et
+  de sa classe), passives et attaque normale exceptées.
+- ConditionD, « total; » : niveaux cumulés de toutes les compétences dans l'arbre supérieur (« All Skills %d
+  Points Requirement »), points héroïques dépensés dans l'arbre héroïque (« Total Heroic Skill Points
+  Required »). Le niveau d'une compétence compte au plus 30 (100 en production).
+- L'arbre héroïque n'a que ConditionA et D (B et C ne sont pas lues).
+
+La clé d'un arbre est le nombre en tête de sa ligne : « 10004;4 » ouvre l'arbre de la race 4 (10000 + race), les
+15 passives du Dragon Scion, valable pour toutes ses formes ; Archonia cherche d'abord l'arbre du modèle courant,
+puis celui de la race. La classe d'une compétence est celle de la forme courante (FUN_1402fd890 : race et classe
+des facteurs) : un Dragon Scion apprend les arbres du Slayer, de l'Orbiter et du Summoner sous la forme
+correspondante. Faute de quoi l'apprentissage est refusé : message système puis AGPMEVENTSKILLMASTER op 6,
+résultat 1 (5 pour la classe). Capacitate (525) exige ainsi Marching Song (526) au niveau 4.
 
 **Compétences des monstres.** Chaque point d'apparition désigne une IA (`MobAITID` de
 `spawndatatable.txt`, table `monster_ai` tirée d'`aidatatable.txt` des tables du serveur d'origine) : jusqu'à
@@ -1003,6 +1128,27 @@ d'un monstre tué se partage entre les membres vivants assez proches (5 × 5 sec
 selon les dégâts infligés ou selon le niveau : cette répartition est un ajout d'ArchCore, le serveur
 d'origine ne la décrit pas. L'or et les objets tombent encore au sol pour le tueur.
 
+### Rappel de groupe (types 0x04 et 0x09)
+
+Les orbes d'usage 15 (Summoning Orb 1174 et 6181, Bead of Summoning 2756 et 3327, Jumper's Summons 6494) rappellent
+les membres du groupe auprès du lanceur, qui l'utilise par AGPMITEM op 3 :
+
+| Paquet | Sens | Effet |
+|---|---|---|
+| AGPMITEM op 4 (3 TID, 4 CID, 18 recharge) | serveur → lanceur | un exemplaire consommé, « PartyUseRecallSuccess » |
+| gestion op 15 (1 lanceur, 3 son nom) | serveur → chaque autre membre en jeu | fenêtre `UI_ConfirmRecall` |
+| gestion op 16 (1 membre, 2 lanceur) | membre → serveur | accepte (le client annule d'abord son échange, 0x07 op 5) : téléporté près du lanceur |
+| gestion op 17 (1 membre, 2 lanceur) | membre → serveur | refuse |
+| gestion op 16 / 17 (1 membre, 3 son nom) | serveur → lanceur | « PartyTargetAcceptRecall » / « PartyTargetRejectRecall » |
+
+Le client ne contrôle ni la région, ni le combat, ni la distance. Règles d'ArchCore (celles d'origine ne sont pas
+connues), pour le lanceur à l'usage et pour les deux à l'acceptation : refus au mort, en zone de siège en guerre,
+dans un Shrine en combat, dans la Battle Square et les Battlegrounds, dans une région sans le bit 0x100 du Type
+(prison, tribune…), en combat sauf `Recall.AllowInCombat`. À l'usage, refus aussi sans autre membre en jeu, pendant
+la recharge (« Use Interval ») et hors des niveaux de l'objet (« SuitableLevelMin/Max ») : AGPMITEM op 5. La
+demande vaut `Recall.RequestSeconds` ; le membre est rappelé à toute distance. Bead of Nothernland (4817, usage 15,
+description sans rapport) ne rappelle pas (`Recall.ExcludedItems`).
+
 ## Échange entre joueurs (type 0x07, AgpmPrivateTrade)
 
 Drapeaux 2 : op, CID, CID de l'autre joueur, IID, TID, argent (INT64), cases d'origine et de destination,
@@ -1016,7 +1162,7 @@ client de référence.
 | 4 / 5 | client | B accepte / refuse (« No » : op 5) |
 | 6 | serveur | Début, à chacun (champ 1 = soi, champ 2 = l'autre) |
 | 9 | client | Mettre l'objet d'IID donné (champ 3) : case d'origine (champ 6), case visée de la grille (champ 7, prise si libre, sinon la première libre), genre (champ 8 : 0 grille, 1 objet particulier, 2 grille Ex refusée) |
-| 10 | client | Reprendre l'objet d'IID donné (champ 3) |
+| 10 | client | Reprendre l'objet d'IID donné (champ 3) : statut d'arrivée (champ 5, 2 = sac), case d'échange (champ 6), case d'arrivée du sac (champ 7, prise si libre, sinon la case d'origine) |
 | 23 / 24 | client, serveur | Argent proposé (champ 5) ; l'autre reçoit op 24 |
 | 16, 17, 18, 19 | | Verrouiller (soi ← 16, champ 1 = soi ; l'autre ← 17), déverrouiller (soi ← 18, champ 1 = soi ; l'autre ← 19) |
 | 20 | serveur | Les deux côtés sont verrouillés |
@@ -1524,6 +1670,50 @@ messages 20 et 21. Quinze secondes après la fin, message 27 et retour en ville 
 combat (états 1 à 4), dans les régions du Shrine : races différentes ennemies sans Ctrl, même race jamais, ni points
 de meurtrier, ni statut de premier attaquant, ni droit de mise à prix ; un mort ressuscite au point de sa race.
 
+## Titres (type 0x60, AgpmTitle)
+
+Module de l'épisode 8 en **structure brute** dans les deux sens, comme AgpmShrineBattle (constructeur d'Archonia sans
+champ AuPacket) : en-tête standard, octet 0x13 = 1, opération U16 en 0x14, **nom du personnage concerné** CHAR[49] en
+0x16 (le client retrouve le personnage par son nom), bourrage en 0x47, **TID du titre** en 0x48, champs de l'opération
+dès 0x4C (i32, « i64 » sur 8 octets), pied 0x6B ; longueur = taille de la structure + 1.
+
+| Op | Sens | Taille | Contenu (après 0x48) |
+|---|---|---|---|
+| 1 | serveur | 0x54 | 0x4C résultat (1 : titre ajouté), 0x50 compétence choisie (0) |
+| 2 | client → serveur | 0x54 | 0x4C = 2 (constante, ignorée), 0x50 1 équiper / 0 retirer |
+| 3 | serveur | 0x64 | 0x4C bUse, 0x50 résultat (1), 0x58 heure du changement (i64), 0x60 code (3 : moins de 2 h depuis le dernier changement) |
+| 4 | client → serveur | 0x4C | Liste des titres (sans appelant dans Archonia) |
+| 5 | serveur | 0x68 | Un par titre possédé : 0x50 heure du dernier changement (i64), 0x5C 1 valide (0 : liste vide, un seul paquet), 0x60 0, 0x64 compétence |
+| 6.0 | client → serveur | 0x50 | Fixer le titre comme objectif (sous-opération en 0x4C) |
+| 6.1 | serveur | 0x5C | 0x50 date d'acceptation (i64), 0x58 résultat (1 ; 0 : refus) |
+| 6.3 | serveur | 0x68 | 0x50 i32[5] valeurs des conditions non vides, 0x64 1 (progression de `UI_TitleMini`) |
+| 6.4 | client → serveur | 0x54 | Terminer l'objectif ; 0x50 compétence choisie (0) |
+| 6.5 | serveur | 0x5C | 0x50 date d'achèvement (i64), 0x58 résultat (1) : objectif retiré, suivi de l'op 1 qui ajoute le titre |
+| 6.6 | client → serveur | 0x50 | Liste des objectifs, TID 0 (sans appelant dans Archonia) |
+| 6.7 | serveur | 0x84 | Un par objectif : 0x50 1, 0x58 0 en cours, 0x60 acceptation (i64), 0x68 achèvement (i64), 0x70 compteurs i32[5] |
+| 7 | client → serveur | 0x4C | Supprimer un titre possédé (« Delete Title ») ou abandonner un objectif (« Give Up ») |
+| 8 | serveur | 0x50 | 0x4C résultat (1) |
+| 9 | serveur | 0x50 | 0x4C 1 afficher / 0 effacer le titre au-dessus du personnage nommé en 0x16 (soi compris : titre actif) |
+| 10 | serveur | 0x4C | Ouvre `UI_TitleAll` et `UI_TitleMini` ; TID 1 si `Title.Schola` (Archonia ne le lit pas) |
+| 11 | les deux | 0x50 | Compétence d'un titre de rang 4 ou 5 (Archonia) : journalisée, non reprise |
+
+Règles d'ArchCore (le serveur d'origine est absent du client) : le client ne demande jamais ses listes, le serveur
+les **pousse à l'entrée** (op 5, 6.7, op 9 du titre actif) ; un « <Title Manager> » (18 PNJ de npc.ini, fonction 21)
+répond à la demande de dialogue par l'op 10 (`Title.ManagerOpensWindow`). Fixer l'objectif (6.0) refait les contrôles
+du client dans son ordre (ArchLord, chef de guilde, classe — `Require_class_Type` 101 à 901 race et classe, 1001
+Dragon Scion, 1101 à 1301 ses formes évoluées —, niveau, Con, Str, Int, Dex, Wis, Cha, or, objets, titres préalables)
+et ses bornes (999 objectifs, 500 titres et objectifs), puis **consomme** l'or et les objets de coût ; 6.1, puis 6.3 si
+des conditions sont déjà remplies ; refus : 6.1 résultat 0 et un message. Conditions : 2 récolte réussie sur un
+cadavre de la créature Set (`Title.CollectCountsKills` : ses morts aussi), 5 utilisation de l'objet Set (potions), 15
+niveau, 25 / 26 / 27 niveau d'Alchimie / Cuisine / Collecte ; 6.3 à chaque changement, compteurs enregistrés.
+Terminer (6.4) : toutes les valeurs atteintes, 6.5 puis op 1. Équiper ou retirer (op 2) : refusé moins de
+`Title.ChangeDelaySeconds` (7200) après le dernier changement (op 3 résultat 0, code 3, heure du changement) ; sinon
+op 3 puis op 9 au joueur et aux joueurs qui le voient ; un joueur qui entre dans la vue d'un porteur reçoit son op 9.
+Supprimer le titre actif l'efface (op 9 bUse 0) sans délai. Effets **du titre équipé** seulement : compétences
+`Skill_Tid_*` (« <Title> Novice Knight »… : Str et Con) comme passives, 3 / 4 / 5 réussite d'Alchimie / Cuisine /
+Collecte + Value_1 %, 7 objets récoltés × Value_2 sur la créature Value_1, 9 potion Value_1 + Value_2 points (Set 0) ou
+pour cent (Set 1). Rangs de charisme : calculés par le client d'après le CHA envoyé.
+
 ## Battle Square et Battleground (types 0x4A et 0x58)
 
 **Battle Square** (régions 189 à 234, six étages ; racines 198, 208, 209, 215, 223, 229, LevelMin 20 à 70 de
@@ -1696,6 +1886,34 @@ du compte du chef de la guilde propriétaire, moins 20 % de tribut à la banque 
 ArchLord, le propriétaire garde tout), inscrits dans `log_bank` (`taxe`, `tribut`, `count` = château) ; `/tax pay` verse
 aussitôt.
 
+## Actions sociales (type 0x02, op 16)
+
+Fenêtre « Emotes » (`UI_SocialAction`, `SocialAction.txt`) : le client envoie AGPMCHARACTER **op 16** (champ 1 : son
+CID, champ 16 : type U8, 0 salut … 16 assis) et n'anime rien lui-même. Le serveur renvoie l'op 16 (champ 1, champ 16)
+au lanceur et à tous ceux qui le voient ; le client joue alors l'animation et le son de `INI\SOCIAL_PC.txt` (ligne =
+type, colonne = TID du personnage). Aucun code de résultat : un refus est silencieux. Refusés (choix d'ArchCore) :
+les types suivants (SELECT* de l'écran de sélection, GM_*), le mort, un joueur à cheval ou métamorphosé (le client
+pose trois conditions de ce genre dont le sens n'est pas établi), une action moins de `Social.MinIntervalMs` après la
+précédente.
+
+## Retour à la sélection des personnages (type 0x2F, AgpmReturnToLogin)
+
+Drapeaux 1 : 0 opération, 1 CID, 2 compte (49 octets), 3 groupe de serveurs (32), 4 adresse « hôte:port » du serveur
+de connexion (25), 5 clé. Bouton « Select Character » de `UI_EXIT` (relevé dans Archonia) :
+
+| Op | Sens | Effet |
+|---|---|---|
+| 1 | client → monde | demande (le client a vérifié lui-même 5 s sans combat et l'arène) |
+| 5 | monde → client | clé à usage unique (champ 5) et adresse (champ 4 ; absente : le client reprend celle du serveur de connexion qu'il connaît) ; le personnage quitte le monde, la connexion se ferme 2 s plus tard |
+| 2 | monde → client | refus (ArchCore : mort, en combat) |
+| 6 | client → connexion | une fois la connexion chiffrée, à la place de la demande de clé de hachage : compte (champ 2) et clé (champ 5) |
+| 7 | connexion → client | après la connexion réussie (AGPMLOGIN op 1) ; le client redemande ses personnages (AGPMLOGIN op 3) |
+
+Au serveur de connexion, une clé valable (`account.return_key`, `ReturnToLogin.KeySeconds`) est consommée et suivie
+de la clé de hachage (AGPMLOGIN op 0) : le client se reconnecte avec l'identifiant et le mot de passe qu'il a gardés.
+Une clé inconnue, échue ou déjà servie est refusée par AGPMLOGIN op 15 (identifiants incorrects). La clé passe par
+la base : les deux serveurs peuvent tourner dans des processus séparés.
+
 ## Types connus
 
 | Type | Module | Type | Module |
@@ -1709,7 +1927,7 @@ aussitôt.
 | 0x08 | Groupe | 0x42 | Vue optimisée |
 | 0x0D | Connexion | 0x44 | Message système |
 | 0x0F | Discussion | 0x48 | Chiffrement de démarrage |
-| 0x11 | Horloge (AgpmTimer) | 0x60 | Titres |
+| 0x11 | Horloge (AgpmTimer) | 0x60 | Titres (AgpmTitle, brut) |
 | 0x13 | Quêtes | 0x63 | Reconnexion |
 | 0x4A | Combat entre joueurs | 0x2A | Rémission |
 | 0x32 | Boutiques des PNJ | 0x37 | Dialogue des PNJ |

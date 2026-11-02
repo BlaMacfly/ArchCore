@@ -58,6 +58,7 @@ pub mod ptype {
     pub const OPT_VIEW: u8 = 0x42;
     pub const SYSTEM_MESSAGE: u8 = 0x44;
     pub const STARTUP_ENCRYPTION: u8 = 0x48;
+    /// AgpmTitle (0x60) : titres de l'épisode 8, structure brute dans les deux sens.
     pub const TITLE: u8 = 0x60;
     pub const RECONNECT: u8 = 0x63;
     pub const REMISSION: u8 = 0x2a;
@@ -248,10 +249,10 @@ pub static ITEM: Schema = Schema {
         f(I32),      // 17 compétence
         f(U64),      // 18 temps de recharge
         f(I32),      // 19 drapeaux de statut
-        f(Packet),   // 20 options
+        f(Packet),   // 20 options (op 30 : ramassage automatique, ITEM_AUTO_PICK)
         f(Packet),   // 21 bonus de compétence
         f(U64),      // 22 temps de recharge (transformation)
-        f(Packet),   // 23 boutique en argent réel
+        f(Packet),   // 23 objet Cash (ITEM_CASH)
         f(Packet),   // 24 informations supplémentaires
         f(MemBlock), // 25
         f(U64),      // 26
@@ -868,6 +869,11 @@ pub static WANTED_CRIMINAL: Schema = Schema {
 /// l'opération ; le corps (bourrage en 0x16, puis données en 0x18) est brut (`world/shrine.rs`), ops `shrine_op`.
 pub static SHRINE_BATTLE: Schema = Schema { name: "AGPMSHRINEBATTLE", id: ptype::SHRINE_BATTLE, flag_len: 1, fields: &[f(U16)] };
 
+/// AgpmTitle (0x60) — structure brute, comme AgpmShrineBattle (constructeur FUN_140304fc0 d'Archonia, sans champ
+/// AuPacket ; réception FUN_1403058b0) : 0x13 vaut 1, l'opération (U16) suit en 0x14, puis le nom du personnage concerné
+/// (CHAR[49] en 0x16), le TID du titre (0x48) et les champs de l'opération (`world/titles.rs`), ops `title_op`.
+pub static TITLE: Schema = Schema { name: "AGPMTITLE", id: ptype::TITLE, flag_len: 1, fields: &[f(U16)] };
+
 /// AgpmBoss (0x64) — drapeaux 1 (constructeur FUN_1402ed3e0 d'Archonia, réception FUN_1402eda60) : fenêtre des boss,
 /// ajout d'Archonia sans effet sur le jeu (`world/boss.rs`), ops `boss_op`.
 pub static BOSS: Schema = Schema {
@@ -960,7 +966,7 @@ pub static MAIN: &[&Schema] = &[
     &EVENT_NPC_DIALOG, &EVENT_MANAGER, &SKILL, &EVENT_SKILL_MASTER, &EVENT_TELEPORT, &EVENT_BANK, &ITEM_CONVERT, &EVENT_ITEM_CONVERT, &REFINERY, &EVENT_REFINERY, &GUILD, &EVENT_GUILD, &GUILD_WAREHOUSE, &PRIVATE_TRADE, &PARTY, &PARTY_MANAGEMENT, &QUEST, &EVENT_QUEST, &UI_STATUS, &SYSTEM_MESSAGE, &RETURN_TO_LOGIN, &OPT_CHAR_MOVE, &OPT_CHAR_ACTION, &OPT_VIEW,
     &STARTUP_ENCRYPTION, &ARCHCORE_EXT, &RECONNECT, &PVP, &REMISSION, &PRODUCT, &EVENT_PRODUCT, &BUDDY, &MAILBOX,
     &EVENT_ITEM_REPAIR, &RIDE, &AUCTION, &EVENT_NATURE, &NATURE_EFFECT, &ITEM_SET, &SUMMONS, &CHANNEL, &AREA_CHATTING,
-    &EVENT_CHAR_CUSTOMIZE, &WANTED_CRIMINAL, &SHRINE_BATTLE, &BOSS, &SIEGE_WAR, &EVENT_SIEGE_WAR_NPC, &WAR_INFO, &ARCHLORD, &TAX,
+    &EVENT_CHAR_CUSTOMIZE, &WANTED_CRIMINAL, &TITLE, &SHRINE_BATTLE, &BOSS, &SIEGE_WAR, &EVENT_SIEGE_WAR_NPC, &WAR_INFO, &ARCHLORD, &TAX,
 ];
 
 pub fn main_by_id(id: u8) -> Option<&'static Schema> {
@@ -1071,6 +1077,14 @@ pub mod mini {
 
     /// Options d'un objet (AGPMITEM champ 20) : TID de 5 options au plus — drapeaux 1.
     pub static ITEM_OPTION: Schema = Schema { name: "AGPMITEM_OPTION", id: 142, flag_len: 1, fields: &rep::<5>(U16) };
+
+    /// État d'un objet Cash (AGPMITEM champ 23, mini à +0x2db8 d'AgpmItem dans le client x64) — drapeaux 1 : 0 INT8
+    /// « en cours d'utilisation » (0 non, 1 oui, 2 en pause), 1 INT64 temps restant, 2 UINT64 date d'expiration, 3 INT32
+    /// (sens non relevé), 4 INT64 (non lu par le client).
+    pub static ITEM_CASH: Schema = Schema { name: "AGPMITEM_CASH", id: 143, flag_len: 1, fields: &[f(I8), f(I64), f(U64), f(I32), f(I64)] };
+
+    /// Ramassage automatique du sac du familier (AGPMITEM op 30, champ 20 ; mini à +0x2f44) — drapeaux 1 : INT16 0/1.
+    pub static ITEM_AUTO_PICK: Schema = Schema { name: "AGPMITEM_AUTOPICK", id: 144, flag_len: 1, fields: &[f(I16)] };
 
     /// Désignation dans AGPMSKILL (type d'objet, identifiant) — drapeaux 1.
     pub static SKILL_BASE: Schema = Schema { name: "AGPMSKILL_BASE", id: 150, flag_len: 1, fields: &[f(I8), f(I32)] };
@@ -1460,6 +1474,53 @@ pub mod shrine_op {
     pub const MY_SCORE: i64 = 11;
     /// S : score de la race (0x1C victoires, 0x20 défaites).
     pub const RACE_SCORE: i64 = 12;
+}
+
+/// Opérations d'AgpmTitle (U16 en 0x14) ; « C » : du client, « S » : du serveur. Taille de la structure (pied exclu)
+/// entre parenthèses ; champs après le TID (0x48), en i32 sauf mention.
+pub mod title_op {
+    /// S : titre ajouté (0x54) : 0x4C résultat (1), 0x50 compétence choisie (0 dans l'épisode 8).
+    pub const ADD_RESULT: i64 = 1;
+    /// C : équiper ou retirer (0x54) : 0x4C = 2 (constante d'Archonia, ignorée), 0x50 1 équiper / 0 retirer.
+    pub const USE: i64 = 2;
+    /// S : réponse (0x64) : 0x4C bUse, 0x50 résultat (1), 0x58 heure du changement (i64), 0x60 code (3 : trop tôt).
+    pub const USE_RESULT: i64 = 3;
+    /// C : liste des titres (0x4C), sans appelant dans Archonia.
+    pub const LIST: i64 = 4;
+    /// S : un titre possédé (0x68) : 0x50 heure du dernier changement (i64), 0x5C 1 valide (0 : liste vide), 0x60 0,
+    /// 0x64 compétence choisie.
+    pub const LIST_RESULT: i64 = 5;
+    /// Les deux sens : objectifs, sous-opération en 0x4C (`title_quest`).
+    pub const QUEST: i64 = 6;
+    /// C : supprimer un titre possédé ou abandonner un objectif (0x4C).
+    pub const DELETE: i64 = 7;
+    /// S : réponse (0x50) : 0x4C résultat (1).
+    pub const DELETE_RESULT: i64 = 8;
+    /// S : titre affiché (1) ou effacé (0) en 0x4C au-dessus du personnage nommé en 0x16 (0x50).
+    pub const USE_NEAR: i64 = 9;
+    /// S : ouvre `UI_TitleAll` et `UI_TitleMini` (0x4C, PNJ « <Title Manager> »).
+    pub const UI_OPEN: i64 = 10;
+    /// Les deux sens : compétence d'un titre de rang 4 ou 5 (ajout d'Archonia, non repris).
+    pub const SKILL_SELECT: i64 = 11;
+}
+
+/// Sous-opérations de l'op 6 d'AgpmTitle (i32 en 0x4C).
+pub mod title_quest {
+    /// C : fixer le titre comme objectif (0x50).
+    pub const ADD: i64 = 0;
+    /// S : objectif créé (0x5C) : 0x50 date d'acceptation (i64), 0x58 résultat (1).
+    pub const ADD_RESULT: i64 = 1;
+    /// S : valeurs des conditions (0x68) : 0x50 i32[5], 0x64 1 (progression de `UI_TitleMini`).
+    pub const CHECK: i64 = 3;
+    /// C : terminer l'objectif (0x54) : 0x50 compétence choisie.
+    pub const COMPLETE: i64 = 4;
+    /// S : objectif terminé (0x5C) : 0x50 date d'achèvement (i64), 0x58 résultat (1) ; suivi de l'op 1.
+    pub const COMPLETE_RESULT: i64 = 5;
+    /// C : liste des objectifs (0x50, TID 0), sans appelant dans Archonia.
+    pub const LIST: i64 = 6;
+    /// S : un objectif (0x84) : 0x50 1 valide, 0x58 0 en cours, 0x60 acceptation (i64), 0x68 achèvement (i64),
+    /// 0x70 compteurs i32[5].
+    pub const LIST_RESULT: i64 = 7;
 }
 
 /// Opérations d'AgpmBoss (champ 0) ; « C » : du client, « S » : du serveur.

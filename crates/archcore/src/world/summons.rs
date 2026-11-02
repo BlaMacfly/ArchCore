@@ -8,7 +8,11 @@
 //!     4 Increase Gate             limite des invocations relevée à 1 + `limit_quantity` pendant `duration` (op 3)
 //!     5 Elemental Heal (passive)  son `percent.max_hp` s'ajoute aux PV des invocations du maître
 //!     6 parchemin d'invocation    créature de combat comme le 1, « forcée » (hors limite), une par parchemin
-//!     8 familier                  objet à « Use skill id » : suit le maître, ne combat pas ; réutiliser l'objet le renvoie
+//!     8 familier                  objet à « Use skill id » : suit le maître, ne combat pas ; réutiliser l'objet (op 3)
+//!                                 ou demander son arrêt (AGPMITEM op 23) le renvoie
+//!   Familier d'un objet de l'inventaire Cash (statut 51) : sa sortie passe l'objet « en cours d'utilisation » (AGPMITEM
+//!     op 26, mini Cash à 1), son départ, quelle qu'en soit la cause, le repasse à 0 ; le sac du familier suit
+//!     (`pet_bag.rs`).
 //!   Apparition, dans cet ordre (exigé par le client) : vue de la créature (0x42 op 1, facteurs), son état spécial
 //!     (AGPMCHARACTER op 1, champ 17 : 0x800 pour les types 1 et 8, 0xC00 pour le type 4), puis l'op 0 au maître et à
 //!     ceux qui la voient (aussi à chaque joueur qui l'aperçoit ensuite).
@@ -30,8 +34,8 @@
 //! - Combat entre joueurs : une invocation n'attaque un joueur que si son maître le peut (`pvp.rs`) ; l'attaquer, c'est
 //!   suivre les mêmes règles qu'envers son maître.
 //! - Non faits : apprivoisement (type 2, compétence inconnue), Call on Nature et Evil Light (7 : pas de TID de
-//!   créature), pièges de faille (11), arrêt d'un familier par un paquet dédié (inconnu : seule la réutilisation de
-//!   l'objet le renvoie), renforcements des familiers (colonnes « point.* » de leur compétence).
+//!   créature), pièges de faille (11), renforcements des familiers (colonnes « point.* » de leur compétence), endurance
+//!   des familiers (« StaminaPoint », Pet Feed : sans elle, endurance infinie).
 
 use super::combat::{self, Attacker, Defender};
 use super::effects::{self, status};
@@ -442,6 +446,9 @@ pub fn dismiss(st: &mut WorldState, cid: u32, why: &str, immediate: bool) {
     }
     st.monsters.remove(cid);
     info!("[invocation] {gone} ({cid:#x}) de {:#x} disparaît : {why}", s.owner);
+    if let (kind::PET, Some(iid)) = (s.kind, s.item) {
+        super::pet_bag::on_pet_gone(st, s.owner, iid);
+    }
 }
 
 /// Mort d'une invocation (PV à 0) : statut « mort » chez ceux qui la voient, puis disparition.
@@ -630,7 +637,7 @@ pub async fn use_item(ctx: &WorldCtx, st: &mut WorldState, sid: u32, item: &Inve
         let p = st.players.get_mut(&sid).unwrap();
         let cid = p.ch.id;
         match p.inventory.consume(&ctx.db, item.iid, 1).await? {
-            Some(left) => p.send_raw(super::items::item_count(&left, cid)),
+            Some(left) => p.send_raw(p.inventory.count_packet(&left, cid)),
             None => p.send_raw(super::items::item_remove(item.iid, Some(cid))),
         }
     }
@@ -638,10 +645,33 @@ pub async fn use_item(ctx: &WorldCtx, st: &mut WorldState, sid: u32, item: &Inve
     make_room(st, owner, t.summons, t.tid, lv, count, now);
     let duration = (lv.duration_ms > 0 && t.summons != skill_kind::PET).then_some(lv.duration_ms);
     let keep = (t.summons == skill_kind::PET).then_some(item.iid);
+    let mut out = false;
     for _ in 0..count {
-        spawn(ctx, st, sid, &Spawn { tid: lv.summons_tid, skill_kind: t.summons, skill_tid: t.tid, duration_ms: duration, item: keep }, now);
+        out |= spawn(ctx, st, sid, &Spawn { tid: lv.summons_tid, skill_kind: t.summons, skill_tid: t.tid, duration_ms: duration, item: keep }, now).is_some();
+    }
+    if out && keep.is_some() {
+        super::pet_bag::on_pet_used(ctx, st, sid, item.iid);
     }
     Ok(())
+}
+
+/// AGPMITEM op 23 : arrêt d'un objet Cash en cours d'utilisation (« CanStopUsingItem ») ; pour un familier, il est
+/// renvoyé (et l'objet repasse à 0, voir `dismiss`).
+pub fn stop_item(ctx: &WorldCtx, st: &mut WorldState, sid: u32, iid: u32) {
+    let Some(p) = st.players.get(&sid) else { return };
+    let owner = p.ch.id;
+    let Some(item) = p.inventory.cash.get(&iid).filter(|_| p.inventory.in_use.contains(&iid)) else {
+        debug!("[invocation] {} : arrêt de l'objet {iid} refusé (pas en cours d'utilisation)", p.ch.name);
+        return;
+    };
+    if !ctx.catalog.use_skill.get(&item.tid).is_some_and(|u| u.can_stop) {
+        debug!("[invocation] {} : l'objet {} ne s'arrête pas", p.ch.name, item.tid);
+        return;
+    }
+    match st.summons.list.values().find(|s| s.owner == owner && s.item == Some(iid)).map(|s| s.cid) {
+        Some(cid) => dismiss(st, cid, "arrêtée par son objet", true),
+        None => super::pet_bag::on_pet_gone(st, owner, iid),
+    }
 }
 
 /// AgpmSummons reçu du client : seule l'op 2 (propension) en vient.

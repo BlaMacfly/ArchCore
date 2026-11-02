@@ -64,7 +64,20 @@ unknown key (typo) is reported.
 | `Chat.ShoutRange` | `0` | Range of the local "/s" shout; 0: twice `World.ViewRadius` (ArchCore's choice) |
 | `Wanted.ExpireDays` | `7` | Lifetime of a wanted poster, in days since the last bounty (ArchCore's choice) |
 | `Wanted.ExpLossPercent` | `5` | Share of the level's experience lost by a wanted criminal killed by a hunter, never a level (ArchCore's choice) |
+| `Death.ExpPenaltyPercent` | `0` | Share of the level's experience lost on town resurrection, never a level, nothing below level 6 nor after a player-versus-player death; 0: none, as in Archonia (episode 8: 3) |
+| `Death.ExpPenaltyRoguePercent` | `0` | The same for a level 3 murderer, instead of the previous one when that one is on (episode 8: 10) |
+| `Skill.GameBonusDivisor` | `10` | Unit of the experience and loot bonuses of effects (`bonus_exp`, `bonus_drop_rate`: 100 to 1000 on Janus talismans): percent = value / this divisor (unknown unit, ArchCore's choice) |
+| `Recall.RequestSeconds` | `60` | Party recall: seconds a member has to accept the request (ArchCore's choice) |
+| `Recall.AllowInCombat` | `0` | 1 = recall allowed in combat, for the caster and for the member; always refused when dead, in a siege at war, in a Shrine during a battle, in the Battle Square and in regions without resurrection (careful ArchCore choice) |
+| `Recall.ExcludedItems` | `4817` | TIDs of usage 15 items that do not recall (Bead of Nothernland, unrelated description) |
+| `Social.MinIntervalMs` | `1000` | Minimum delay between two social actions of a player; a closer one is ignored (anti-flood, ArchCore's choice) |
+| `ReturnToLogin.LoginAddress` | empty | "host:port" address of the login server given to the client to go back to character selection; empty: the client uses the one it logged in to |
+| `ReturnToLogin.KeySeconds` | `60` | Lifetime of the single-use key for going back to character selection |
 | `Shrine.Enabled` | `1` | Shrine battles on the `shrine` table's schedule; `0`: only through `/shrine open` |
+| `Title.Schola` | `0` | Defender of Chantra and Schola titles of ranks 1 to 3 (uncertain origin, probably Archonia); ranks 4 and 5 and Christmas Event never taken over |
+| `Title.ChangeDelaySeconds` | `7200` | Delay between two changes of the active title (equip or remove), the client's "2 hours"; `0`: none |
+| `Title.ManagerOpensWindow` | `1` | A "<Title Manager>" opens the title windows (AgpmTitle op 10) instead of the dialog (ArchCore's choice) |
+| `Title.CollectCountsKills` | `0` | `1`: a collecting condition also counts the creature's deaths; `0`: only gatherings, as the texts say |
 | `BattleSquare.SupervisorTeleport` | `1` | Talking to a Battle Square supervisor (NPCs 551 to 554) sends the player to their level's floor (ArchCore's choice) |
 | `BattleSquare.SkullTids` | `500,981,982` | TIDs of the level 1, 2 and 3 skulls dropped in the Battle Square (ArchCore's choice) |
 | `Battleground.Schedule` | empty | "HH:MM-HH:MM" ranges (separated by ";") whose start and end are announced to everyone (0x58 packet); empty: no announcement |

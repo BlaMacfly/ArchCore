@@ -177,7 +177,17 @@ pub struct Mods {
     pub dodge: f64,
     /// Charisme gagné en plus (pour cent, « bonus_charisma_add_rate » : Charisma Double…).
     pub charisma_bonus: f64,
+    /// Défense de chaque élément (« point.def_point_* » : ragoûts…), dans l'ordre des attributs 1 à 8 (magie, eau, feu,
+    /// terre, air, poison, foudre, glace), ajoutée aux résistances du porteur.
+    pub spirit_defense: [f64; 8],
+    /// Expérience et butin en plus (« bonus_exp », « bonus_drop_rate » : talismans de Janus, costumes), valeurs brutes de
+    /// SKILL_CONST ; leur unité est réglable (`Skill.GameBonusDivisor`, `consumables.rs`).
+    pub exp_bonus: f64,
+    pub drop_bonus: f64,
 }
+
+/// Colonnes de défense élémentaire de SKILL_CONST, dans l'ordre des attributs 1 à 8.
+pub const SPIRIT_DEFENSE_COLUMNS: [&str; 8] = ["magic", "water", "fire", "earth", "air", "poison", "thunder", "ice"];
 
 /// Soin à l'application : PV et PM fixes et pour cent du maximum.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -224,6 +234,9 @@ impl Mods {
             atk_speed_pct: pc("atk_speed"),
             block: p("physical_block"),
             charisma_bonus: num(c, "bonus_charisma_add_rate"),
+            spirit_defense: SPIRIT_DEFENSE_COLUMNS.map(|e| p(&format!("def_point_{e}"))),
+            exp_bonus: num(c, "bonus_exp"),
+            drop_bonus: num(c, "bonus_drop_rate"),
             ..Default::default()
         }
     }
@@ -266,6 +279,11 @@ impl Mods {
         self.share_spirit += o.share_spirit;
         self.dodge += o.dodge;
         self.charisma_bonus += o.charisma_bonus;
+        for i in 0..8 {
+            self.spirit_defense[i] += o.spirit_defense[i];
+        }
+        self.exp_bonus += o.exp_bonus;
+        self.drop_bonus += o.drop_bonus;
     }
 }
 
@@ -518,6 +536,9 @@ pub fn apply(f: &mut Factors, m: &Mods) {
     f.damage_min[0] = pct(f.damage_min[0] as f64 + m.dmg_min, m.dmg_pct).max(0.0) as i32;
     f.damage_max[0] = pct(f.damage_max[0] as f64 + m.dmg_max, m.dmg_pct).max(f.damage_min[0] as f64) as i32;
     f.defense_point[0] = pct(f.defense_point[0] as f64 + m.defense, m.defense_pct).max(0.0) as i32;
+    for (i, d) in m.spirit_defense.iter().enumerate() {
+        f.defense_point[i + 1] = (f.defense_point[i + 1] as f64 + d) as i32;
+    }
     f.point_max[8] = (f.point_max[8] as f64 + m.hit).max(0.0) as i32;
     f.point_max[9] = (f.point_max[9] as f64 + m.evade).max(0.0) as i32;
     f.status[8] = pct(f.status[8] as f64, m.movement_pct).max(0.0) as i32;

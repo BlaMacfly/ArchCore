@@ -160,7 +160,7 @@ pub fn attach_refusal(ctx: &WorldCtx, tid: u32) -> Option<i64> {
     if d.bound_type == 1 {
         return Some(mail_result::BOUND_ITEM);
     }
-    d.cash.then_some(mail_result::CASH_ITEM)
+    (d.cash != 0).then_some(mail_result::CASH_ITEM)
 }
 
 /// Message système qui accompagne un refus (le client n'affiche qu'un échec général, ou rien).

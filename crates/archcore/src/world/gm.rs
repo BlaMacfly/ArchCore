@@ -282,6 +282,7 @@ pub static COMMANDS: &[CommandDef] = &[
     CommandDef { name: "announce_restart", level: 3, args: Some(&["int", "int?"]), usage: "/announce_restart <minutes> <secondes>" },
     CommandDef { name: "move", level: 1, args: None, usage: "/move x,z [\"nom\"]" },
     CommandDef { name: "anomalies", level: 1, args: Some(&["name"]), usage: "/anomalies \"nom\"" },
+    CommandDef { name: "title", level: 1, args: Some(&["name?"]), usage: "/title [\"nom\"]" },
     CommandDef { name: "shrine", level: 3, args: Some(&["word?", "int?"]), usage: "/shrine [open|close <n>]" },
     CommandDef { name: "siege", level: 3, args: Some(&["word?", "word?", "word?"]), usage: "/siege [start <château> | end <château> | owner <château> <guilde ou -> | hp <château> <PV>]" },
     CommandDef { name: "tax", level: 3, args: Some(&["word?", "word?"]), usage: "/tax [pay [château]]" },
@@ -561,6 +562,8 @@ pub(super) async fn run(world: &Arc<World>, st: &mut WorldState, sid: u32, gm_le
             for s in p.skills.list.iter_mut() {
                 s.ready_at = None;
             }
+            // Recharges des consommables à compétence et des orbes aussi (consumables.rs).
+            p.uses.clear();
             Ok(format!("Délais de relance remis à zéro ({n} compétence(s))."))
         }
         "last_refine" => match st.players[&sid].last_recipe {
@@ -631,6 +634,17 @@ pub(super) async fn run(world: &Arc<World>, st: &mut WorldState, sid: u32, gm_le
             match super::find_character(ctx, st, name).await? {
                 None => err(format!("personnage introuvable : {name}")),
                 Some((cid, exact)) => Ok(super::anticheat::describe(ctx, st, cid, &exact).await?),
+            }
+        }
+        "title" => {
+            // Titres d'un joueur en jeu (soi-même sans nom) : actif, possédés, objectifs, rang de charisme (titles.rs).
+            let target = match a[0].name() {
+                Some(n) => st.by_name(n),
+                None => Some(sid),
+            };
+            match target {
+                Some(t) => Ok(super::titles::describe(ctx, st, t)),
+                None => err(format!("personnage absent du monde : {}", a[0].name().unwrap_or(""))),
             }
         }
         "shrine" => {

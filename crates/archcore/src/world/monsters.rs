@@ -79,6 +79,8 @@ pub struct MonsterStats {
     pub resist: [i32; 8],
     /// Niveau du modèle (« LVL ») : base de la mise à l'échelle d'une invocation (`summons.rs`).
     pub level: i32,
+    /// Familier (« PetType ») : 1 pour une créature qui donne un sac du familier (`pet_bag.rs`).
+    pub pet_type: i32,
 }
 
 impl MonsterStats {
@@ -118,6 +120,7 @@ impl MonsterStats {
             spirit: ["Magic", "Water", "Fire", "Earth", "Air", "Poison", "Thunder", "Ice"].map(|e| (n(&format!("{e} Min_Damage")), n(&format!("{e} Max_Damage")))),
             resist: ["Magic", "Water", "Fire", "Earth", "Air", "Poison", "Thunder", "Ice"].map(|e| n(&format!("{e} Res."))),
             level: n("LVL"),
+            pet_type: n("PetType"),
         }
     }
 

@@ -33,7 +33,8 @@
   the last safe region crossed; item stacks split, merged, destroyed. Skills: learning and upgrading at
   trainers, skill points, casting; damage, areas, buffs and debuffs, damage over time, heals, passives;
   special states (stun, sleep, slow…), critical hits, block, damage turned into HP or MP, counter attack (damage sent back to the monster); party skills;
-  masteries (required skills of the high and heroic trees); monster skills (AI from the original server tables:
+  masteries (required skills of the high and heroic trees, levels in a template's class "1722;30", Dragon Scion
+  passives "10004;4"); monster skills (AI from the original server tables:
   casting, damage, effects, on-hit procs).
   Parties (invitation, members, leader, kick, experience sharing, chat). Guilds (creation at guild managers, invitation, joining, leaving, kicking, disbanding, notice, chat, sub-master and handover, enlarging, guild list, guild marks, guild battles, alliances and hostilities, guild warehouse). Account bank (items, money, extra pages) and trading between players. Teleport portals (paid trips between linked points, player-versus-player zones
   and "Return", refusal in combat). Automatic reconnection (type 0x63). `/last_refine` GM command. Quests: taking, progress (monsters, quest
@@ -92,6 +93,15 @@
   described in [[Network protocol|EN-Network-protocol]]. Validated with the simulator on 28 October 2026 (`summons`
   scenario), to be confirmed in game; ArchRust target windows still to do. Taming, Call on Nature and Evil Light (no
   creature in the data) and rift traps remain.
+- Cash inventory and pet bag (type 0x04, statuses 51 and 13): items marked "Cash" stored in the Cash inventory (Cash
+  mini-packet in field 23, Cash items already in the database moved when entering the world); a pet in use = item "in
+  use" (op 26), recalled by using the item again or by op 23; 4 × 2 × 4 pet bag available with a "PetType" 1 pet:
+  deposit from the inventory, equipment and bank, withdrawal, stack merging and splitting, items kept when the pet is
+  recalled, loot into the bag when the inventory is full, "Auto Pick Up" button (op 30) saved. Left out (Archonia
+  additions): bag marking (ops 37/38), "Sell All", pets 14821 to 15674. ArchCore's rules are described in
+  [[Network protocol|EN-Network-protocol]]. Validated with the simulator on 1 November 2026 (`petbag` scenario), to be
+  confirmed in game; ArchRust `UI_SubInventory` and `UI_CashInven` windows still to do. Pet stamina (Pet Feed) and the
+  Chantra shop remain.
 - Chat: Archonia's prefixes read by the server ("/p", "/g", "/s" sent as type 0, before GM commands; a player's
   unknown command is ignored), local "[Shout]" (`Chat.ShoutRange`), area shouts (type 0x4C: `/race`, `/scream`,
   `/warn`, one item used up per message, one shout per second), chat rooms (type 0x2C: public, private, guild,
@@ -198,6 +208,44 @@
   (`stun_resistance`, `StunResistance`) read, only shown; an option with `Critical` and no `skill_type` (13822)
   counts as critical damage, as in the client. Validated in the simulator on 1 November 2026 (`ignore` scenario), to
   be confirmed in game with the ArchRust window.
+- Consumables, death and skill reset (`world/consumables.rs`): skill items (stews, speed potions, stones, wings,
+  charms, costumes, Janus talismans: "Use skill id" at "Use skill level", ";" lists) that apply their effect without
+  casting, for the level's duration or else the item's ("Apply Effect Count" × "Apply Effect Time", "RemainTime" /
+  "ExpireTime" in minutes), cooldown "Use Interval" + count × time per item and `recast_time` per skill (refusal:
+  AGPMITEM op 5), `skill_classify_id` / `_level` families (an equal or higher rank replaces, a lower one is refused),
+  "CanStopUsingItem" items kept and switched off when used again; elemental defense of effects ("def_point_*");
+  experience and loot bonuses ("bonus_exp", "bonus_drop_rate", unit set by `Skill.GameBonusDivisor`). Resurrection
+  orb (use type 14): dead players only (op 5 otherwise), refused with op 27 code 3 (ArchLord, siege at war, region
+  without bit 0x100, combat region without a Cash orb, levels, cooldown); on the spot, full HP and MP, invincible for
+  10 s, op 4 then op 18. Skill reset with the Gem of origin (use type 27) or at the skill master (AgpmEventSkillMaster
+  op 8 → op 9, once, gold of the learnt levels refunded, "skill init" string saved in `characters.skill_init`, field
+  19 and op 23); ArchLord and production skills and the normal attack are kept. Experience loss on town resurrection
+  can be set (`Death.ExpPenaltyPercent`, `Death.ExpPenaltyRoguePercent`), off by default as in Archonia, never a lost
+  level. Validated with the simulator on 1 November 2026 (`consumables` scenario), to be confirmed in game; left:
+  the lifetime of timed items (not counted down) and item effects lost on death and on logout.
+- Small episode 8 systems: party recall (Summoning Orb, Bead of Summoning, usage 15: AGPMITEM op 4 to the caster,
+  management op 15 to the members, op 16 accepts and teleports next to the caster, op 17 declines; refused when dead,
+  in a siege, in a Shrine during a battle, in the Battle Square, in a region without bit 0x100 and in combat, `Recall.*`
+  settings); social actions (AGPMCHARACTER op 16, types 0 to 16, sent back to the player and to those around, refused
+  when dead, mounted, transformed, `Social.MinIntervalMs`); Shrine shop (charisma and Shrine Coin prices imported from
+  itemdatatable, quantity, codes 10 and 11; no NPC of the data sells such items, the mechanism is ready); quick belt
+  kept by the server (AgpmUIStatus: 50 slots on entry, op 1 saved, `character_quickbelt` table, skills found again by
+  TID, used-up item replaced); return to character selection (AgpmReturnToLogin 0x2F: op 1 → op 5 with a key, op 6 to
+  the login server, op 7 after logging in). Validated with the simulator on 2 November 2026 (`recall`, `social`,
+  `quickbelt`, `returnlogin` scenarios), to be confirmed in game; which NPCs run the Shrine shop is still to decide.
+- Episode 8 titles (AgpmTitle, type 0x60, raw structure): 684 titles of `titledatatable.txt` imported (`title_template`
+  table; Expert Collector, Addict, Advanced, Researcher; Defender of Chantra and Schola 1-3 behind `Title.Schola`,
+  Archonia's Christmas Event and Schola 4/5 left out), charisma ranks (`charisma_title`). Lists and active title pushed
+  on entry (op 5, 6.7, op 9); "<Title Manager>" (op 10 instead of the dialog); goal set with the client's checks and
+  bounds (999, 500), gold and cost items taken (6.0 → 6.1, 6.3); conditions of gathering on a creature, using an item,
+  level and production levels tracked (6.3); title obtained (6.5 then op 1), equipped or removed (op 3, op 9 to the
+  player, to those around and to an observer who sees the holder arrive; one change every 2 hours,
+  `Title.ChangeDelaySeconds`, refusal code 3), deleted or given up (op 8); effects of the equipped title only: its
+  `Skill_Tid_*` skills as passives, production success (+10 %), doubled gathering on its creature, stronger potions;
+  `character_titles`, `character_title_goals` tables and `characters.title_changed_at`; `/title`. Validated with the
+  simulator on 2 November 2026 (`title` scenario), to be confirmed in game with ArchRust's windows; when the lists are
+  sent, when costs are taken and the meaning of op 2's constant 2 are ArchCore's choices (the original server is
+  missing).
 - ArchRust client ([own repository](https://github.com/BlaMacfly/ArchRust)): combat (attacking, hits, death, resurrection, loot), parties, other
   players, inventory and equipment, NPCs (dialog, shop, bank and buying pages, quests), skills (trainers,
   casting, shortcut bar), teleport portals (original window and loading screen, confirmation of player-versus-player zones, "Return",

@@ -301,9 +301,14 @@ fn local_now(ctx: &WorldCtx) -> NaiveDateTime {
 
 /// Paquet de `size` octets (pied exclu) : en-tête, 1 en 0x13, opération en 0x14, puis ce que `fill` écrit.
 pub fn raw_packet(op: i64, size: usize, fill: impl FnOnce(&mut [u8])) -> Vec<u8> {
+    raw_packet_of(ptype::SHRINE_BATTLE, op, size, fill)
+}
+
+/// Comme `raw_packet`, pour un autre type de structure brute au même en-tête (AgpmTitle 0x60, `titles.rs`).
+pub fn raw_packet_of(packet_type: u8, op: i64, size: usize, fill: impl FnOnce(&mut [u8])) -> Vec<u8> {
     let mut out = vec![0u8; size];
     out[0] = archcore_net::packet::GUARD_HEAD;
-    out[5] = ptype::SHRINE_BATTLE;
+    out[5] = packet_type;
     out[0x13] = 1;
     out[0x14..0x16].copy_from_slice(&(op as u16).to_le_bytes());
     fill(&mut out);

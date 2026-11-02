@@ -10,6 +10,16 @@
 //! ```
 //! L'achat paie en plus la taxe de la région du joueur (`tax.rs`), qui va à la recette de la région ; la vente n'est pas
 //! taxée.
+//!
+//! Boutique des Shrines (épisode 8) : un objet peut coûter en plus de l'or des points de charisme (« NPC Charisma
+//! Price ») et des Shrine Coins (« NPC Shrine Coin », objets TID 53000, toutes les piles de l'inventaire comptées), le
+//! tout multiplié par la quantité. Le client n'envoie aucun prix (fenêtre `UI_SHRINEITEM_BUY_CONFIRM` d'Archonia, qui
+//! s'ouvre à tout achat) : le serveur relit le modèle. Contrôles dans l'ordre : charisme (résultat 10,
+//! « NPCTMSG_NotEnoughCharisma »), pièces (11, « NPCTMSG_NotEnoughShrineCoin »), or (3), place (4) ; puis le charisme,
+//! les pièces, l'or et l'objet sont enregistrés ensemble. Ni la taxe ni le doublement du meurtrier ne portent sur le
+//! charisme et les pièces (choix d'ArchCore). Les monnaies d'Archonia (Archonium Coin, Siege Token, Bloodmark, résultats
+//! 12 à 14) sont ignorées. Aucune liste de vente des données ne propose de tels objets (le vendeur d'origine n'est pas
+//! connu) : le mécanisme sert dès qu'une boutique en contient.
 
 use super::items::{alloc_shop_iid, item_add, item_count, item_remove, item_status, SHOP_GRID};
 use super::npc_events::{in_range, range, resolve};
@@ -36,10 +46,61 @@ pub mod trade_result {
     pub const INVALID_COUNT: i64 = 6;
     /// Meurtrier de palier 2 ou plus : « Alert_NPCTrade_MurdererRejectBuyItem ».
     pub const NO_SELL_TO_MURDERER: i64 = 9;
+    /// Boutique des Shrines : charisme ou Shrine Coins insuffisants (rappels 10 et 11 d'AgcmEventNPCTrade).
+    pub const BUY_NOT_ENOUGH_CHARISMA: i64 = 10;
+    pub const BUY_NOT_ENOUGH_SHRINE_COIN: i64 = 11;
 }
 
 /// Argent maximal dans l'inventaire.
 pub const MAX_MONEY: i64 = 1_000_000_000;
+
+/// Shrine Coin (« Arena Coin » dans Archonia) : objet d'ItemType 2 et de Type 6, monnaie de la boutique des Shrines.
+pub const SHRINE_COIN: u32 = 53000;
+
+/// Ce que coûte un achat : or (taxe comprise), points de charisme, Shrine Coins.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Cost {
+    pub gold: i64,
+    pub charisma: i64,
+    pub coins: i64,
+}
+
+impl Cost {
+    /// Charisme et pièces de `count` exemplaires de l'objet ; l'or (`gold`, déjà taxé) est donné.
+    pub fn of(data: &super::items::ItemData, count: i64, gold: i64) -> Self {
+        Cost { gold, charisma: data.charisma_price.max(0) * count, coins: data.coin_price.max(0) * count }
+    }
+
+    /// Le joueur peut payer, sinon le résultat du refus : charisme (10), pièces (11), or (3), dans cet ordre.
+    pub fn afford(&self, charisma: i64, coins: i64, money: i64) -> Result<(), i64> {
+        if self.charisma > charisma {
+            return Err(trade_result::BUY_NOT_ENOUGH_CHARISMA);
+        }
+        if self.coins > coins {
+            return Err(trade_result::BUY_NOT_ENOUGH_SHRINE_COIN);
+        }
+        if self.gold > money {
+            return Err(trade_result::BUY_NOT_ENOUGH_MONEY);
+        }
+        Ok(())
+    }
+}
+
+/// Piles de Shrine Coins à entamer pour en payer `need` : (IID, quantité restante, 0 : pile retirée), dans l'ordre des
+/// piles données. `None` si elles n'y suffisent pas.
+pub fn coin_plan(piles: &[(u32, i64)], need: i64) -> Option<Vec<(u32, i64)>> {
+    let mut left = need;
+    let mut plan = Vec::new();
+    for &(iid, count) in piles {
+        if left <= 0 {
+            break;
+        }
+        let taken = count.min(left);
+        left -= taken;
+        plan.push((iid, count - taken));
+    }
+    (left <= 0).then_some(plan)
+}
 
 pub async fn on_packet(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> anyhow::Result<()> {
     // Sous métamorphose (sauf l'ArchLord) : pas de boutique, comme aucun dialogue de PNJ (morph.rs).
@@ -164,9 +225,14 @@ async fn buy(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> anyho
     // Taxe de la région du joueur en plus (tax.rs), versée à la recette de la région.
     let taxed = super::tax::quote(ctx, st, sid, data.npc_price * count * if rogue >= 1 { 2 } else { 1 });
     let price = taxed.total;
-    let money = st.players[&sid].ch.money as i64;
-    if price > money {
-        result(st, sid, trade_op::BUY, trade_result::BUY_NOT_ENOUGH_MONEY);
+    let cost = Cost::of(data, count, price);
+    let player = &st.players[&sid];
+    let money = player.ch.money as i64;
+    // Shrine Coins : toutes les piles de l'inventaire, comme les compte le client.
+    let piles: Vec<(u32, i64)> = player.inventory.items.values().filter(|i| i.tid == SHRINE_COIN).map(|i| (i.iid, i.count)).collect();
+    let coins_held: i64 = piles.iter().map(|(_, n)| n).sum();
+    if let Err(code) = cost.afford(player.ch.charisma as i64, coins_held, money) {
+        result(st, sid, trade_op::BUY, code);
         return Ok(());
     }
     let wanted = match (p.int(7), p.int(8), p.int(9)) {
@@ -179,9 +245,42 @@ async fn buy(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> anyho
         return Ok(());
     };
     let cid = player.ch.id;
-    // L'objet et le paiement sont enregistrés ensemble.
+    let coins = coin_plan(&piles, cost.coins).unwrap_or_default();
+    // L'objet et le paiement (or, charisme, pièces) sont enregistrés ensemble ; l'insertion en dernier, pour son IID.
     let left = clamp_money(money - price);
-    let new_iid = ctx.db.characters.atomic(vec![(SAVE_MONEY, (left, cid).into()), player.inventory.placement_sql(entry.tid, count, place)]).await? as u32;
+    let charisma_left = (player.ch.charisma as i64 - cost.charisma).max(0) as u32;
+    let mut stmts: Vec<(&str, mysql_async::Params)> = vec![(SAVE_MONEY, (left, cid).into())];
+    if cost.charisma > 0 {
+        stmts.push(("UPDATE characters SET charisma = ? WHERE id = ?", (charisma_left, cid).into()));
+    }
+    for &(iid, n) in &coins {
+        stmts.push(if n > 0 {
+            ("UPDATE character_items SET count = ? WHERE id = ? AND character_id = ?", (n, iid, cid).into())
+        } else {
+            ("DELETE FROM character_items WHERE id = ? AND character_id = ?", (iid, cid).into())
+        });
+    }
+    stmts.push(player.inventory.placement_sql(entry.tid, count, place));
+    let new_iid = ctx.db.characters.atomic(stmts).await? as u32;
+    for &(iid, n) in &coins {
+        if n > 0 {
+            let pile = player.inventory.items.get_mut(&iid).map(|i| {
+                i.count = n;
+                i.clone()
+            });
+            if let Some(pile) = pile {
+                player.send_raw(item_count(&pile, cid));
+            }
+        } else {
+            player.inventory.items.remove(&iid);
+            player.send_raw(item_remove(iid, Some(cid)));
+        }
+    }
+    if cost.charisma > 0 {
+        player.ch.charisma = charisma_left;
+        player.factors.status[4] = charisma_left as i32;
+        super::skills::send_points(player);
+    }
     let (item, created) = player.inventory.apply_placement(entry.tid, count, place, new_iid);
     player.send_raw(if created {
         item_add(item.iid, item.tid, Some(cid), item.count, item_status::INVENTORY, Some(item.grid))
@@ -192,7 +291,16 @@ async fn buy(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> anyho
     let name = player.ch.name.clone();
     result(st, sid, trade_op::BUY, trade_result::BUY_SUCCEEDED);
     crate::journal::shop(&ctx.db, (cid, &name), &npc_name, "achat", data.tid, item.iid, count as i64, price as i64);
-    info!("[boutique] {name} achète {count} × {} (TID {}) pour {price} à {npc_name}{}", data.name, data.tid, if taxed.tax > 0 { format!(" (dont {} de taxe)", taxed.tax) } else { String::new() });
+    let extra = match (cost.charisma, cost.coins) {
+        (0, 0) => String::new(),
+        (c, s) => format!(", {c} point(s) de charisme et {s} Shrine Coin(s)"),
+    };
+    info!(
+        "[boutique] {name} achète {count} × {} (TID {}) pour {price}{extra} à {npc_name}{}",
+        data.name,
+        data.tid,
+        if taxed.tax > 0 { format!(" (dont {} de taxe)", taxed.tax) } else { String::new() }
+    );
     super::tax::collect(ctx, st, &taxed).await?;
     Ok(())
 }
@@ -235,6 +343,65 @@ async fn sell(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> anyh
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::world::items::{ItemCatalog, ItemData, ShopEntry};
+
+    fn item(tid: u32, gold: i64, charisma: i64, coins: i64) -> ItemData {
+        ItemData {
+            tid,
+            name: format!("objet {tid}"),
+            npc_price: gold,
+            pc_price: 0,
+            charisma_price: charisma,
+            coin_price: coins,
+            stack: 99,
+            equip: None,
+            potion: None,
+            scroll: None,
+            stone: None,
+            usable_type: 0,
+            option_tids: Vec::new(),
+            kind: 0,
+            bound_type: 0,
+            cash: 0,
+            enable_on_ride: false,
+            auction_category: (0, 0),
+            event_item: false,
+        }
+    }
+
+    #[test]
+    fn boutique_des_shrines_fictive() {
+        // Boutique fictive (modèle 900) : Elixir of Cold-hearted Spirit (2 000 charisme), Letter of Great Pardon
+        // (75 pièces), et un objet aux trois prix.
+        let mut c = ItemCatalog::default();
+        for d in [item(50139, 0, 2000, 0), item(1836, 0, 0, 75), item(7000, 100, 10, 5)] {
+            c.items.insert(d.tid, d);
+        }
+        c.shops.insert(900, vec![ShopEntry { tid: 50139, count: 1 }, ShopEntry { tid: 1836, count: 1 }, ShopEntry { tid: 7000, count: 1 }]);
+        let cost = |tid: u32, n: i64| {
+            let d = c.get(tid).unwrap();
+            Cost::of(d, n, d.npc_price * n)
+        };
+        assert_eq!(c.shop(900).len(), 3);
+        // Quantité : tous les prix multipliés.
+        assert_eq!(cost(7000, 3), Cost { gold: 300, charisma: 30, coins: 15 });
+        assert_eq!(cost(50139, 1).afford(1999, 0, 0), Err(trade_result::BUY_NOT_ENOUGH_CHARISMA));
+        assert_eq!(cost(50139, 1).afford(2000, 0, 0), Ok(()));
+        assert_eq!(cost(1836, 2).afford(0, 149, 0), Err(trade_result::BUY_NOT_ENOUGH_SHRINE_COIN));
+        assert_eq!(cost(1836, 2).afford(0, 150, 0), Ok(()));
+        // Ordre des contrôles : charisme, pièces, or.
+        assert_eq!(cost(7000, 1).afford(0, 0, 0), Err(trade_result::BUY_NOT_ENOUGH_CHARISMA));
+        assert_eq!(cost(7000, 1).afford(10, 0, 0), Err(trade_result::BUY_NOT_ENOUGH_SHRINE_COIN));
+        assert_eq!(cost(7000, 1).afford(10, 5, 99), Err(trade_result::BUY_NOT_ENOUGH_MONEY));
+        assert_eq!(cost(7000, 1).afford(10, 5, 100), Ok(()));
+        // Pièces prises pile après pile ; 0 : pile retirée.
+        assert_eq!(coin_plan(&[(1, 40), (2, 60)], 75), Some(vec![(1, 0), (2, 25)]));
+        assert_eq!(coin_plan(&[(1, 40)], 40), Some(vec![(1, 0)]));
+        assert_eq!(coin_plan(&[(1, 40), (2, 60)], 0), Some(vec![]));
+        assert_eq!(coin_plan(&[(1, 40)], 41), None);
+    }
+
     #[test]
     fn grille_de_la_boutique() {
         assert_eq!(super::shop_grid(0), [0, 0, 0]);

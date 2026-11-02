@@ -35,7 +35,7 @@
   traversée ; piles d'objets séparées, réunies, détruites. Compétences : apprentissage et amélioration
   chez les instructeurs, points de compétence, lancement ; dégâts, zones, renforcements et
   affaiblissements, dégâts sur la durée, soins, passives ; états spéciaux (étourdissement, sommeil,
-  ralentissement…), coups critiques, blocage, dégâts changés en PV ou PM, contre-attaque (dégâts renvoyés au monstre) ; compétences de groupe ; maîtrises (compétences exigées des arbres supérieur et héroïque) ; compétences des monstres (IA des tables du serveur d'origine : lancement, dégâts, effets, coups chargés). Groupes (invitation, membres, chef, exclusion, partage de l'expérience, discussion). Guildes (création chez les gestionnaires, invitation, adhésion, départ, exclusion, dissolution, annonce, discussion, second et passation de chef, agrandissement, liste des guildes, emblèmes, combats de guildes, alliances et hostilités, entrepôt). Banque du compte (objets, argent, pages en plus) et
+  ralentissement…), coups critiques, blocage, dégâts changés en PV ou PM, contre-attaque (dégâts renvoyés au monstre) ; compétences de groupe ; maîtrises (compétences exigées des arbres supérieur et héroïque, niveaux dans la classe d'un modèle « 1722;30 », passives du Dragon Scion « 10004;4 ») ; compétences des monstres (IA des tables du serveur d'origine : lancement, dégâts, effets, coups chargés). Groupes (invitation, membres, chef, exclusion, partage de l'expérience, discussion). Guildes (création chez les gestionnaires, invitation, adhésion, départ, exclusion, dissolution, annonce, discussion, second et passation de chef, agrandissement, liste des guildes, emblèmes, combats de guildes, alliances et hostilités, entrepôt). Banque du compte (objets, argent, pages en plus) et
   échange entre joueurs. Portails de téléportation (trajets payants entre points reliés, zones de combat
   entre joueurs et « Retour », refus en combat). Reconnexion automatique (type 0x63). Commande MJ
   `/last_refine`. Quêtes : prise, progression (monstres, objets de quête), fin et récompenses, abandon. Voir
@@ -94,6 +94,15 @@
   de la limite. Règles d'ArchCore décrites dans [[Protocole réseau|FR-Protocole-reseau]]. Validé au simulateur le
   28 octobre 2026 (scénario `summons`), à confirmer en jeu ; fenêtres de cible d'ArchRust à faire. Restent
   l'apprivoisement, Call on Nature et Evil Light (pas de créature dans les données) et les pièges de faille.
+- Inventaire Cash et sac du familier (type 0x04, statuts 51 et 13) : objets marqués « Cash » rangés dans l'inventaire
+  Cash (mini Cash au champ 23, objets Cash déjà en base déplacés à l'entrée en jeu) ; familier utilisé = objet « en
+  cours d'utilisation » (op 26), rappel par réutilisation ou op 23 ; sac du familier de 4 × 2 × 4 cases disponible
+  avec un familier de « PetType » 1 : dépôt depuis l'inventaire, l'équipement et la banque, retrait, réunion et
+  séparation de piles, objets gardés au rappel, ramassage vers le sac quand l'inventaire est plein, bouton « Auto Pick
+  Up » (op 30) enregistré. Écartés (ajouts d'Archonia) : marquage des sacs (ops 37/38), « Sell All », familiers 14821
+  à 15674. Règles d'ArchCore décrites dans [[Protocole réseau|FR-Protocole-reseau]]. Validé au simulateur le
+  1er novembre 2026 (scénario `petbag`), à confirmer en jeu ; fenêtres `UI_SubInventory` et `UI_CashInven` d'ArchRust
+  à faire. Restent l'endurance des familiers (Pet Feed) et la boutique Chantra.
 - Discussion : préfixes d'Archonia lus par le serveur (« /p », « /g », « /s » envoyés en type 0, avant les commandes
   MJ ; commande inconnue d'un joueur ignorée), cri local « [Shout] » (`Chat.ShoutRange`), cris de zone (type 0x4C :
   `/race`, `/scream`, `/warn`, un objet consommé par message, un cri par seconde), salons de discussion (type 0x2C :
@@ -201,6 +210,46 @@
   (règle déduite) ; résistance à l'étourdissement (`stun_resistance`, `StunResistance`) lue, affichée seulement ;
   option à `Critical` sans `skill_type` (13822) comptée en dégâts critiques, comme le client. Validé au simulateur le
   1er novembre 2026 (scénario `ignore`), à confirmer en jeu avec la fenêtre d'ArchRust.
+- Consommables, mort et oubli des compétences (`world/consumables.rs`) : objets à compétence (ragoûts, potions de
+  vitesse, pierres, ailes, charmes, costumes, talismans de Janus : « Use skill id » au « Use skill level », listes
+  « ; ») qui posent leur effet sans incantation, durée du niveau sinon de l'objet (« Apply Effect Count » × « Apply
+  Effect Time », « RemainTime » / « ExpireTime » en minutes), recharge « Use Interval » + nombre × durée par objet et
+  `recast_time` par compétence (refus : AGPMITEM op 5), familles `skill_classify_id` / `_level` (rang égal ou
+  supérieur remplace, inférieur refusé), objets « CanStopUsingItem » gardés et éteints à la réutilisation ; défense
+  élémentaire des effets (« def_point_* ») ; bonus d'expérience et de butin (« bonus_exp », « bonus_drop_rate »,
+  unité réglable `Skill.GameBonusDivisor`). Orbe de résurrection (usage 14) : mort seulement (op 5 sinon), refus
+  op 27 code 3 (ArchLord, siège en guerre, région sans le bit 0x100, région de combat sans orbe Cash, niveaux,
+  recharge) ; sur place, PV et PM pleins, invincible 10 s, op 4 puis op 18. Oubli des compétences par la Gem of
+  origin (usage 27) ou chez le maître (AgpmEventSkillMaster op 8 → op 9, une fois, or des niveaux rendu, chaîne
+  « skill init » en base, `characters.skill_init`, champ 19 et op 23) ; compétences d'ArchLord, de production et
+  attaque normale gardées. Perte d'expérience au village réglable (`Death.ExpPenaltyPercent`,
+  `Death.ExpPenaltyRoguePercent`), désactivée par défaut comme dans Archonia, jamais de niveau perdu. Validé au
+  simulateur le 1er novembre 2026 (scénario `consumables`), à confirmer en jeu ; reste le temps de vie des objets à
+  durée (non décompté) et les effets d'objet perdus à la mort et à la déconnexion.
+- Petits systèmes de l'épisode 8 : rappel de groupe (Summoning Orb, Bead of Summoning, usage 15 : AGPMITEM op 4 au
+  lanceur, gestion op 15 aux membres, op 16 accepte et téléporte près du lanceur, op 17 refuse ; refus au mort, en
+  siège, dans un Shrine en combat, dans la Battle Square, dans une région sans le bit 0x100 et en combat, réglages
+  `Recall.*`) ; actions sociales (AGPMCHARACTER op 16, types 0 à 16, renvoyées au lanceur et à ses voisins, refus au
+  mort, à cheval, sous métamorphose, `Social.MinIntervalMs`) ; boutique des Shrines (prix en charisme et en Shrine
+  Coins importés d'itemdatatable, quantité, codes 10 et 11 ; aucun PNJ des données n'en vend, mécanisme prêt) ; barre
+  de raccourcis gardée par le serveur (AgpmUIStatus : 50 cases à l'entrée, op 1 enregistrée, table
+  `character_quickbelt`, compétences retrouvées par TID, objet consommé remplacé) ; retour à la sélection des
+  personnages (AgpmReturnToLogin 0x2F : op 1 → op 5 avec une clé, op 6 au serveur de connexion, op 7 après la
+  connexion). Validés au simulateur le 2 novembre 2026 (scénarios `recall`, `social`, `quickbelt`, `returnlogin`), à
+  confirmer en jeu ; reste à choisir quels PNJ tiennent la boutique des Shrines.
+- Titres de l'épisode 8 (AgpmTitle, type 0x60, structure brute) : 684 titres de `titledatatable.txt` importés (table
+  `title_template` ; Expert Collector, Addict, Advanced, Researcher ; Defender of Chantra et Schola 1-3 derrière
+  `Title.Schola`, Christmas Event et Schola 4/5 d'Archonia écartés), rangs de charisme (`charisma_title`). Listes et
+  titre actif poussés à l'entrée (op 5, 6.7, op 9) ; « <Title Manager> » (op 10 au lieu du dialogue) ; objectif fixé
+  avec les contrôles du client et ses bornes (999, 500), or et objets de coût pris (6.0 → 6.1, 6.3) ; conditions de
+  récolte sur une créature, d'utilisation d'un objet, de niveau et de niveaux de production suivies (6.3) ; titre
+  obtenu (6.5 puis op 1), équipé ou retiré (op 3, op 9 au joueur, à ses voisins et à l'observateur qui le voit
+  arriver ; un changement toutes les 2 h, `Title.ChangeDelaySeconds`, refus code 3), supprimé ou abandonné (op 8) ;
+  effets du titre équipé seulement : compétences `Skill_Tid_*` en passives, réussite de production (+10 %), récolte
+  doublée sur sa créature, potions renforcées ; tables `character_titles`, `character_title_goals`,
+  `characters.title_changed_at` ; `/title`. Validé au simulateur le 2 novembre 2026 (scénario `title`), à confirmer en
+  jeu avec les fenêtres d'ArchRust ; moment d'envoi des listes, consommation des coûts et sens de la constante 2 de
+  l'op 2 choisis par ArchCore (le serveur d'origine est absent).
 - Client ArchRust ([dépôt à part](https://github.com/BlaMacfly/ArchRust)) : combat (attaque, coups, mort, résurrection, butin), groupes, autres
   joueurs, inventaire et équipement, PNJ (dialogue, boutique, banque et achat de pages, quêtes), compétences
   (instructeurs, lancement, barre de raccourcis), portails de téléportation (fenêtre et chargement d'origine, confirmation des zones de combat entre joueurs,

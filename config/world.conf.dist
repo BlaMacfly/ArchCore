@@ -249,6 +249,79 @@ Wanted.ExpireDays = 7
 
 Wanted.ExpLossPercent = 5
 
+#    Death.ExpPenaltyPercent
+#        Part de l'expérience du niveau (en pour cent) perdue en ressuscitant au
+#        village ; jamais au point de perdre un niveau, rien sous le niveau 6 ni
+#        après une mort en combat entre joueurs. Les textes de l'épisode 8 annoncent
+#        3 % ; Archonia les masque et n'en applique aucune : 0 = aucune perte.
+#        Défaut : 0
+
+Death.ExpPenaltyPercent = 0
+
+#    Death.ExpPenaltyRoguePercent
+#        Même perte pour un meurtrier de palier 3, à la place de la précédente quand
+#        celle-ci est active (épisode 8 : 10).
+#        Défaut : 0
+
+Death.ExpPenaltyRoguePercent = 0
+
+#    Skill.GameBonusDivisor
+#        Unité des bonus d'expérience et de butin des effets (« bonus_exp »,
+#        « bonus_drop_rate » de SKILL_CONST : 100 à 1000 aux talismans de Janus,
+#        10 aux costumes) : bonus en pour cent = valeur / ce diviseur. L'unité
+#        d'origine n'est pas connue : choix d'ArchCore (talisman LV1 : +10 %).
+#        Défaut : 10
+
+Skill.GameBonusDivisor = 10
+
+#    Recall.RequestSeconds
+#        Rappel de groupe (Summoning Orb, Bead of Summoning) : secondes laissées à
+#        un membre pour accepter la demande avant qu'elle tombe. Choix d'ArchCore.
+#        Défaut : 60
+
+Recall.RequestSeconds = 60
+
+#    Recall.AllowInCombat
+#        1 = rappel permis en combat (moins de 10 s après un coup donné ou reçu),
+#        du lanceur comme du membre rappelé ; 0 = refusé. Le rappel est toujours
+#        refusé au mort, en siège en guerre, dans un Shrine en combat, dans la
+#        Battle Square et dans les régions sans résurrection (prison…).
+#        Choix prudent d'ArchCore : le client n'en contrôle rien.
+#        Défaut : 0
+
+Recall.AllowInCombat = 0
+
+#    Recall.ExcludedItems
+#        TID des objets d'usage 15 (rappel) qui ne rappellent pas, séparés par des
+#        virgules. 4817 : Bead of Nothernland, dont la description parle d'autre
+#        chose.
+#        Défaut : 4817
+
+Recall.ExcludedItems = 4817
+
+#    Social.MinIntervalMs
+#        Actions sociales (« Emotes ») : délai minimal entre deux actions d'un même
+#        joueur, en millisecondes ; une action plus rapprochée est ignorée.
+#        Choix d'ArchCore (anti-inondation).
+#        Défaut : 1000
+
+Social.MinIntervalMs = 1000
+
+#    ReturnToLogin.LoginAddress
+#        Retour à la sélection des personnages (« Select Character ») : adresse
+#        « hôte:port » du serveur de connexion donnée au client. Vide : le client
+#        reprend l'adresse où il s'est connecté (le cas d'un jeu local).
+#        Défaut : (vide)
+
+ReturnToLogin.LoginAddress =
+
+#    ReturnToLogin.KeySeconds
+#        Durée de validité, en secondes, de la clé à usage unique que le client
+#        présente au serveur de connexion pour revenir à ses personnages.
+#        Défaut : 60
+
+ReturnToLogin.KeySeconds = 60
+
 #    Shrine.Enabled
 #        Combats de Shrine (épisode 8) : 1 = ouverture selon l'horaire de la
 #        table shrine (couche de contenu : tous les jours, Shrines répartis sur
@@ -256,6 +329,37 @@ Wanted.ExpLossPercent = 5
 #        Défaut : 1
 
 Shrine.Enabled = 1
+
+#    Title.Schola
+#        Titres Defender of Chantra et Schola de rangs 1 à 3 (Gracia, Ugdrasil,
+#        Zian) : d'origine incertaine (probablement Archonia), 1 = proposés,
+#        0 = écartés. Les rangs 4 et 5 et Christmas Event ne sont jamais repris.
+#        Défaut : 0
+
+Title.Schola = 0
+
+#    Title.ChangeDelaySeconds
+#        Délai minimal entre deux changements du titre actif (équiper ou
+#        retirer), en secondes : les « 2 hours » du message du client
+#        (TitleErrorMsg_CannotExChangeTitleIn2Hour). 0 = aucun délai.
+#        Défaut : 7200
+
+Title.ChangeDelaySeconds = 7200
+
+#    Title.ManagerOpensWindow
+#        1 = parler à un « <Title Manager> » ouvre les fenêtres des titres
+#        (AgpmTitle op 10) au lieu du dialogue. Choix d'ArchCore.
+#        Défaut : 1
+
+Title.ManagerOpensWindow = 1
+
+#    Title.CollectCountsKills
+#        1 = une condition « Collect at least N … » compte aussi les morts de la
+#        créature tuée par le joueur ; 0 = seulement les récoltes réussies sur
+#        ses cadavres, comme le disent les textes. Choix d'ArchCore.
+#        Défaut : 0
+
+Title.CollectCountsKills = 0
 
 #    BattleSquare.SupervisorTeleport
 #        1 = parler à un superviseur de la Battle Square (PNJ 551 à 554) envoie

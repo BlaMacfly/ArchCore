@@ -145,12 +145,13 @@ on the position tracked at that moment (current walk included), plus a 50-unit m
 | Field | Content |
 |---|---|
 | 0 | op (INT8): 0 add, 1 remove, 2 update |
-| 1 | status (INT8): 2 inventory, 10 NPC shop |
+| 1 | status (INT8): 2 inventory, 10 NPC shop, 13 pet bag, 51 Cash inventory |
 | 2 | IID, item ID |
 | 3 | TID, item template |
 | 4 | owner CID |
 | 5 | count |
 | 7 | slot: mini with 3 INT16 (bag, row, column) |
+| 23 | Cash item: mini-packet ("in use", remaining time…), see the Cash inventory |
 
 The client builds the item from its own template, read from `ItemTemplateAll.ini`. If it does not
 know the TID, it silently ignores the item.
@@ -185,6 +186,16 @@ of 5 × 5 slots (grid type 1).
    the result: **0** success, **1** too much gold.
 
 The character's money is updated by a character packet (type 2) op 1, field 8.
+
+**Shrine shop (episode 8).** On top of gold, an item may cost charisma points (itemdatatable column 29, "NPC Charisma
+Price", `item_data.npc_charisma_price`) and Shrine Coins (column 35, "NPC Shrine Coin", TID 53000 items of the inventory,
+all stacks counted), multiplied by the count. Archonia opens the `UI_SHRINEITEM_BUY_CONFIRM` window, which shows the
+three prices, for every purchase, but sends no price: the server reads the template again. Checks in order: charisma
+(result **10**, "NPCTMSG_NotEnoughCharisma"), coins (**11**, "NPCTMSG_NotEnoughShrineCoin"), gold (3), room (4); then
+charisma, coins, gold and the item are saved together (character factors op 1, AGPMITEM op 2 or op 1 for the coin
+stacks). The tax and the murderer's doubling apply to gold only (ArchCore's choice). Archonia's currencies (Archonium
+Coin, Siege Token, Bloodmark, results 12 to 14) are ignored. No sale list of the data offers such items: the mechanism
+works as soon as a shop holds one.
 
 ## Movement (type 0x40, AgpmOptimizedCharMove)
 
@@ -379,6 +390,46 @@ the total fits in one stack: the source disappears (op 1), the target is updated
 splits a stack (count in field 5, free slot in field 7): the new stack arrives with op 0, the old one is
 updated with op 2. **Op 21** destroys an inventory item (op 1 in answer).
 
+## Cash inventory and pet bag (type 0x04, statuses 51 and 13)
+
+**Cash inventory (status 51).** Items whose `Cash` column in itemdatatable.txt is not zero (6: pet) are stored there:
+AGPMITEM op 0 with status 51, **without a slot** (the client places them in its own list) and, in **field 23**, the
+Cash mini-packet found in the x64 client (1-byte flags): 0 INT8 "in use" (0 no, 1 yes, 2 paused), 1 INT64 remaining
+time, 2 UINT64 expiry date, 3 INT32 (meaning not found), 4 INT64 (not read by the client). ArchCore only sends field
+0. **Op 26** (field 2 IID, 4 CID, 23 Cash mini-packet) updates the item and makes the client refresh its Cash
+inventory. Using an item (op 3) is allowed from the inventory, the Cash inventory and the pet bag; destroying it (op
+21) too, except an item in use. In the database, status 6, rank in the list in `row_idx` (200 places); a Cash item
+still stored in the regular inventory (item from before the Cash inventory, received offline, by mail or by trade)
+moves there when entering the world and frees its slot. ArchCore's choice: the 9 wearable Cash heads (part 17) stay
+in the regular inventory.
+
+**Pet.** Using the item (op 3) brings the creature out (AgpmSummons, type 8) and sets the item to 1 (op 26); using it
+again, or asking to stop it with **op 23** (field 2 IID; item with `CanStopUsingItem`), sends it back and the item
+goes back to 0, as for any departure of the pet (master dead, gone, pet replaced). The state is not saved: the pet
+does not come back by itself when entering the world.
+
+**Pet bag (status 13).** 4 bags × 2 rows × 4 columns (`UI_SubInventory` window, V key), slot in field 7. It is
+available, as the client requires, when an item of the Cash inventory is in use, of Cash type 6, usable, and its
+creature (`summons_tid` of its skill) has `PetType` = 1 in CharacterDataTable; otherwise the client ignores status 13
+items. Pets 14821 to 15674 (Archonia additions, missing from the EP8 tables) come out without a bag.
+
+| Action | Packet | Reply |
+|---|---|---|
+| Deposit from the inventory (2), the equipment (3) or the bank (100, keeper in range) | op 2, status 13, IID, CID, field 7 = slot; row and column at -1 (a bag's tab): first free slot of that bag; no field 7: first free slot | op 2 status 13 with the slot; on a stack of the same item, merge (op 1 of the source, op 2 of the target) |
+| Move inside the bag | op 2, status 13, slot | op 2 status 13 (or merge) |
+| Take out to the inventory / the bank | op 2, status 2 (field 7) / 100 (field 8) | op 2 with the new status (or merge) |
+| Split a stack of the bag | op 17, count in field 5, free bag slot in field 7 | op 0 status 13 of the new stack, op 2 of the old one |
+| "Auto Pick Up ON/OFF" | **op 30**, field 2 the pet's IID, 4 CID, field 20 = mini {INT16 0/1} | op 30 echoed |
+
+Any refusal (bag unavailable, slot taken, bag or inventory full, bank closed) puts the item back in place (op 2). The
+bag is sent (op 0 status 13) the first time it becomes available in the session, after the Cash items; when the pet is
+recalled, the client closes the bag and keeps its items, hidden, until the next call. In the database, status 7 (bag,
+row, column); the op 30 value in `characters.pet_auto_pick` (1 by default, as in the client). ArchCore's choice: on
+pickup (op 11), a Cash item goes to the Cash inventory, another one to the inventory, then, when it is full, to the
+available pet bag; no pickup on drop (op 30 rule unknown). Left out (Archonia additions): bag marking with Ctrl+click
+(ops 37/38) and "Sell All". Not done: buying from a shop into the bag, taking items from the trade grid into the bag,
+equipping from the bag, pet stamina.
+
 ## Item options (type 0x04, field 20)
 
 A piece of equipment can carry up to 5 options from `itemoptiontable.txt` (imported into `client_table`, with
@@ -557,6 +608,22 @@ change. On world entry it sends everything back in **op 0**. Archonia's layout, 
 `INT8 INT32 PACKET[50] INT8 PACKET MEMORY_BLOCK INT32 INT32 INT8 INT8 INT8 MEMORY_BLOCK` (operation, CID,
 shortcut bar, changed slot, its content, encoded bar, potions, helmet, thresholds, encoded cooldowns).
 
+### Quick belt (type 0x14, AgpmUIStatus)
+
+Five layers of ten slots, index = layer × 10 + column (0 to 49); each slot is an `AGPMSKILL_BASE` mini (1-byte flags:
+`INT8` base type, `INT32` id): **5** item (IID), **7** skill (instance id of the owned skill). The client neither shows
+nor sends any other type (social actions included).
+
+- **op 0** (server, on world entry, after items and skills: the client replaces its 50 slots and empties those whose
+  base it does not know): field 2 = the 50 minis (a mini without fields: empty slot).
+- **op 1** (client, no answer): field 3 = slot, field 4 = mini (missing: slot emptied); potions and thresholds
+  optional. The same base is removed from the other slots of its row of ten, as the client does.
+
+The server keeps each slot's **TID** (table `character_quickbelt`): on the next entry, a skill is found again by its TID
+(its instance id changes), an item by its IID, otherwise replaced by another item of the same TID (used-up stack),
+otherwise sent empty. A base the player does not have empties the slot. Op 2 (text-encoded bar) is not used: nothing
+listens to it in the client.
+
 ## Teleport scrolls (type 0x04)
 
 A scroll ("Passport") is a usable item of `Type` 4; its `SubType` gives its kind: 0 back to town, 1 round
@@ -567,6 +634,48 @@ resurrection.
 Going back to town (0 and 1) is refused in combat. The round trip remembers the place left and announces
 it with AGPMITEM **op 9** (field 4 = CID); the client asks to go back with **op 6**, refused in combat; the
 server answers **op 10** (return disabled) and takes the player back.
+
+## Skill consumables, item resurrection, skill reset (types 0x04, 0x02, 0x05, 0x3B)
+
+**Skill consumables**: `ItemType` 1 items with a `Use skill id` (";" lists, level `Use skill level`): stews, speed
+potions, stones, wings, charms (use type 12), costumes (31), Janus talismans (37). AGPMITEM **op 3** → each skill
+applies its effect to the player without casting (AGPMSKILL **op 4** around them, factors through AGPMCHARACTER op 1),
+then the stack goes down (op 2) or the item is removed (op 1) and **op 4** (3 TID, 4 CID, 12 CID, 18 cooldown in ms).
+Duration: the level's `duration`, else `Apply Effect Count` × `Apply Effect Time`, else the item's lifetime
+(`RemainTime`, else `ExpireTime`, in minutes), else 24 h. Cooldown: `Use Interval` + `Apply Effect Count` × `Apply
+Effect Time` per item TID (the one the client's bar shows) and the level's `recast_time` per skill TID (420,000 ms for
+stews); during the cooldown, **AGPMITEM op 5** (3 TID, 4 CID) and a system message. Families (SKILL_CONST
+`skill_classify_id`, `skill_classify_level`, deduced rule): an effect of the same family is replaced (AGPMSKILL op 5)
+when the new one has an equal or higher rank, otherwise the item is refused (op 5). A `CanStopUsingItem` item is not
+consumed: using it again removes its effects. Effects also bring elemental defense (`point.def_point_*`, added to the
+resistances) and experience (`bonus_exp`, on monster experience) and loot (`bonus_drop_rate`, on the killer's loot
+rate) bonuses, in percent = value / `Skill.GameBonusDivisor` (10; unknown unit). Pets stay with AgpmSummons.
+
+**Resurrection orb** (use type 14; 842 Resurrection Orb 90 s, 1054… Reverse Orb 30 min, "for Novices" levels 1-30):
+AGPMITEM op 3 from the dead player. Alive: **op 5** ("Regeneration has failed"). Refused with **op 27 code 3**
+("ReverseOrbError": "You cannot use the resurrection item.") for the ArchLord, in a siege zone at war, in a region
+whose `Type` lacks bit 0x100 (Battle Square, prison, Battle Royale stand), in a combat region (safety 2) with an orb
+that is not Cash, outside the orb's levels (`Level` "1;30"), or during the cooldown (after op 18 with the time left).
+Otherwise: one unit consumed, normal status on the spot, full HP and MP, invincible for 10 s, AGPMCHARACTER op 1
+(factors, field 11 = 0) around, **op 4** (3 TID, 4 CID, 18 cooldown) then **op 18** (4 CID, 18 cooldown left in ms);
+cooldown shared by all orbs: `Use Interval`, else 900,000 ms. No experience loss. Resurrection on the spot without an
+item (AGPMCHARACTER op 10) is never sent by Archonia.
+
+**Skill reset.** Gem of origin (use type 27): AGPMITEM op 3 (refused when dead and during evolution) → AGPMSKILL
+**op 1** (1 ID, 2 owner) per removed skill, factors (points), item consumed, op 4. Master: AGPMEVENTSKILLMASTER
+**op 8** (field 2 = CID, no event: sent from the skill window, when the "skill init" string is empty) → op 1 per
+skill, money refunded (AGPMCHARACTER op 1 field 8), **AGPMCHARACTER op 23** (1 CID, 19 "1") then **op 9** (2 CID,
+5 result: 0 success, 1 failure — dead, evolved, already done, nothing to forget —, 2 no room for the refund: the money
+would exceed 1,000,000,000). Once per character: the string (AGPMCHARACTER field 19, CHAR[32], in the character's
+op 0) is saved in `characters.skill_init`; the master's op 5 carries "already done" (1) in field 7. ArchCore's
+choices: the normal attack, ArchLord skills and production skills stay; the master refunds level 1's `skill_cost` and
+the next levels' `skill_upgrade_cost` (not the taxes paid), the gem only gives the points back; spent charisma is not
+refunded.
+
+**Experience loss**: on town resurrection (AGPMCHARACTER op 9), `Death.ExpPenaltyPercent` of the level's experience
+(`Death.ExpPenaltyRoguePercent` for a level 3 murderer), never below the start of the level; nothing below level 6
+nor after a death in player-versus-player combat. Off by default: Archonia hides the episode 8 texts (3 % in town, 5 %
+on the spot, 10 % for a level 3 murderer). When on, AGPMCONFIG field 1 is 1.
 
 ## Skills (types 0x05 and 0x3B)
 
@@ -589,7 +698,7 @@ factors (index 5).
 event, CID, skill ID, TID, result, points. **Op 4** opens the window (answer op 5, result 0); **op 1** learns
 the TID of field 4: AGPMSKILL op 0 then op 6 with the result (0 success, 1 failure including money, 2 already
 learned, 3 not enough points, 4 level too low, 5 class); **op 2** upgrades the skill of field 3: AGPMSKILL
-**op 2** (new level) then op 3.
+**op 2** (new level) then op 3; **op 8** forgets every skill (answer op 9, see above).
 
 **Casting.** The client sends AGPMSKILL **op 7**: ID and action (mini: type, target as a "base" mini). The
 server checks the skill, its recast delay, MP and HP, walks the player into range, takes the cost and
@@ -676,12 +785,24 @@ die of it, the experience then goes to the player. Bit 1 of `reflect_melee_attac
 taken) is carried by no skill in the Archonia data.
 
 **Masteries.** `SkillMastery_High.txt` (high skills) and `SkillMastery_Heroic.txt` (heroic skills) arrange
-skills in trees, per class template (96 human warrior… 1722 slayer, from `SkillMasteryEvolution.txt`). Each
-skill of a tree requires up to three other skills at a given level (ConditionA to C columns, "TID;points"; the
-client shows "%s Skill %d Points Requirement") and a total of points spent (ConditionD: skill points in the
-high tree, "All Skills %d Points Requirement", heroic points in the heroic tree, "Total Heroic Skill Points
-Required"); a skill's points are its level. Otherwise learning is refused: a system message, then
-AGPMEVENTSKILLMASTER op 6, result 1. Capacitate (525) thus requires Marching Song (526) at level 4.
+skills in trees, per class template (96 human warrior… 1722 slayer, from `SkillMasteryEvolution.txt`). A
+skill's conditions, as Archonia reads them (loader FUN_140229e10, check FUN_1402b8f40; heroic tree FUN_14022a510
+and FUN_1402b9200):
+- ConditionA and B, "TID;level": a skill at that level (the client shows "%s Skill %d Points Requirement").
+- ConditionC, "template;n" ("1722;30" of skills 1155, 1165 and 1178 in the Slayer, Orbiter and Summoner trees): n
+  levels in total across the skills of that template's class (`require_class_*` column of its race and class),
+  passives and the normal attack excepted.
+- ConditionD, "total;": levels in total across all skills in the high tree ("All Skills %d Points
+  Requirement"), heroic points spent in the heroic tree ("Total Heroic Skill Points Required"). A skill's level
+  counts for at most 30 (100 for production).
+- The heroic tree only has ConditionA and D (B and C are not read).
+
+A tree's key is the number that starts its line: "10004;4" opens the tree of race 4 (10000 + race), the 15
+Dragon Scion passives, valid in every form; Archonia looks up the current template's tree first, then the race's.
+A skill's class is that of the current form (FUN_1402fd890: race and class of the factors): a Dragon Scion learns
+the Slayer, Orbiter and Summoner trees in the matching form. Otherwise learning is refused: a system message,
+then AGPMEVENTSKILLMASTER op 6, result 1 (5 for the class). Capacitate (525) thus requires Marching Song (526) at
+level 4.
 
 **Monster skills.** Each spawn point names an AI (`MobAITID` of `spawndatatable.txt`, `monster_ai` table
 taken from `aidatatable.txt` of the original server tables): up to five "SkillN" skills (TID;level), each
@@ -959,6 +1080,27 @@ experience is shared between the living members close enough (5 × 5 sectors aro
 dealt or by level: this sharing is an ArchCore addition, the original server does not describe it. Gold and
 items still drop on the ground for the killer.
 
+### Party recall (types 0x04 and 0x09)
+
+Usage 15 orbs (Summoning Orb 1174 and 6181, Bead of Summoning 2756 and 3327, Jumper's Summons 6494) recall the party
+members to the caster, who uses one with AGPMITEM op 3:
+
+| Packet | Direction | Effect |
+|---|---|---|
+| AGPMITEM op 4 (3 TID, 4 CID, 18 cooldown) | server → caster | one copy used up, "PartyUseRecallSuccess" |
+| management op 15 (1 caster, 3 their name) | server → every other member in game | `UI_ConfirmRecall` window |
+| management op 16 (1 member, 2 caster) | member → server | accepts (the client first cancels its trade, 0x07 op 5): teleported next to the caster |
+| management op 17 (1 member, 2 caster) | member → server | declines |
+| management op 16 / 17 (1 member, 3 their name) | server → caster | "PartyTargetAcceptRecall" / "PartyTargetRejectRecall" |
+
+The client checks neither region, nor combat, nor distance. ArchCore's rules (the original ones are unknown), for the
+caster on use and for both on acceptance: refused when dead, in a siege area at war, in a Shrine during a battle, in
+the Battle Square and the Battlegrounds, in a region without bit 0x100 of its Type (prison, stand…), in combat unless
+`Recall.AllowInCombat`. On use, also refused without another member in game, during the cooldown ("Use Interval") and
+outside the item's levels ("SuitableLevelMin/Max"): AGPMITEM op 5. A request lasts `Recall.RequestSeconds`; the member
+is recalled from any distance. Bead of Nothernland (4817, usage 15, unrelated description) does not recall
+(`Recall.ExcludedItems`).
+
 ## Trading between players (type 0x07, AgpmPrivateTrade)
 
 2 flag bytes: op, CID, other player's CID, IID, TID, money (INT64), origin and destination slots, argument.
@@ -971,7 +1113,7 @@ The client always sends its own CID in field 1; the fields read on reception are
 | 4 / 5 | client | B accepts / refuses ("No": op 5) |
 | 6 | server | Start, to each (field 1 = self, field 2 = the other) |
 | 9 | client | Put the item with the given IID (field 3): origin slot (field 6), targeted trade grid slot (field 7, taken if free, else the first free one), kind (field 8: 0 grid, 1 special item, 2 Ex grid, refused) |
-| 10 | client | Take back the item with the given IID (field 3) |
+| 10 | client | Take back the item with the given IID (field 3): arrival status (field 5, 2 = bag), trade slot (field 6), bag arrival slot (field 7, taken if free, else the original slot) |
 | 23 / 24 | client, server | Money offered (field 5); the other gets op 24 |
 | 16, 17, 18, 19 | | Lock (self ← 16, field 1 = self; other ← 17), unlock (self ← 18, field 1 = self; other ← 19) |
 | 20 | server | Both sides are locked |
@@ -1461,6 +1603,49 @@ and 21. Fifteen seconds after the end, message 27 and those present go back to t
 (states 1 to 4), in the Shrine's regions: different races are enemies without Ctrl, the same race never, no murderer
 points, no first-attacker status, no bounty right; the dead come back at their race's point.
 
+## Titles (type 0x60, AgpmTitle)
+
+Episode 8 module with a **raw structure** both ways, like AgpmShrineBattle (Archonia's constructor declares no
+AuPacket field): standard header, byte 0x13 = 1, U16 operation at 0x14, **name of the character concerned** CHAR[49]
+at 0x16 (the client finds the character by its name), padding at 0x47, **title TID** at 0x48, the operation's fields
+from 0x4C (i32, "i64" on 8 bytes), 0x6B footer; length = structure size + 1.
+
+| Op | Direction | Size | Content (after 0x48) |
+|---|---|---|---|
+| 1 | server | 0x54 | 0x4C result (1: title added), 0x50 chosen skill (0) |
+| 2 | client → server | 0x54 | 0x4C = 2 (constant, ignored), 0x50 1 equip / 0 remove |
+| 3 | server | 0x64 | 0x4C bUse, 0x50 result (1), 0x58 time of the change (i64), 0x60 code (3: less than 2 hours since the last change) |
+| 4 | client → server | 0x4C | Title list (no caller in Archonia) |
+| 5 | server | 0x68 | One per title owned: 0x50 time of the last change (i64), 0x5C 1 valid (0: empty list, a single packet), 0x60 0, 0x64 skill |
+| 6.0 | client → server | 0x50 | Set the title as a goal (sub-operation at 0x4C) |
+| 6.1 | server | 0x5C | 0x50 acceptance date (i64), 0x58 result (1; 0: refused) |
+| 6.3 | server | 0x68 | 0x50 i32[5] values of the non-empty conditions, 0x64 1 (`UI_TitleMini` progress) |
+| 6.4 | client → server | 0x54 | Complete the goal; 0x50 chosen skill (0) |
+| 6.5 | server | 0x5C | 0x50 completion date (i64), 0x58 result (1): goal removed, followed by op 1, which adds the title |
+| 6.6 | client → server | 0x50 | Goal list, TID 0 (no caller in Archonia) |
+| 6.7 | server | 0x84 | One per goal: 0x50 1, 0x58 0 running, 0x60 acceptance (i64), 0x68 completion (i64), 0x70 counters i32[5] |
+| 7 | client → server | 0x4C | Delete a title owned ("Delete Title") or give up a goal ("Give Up") |
+| 8 | server | 0x50 | 0x4C result (1) |
+| 9 | server | 0x50 | 0x4C 1 show / 0 clear the title above the character named at 0x16 (oneself included: active title) |
+| 10 | server | 0x4C | Opens `UI_TitleAll` and `UI_TitleMini`; TID 1 with `Title.Schola` (Archonia does not read it) |
+| 11 | both | 0x50 | Skill of a rank 4 or 5 title (Archonia): logged, not implemented |
+
+ArchCore's rules (the original server is not in the client): the client never asks for its lists, the server
+**pushes them on entry** (op 5, 6.7, op 9 of the active title); a "<Title Manager>" (18 NPCs of npc.ini, function 21)
+answers the dialog request with op 10 (`Title.ManagerOpensWindow`). Setting a goal (6.0) repeats the client's checks in
+its order (ArchLord, guild master, class — `Require_class_Type` 101 to 901 race and class, 1001 Dragon Scion, 1101 to
+1301 its evolved forms —, level, Con, Str, Int, Dex, Wis, Cha, gold, items, prerequisite titles) and bounds (999 goals,
+500 titles and goals), then **takes** the gold and cost items; 6.1, then 6.3 when conditions are already met; refusal:
+6.1 result 0 and a message. Conditions: 2 successful gathering on a corpse of creature Set (`Title.CollectCountsKills`:
+its deaths too), 5 using item Set (potions), 15 level, 25 / 26 / 27 Alchemy / Cooking / Gathering level; 6.3 on every
+change, counters saved. Completing (6.4): every value reached, 6.5 then op 1. Equipping or removing (op 2): refused
+less than `Title.ChangeDelaySeconds` (7200) after the last change (op 3 result 0, code 3, time of the change);
+otherwise op 3 then op 9 to the player and to those who see them; a player who comes into a holder's view receives
+their op 9. Deleting the active title clears it (op 9 bUse 0) with no delay. Effects of the **equipped** title only:
+`Skill_Tid_*` skills ("<Title> Novice Knight"…: Str and Con) as passives, 3 / 4 / 5 Alchemy / Cooking / Gathering
+success + Value_1 %, 7 gathered items × Value_2 on creature Value_1, 9 potion Value_1 + Value_2 points (Set 0) or
+percent (Set 1). Charisma ranks: computed by the client from the CHA sent.
+
 ## Battle Square and Battleground (types 0x4A and 0x58)
 
 **Battle Square** (regions 189 to 234, six floors; roots 198, 208, 209, 215, 223, 229, LevelMin 20 to 70 from
@@ -1627,6 +1812,33 @@ castle without an owner does not tax; a new owner starts from 0 rates; every `Ta
 ArchLord's bank (except at Rensphere; without an ArchLord, the owner keeps everything), written to `log_bank` (`taxe`,
 `tribut`, `count` = castle); `/tax pay` pays at once.
 
+## Social actions (type 0x02, op 16)
+
+"Emotes" window (`UI_SocialAction`, `SocialAction.txt`): the client sends AGPMCHARACTER **op 16** (field 1: its CID,
+field 16: U8 type, 0 greet … 16 sit) and animates nothing itself. The server sends op 16 (field 1, field 16) back to the
+player and to everyone who sees them; the client then plays the animation and sound of `INI\SOCIAL_PC.txt` (row = type,
+column = character TID). No result code: a refusal is silent. Refused (ArchCore's choice): the following types (SELECT*
+of the selection screen, GM_*), the dead, a mounted or transformed player (the client checks three conditions of this
+kind whose exact meaning is not established), an action less than `Social.MinIntervalMs` after the previous one.
+
+## Return to character selection (type 0x2F, AgpmReturnToLogin)
+
+1-byte flags: 0 operation, 1 CID, 2 account (49 bytes), 3 server group (32), 4 "host:port" address of the login server
+(25), 5 key. "Select Character" button of `UI_EXIT` (read in Archonia):
+
+| Op | Direction | Effect |
+|---|---|---|
+| 1 | client → world | request (the client itself checked 5 s without combat and the arena) |
+| 5 | world → client | one-time key (field 5) and address (field 4; missing: the client uses the login server address it knows); the character leaves the world, the connection closes 2 s later |
+| 2 | world → client | refusal (ArchCore: dead, in combat) |
+| 6 | client → login | once the connection is encrypted, instead of the hash key request: account (field 2) and key (field 5) |
+| 7 | login → client | after a successful login (AGPMLOGIN op 1); the client asks again for its characters (AGPMLOGIN op 3) |
+
+On the login server, a valid key (`account.return_key`, `ReturnToLogin.KeySeconds`) is used up and followed by the hash
+key (AGPMLOGIN op 0): the client logs in again with the id and password it kept. An unknown, expired or already used
+key is refused with AGPMLOGIN op 15 (wrong credentials). The key goes through the database: both servers may run in
+separate processes.
+
 ## Known types
 
 | Type | Module | Type | Module |
@@ -1640,7 +1852,7 @@ ArchLord's bank (except at Rensphere; without an ArchLord, the owner keeps every
 | 0x08 | Party | 0x42 | Optimized view |
 | 0x0D | Login | 0x44 | System message |
 | 0x0F | Chat | 0x48 | Startup encryption |
-| 0x11 | Timer | 0x60 | Titles |
+| 0x11 | Timer | 0x60 | Titles (AgpmTitle, raw) |
 | 0x13 | Quests | 0x63 | Reconnect |
 | 0x4A | Player versus player | 0x2A | Remission |
 | 0x32 | NPC shops | 0x37 | NPC dialog |

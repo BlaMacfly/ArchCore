@@ -80,6 +80,7 @@ la discussion comme messages système.
 | `/additem <TID> [quantité]` | 3 | Raccourci de `/create` sur soi : ajoute l'objet (1 par défaut, jusqu'à 9999) dans l'inventaire du MJ, échangeable. Commande propre à ArchCore |
 | `/simloot <TID du monstre> <nombre> [taux de butin] [taux d'or]` | 2 | Simule le butin de `nombre` monstres de ce modèle (1 à 10 000) : chaque mort tire le butin exactement comme à la mort d'un vrai monstre (or, groupes de butin, objets propres au monstre), sans rien créer ni poser au sol. Taux du serveur (`/GetDrop`, `/GetGold`) sauf s'ils sont donnés (0 à 100) ; niveau du monstre : celui d'un monstre de ce modèle présent dans le monde, sinon celui du modèle ; le niveau du personnage du MJ tient lieu de niveau du tueur. Réponse : un en-tête (monstres, taux, or, nombre d'objets et de sortes), puis une ligne `· quantité × nom (TID n)` par objet, du plus fréquent au plus rare (40 au plus, puis une ligne de résumé). Commande propre à ArchCore |
 | `/weather [clear\|rain\|snow]` | 2 | Météo pour tous les joueurs en jeu (pluie, neige, temps clair) ; sans argument, la météo et l'heure du jeu. Commande propre à ArchCore |
+| `/title ["nom"]` | 1 | Titres d'un joueur en jeu (soi-même sans nom) : titre actif, charisme et son rang (`charisma_title`), titres possédés, objectifs et valeurs de leurs conditions. Commande propre à ArchCore |
 | `/shrine [open\| `/siege [start|end <château> | owner <château> <guilde|-> | hp <château> <PV>]` | 3 | Sans argument, l'état des châteaux ; `start` clôt les candidatures et ouvre le combat, `end` le termine (la guilde du dernier carving prend le château), `owner` donne le château à une guilde (`-` : aucune) et remet son calendrier au statut 0, `hp` ramène les PV des objets intacts d'un château en guerre (essais). Commande propre à ArchCore |
 |close <n>]` | 3 | Sans argument, l'état des Shrines ; `open` ouvre le combat du Shrine `n` sans attendre son horaire, `close` le ferme sans vainqueur. Commande propre à ArchCore |
 | ✅ `/siege [start|end|owner|hp …]` | État des châteaux, début et fin forcés d'un siège, propriétaire, PV des objets (ajout d'ArchCore, absent du panneau) |
@@ -205,6 +206,7 @@ Exemple : `/SetExp 2.0` puis `/GetExp` pour vérifier.
 | ✅ `/simloot <TID du monstre> <nombre> [taux de butin] [taux d'or]` | Simule le butin d'un nombre de monstres et liste les objets obtenus (ajout d'ArchCore, absent du panneau) |
 | ✅ `/speed <1-10>` | Multiplie sa vitesse de déplacement (ajout d'ArchCore, absent du panneau) |
 | ✅ `/weather [clear\|rain\|snow]` | Météo de tout le monde, ou météo et heure du jeu (ajout d'ArchCore, absent du panneau) |
+| ✅ `/title ["nom"]` | Titres, objectifs et rang de charisme d'un joueur (ajout d'ArchCore, absent du panneau) |
 | ✅ `/shrine [open\|close <n>]` | État des Shrines, ouverture ou fermeture forcée d'un combat (ajout d'ArchCore, absent du panneau) |
 | ✅ `/durability <valeur\|-1>` | Fixe la durabilité de son équipement porté (ajout d'ArchCore, absent du panneau) |
 | ✅ `/money <montant> ["nom"]` | Fixe l'or d'un personnage connecté (ajout d'ArchCore, absent du panneau) |

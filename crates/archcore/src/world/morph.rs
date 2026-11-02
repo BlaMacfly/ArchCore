@@ -42,7 +42,7 @@
 //! que sous une forme évoluée d'une autre race ou classe. Les montures (« Kind » 0x20) échappent à ces contrôles ; sous
 //! métamorphose, ArchCore refuse quand même d'en monter une (le client ne refuse rien).
 
-use super::items::{item_count, item_remove, InventoryItem};
+use super::items::{item_remove, InventoryItem};
 use super::monsters::{char_type, MonsterMorph};
 use super::{send_system, Player, WorldCtx, WorldState};
 use crate::character::{factors_mini, Factors, POINT_HP};
@@ -275,7 +275,7 @@ pub async fn use_potion(ctx: &WorldCtx, st: &mut WorldState, sid: u32, item: &In
     }
     let player = st.players.get_mut(&sid).unwrap();
     match player.inventory.consume(&ctx.db, item.iid, 1).await? {
-        Some(left) => player.send_raw(item_count(&left, cid)),
+        Some(left) => player.send_raw(player.inventory.count_packet(&left, cid)),
         None => player.send_raw(item_remove(item.iid, Some(cid))),
     }
     player.send_raw(super::recovery::used_packet(item.tid, cid, POTION_REUSE));

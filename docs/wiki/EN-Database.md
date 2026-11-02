@@ -10,7 +10,7 @@ ArchCore uses three main MariaDB databases, plus a log database, created and upd
 
 | Table | Content |
 |---|---|
-| `account` | Accounts: name, SHA-256 password hash, GM level, former ban end date (`banned_until`, still read for one version), last login, world entry key (unique, cleared once used), language (last choice of an ArchRust client, see [[Translation|EN-Translation]]) |
+| `account` | Accounts: name, SHA-256 password hash, GM level, former ban end date (`banned_until`, still read for one version), last login, world entry key (unique, cleared once used), return-to-character-selection key (`return_key`, `return_key_until`: AgpmReturnToLogin, single use), language (last choice of an ArchRust client, see [[Translation|EN-Translation]]) |
 | `account_banned` | Bans, with their history: account, date, end (`NULL`: no end), author, reason, `active` (0: lifted early). An account is refused while an active ban has not expired. The anti-cheat writes its own there (author `anti-triche`, `AntiCheat.Action = ban`) |
 | `server_group` | Server groups shown in the list |
 | `world` | Worlds: name, group, `ip:port` address (23 characters max), status |
@@ -19,8 +19,8 @@ ArchCore uses three main MariaDB databases, plus a log database, created and upd
 
 | Table | Content |
 |---|---|
-| `characters` | Account, slot, unique name, template (TID), level, experience, HP/MP/SP, position, money, bank, hair, face, charisma, soft delete; `evolution_tid`: evolved form of a Dragon Scion (1722, 1723, 1732; 0 none), `template_id` staying the Scion's |
-| `character_items` | Items: status 0 inventory, 1 equipped, 2 bank (attached to the character who deposited it), 3 guild warehouse (`guild_id`; the character who deposited it stays recorded), 4 item attached to a mail (attached to the recipient), 5 on sale in the auction house (attached to the seller); `durability`: -1 full (template DUR column), otherwise current durability (wear, `repair.rs`) |
+| `characters` | Account, slot, unique name, template (TID), level, experience, HP/MP/SP, position, money, bank, hair, face, charisma, soft delete; `evolution_tid`: evolved form of a Dragon Scion (1722, 1723, 1732; 0 none), `template_id` staying the Scion's; `skill_init`: "skill init" string (empty: the skill reset at the master is still allowed, "1": done); `pet_auto_pick`: pet bag auto pickup (AGPMITEM op 30, 1 by default) |
+| `character_items` | Items: status 0 inventory, 1 equipped, 2 bank (attached to the character who deposited it), 3 guild warehouse (`guild_id`; the character who deposited it stays recorded), 4 item attached to a mail (attached to the recipient), 5 on sale in the auction house (attached to the seller), 6 Cash inventory (status 51; rank in the list in `row_idx`), 7 pet bag (status 13; bag, row, column); a Cash item still at status 0 moves to status 6 when entering the world; `durability`: -1 full (template DUR column), otherwise current durability (wear, `repair.rs`) |
 | `character_quests` | Quests in progress (monster A and B counters) and completed |
 | `account_bank` | Account bank: money, pages beyond the first (created on first entry, with the money the characters had in the bank) |
 | `character_skills` | Learned skills and their level ("Normal Attack" is not stored: every character knows it); `exp`: cumulative experience of a production skill |
@@ -41,6 +41,9 @@ ArchCore uses three main MariaDB databases, plus a log database, created and upd
 | `archlord` | ArchLord title: one row (id 1), character holding the title (`NULL`: none), name, since when |
 | `castle_tax`, `castle_tax_region` | Region taxes: per castle, total income paid, last payout, last rate change, start of the period; per region (castle and outskirts), castle, rate (0 to 50 %) and income since the last payout |
 | `character_ui_status` | Interface status: the bar's life and mana potions, their automatic use thresholds (%), helmet display |
+| `character_quickbelt` | Quick belt kept by the server (AgpmUIStatus): one row per filled slot (0 to 49), base type (5 item, 7 skill), TID, IID of an item; deleted with the character |
+| `character_titles` | Titles owned (AgpmTitle): TID, active (one at most), chosen skill (0), date obtained (Unix seconds); the time of the last change of active title is `characters.title_changed_at` (`Title.ChangeDelaySeconds` delay) |
+| `character_title_goals` | Running title goals: TID, acceptance date, values `c1` to `c5` of the template's non-empty conditions |
 
 ## `archcore_world` — game data (`sql/003_world.sql`)
 
@@ -54,12 +57,13 @@ Filled by `archcore import` from the client tables.
 | `growup_factor` | `GrowUpFactor.txt` | Stat growth |
 | `login_char_pos` | `logincharpos.ini` | Character selection screen positions |
 | `item_template` | item templates | Items |
+| `item_data` | `itemdatatable.txt` | Item stats: level, part, kind, type, NPC prices (gold `npc_price`, resale `pc_price`, charisma `npc_charisma_price` and Shrine Coins `npc_shrine_coin` of the Shrine shop), stack, every column as JSON (`raw`) |
 | `skill_template` | `SKILLTEMPLATE.ini` | Skills (TID, name) |
 | `skill_spec` | `SKILL_SPEC.txt` | Each skill's nature (non-empty columns, as JSON) |
 | `quest_template` | `questtemplate.ini` | Quests (non-empty columns, as JSON) |
 | `quest_group` | `questgroup.ini` | NPC groups: quests offered and handed in |
 | `skill_level` | `SKILL_CONST.txt`, `Skill_Const2.txt` | Values of each level of each skill (non-empty columns, as JSON; `point.`, `percent.`, `magnify.` groups; those of `Skill_Const2.txt`, suffixed with "2", under `point2.`, `percent2.`…) |
-| `skill_mastery` | `SkillMastery_High.txt`, `SkillMastery_Heroic.txt` | Mastery trees: class (template TID), skill, tree (1 high, 2 heroic), required skills `[[TID, points]…]`, total of points spent |
+| `skill_mastery` | `SkillMastery_High.txt`, `SkillMastery_Heroic.txt` | Mastery trees: key (template TID, 10000 + race for "10004;4"), skill, tree (1 high, 2 heroic), required skills `[[TID, level]…]` (ConditionA, B), levels in a template's class `class_points` `[[template TID, levels]…]` (ConditionC), total (ConditionD: levels in total, or heroic points) |
 | `product_category`, `product_compose`, `product_exp`, `product_gather`, `product_result_item` | `productcategory.txt`, `productcompose.txt`, `productexp.txt`, `productgather.txt`, `productresultitem.txt` | Production: skill of each category, 95 recipes (materials `[[TID, count]…]`, price, level, chance), levels 1 to 15, 760 monsters that can be gathered, items gathered per set and level (skill names resolved through `SKILLTEMPLATE.ini`) |
 | `npc_spawn` | `npc.ini` | 567 NPCs: template, name, position, orientation, raw functions |
 | `client_table` | other `.txt` tables | Rows as JSON, for tables not modelled yet |
@@ -87,6 +91,8 @@ Filled by `archcore import` from the client tables.
 | `character_customize` | `charactercustomizelist.txt` | Hair styles (1) and faces (2) per model: number (AGPMCHARACTER fields 20 and 21), name, `Case` (0 creation and stylist, 1 stylist, 2 creation), required level, gold or item price, file order |
 | `guild_max_member` | `guildmaxmember.txt` | Guild sizes and their price; the first row is a new guild (50 places, 10,000 coins), the next ones the enlargements |
 | `guild_mark` | `guildmark.txt` | Guild mark items: layer (1 background, 2 pattern, 3 symbol, 4 colour), number, TID (number << 8 × (layer − 1)), name, gold price, skulls, cash, ARGB colour |
+| `title_template` | `titledatatable.txt`, `titlestringtable.txt` | 684 episode 8 titles (627 Expert Collector, 30 Advanced, 14 Addict, 3 Researcher; 10 Defender of Chantra and Schola 1-3 marked `optional`, loaded with `Title.Schola`): category (`FirstCategory`), requirements to set the goal (level, class, guild master, ArchLord, stats), gold, cost items, prerequisite titles, conditions, skills and effects (JSON); Archonia's Christmas Event and Schola 4/5 not imported |
+| `charisma_title` | `charismatitletable.txt` | 14 charisma ranks (min CHA, max, title): computed by the client, read by `/title` |
 
 **Stable identifiers.** In `monster_spawn`, `monster_drop` and `resurrection_point`, the `id` column is only an
 import order number. The `stable_key` column (unique, case-sensitive) names the same row from one import to the
@@ -171,6 +177,7 @@ start-up:
 | unknown skill (`character_skills.skill_tid` → `skill_template`) | serious |
 | quest missing from `quest_template` | warning |
 | recipe missing from `product_compose` (`character_recipes.recipe_tid`) | warning |
+| title or title goal missing from `title_template` (`character_titles`, `character_title_goals`) | warning |
 | mail attachment not found (`mail.item_id` without an item with status 4 owned by the recipient) | warning |
 | item on sale not found (`auction_sale` on sale without an item with status 5 owned by the seller) | warning |
 | hair style or face missing from `character_customize` for the character's model (table imported) | warning |

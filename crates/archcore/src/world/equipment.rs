@@ -230,7 +230,7 @@ pub fn view_packets(p: &Player) -> Vec<Vec<u8>> {
 }
 
 /// Case demandée au champ 7 ; une coordonnée hors grille (0xFFFF, -1) laisse le serveur choisir.
-fn wanted_grid(p: &Packet) -> Option<Grid> {
+pub fn wanted_grid(p: &Packet) -> Option<Grid> {
     let g = decode_mini(&mini::ITEM_GRID, p.bytes(7)?).ok()?;
     let v = [g.int(0)?, g.int(1)?, g.int(2)?];
     v.iter().all(|x| *x >= 0).then_some(v)
@@ -243,6 +243,10 @@ pub async fn on_item_update(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &P
     let Some(player) = st.players.get(&sid) else { return Ok(()) };
     if !player.in_game || player.dead {
         return Ok(());
+    }
+    // Sac du familier : dépôt (statut 13) depuis l'inventaire, l'équipement ou la banque, et tout ce qui en sort.
+    if status == item_status::SUB_INVENTORY || player.inventory.sub.contains_key(&iid) {
+        return super::pet_bag::on_item_update(ctx, st, sid, p).await;
     }
     if status == item_status::BANK || player.bank.items.contains_key(&iid) {
         return super::bank::on_item_update(ctx, st, sid, p).await;
@@ -337,20 +341,8 @@ pub async fn equip(ctx: &WorldCtx, st: &mut WorldState, sid: u32, iid: u32, quie
 /// métamorphose ou évolution, un objet que les facteurs n'admettent plus (forme évoluée) reste porté (`may_take_off`).
 /// Rend vrai si l'objet est rangé.
 pub async fn unequip(ctx: &WorldCtx, st: &mut WorldState, sid: u32, at: i64, wanted: Option<Grid>, quiet: bool) -> anyhow::Result<bool> {
-    let p = &st.players[&sid];
-    let worn = p.inventory.equipment.get(&at).cloned();
-    let transformed = p.form.morph.is_some() || p.form.evolved.is_some();
-    if let Some((item, d)) = worn.as_ref().and_then(|i| Some((i, ctx.catalog.get(i.tid)?))) {
-        let f = &p.factors;
-        let kept = d.equip.as_ref().map(|e| may_take_off(e, transformed, f.ftype[0] as i64, f.ftype[2] as i64, f.ftype[1] as i64));
-        if let Some(Err(why)) = kept {
-            info!("[équipement] {} : retrait de {} refusé sous sa forme ({why})", p.ch.name, d.name);
-            if !quiet {
-                send_system(st, sid, &format!("Vous ne pouvez pas retirer {} sous cette forme : {why}.", d.name));
-                p.send_raw(item_update(item, p.ch.id, item_status::EQUIP));
-            }
-            return Ok(false);
-        }
+    if take_off_refused(ctx, st, sid, at, quiet) {
+        return Ok(false);
     }
     let player = st.players.get_mut(&sid).unwrap();
     let cid = player.ch.id;
@@ -361,14 +353,38 @@ pub async fn unequip(ctx: &WorldCtx, st: &mut WorldState, sid: u32, at: i64, wan
         return Ok(false);
     };
     player.send_raw(item_update(&item, cid, item_status::INVENTORY));
-    let name = player.ch.name.clone();
+    taken_off(ctx, st, sid, &item, at);
+    Ok(true)
+}
+
+/// Retrait de l'objet porté sur `at` refusé sous métamorphose ou évolution (`may_take_off`) : message et objet remis
+/// à sa place chez le client, sauf `quiet`. Rend vrai si refusé.
+pub fn take_off_refused(ctx: &WorldCtx, st: &WorldState, sid: u32, at: i64, quiet: bool) -> bool {
+    let p = &st.players[&sid];
+    let worn = p.inventory.equipment.get(&at);
+    let transformed = p.form.morph.is_some() || p.form.evolved.is_some();
+    let Some((item, d)) = worn.and_then(|i| Some((i, ctx.catalog.get(i.tid)?))) else { return false };
+    let f = &p.factors;
+    let Some(Err(why)) = d.equip.as_ref().map(|e| may_take_off(e, transformed, f.ftype[0] as i64, f.ftype[2] as i64, f.ftype[1] as i64)) else { return false };
+    info!("[équipement] {} : retrait de {} refusé sous sa forme ({why})", p.ch.name, d.name);
+    if !quiet {
+        send_system(st, sid, &format!("Vous ne pouvez pas retirer {} sous cette forme : {why}.", d.name));
+        p.send_raw(item_update(item, p.ch.id, item_status::EQUIP));
+    }
+    true
+}
+
+/// Après le retrait de l'objet porté sur `at` (vers l'inventaire ou le sac du familier) : retiré chez ceux qui voient
+/// le porteur, facteurs recalculés, descente de monture.
+pub fn taken_off(ctx: &WorldCtx, st: &mut WorldState, sid: u32, item: &InventoryItem, at: i64) {
+    let Some(p) = st.players.get(&sid) else { return };
+    let (cid, name) = (p.ch.id, p.ch.name.clone());
     to_viewers(st, sid, &item_remove(item.iid, Some(cid)));
     refresh_factors(ctx, st, sid);
     if at == part::RIDE {
         super::ride::on_dismount(st, sid);
     }
     info!("[équipement] {name} retire l'objet {} (partie {at})", item.tid);
-    Ok(true)
 }
 
 /// Range l'objet porté sur `at` à l'initiative du serveur (descente forcée de monture) : comme un retrait demandé
@@ -412,10 +428,14 @@ async fn move_in_bag(ctx: &WorldCtx, st: &mut WorldState, sid: u32, iid: u32, wa
 pub const SPLIT_ITEM: i64 = 17;
 pub const REQUEST_DESTROY_ITEM: i64 = 21;
 
-/// AGPMITEM op 17 : sépare `count` exemplaires d'une pile vers une case libre.
+/// AGPMITEM op 17 : sépare `count` exemplaires d'une pile vers une case libre (du sac du familier pour une pile qui y
+/// est, `pet_bag.rs`).
 pub async fn split(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> anyhow::Result<()> {
     let (iid, count) = (p.int(2).unwrap_or(0) as u32, p.int(5).unwrap_or(0));
     let Some(grid) = wanted_grid(p) else { return Ok(()) };
+    if st.players.get(&sid).is_some_and(|x| x.inventory.sub.contains_key(&iid)) {
+        return super::pet_bag::split(ctx, st, sid, iid, count, grid).await;
+    }
     let Some(player) = st.players.get_mut(&sid) else { return Ok(()) };
     let cid = player.ch.id;
     match player.inventory.split(&ctx.db, iid, count, grid).await? {
@@ -429,10 +449,19 @@ pub async fn split(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) ->
     Ok(())
 }
 
-/// AGPMITEM op 21 : détruit un objet de l'inventaire (pas un objet porté).
+/// AGPMITEM op 21 : détruit un objet de l'inventaire, de l'inventaire Cash ou du sac du familier (pas un objet porté,
+/// ni un objet Cash en cours d'utilisation ; le sac du familier seulement s'il est disponible).
 pub async fn destroy(ctx: &WorldCtx, st: &mut WorldState, sid: u32, iid: u32) -> anyhow::Result<()> {
+    let in_sub = st.players.get(&sid).is_some_and(|x| x.inventory.sub.contains_key(&iid));
+    if in_sub && !super::pet_bag::available(ctx, st, sid) {
+        return Ok(());
+    }
     let Some(player) = st.players.get_mut(&sid) else { return Ok(()) };
-    let Some(item) = player.inventory.get(iid).cloned() else { return Ok(()) };
+    if player.inventory.in_use.contains(&iid) {
+        debug!("[inventaire] {} : objet {iid} en cours d'utilisation, non détruit", player.ch.name);
+        return Ok(());
+    }
+    let Some(item) = player.inventory.get_usable(iid).cloned() else { return Ok(()) };
     player.inventory.remove(&ctx.db, iid).await?;
     let cid = player.ch.id;
     player.send_raw(item_remove(iid, Some(cid)));
@@ -453,7 +482,7 @@ mod tests {
     fn catalog(entries: &[(u32, EquipData)]) -> ItemCatalog {
         let mut c = ItemCatalog::default();
         for (tid, e) in entries {
-            c.items.insert(*tid, ItemData { tid: *tid, name: format!("objet {tid}"), npc_price: 0, pc_price: 0, stack: 1, equip: Some(e.clone()), potion: None, scroll: None, stone: None, usable_type: 0, option_tids: Vec::new(), kind: 0, bound_type: 0, cash: false, enable_on_ride: false, auction_category: (0, 0), event_item: false });
+            c.items.insert(*tid, ItemData { tid: *tid, name: format!("objet {tid}"), npc_price: 0, pc_price: 0, charisma_price: 0, coin_price: 0, stack: 1, equip: Some(e.clone()), potion: None, scroll: None, stone: None, usable_type: 0, option_tids: Vec::new(), kind: 0, bound_type: 0, cash: 0, enable_on_ride: false, auction_category: (0, 0), event_item: false });
         }
         c
     }

@@ -289,6 +289,10 @@ fn part(st: &mut WorldState, a: u32, b: u32) {
 
 /// Le joueur `sid` a tué le joueur `tsid`.
 pub async fn on_kill(ctx: &WorldCtx, st: &mut WorldState, sid: u32, tsid: u32) -> anyhow::Result<()> {
+    // Mort en combat entre joueurs : pas de perte d'expérience au village (consumables.rs).
+    if let Some(v) = st.players.get_mut(&tsid) {
+        v.uses.pk_death = true;
+    }
     let (Some(k), Some(v)) = (st.players.get(&sid), st.players.get(&tsid)) else { return Ok(()) };
     if super::guild::battle::enemies(st, k.ch.id, v.ch.id) {
         return Ok(());

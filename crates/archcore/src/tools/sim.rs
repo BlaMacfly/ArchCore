@@ -44,6 +44,9 @@
 //!                                                             Slayer (op 26, facteurs), Orbiter (op 27 puis 26), reconnexion, annulation (op 7 action 4) (evolution.rs)
 //!   archcore sim summons [compte] [mdp] [perso]               invocations, GmEffets (compte MJ) : Griolli (vue, état 0x800, op 0), ver tué par l'esprit, expérience au maître,
 //!                                                             propension (op 2), fin à la téléportation, Bomba expirée, limite, familier d'objet (summons.rs)
+//!   archcore sim consumables [compte] [mdp] [perso]           consommables, GmTest (MJ) : Scorching Stew (effet, recharge, refus op 5), talisman de Janus,
+//!                                                             Reverse Orb (op 5 vivant, résurrection sur place op 4 + op 18, refus op 27 code 3),
+//!                                                             oubli chez le maître (op 8 → op 1, or rendu, op 23, op 9), Gem of origin (consumables.rs)
 //!   archcore sim chat [A… B…]                                 préfixes d'Archonia en type 0 (« /p », « /g », « /s »), commande inconnue sans réponse, « /race » avec Race Trumpet (chat.rs)
 //!   archcore sim channel [A… B…]                              salons de discussion : création, nom pris, entrée, message, mot de passe, invitation, recherche, sortie (channel.rs)
 //!   archcore sim customize [A… B…]                            coiffeur Gladiol : ouverture, refus faute d'or, achat d'une coiffure vue par SimA, coiffure d'origine remise (customize.rs)
@@ -58,9 +61,18 @@
 //!                                                             nouvel ArchLord (op 1, op 0), Rain Control pour tous, garde royal, refus à SimA (archlord.rs)
 //!   archcore sim tax [A… B…]                                 taxes d'Inflame : intendant Alfredo (op 1, 3, 2 : codes 3, 0, 2), op 4 à tous, achat chez Damian
 //!                                                             taxé de 10 %, /tax, versement forcé à la banque, registre (tax.rs)
+//!   archcore sim title [A… B…]                               titres, GmTest (MJ, chevalier humain) + SimA : op 5 à l'entrée, Warrante (op 10), objectif de
+//!                                                             niveau (6.1 refusé puis 6.1, 6.3), compteur, 6.5 + op 1, équiper (op 3, op 9 chez SimA, à
+//!                                                             l'entrée dans sa vue), refus du changement < 2 h (code 3), suppression, abandon (sim/title.rs)
 //!   archcore sim cheat [A… B…]                               anti-triche, GmTest (MJ) + SimA (tricheur) : course, cheval et portail légitimes, speedhack et
 //!                                                             téléportation ramenés, coups trop rapprochés, double récupération et double validation, inondation (cheat.rs)
-//!   archcore sim refusal [A… B…]                             options de GmTest (op 0x11) : SimA ne peut ni l'inviter en groupe (op 14) ni lui proposer d'échange (op 25)
+//!   archcore sim recall [A… B…]                              rappel de groupe, GmTest (MJ) + SimA : refus sans groupe (op 5), Bead of Summoning (op 4,
+//!                                                             op 15, op 16 et téléportation, op 17), Summoning Orb en recharge (sim/recall.rs)
+//!   archcore sim social [A… B…]                              actions sociales : op 16 renvoyée au lanceur et au voisin, type 17 et action rapprochée ignorés
+//!   archcore sim quickbelt [compte] [mdp] [perso]             barre de raccourcis (AgpmUIStatus op 0 et 1) : rangée, reconnexion, objet remplacé ; compte MJ
+//!                                                             (sim/quickbelt.rs)
+//!   archcore sim returnlogin [compte] [mdp] [perso]           retour à la sélection des personnages : 0x2F op 1 → op 5, op 6 au serveur de connexion, op 7
+//!   archcore sim refusal [A… B…]                           options de GmTest (op 0x11) : SimA ne peut ni l'inviter en groupe (op 14) ni lui proposer d'échange (op 25)
 //!   archcore sim gm [compte] [mdp] [perso]                    commandes MJ d'ArchCore : /speed (×5, refus au-delà de 10, retour) et /additem ; compte MJ
 //!   archcore sim status [compte] [mdp] [perso]                état spécial : Shield Bash étourdit un Ver vert (champ 17), puis l'état retombe ; compte MJ, personnage GmEffets
 //!   archcore sim effects [compte] [mdp] [perso]               passive (défense), renforcement (vitesse d'attaque), zone, affaiblissement d'un Ver vert ; compte MJ, personnage GmEffets
@@ -87,6 +99,7 @@ mod channel;
 mod cheat;
 mod chat;
 mod competences;
+mod consumables;
 mod customize;
 mod evolution;
 mod guilds;
@@ -103,14 +116,18 @@ mod siege;
 mod itemset;
 mod morph;
 mod nature;
+mod pet_bag;
 mod pk;
 mod product;
 mod pvp;
+mod quickbelt;
+mod recall;
 mod reconnect;
 mod repair;
 mod ride;
 mod summons;
 mod tax;
+mod title;
 mod wanted;
 
 /// Valeur facultative affichée sans « Some(…) ».
@@ -156,6 +173,8 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         Some("itemset") => Box::pin(itemset::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("nature") => Box::pin(nature::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("summons") => Box::pin(summons::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmEffets"))).await,
+        Some("petbag") => Box::pin(pet_bag::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
+        Some("consumables") => Box::pin(consumables::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("morph") => Box::pin(morph::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("evolution") => Box::pin(evolution::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "test"), &a(5, "test"), &a(6, "SimScion"))).await,
         Some("ride") => Box::pin(ride::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "SimDepart"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
@@ -167,9 +186,14 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         Some("boss") => Box::pin(boss::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("siege") => Box::pin(siege::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("archlord") => Box::pin(archlord::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
+        Some("title") => Box::pin(title::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("tax") => Box::pin(tax::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("wanted") => Box::pin(wanted::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("cheat") => Box::pin(cheat::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
+        Some("recall") => Box::pin(recall::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
+        Some("social") => Box::pin(recall::social(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
+        Some("quickbelt") => Box::pin(quickbelt::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
+        Some("returnlogin") => Box::pin(quickbelt::return_login(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("refusal") => Box::pin(refusal(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("party") => Box::pin(party(&a(1, "sima"), &a(2, "sima"), &a(3, "SimA"), &a(4, "simb"), &a(5, "simb"), &a(6, "SimB"))).await,
         Some("trade") => Box::pin(private_trade(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
@@ -195,7 +219,7 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         Some("ignore") => Box::pin(competences::ignore(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("rune") => Box::pin(competences::rune(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("trigger") => Box::pin(competences::trigger(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
-        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol|bag|skill|effects|status|bank|portal|pvp|reconnect|lastrefine|product|guild|guildlead|guildbattle|guildrelation|guildwarehouse|guildmark|guildstage|gm|buddy|mail|repair|ride|morph|evolution|auction|itemset|nature|summons|chat|channel|customize|wanted|shrine|battlesquare|boss|siege|archlord|tax|cheat|trade|party|quest|mobskill|counter|partyskill|mastery [arguments]"),
+        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol|bag|skill|effects|status|bank|portal|pvp|reconnect|lastrefine|product|guild|guildlead|guildbattle|guildrelation|guildwarehouse|guildmark|guildstage|gm|buddy|mail|repair|ride|morph|evolution|auction|itemset|nature|summons|petbag|consumables|chat|channel|customize|wanted|shrine|battlesquare|boss|siege|archlord|tax|title|cheat|recall|social|quickbelt|returnlogin|trade|party|quest|mobskill|counter|partyskill|mastery [arguments]"),
     }
 }
 
@@ -1165,6 +1189,12 @@ async fn equip(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
     let mut witness = enter_world(&cfg, "sima", "sima", "SimA", "B-").await?;
     step(&format!("{char_name} entre en jeu"));
     let mut w = enter_world(&cfg, user, pass, char_name, "").await?;
+    // Le témoin doit voir le MJ : celui-ci le pose à sa position (le serveur refuse qu'un client se téléporte).
+    let here = w.start;
+    gm_place(&mut w, "SimA", here).await?;
+    let mv = &schema::OPT_CHAR_MOVE;
+    witness.world.send(mv, Fields::new(mv).with(0, witness.cid).with(1, here).with(2, here).with(5, 0x04).with(6, 0)).await?;
+    tokio::time::sleep(Duration::from_millis(500)).await;
     let me = w.cid as i64;
     let say = |cid: u32, text: &str| Fields::new(ch).with(0, 0).with(1, cid).with(2, chat_type::NORMAL).with(6, crate::tools::to_cp1252(text));
 
@@ -1310,7 +1340,8 @@ async fn scroll(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
     let mut iids = std::collections::HashMap::new();
     for tid in [GO_TOWN, ROUNDTRIP, TULLAN] {
         w.world.send(ch, say(w.cid, &format!("/create \"{char_name}\" {tid} 1"))).await?;
-        let p = w.world.expect_where(|q| q.is(it, None) && q.int(3) == Some(tid) && q.int(1) == Some(2), 3000, "parchemin créé").await?;
+        // Tullan Passport : objet Cash, dans l'inventaire Cash (51).
+        let p = w.world.expect_where(|q| q.is(it, None) && q.int(3) == Some(tid) && matches!(q.int(1), Some(2 | 51)), 3000, "parchemin créé").await?;
         iids.insert(tid, p.int(2).unwrap_or(0));
     }
     println!("  ✓ trois parchemins dans l'inventaire");
@@ -1985,6 +2016,15 @@ async fn private_trade(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &st
     anyhow::ensure!(grid_of(&put) == Some([0, 1, 2]), "case chez A {:?}", grid_of(&put));
     let seen = b.world.expect_where(|q| q.is(it, Some(0)) && q.int(2) == Some(iid) && q.int(1) == Some(6) && q.int(4) == Some(acid), 3000, "pile vue par B").await?;
     anyhow::ensure!(grid_of(&seen) == Some([0, 1, 2]), "case vue par B {:?}", grid_of(&seen));
+    // Reprise vers une case choisie du sac (op 10, champ 7), puis nouvelle proposition.
+    a.world.send(tr, t(10).with(1, acid).with(3, iid).with(5, 2).with(6, cell([0, 1, 2])).with(7, cell([0, 3, 3]))).await?;
+    let back = a.world.expect_where(|q| q.is(it, Some(2)) && q.int(2) == Some(iid) && q.int(1) != Some(6), 3000, "pile reprise par A").await?;
+    anyhow::ensure!(grid_of(&back) == Some([0, 3, 3]), "case d'arrivée {:?}", grid_of(&back));
+    b.world.expect_where(|q| q.is(it, Some(1)) && q.int(2) == Some(iid), 3000, "pile retirée chez B").await?;
+    a.world.send(tr, t(9).with(1, acid).with(3, iid).with(7, cell([0, 1, 2])).with(8, 0)).await?;
+    a.world.expect_where(|q| q.is(it, Some(2)) && q.int(2) == Some(iid) && q.int(1) == Some(6), 3000, "pile reproposée").await?;
+    b.world.expect_where(|q| q.is(it, Some(0)) && q.int(2) == Some(iid) && q.int(1) == Some(6), 3000, "pile revue par B").await?;
+    println!("  ✓ reprise sur la case 0,3,3 du sac, puis nouvelle proposition");
     a.world.send(tr, t(23).with(1, acid).with(5, 500)).await?;
     b.world.expect_where(|q| q.is(tr, Some(24)) && q.int(5) == Some(500), 3000, "argent de A vu par B").await?;
     b.world.send(tr, t(23).with(1, bcid).with(5, 100)).await?;

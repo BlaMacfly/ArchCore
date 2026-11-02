@@ -25,6 +25,11 @@
 //!   AgpmSiegeWar (0x49), AgpmEventSiegeWarNPC (0x50), AgpmWarInfo (0x61, serveur → client) : guerres de siège (siege/)
 //!   AgpmArchlord (0x55) : titre d'ArchLord, guerre de Rensphere (archlord.rs) ; AgpmTax (0x53) : taxes des régions (tax.rs)
 //!   AGPMCHARACTER ops 11 à 13 : métamorphose (morph.rs) ; ops 26, 27 : évolution du Dragon Scion (evolution.rs)
+//!   AGPMITEM op 3 : consommables à compétence, orbes de résurrection, Gem of origin ; AGPMEVENTSKILLMASTER op 8 : oubli
+//!       des compétences chez le maître (consumables.rs) ; orbes de rappel, AGPMPARTYMANAGEMENT ops 15 à 17 (party.rs)
+//!   AGPMCHARACTER op 16 : actions sociales (social.rs) ; AgpmUIStatus (0x14) : barre de raccourcis (ui_status.rs)
+//!   AgpmReturnToLogin (0x2F) op 1 : retour à la sélection des personnages (return_login.rs)
+//!   AgpmTitle (0x60, brut) : titres, objectifs, PNJ « <Title Manager> » (titles.rs)
 //! ```
 //! L'état du monde est partagé derrière un verrou : les paquets de tous les joueurs sont traités un à
 //! un, comme dans la boucle unique du serveur Node.
@@ -42,6 +47,7 @@ pub mod channel;
 pub mod chat;
 pub mod combat;
 pub mod console;
+pub mod consumables;
 pub mod convert;
 pub mod customize;
 pub mod effects;
@@ -65,11 +71,13 @@ pub mod npcs;
 pub mod option_flags;
 pub mod options;
 pub mod party;
+pub mod pet_bag;
 pub mod portal;
 pub mod presence;
 pub mod product;
 pub mod pvp;
 pub mod quests;
+pub mod return_login;
 pub mod refinery;
 pub mod reconnect;
 pub mod recovery;
@@ -80,8 +88,10 @@ pub mod ride;
 pub mod sector;
 pub mod shrine;
 pub mod skills;
+pub mod social;
 pub mod summons;
 pub mod tax;
+pub mod titles;
 pub mod trade;
 pub mod ui_status;
 pub mod travel;
@@ -149,6 +159,8 @@ pub struct WorldCtx {
     pub skulls: battlesquare::SkullTable,
     /// Guerres de siège : châteaux (SiegeWar.txt), objets d'assaut, points de résurrection.
     pub sieges: siege::SiegeCatalog,
+    /// Titres (title_template) et rangs de charisme (charisma_title).
+    pub titles: titles::TitleCatalog,
     pub view_radius: f64,
 }
 
@@ -267,6 +279,12 @@ pub struct Player {
     pub kicked: bool,
     /// Métamorphose, évolution du Dragon Scion, recharge des potions de métamorphose (morph.rs, evolution.rs).
     pub form: morph::Form,
+    /// Recharges des consommables à compétence et des orbes, objets allumés, mort en combat entre joueurs (consumables.rs).
+    pub uses: consumables::Uses,
+    /// Dernière action sociale relayée (social.rs).
+    pub social_at: Option<Instant>,
+    /// Titres possédés, objectifs, titre actif (titles.rs).
+    pub titles: titles::PlayerTitles,
 }
 
 impl Player {
@@ -407,11 +425,13 @@ impl Service for WorldService {
                 | ptype::EVENT_CHAR_CUSTOMIZE
                 | ptype::WANTED_CRIMINAL
                 | ptype::SHRINE_BATTLE
+                | ptype::TITLE
                 | ptype::BOSS
                 | ptype::SIEGE_WAR
                 | ptype::EVENT_SIEGE_WAR_NPC
                 | ptype::ARCHLORD
                 | ptype::TAX
+                | ptype::RETURN_TO_LOGIN
                 | ptype::ARCHCORE_EXT
         )
     }
@@ -498,6 +518,8 @@ impl Connection for WorldConn {
             ptype::CHARACTER if matches!(p.int(0), Some(siege::war::RESURRECT_INNER | siege::war::RESURRECT_OUTER)) => {
                 siege::war::resurrect(ctx, &mut st, self.sid, p.int(0) == Some(siege::war::RESURRECT_INNER)).await?
             }
+            // Action sociale (« Emotes ») : relayée autour du joueur.
+            ptype::CHARACTER if p.int(0) == Some(social::SOCIAL_ANIMATION) => social::on_packet(ctx, &mut st, self.sid, &p),
             ptype::CHARACTER => debug!("[world] #{} AGPMCHARACTER op {:?} (ignoré)", s.id(), p.int(0)),
             ptype::CHATTING => chat::on_chatting(&world, &mut st, self.sid, &p).await?,
             ptype::OPT_CHAR_MOVE => presence::on_move(ctx, &mut st, self.sid, &p),
@@ -505,7 +527,10 @@ impl Connection for WorldConn {
             ptype::REMISSION => remission::on_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::ITEM => loot::on_item_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::EVENT_NPC_DIALOG => {
-                npc_events::on_dialog(ctx, &st, self.sid, &p);
+                // Gestionnaires de titres : fenêtres des titres (AgpmTitle op 10) au lieu du dialogue.
+                if !titles::on_dialog(ctx, &st, self.sid, &p) {
+                    npc_events::on_dialog(ctx, &st, self.sid, &p);
+                }
                 // Superviseurs de la Battle Square : voyage à l'étage du niveau du joueur.
                 battlesquare::on_dialog(ctx, &mut st, self.sid, &p).await?;
             }
@@ -527,7 +552,10 @@ impl Connection for WorldConn {
             ptype::GUILD_WAREHOUSE => guild::warehouse::on_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::PRIVATE_TRADE => trade::on_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::PARTY => party::on_party(&mut st, self.sid, &p),
+            // Rappel accepté : le membre est téléporté près du lanceur.
+            ptype::PARTY_MANAGEMENT if p.int(0) == Some(party::mgmt::ACCEPT_RECALL) => party::accept_recall(ctx, &mut st, self.sid, &p).await?,
             ptype::PARTY_MANAGEMENT => party::on_management(&mut st, self.sid, &p),
+            ptype::RETURN_TO_LOGIN => return_login::on_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::QUEST => quests::on_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::EVENT_QUEST => quests::on_event(ctx, &mut st, self.sid, &p),
             ptype::UI_STATUS => ui_status::on_packet(ctx, &mut st, self.sid, &p).await?,
@@ -543,6 +571,7 @@ impl Connection for WorldConn {
             ptype::EVENT_CHAR_CUSTOMIZE => customize::on_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::WANTED_CRIMINAL => wanted::on_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::SHRINE_BATTLE => shrine::on_packet(ctx, &mut st, self.sid, &p).await?,
+            ptype::TITLE => titles::on_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::BOSS => boss::on_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::SIEGE_WAR => siege::on_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::EVENT_SIEGE_WAR_NPC => siege::on_npc_packet(ctx, &st, self.sid, &p),
@@ -657,15 +686,21 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
         return Ok(());
     };
     let gm_level: i64 = col(&acc, "gm_level");
-    let inventory = Inventory::load(&ctx.db, ch.id).await?;
+    let mut inventory = Inventory::load(&ctx.db, ch.id).await?;
+    // Objets Cash encore dans l'inventaire ordinaire : rangés dans l'inventaire Cash (items.rs).
+    let sorted = inventory.sort_cash(&ctx.db, &ctx.catalog).await?;
+    if sorted > 0 {
+        info!("[world] {} : {sorted} objet(s) Cash rangé(s) dans l'inventaire Cash", ch.name);
+    }
     let bank = bank::Bank::load(&ctx.db, account.id).await?;
     let quests = quests::PlayerQuests::load(&ctx.db, ch.id).await?;
-    let ui_status = ui_status::UiStatus::load(&ctx.db, ch.id).await?;
+    let ui_status = ui_status::UiStatus::load(&ctx.db, ch.id, &inventory).await?;
     let recipes = product::load_recipes(&ctx.db, ch.id).await?;
     let buddies = buddy::Buddies::load(&ctx.db, ch.id).await?;
     let mailbox = mail::MailBox::load(&ctx.db, ch.id).await?;
     let auction = auction::Auction::load(&ctx.db, ch.id).await?;
     let item_sets = itemset::ItemSets::load(&ctx.db, ch.id).await?;
+    let titles = titles::PlayerTitles::load(&ctx.db, ch.id).await?;
     // Banque du compte : son argent et ses pages remplacent ceux de la ligne du personnage.
     ch.bank_money = bank.money;
     ch.bank_size = bank.extra_slots as i32;
@@ -680,6 +715,8 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
     ctx.options.apply(&mut factors, &equipment::worn_options(&inventory, &ctx.catalog, &ctx.options, ch.level as i64, form_class));
     let gear = equipment::worn_gear(ctx, &inventory, ch.level as i64, form_class);
     skills::refresh_points(&ctx.skills, &skills, &mut factors);
+    // Compétences du titre équipé : passives tant qu'il l'est (titles.rs).
+    skills.title_skills = titles.skills(&ctx.titles);
     skills::sync_passives(&ctx.skills, &mut skills, ch.template_id, skills::form_class(&factors));
     effects::apply(&mut factors, &effects::total(&skills.effects));
     // PV et PM enregistrés au-delà du maximum (maximum changé depuis) : ramenés au maximum.
@@ -702,7 +739,10 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
         if gm_level > 0 { format!(", MJ {gm_level}") } else { String::new() }
     );
     let pos = ch.pos();
-    s.send(&schema::CONFIG, Fields::new(&schema::CONFIG).with(0, 0).with(1, 0).with(2, 0));
+    // AgpmConfig : objets perdus à la mort (0), perte d'expérience annoncée (champ 1 : `Death.ExpPenaltyPercent` non nul),
+    // serveur de test (0).
+    let exp_penalty = (ctx.config.world.death_exp_penalty_percent > 0.0) as i64;
+    s.send(&schema::CONFIG, Fields::new(&schema::CONFIG).with(0, 0).with(1, exp_penalty).with(2, 0));
     s.send(&schema::CHARACTER, Fields::new(&schema::CHARACTER).with(0, 25).with(1, ch.id).with(23, 0));
     let cm = &schema::CHAR_MANAGER;
     s.send(cm, Fields::new(cm).with(0, char_mgr_op::LOADING_POS).with(4, ch.id).with(5, pos));
@@ -771,6 +811,9 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
             hits: anticheat::HitGuard::default(),
             kicked: false,
             form: morph::Form { evolved, ..Default::default() },
+            uses: consumables::Uses::default(),
+            social_at: None,
+            titles,
         },
     );
     st.by_cid.insert(cid, s.id());
@@ -859,6 +902,8 @@ fn enter_world(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle) {
     // ArchLord (op 0), étape de la guerre de Rensphere (op 5) ; taux des régions taxées (AgpmTax op 4).
     archlord::on_enter(ctx, st, sid);
     tax::on_enter(ctx, st, sid);
+    // Titres possédés (op 5), objectifs (op 6.7), titre actif (op 9).
+    titles::on_enter(ctx, st, sid);
     reconnect::on_enter(st, sid);
 }
 
@@ -1006,15 +1051,21 @@ pub async fn create_item(ctx: &WorldCtx, st: &mut WorldState, name: &str, tid: u
     if let Some(&sid) = st.by_cid.get(&cid) {
         let stack = ctx.catalog.get(tid).map(|d| d.stack).unwrap_or(1);
         let p = st.players.get_mut(&sid).unwrap();
-        let Some((it, created)) = p.inventory.add(&ctx.db, tid, count, stack, None).await? else { return Ok(Err("full")) };
+        // Objet Cash (familier, objet de la boutique) : dans l'inventaire Cash.
+        let (added, status) = if ctx.catalog.is_cash(tid) {
+            (p.inventory.add_cash(&ctx.db, tid, count, stack).await?, item_status::CASH_INVENTORY)
+        } else {
+            (p.inventory.add(&ctx.db, tid, count, stack, None).await?, item_status::INVENTORY)
+        };
+        let Some((it, created)) = added else { return Ok(Err("full")) };
         if created {
             // Comme un objet lâché par une source du niveau de l'objet (1 au moins).
             let level = ctx.catalog.get(tid).and_then(|d| d.equip.as_ref()).map(|e| e.level.max(1)).unwrap_or(1);
             let (options, sockets) = options::generate(&ctx.catalog, &ctx.options, tid, level, &mut rand::thread_rng());
             p.inventory.set_generated(&ctx.db, it.iid, &options, sockets).await?;
         }
-        let it = p.inventory.get(it.iid).cloned().unwrap_or(it);
-        p.send_raw(items::item_add_of(&it, cid, item_status::INVENTORY, Some(it.grid)));
+        let it = p.inventory.get_usable(it.iid).cloned().unwrap_or(it);
+        p.send_raw(items::item_add_of(&it, cid, status, Some(it.grid)));
         if let Some(c) = items::convert_add(&it, cid) {
             p.send_raw(c);
         }

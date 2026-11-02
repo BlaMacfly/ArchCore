@@ -1021,22 +1021,43 @@ pub fn parse_monster_ai(text: &str) -> Vec<(u32, String, serde_json::Value)> {
         .collect()
 }
 
-/// SkillMastery_High.txt (arbre 1) ou SkillMastery_Heroic.txt (arbre 2) : une ligne par classe (son TID seul en
-/// colonne 0), puis ses compétences (TID en colonne 1, nom, ConditionA à C « TID;points », ConditionD
-/// « total; »). Rend (classe, compétence, exigences, total).
+/// Une compétence d'un arbre de maîtrise (SkillMastery_High.txt, SkillMastery_Heroic.txt).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct MasteryRow {
+    /// Clé de l'arbre : TID du modèle de la classe, ou 10000 + race pour l'arbre d'une race (« 10004;4 » : passives
+    /// du Dragon Scion).
+    pub class: u32,
+    pub skill: u32,
+    /// ConditionA et B : (TID d'une compétence, niveau exigé).
+    pub requires: Vec<(u32, u32)>,
+    /// ConditionC : (TID du modèle d'une classe, niveaux cumulés des compétences de cette classe) — « 1722;30 ».
+    pub class_points: Vec<(u32, u32)>,
+    /// ConditionD : niveaux cumulés de toutes les compétences (arbre supérieur) ou points héroïques dépensés (arbre
+    /// héroïque).
+    pub total: i64,
+}
+
+/// SkillMastery_High.txt (arbre 1, `heroic` faux) ou SkillMastery_Heroic.txt (arbre 2) : une ligne par arbre (sa clé
+/// en colonne 0), puis ses compétences (TID en colonne 1, nom, ConditionA à C « TID;nombre », ConditionD « total; »).
+///
+/// Comme le chargeur des maîtrises hautes d'Archonia (FUN_140229e10) : la clé est le nombre qui ouvre la colonne 0
+/// (« 10004;4 » → 10004 ; le nombre après « ; » est rangé dans l'entrée mais aucun contrôle ne le lit) ; ConditionA
+/// et B donnent (compétence, niveau), ConditionC (modèle de classe, niveaux), ConditionD le total. Le chargeur
+/// héroïque (FUN_14022a510) ne lit que ConditionA et D.
 ///
 /// Une classe peut avoir plusieurs arbres (Berserker, TID 4, dans SkillMastery_Heroic.txt d'Archonia) : une ligne
 /// porte alors le numéro de l'arbre en colonne 1, sans nom, et ses compétences sont décalées d'une colonne (TID en
 /// colonne 2), comme le lit `FUN_14022a510` d'Archonia.
-pub fn parse_masteries(text: &str) -> Vec<(u32, u32, Vec<(u32, u32)>, i64)> {
+pub fn parse_masteries(text: &str, heroic: bool) -> Vec<MasteryRow> {
     let (_, rows) = parse_tsv(text);
     let mut class = None;
     let mut out = Vec::new();
     for r in &rows {
         let cell = |i: usize| r.get(i).map(|s| s.trim()).unwrap_or("");
         if !cell(0).is_empty() {
-            // Une valeur qui n'est pas un TID (« 10004;4 ») ne commence pas de classe.
-            class = cell(0).parse::<u32>().ok();
+            // Nombre de tête, comme `atoi` : « 10004;4 » ouvre l'arbre 10004.
+            let digits: String = cell(0).chars().take_while(|c| c.is_ascii_digit()).collect();
+            class = digits.parse::<u32>().ok().filter(|c| *c != 0);
             continue;
         }
         // Ligne d'arbre (numéro seul) : pas une compétence.
@@ -1045,14 +1066,14 @@ pub fn parse_masteries(text: &str) -> Vec<(u32, u32, Vec<(u32, u32)>, i64)> {
         }
         let off = usize::from(cell(1).is_empty());
         let (Some(class), Ok(skill)) = (class, cell(1 + off).parse::<u32>()) else { continue };
-        let requires = (3 + off..=5 + off)
-            .filter_map(|i| {
-                let mut p = cell(i).split(';');
-                Some((p.next()?.trim().parse().ok()?, p.next()?.trim().parse().ok()?))
-            })
-            .collect();
+        let pair = |i: usize| -> Option<(u32, u32)> {
+            let mut p = cell(i).split(';');
+            Some((p.next()?.trim().parse().ok()?, p.next()?.trim().parse().ok()?))
+        };
+        let requires = if heroic { pair(3 + off).into_iter().collect() } else { (3 + off..=4 + off).filter_map(pair).collect() };
+        let class_points = if heroic { Vec::new() } else { pair(5 + off).into_iter().collect() };
         let total = cell(6 + off).split(';').next().and_then(|t| t.trim().parse().ok()).unwrap_or(0);
-        out.push((class, skill, requires, total));
+        out.push(MasteryRow { class, skill, requires, class_points, total });
     }
     out
 }
@@ -1182,6 +1203,93 @@ pub fn parse_product_results(text: &str) -> Vec<(i64, i64, u32, i64)> {
         }
     }
     out
+}
+
+/// Titres ajoutés par Archonia, jamais importés : Schola de rangs 4 et 5 (Crusader of…, The Sage, The Gladiator,
+/// The Paladin) ; la catégorie « Christmas Event » l'est aussi (`TITLE_ARCHONIA_CATEGORY`).
+pub const TITLE_ARCHONIA_TIDS: [u32; 6] = [36, 37, 41, 42, 46, 47];
+pub const TITLE_ARCHONIA_CATEGORY: &str = "Christmas Event";
+
+/// Ligne de titledatatable.txt prête à insérer dans `title_template`.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct TitleRow {
+    pub tid: u32,
+    pub category: String,
+    pub name: String,
+    /// Defender of Chantra et Schola de rangs 1 à 3 (`Title.Schola`).
+    pub optional: bool,
+    /// Require_level, _class_Type, _GuildMaster, _ArchLord, _Con, _Str, _Int, _Dex, _Wis, _Cha.
+    pub require: [i64; 10],
+    pub cost_geld: i64,
+    pub cost_cash: i64,
+    pub cost_items: Vec<(u32, i64)>,
+    pub first_titles: Vec<u32>,
+    /// Conditions non vides, dans l'ordre : (type, Set, Value).
+    pub checks: Vec<(i64, i64, i64)>,
+    pub skills: Vec<u32>,
+    /// Effets non vides : (type, Set, Value_1, Value_2).
+    pub effects: Vec<(i64, i64, i64, i64)>,
+}
+
+/// titledatatable.txt (90 colonnes, lues par leur en-tête) : titres de l'épisode 8, sans les ajouts d'Archonia
+/// (`TITLE_ARCHONIA_TIDS`, `TITLE_ARCHONIA_CATEGORY`).
+pub fn parse_titles(text: &str) -> Vec<TitleRow> {
+    let (header, rows) = parse_tsv(text);
+    let at = |name: &str| header.iter().position(|h| h == name);
+    let mut out = Vec::new();
+    for r in &rows {
+        let cell = |name: &str| at(name).and_then(|i| r.get(i)).map(|s| s.trim()).unwrap_or("");
+        let n = |name: &str| js_number(cell(name), 0.0) as i64;
+        let tid = n("TID");
+        let category = cell("Title_Class").to_string();
+        if tid <= 0 || category == TITLE_ARCHONIA_CATEGORY || TITLE_ARCHONIA_TIDS.contains(&(tid as u32)) {
+            continue;
+        }
+        let require = ["Require_level", "Require_class_Type", "Require_class_GuildMaster", "Require_class_ArchLord", "Require_Con", "Require_Str", "Require_Int", "Require_Dex", "Require_Wis", "Require_Cha"].map(n);
+        out.push(TitleRow {
+            tid: tid as u32,
+            optional: category == "Defender of Chantra" || category.ends_with("'s Schola"),
+            name: cell("Title_Name").to_string(),
+            require,
+            cost_geld: n("Cost_Geld"),
+            cost_cash: n("Cost_Cash"),
+            cost_items: (1..=5).map(|i| (n(&format!("Cost_Item_{i}")), n(&format!("Cost_Item_{i}_Count")))).filter(|&(t, c)| t > 0 && c > 0).map(|(t, c)| (t as u32, c)).collect(),
+            first_titles: (1..=5).map(|i| n(&format!("First_Title {i}"))).filter(|&t| t > 0).map(|t| t as u32).collect(),
+            checks: (1..=5).map(|i| (n(&format!("Title_Check_{i}")), n(&format!("Title_Check_{i}_Set")), n(&format!("Title_Check_{i}_Value")))).filter(|c| c.0 != 0).collect(),
+            skills: (1..=10).map(|i| n(&format!("Skill_Tid_{i}"))).filter(|&t| t > 0).map(|t| t as u32).collect(),
+            effects: (1..=5)
+                .map(|i| (n(&format!("Title_Effect_{i}")), n(&format!("Title_Effect_{i}_Set")), n(&format!("Title_Effect_{i}_Value_1")), n(&format!("Title_Effect_{i}_Value_2"))))
+                .filter(|e| e.0 != 0)
+                .collect(),
+            category,
+        });
+    }
+    out
+}
+
+/// titlestringtable.txt : TID → FirstCategory (catégorie de la liste de gauche de `UI_TitleAll`).
+pub fn parse_title_categories(text: &str) -> HashMap<u32, i64> {
+    let (_, rows) = parse_tsv(text);
+    rows.iter()
+        .filter_map(|r| {
+            let cell = |i: usize| r.get(i).map(|s| s.trim()).unwrap_or("");
+            let tid = js_number(cell(0), 0.0) as u32;
+            (tid > 0).then(|| (tid, js_number(cell(1), 0.0) as i64))
+        })
+        .collect()
+}
+
+/// charismatitletable.txt : (rang, CHA min, CHA max, titre) ; le rang est celui de la ligne, à partir de 0.
+pub fn parse_charisma_titles(text: &str) -> Vec<(u8, i64, i64, String)> {
+    let (_, rows) = parse_tsv(text);
+    rows.iter()
+        .filter(|r| r.first().is_some_and(|c| is_uint(c.trim())))
+        .enumerate()
+        .map(|(i, r)| {
+            let cell = |i: usize| r.get(i).map(|s| s.trim()).unwrap_or("");
+            (i as u8, js_number(cell(0), 0.0) as i64, js_number(cell(1), 0.0) as i64, cell(2).to_string())
+        })
+        .collect()
 }
 
 async fn import_loot(db: &Databases, server: &Source) -> anyhow::Result<()> {
@@ -1444,11 +1552,11 @@ async fn import_all(db: &Databases, src: &Source) -> anyhow::Result<()> {
             if !src.exists(file) {
                 continue;
             }
-            for (class, skill, requires, total) in parse_masteries(&src.read(file)?) {
-                out.push(vec![v(class), v(skill), v(tree), v(json!(requires).to_string()), v(total)]);
+            for m in parse_masteries(&src.read(file)?, tree == 2) {
+                out.push(vec![v(m.class), v(m.skill), v(tree), v(json!(m.requires).to_string()), v(json!(m.class_points).to_string()), v(m.total)]);
             }
         }
-        let n = replace(db, "skill_mastery", "INSERT IGNORE INTO skill_mastery (class_tid,skill_tid,tree,requires,total_points) VALUES (?,?,?,?,?)", out).await?;
+        let n = replace(db, "skill_mastery", "INSERT IGNORE INTO skill_mastery (class_tid,skill_tid,tree,requires,class_points,total_points) VALUES (?,?,?,?,?,?)", out).await?;
         println!("✓ skill_mastery : {n}");
     }
 
@@ -1650,6 +1758,44 @@ async fn import_all(db: &Databases, src: &Source) -> anyhow::Result<()> {
         println!("✓ region_template : {n} ({} avec un niveau d'entrée) ; resurrection_point : {m} (sur {} fichier(s) obj*.ini)", levels.len(), files.len());
     }
 
+    // ---------------------------------------------------------------- titledatatable.txt et tables liées (titres)
+    if src.exists("titledatatable.txt") {
+        let categories = if src.exists("titlestringtable.txt") { parse_title_categories(&src.read("titlestringtable.txt")?) } else { HashMap::new() };
+        let titles = parse_titles(&src.read("titledatatable.txt")?);
+        let optional = titles.iter().filter(|t| t.optional).count();
+        let json = |x: serde_json::Value| v(x.to_string());
+        let out: Vec<Vec<Value>> = titles
+            .iter()
+            .map(|t| {
+                let mut row = vec![v(t.tid), v(t.category.clone()), v(categories.get(&t.tid).copied().unwrap_or(0)), v(t.name.clone()), v(t.optional as u8)];
+                row.extend(t.require.iter().map(|x| v(*x)));
+                row.extend([
+                    v(t.cost_geld),
+                    v(t.cost_cash),
+                    json(json!(t.cost_items.iter().map(|(a, b)| [*a as i64, *b]).collect::<Vec<_>>())),
+                    json(json!(t.first_titles)),
+                    json(json!(t.checks.iter().map(|c| [c.0, c.1, c.2]).collect::<Vec<_>>())),
+                    json(json!(t.skills)),
+                    json(json!(t.effects.iter().map(|e| [e.0, e.1, e.2, e.3]).collect::<Vec<_>>())),
+                ]);
+                row
+            })
+            .collect();
+        let n = replace(
+            db,
+            "title_template",
+            "INSERT INTO title_template (tid,category,category_id,name,optional,require_level,require_class,require_guild_master,require_archlord,             require_con,require_str,require_int,require_dex,require_wis,require_cha,cost_geld,cost_cash,cost_items,first_titles,checks,skills,effects)              VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            out,
+        )
+        .await?;
+        println!("✓ title_template : {n} ({optional} réservé(s) à Title.Schola ; ajouts d'Archonia écartés)");
+    }
+    if src.exists("charismatitletable.txt") {
+        let out: Vec<Vec<Value>> = parse_charisma_titles(&src.read("charismatitletable.txt")?).into_iter().map(|(r, lo, hi, t)| vec![v(r), v(lo), v(hi), v(t)]).collect();
+        let n = replace(db, "charisma_title", "INSERT INTO charisma_title (`rank`,charisma_min,charisma_max,title) VALUES (?,?,?,?)", out).await?;
+        println!("✓ charisma_title : {n}");
+    }
+
     // ---------------------------------------------------------------- UIBoss.xml (fenêtre des boss d'Archonia)
     if src.exists("UIBoss.xml") {
         let out: Vec<Vec<Value>> =
@@ -1771,7 +1917,8 @@ async fn import_all(db: &Databases, src: &Source) -> anyhow::Result<()> {
         let (header, rows) = parse_tsv(&src.read("itemdatatable.txt")?);
         let col = |name: &str| header.iter().position(|h| h == name);
         let (c_tid, c_name) = (col("TID"), col("ItemName"));
-        let cols = ["Level", "Part", "Kind", "ItemType", "Type", "NPC Price", "PC Price"].map(|n| col(n));
+        // Prix chez un PNJ : or, revente, charisme (colonne 29) et Shrine Coins (colonne 35) de la boutique des Shrines.
+        let cols = ["Level", "Part", "Kind", "ItemType", "Type", "NPC Price", "PC Price", "NPC Charisma Price", "NPC Shrine Coin"].map(|n| col(n));
         let c_stack = col("Stack");
         fn cell(r: &[String], c: Option<usize>) -> Option<&str> {
             c.and_then(|i| r.get(i)).map(String::as_str)
@@ -1793,7 +1940,7 @@ async fn import_all(db: &Databases, src: &Source) -> anyhow::Result<()> {
             row.push(v(serde_json::Value::Object(raw).to_string()));
             out.push(row);
         }
-        let n = replace(db, "item_data", "INSERT INTO item_data (tid,name,level,part,kind,item_type,type,npc_price,pc_price,stack,raw) VALUES (?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE name = VALUES(name)", out).await?;
+        let n = replace(db, "item_data", "INSERT INTO item_data (tid,name,level,part,kind,item_type,type,npc_price,pc_price,npc_charisma_price,npc_shrine_coin,stack,raw) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE name = VALUES(name)", out).await?;
         println!("✓ item_data : {n}");
     }
 
@@ -1827,6 +1974,62 @@ async fn import_all(db: &Databases, src: &Source) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// En-tête des 90 colonnes de titledatatable.txt.
+    fn title_header() -> Vec<String> {
+        let mut h: Vec<String> = ["TID", "Title_Class", "Title_Name", "String TID", "Require_level", "Require_class_Type", "Require_class_GuildMaster", "Require_class_ArchLord", "Require_Con", "Require_Str", "Require_Int", "Require_Dex", "Require_Wis", "Require_Cha", "Cost_Geld", "Cost_Cash"]
+            .map(String::from)
+            .to_vec();
+        for i in 1..=5 {
+            h.extend([format!("Cost_Item_{i}"), format!("Cost_Item_{i}_Count"), format!("Cost_Item_{i}_Type")]);
+        }
+        h.extend((1..=5).map(|i| format!("First_Title {i}")));
+        for i in 1..=5 {
+            h.extend([format!("Title_Check_{i}"), format!("Title_Check_{i}_Set"), format!("Title_Check_{i}_Value")]);
+        }
+        h.extend(["Trade_Possibility", "Duration", "Reward_Money"].map(String::from));
+        h.extend((1..=5).map(|i| format!("Reward_Item_{i}")));
+        h.extend((1..=10).map(|i| format!("Skill_Tid_{i}")));
+        for i in 1..=5 {
+            h.extend([format!("Title_Effect_{i}"), format!("Title_Effect_{i}_Set"), format!("Title_Effect_{i}_Value_1"), format!("Title_Effect_{i}_Value_2")]);
+        }
+        h.push("Title_Comment".into());
+        h
+    }
+
+    #[test]
+    fn titres_de_l_episode_8() {
+        let header = title_header();
+        assert_eq!(header.len(), 90);
+        let line = |cells: &[(&str, &str)]| header.iter().map(|h| cells.iter().find(|c| c.0 == h).map_or("", |c| c.1)).collect::<Vec<_>>().join("	");
+        let text = [
+            header.join("	"),
+            line(&[("TID", "10001"), ("Title_Class", "Expert Collector"), ("Title_Name", "Expert Collector of Spriggan Chargers"), ("Require_level", "1"), ("Title_Check_1", "2"), ("Title_Check_1_Set", "5"), ("Title_Check_1_Value", "50"), ("Title_Check_2", "0"), ("Title_Effect_1", "7"), ("Title_Effect_1_Value_1", "5"), ("Title_Effect_1_Value_2", "2"), ("Title_Effect_2", "0")]),
+            line(&[("TID", "140002"), ("Title_Class", "Advanced"), ("Title_Name", "Apprentice Human Knight"), ("Require_level", "30"), ("Require_class_Type", "101"), ("First_Title 1", "140001"), ("First_Title 2", "0"), ("Title_Check_1", "15"), ("Title_Check_1_Value", "30"), ("Skill_Tid_1", "1556"), ("Skill_Tid_2", "0")]),
+            line(&[("TID", "200002"), ("Title_Class", "Researcher"), ("Title_Name", "-"), ("Title_Check_1", "26"), ("Title_Check_1_Value", "10"), ("Title_Effect_1", "4")]),
+            line(&[("TID", "33"), ("Title_Class", "Gracia's Schola"), ("Title_Name", "Gracia's Recruit"), ("Cost_Item_1", "14531"), ("Cost_Item_1_Count", "100"), ("First_Title 1", "32"), ("Skill_Tid_1", "1767")]),
+            line(&[("TID", "36"), ("Title_Class", "Gracia's Schola"), ("Title_Name", "Crusader of Gracia")]),
+            line(&[("TID", "11000"), ("Title_Class", "Christmas Event"), ("Title_Name", "Candy Cane")]),
+        ]
+        .join("
+");
+        let t = parse_titles(&text);
+        assert_eq!(t.iter().map(|r| r.tid).collect::<Vec<_>>(), vec![10_001, 140_002, 200_002, 33], "ajouts d'Archonia écartés");
+        assert_eq!((t[0].checks.clone(), t[0].effects.clone(), t[0].optional), (vec![(2, 5, 50)], vec![(7, 0, 5, 2)], false));
+        assert_eq!((t[1].require[0], t[1].require[1], t[1].first_titles.clone(), t[1].skills.clone()), (30, 101, vec![140_001], vec![1556]));
+        assert_eq!(t[2].effects, vec![(4, 0, 0, 0)], "effet de cuisine sans valeur gardé");
+        assert_eq!((t[3].optional, t[3].cost_items.clone()), (true, vec![(14_531, 100)]));
+        let cats = parse_title_categories("TID	FirstCategory	Title_Class
+10001	200	Expert Collector
+140002	1500	Advanced
+");
+        assert_eq!((cats.get(&10_001), cats.get(&140_002)), (Some(&200), Some(&1500)));
+        let ranks = parse_charisma_titles("Charisma Point Min	Charisma Point Max	Title
+0	99	
+100	199	Novice
+");
+        assert_eq!(ranks, vec![(0, 0, 99, String::new()), (1, 100, 199, "Novice".into())]);
+    }
 
     #[test]
     fn nombres_comme_javascript() {
@@ -1940,10 +2143,31 @@ mod tests {
                     96\t\t\t\t\t\t\r\n\
                     \t526\tChant\t\t\t\t\r\n\
                     \t558\tBouclier\t525;2\t527;2\t\t\r\n\
-                    10004;4\t\t\t\t\t\t\r\n\
                     1722\t\t\t\t\t\t\r\n\
-                    \t1237\tCourage\t1189;1\t1236;3\t\t30;\r\n";
-        assert_eq!(parse_masteries(high), vec![(96, 526, vec![], 0), (96, 558, vec![(525, 2), (527, 2)], 0), (1722, 1237, vec![(1189, 1), (1236, 3)], 30)]);
+                    \t1237\tCourage\t1189;1\t1236;3\t\t30;\r\n\
+                    \t1155\tFrappe\t1153;1\t\t1722;30\t\r\n\
+                    10004;4\t\t\t\t\t\t\r\n\
+                    \t1242\tPassive\t351;1\t\t\t\r\n\
+                    0\t\t\t\t\t\t\r\n\
+                    \t9\tIgnorée\t\t\t\t\r\n";
+        let row = |class, skill, requires: Vec<(u32, u32)>, class_points: Vec<(u32, u32)>, total| MasteryRow { class, skill, requires, class_points, total };
+        assert_eq!(
+            parse_masteries(high, false),
+            vec![
+                row(96, 526, vec![], vec![], 0),
+                row(96, 558, vec![(525, 2), (527, 2)], vec![], 0),
+                row(1722, 1237, vec![(1189, 1), (1236, 3)], vec![], 30),
+                // ConditionC : niveaux dans la classe du modèle 1722, pas une compétence.
+                row(1722, 1155, vec![(1153, 1)], vec![(1722, 30)], 0),
+                // « 10004;4 » : arbre de la race 4 (passives du Scion).
+                row(10004, 1242, vec![(351, 1)], vec![], 0),
+            ]
+        );
+        // Arbre héroïque : ConditionB et C ne sont pas lues.
+        let heroic = "Class TID\tSkill TID\tSkill Name\tConditionA\tConditionB\tConditionC\tConditionD\r\n\
+                      1\t\t\t\t\t\t\r\n\
+                      \t1440\tJugement\t1437;3\t1438;2\t1;5\t19;\r\n";
+        assert_eq!(parse_masteries(heroic, true), vec![row(1, 1440, vec![(1437, 3)], vec![], 19)]);
         let berserker = "Class TID	Skill TID	Skill Name	ConditionA	ConditionB	ConditionC	ConditionD	
                          4							
 	0						
@@ -1953,7 +2177,7 @@ mod tests {
 		4426	C	4422;3			19;
 							
 ";
-        assert_eq!(parse_masteries(berserker), vec![(4, 1472, vec![], 0), (4, 1471, vec![(1467, 3)], 19), (4, 4426, vec![(4422, 3)], 19)]);
+        assert_eq!(parse_masteries(berserker, true), vec![row(4, 1472, vec![], vec![], 0), row(4, 1471, vec![(1467, 3)], vec![], 19), row(4, 4426, vec![(4422, 3)], vec![], 19)]);
     }
 
     #[test]

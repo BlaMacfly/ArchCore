@@ -228,7 +228,7 @@ mod tests {
     fn vitesse_et_vue_a_cheval() {
         let horse = EquipData { part: part::RIDE, kind: 32, run_buff: 10500, ride_tid: 567, durability: 252000, ..Default::default() };
         let mut catalog = ItemCatalog::default();
-        catalog.items.insert(3002, ItemData { tid: 3002, name: "White Horse".into(), npc_price: 200000, pc_price: 0, stack: 1, equip: Some(horse), potion: None, scroll: None, stone: None, usable_type: 0, option_tids: Vec::new(), kind: 32, bound_type: 0, cash: false, enable_on_ride: false, auction_category: (0, 0), event_item: false });
+        catalog.items.insert(3002, ItemData { tid: 3002, name: "White Horse".into(), npc_price: 200000, pc_price: 0, charisma_price: 0, coin_price: 0, stack: 1, equip: Some(horse), potion: None, scroll: None, stone: None, usable_type: 0, option_tids: Vec::new(), kind: 32, bound_type: 0, cash: 0, enable_on_ride: false, auction_category: (0, 0), event_item: false });
         let mut inv = Inventory::default();
         assert_eq!((mount_speed(&inv, &catalog), transform_bits(&inv)), (None, 0));
         inv.equipment.insert(part::RIDE, InventoryItem { iid: 7, tid: 3002, count: 1, grid: [14, 0, 0], conv: Default::default(), options: Vec::new(), durability: DURABILITY_FULL });

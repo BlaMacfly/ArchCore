@@ -328,6 +328,53 @@ view. Bomba (Big Tim, 10 s): op 1 on expiry. Griolli then Bomba: the one-summon 
 Big Tim (op 0). Doogie <Rank 1> (item 7564): pet (type 8, forced), sent back by using the item again. Level restored,
 skills and item removed from the database at the end.
 
+## Consumables, resurrection orb and skill reset test
+
+```bash
+ARCHCORE_CONF_DIR=config/test archcore sim consumables [account] [password] [character]
+```
+
+GmTest (GM account) starts with Dual Slash at level 2 only and an empty "skill init" string. Scorching Stew (TID 111):
+effect 459 (AGPMSKILL op 4, 300 s), the item's op 4 with the skill's cooldown (420,000 ms), second stew refused (op 5).
+Janus Talisman of Growth LV1 (50101): effect 1801 for 30 min, talisman consumed. Reverse Orb (1054): refused while alive
+(op 5); after `/kill`, resurrection on the spot (op 1 status 0, op 4 then op 18 of 1,800,000 ms); dead again, a second
+orb is refused during the cooldown (op 18 then op 27 code 3), back to town (op 9). Master (0x3B op 8 without an event):
+Dual Slash removed (AGPMSKILL op 1), 560 coins refunded, op 23 "1", op 9 result 0; a second request, then another after
+reconnecting (string read back from the database): result 1. Gem of origin (4876): Dual Slash, put back in the
+database, removed (op 1), op 4. GmTest's skills, money and string restored at the end.
+
+## Party recall, social actions, quick belt and return to character selection test
+
+```bash
+ARCHCORE_CONF_DIR=config/test archcore sim recall|social [accountA passA charA accountB passB charB]
+ARCHCORE_CONF_DIR=config/test archcore sim quickbelt|returnlogin [account] [password] [character]
+```
+
+`sim recall`, GmTest (GM account) and SimA: Bead of Summoning (2756) without a party refused (AGPMITEM op 5); party
+formed, GmTest moves away (`/move`) and recalls: op 4 to the caster, management op 15 (caster, name) to SimA, who
+accepts (0x07 op 5 then op 16) and lands next to GmTest, op 16 to the caster; second recall declined (op 17 to the
+caster); acceptance without a request ignored; Summoning Orb (1174): op 4 with 300,000 ms, second use refused (op 5).
+`sim social`: SimA dances (op 16 type 5 received by both), type 17 ignored, an action too soon ignored then allowed.
+`sim quickbelt`, GmTest: op 0 with 50 slots, op 1 without answer (skill moved within its row, potion, unknown item
+emptied, life potion), bar read back on reconnecting (skill by its new id), vanished potion replaced, slot emptied;
+GmTest's bar cleared at start and end. `sim returnlogin`, GmTest: 0x2F op 1 → op 5 and the world connection closed; on
+the login server op 6, hash key, login, op 7, character list; same key refused (AGPMLOGIN op 15); entering the world
+again.
+
+## Titles test
+
+```bash
+ARCHCORE_CONF_DIR=config/test archcore sim title [accountA passA charA accountB passB charB]
+```
+
+GmTest (GM account, human knight) and SimA. Entering without a title: a single op 5 (0x5C = 0). Warrante ("<Title
+Manager>", npc.ini 535): op 10 instead of the dialog. Novice Human Knight (140001) set as a goal at level 10: 6.1
+result 0; at level 15: 6.1 then 6.3 = 15; at level 16, 6.3 = 16; 6.4 → 6.5 then op 1. Equipped: op 3 (1, 1), op 9 to
+GmTest and to SimA placed next to him, strength + 2 ("<Title> Novice Knight"); SimA moved away then brought back
+receives op 9 again. Removing it right after is refused (op 3 result 0, code 3). Deleting the active title: op 9 bUse
+0 at SimA's, op 8; goal 10001 set then given up (op 8); `/title` without an active title. `isole.sh` empties
+`character_titles`, `character_title_goals` and `characters.title_changed_at`.
+
 ## Chat, chat rooms, stylists and wanted posters test
 
 ```bash

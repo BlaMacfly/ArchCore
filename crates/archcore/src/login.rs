@@ -108,10 +108,10 @@ impl LoginService {
 
 impl Service for Arc<LoginService> {
     fn handles(&self, t: u8) -> bool {
-        t == ptype::WORLD || t == ptype::LOGIN || t == ptype::ARCHCORE_EXT
+        t == ptype::WORLD || t == ptype::LOGIN || t == ptype::RETURN_TO_LOGIN || t == ptype::ARCHCORE_EXT
     }
     fn connect(&self, _session: &SessionHandle) -> Box<dyn Connection> {
-        Box::new(LoginConn { svc: self.clone(), hash_key: None, account: None, characters: Vec::new(), world: String::new() })
+        Box::new(LoginConn { svc: self.clone(), hash_key: None, account: None, characters: Vec::new(), world: String::new(), returning: false })
     }
 }
 
@@ -121,6 +121,8 @@ struct LoginConn {
     account: Option<(u32, String)>,
     characters: Vec<CharacterRow>,
     world: String,
+    /// Retour à la sélection des personnages (AgpmReturnToLogin op 6 accepté) : l'op 7 suit la connexion réussie.
+    returning: bool,
 }
 
 fn login(map: impl FnOnce(Fields) -> Fields) -> Fields {
@@ -137,6 +139,7 @@ impl Connection for LoginConn {
         match p.header.ptype {
             ptype::WORLD => self.on_world(s, &p),
             ptype::ARCHCORE_EXT => self.on_ext(s, &p).await,
+            ptype::RETURN_TO_LOGIN => self.on_return(s, &p).await,
             _ => self.on_login(s, &p).await,
         }
     }
@@ -206,6 +209,36 @@ impl LoginConn {
         }
     }
 
+    /// AgpmReturnToLogin op 6 (2 compte, 5 clé remise par le monde, `world/return_login.rs`) : clé valable consommée,
+    /// puis clé de hachage comme à une connexion ordinaire ; sinon refus (identifiants incorrects).
+    async fn on_return(&mut self, s: &SessionHandle, p: &Packet) -> anyhow::Result<()> {
+        use crate::world::return_login::op;
+        if p.int(0) != Some(op::RECONNECT_LOGIN_SERVER) {
+            warn!("[login] #{} AgpmReturnToLogin op {:?} non géré", s.id(), p.int(0));
+            return Ok(());
+        }
+        let username = p.text(2).unwrap_or_default().trim().to_string();
+        let key = p.int(5).unwrap_or(0);
+        let db = &self.svc.db.auth;
+        let row = db
+            .first("SELECT id FROM account WHERE username = ? AND return_key = ? AND return_key_until > NOW()", (username.clone(), key))
+            .await?
+            .filter(|_| key > 0);
+        // La clé ne sert qu'une fois, valable ou non.
+        db.exec("UPDATE account SET return_key = NULL, return_key_until = NULL WHERE username = ?", (username.clone(),)).await?;
+        if row.is_none() {
+            info!("[login] #{} retour à la sélection refusé pour {username:?} (clé inconnue ou échue)", s.id());
+            self.send_login_result(s, login_result::INCORRECT_USER);
+            return Ok(());
+        }
+        info!("[login] #{} {username} revient à la sélection des personnages", s.id());
+        self.returning = true;
+        let hash = make_hash_key();
+        s.send(&schema::LOGIN, login(|f| f.with(0, login_op::HASHKEY).with(1, hash.as_str())));
+        self.hash_key = Some(hash);
+        Ok(())
+    }
+
     fn send_login_result(&self, s: &SessionHandle, result: i64) {
         let info = char_info(|f| f);
         s.send(&schema::LOGIN, login(|f| f.with(0, login_op::LOGIN_RESULT).with(8, info).with(10, result)));
@@ -263,6 +296,10 @@ impl LoginConn {
         self.load_characters().await?;
         info!("[login] #{} {name} authentifié ({} personnage(s))", s.id(), self.characters.len());
         s.send(&schema::LOGIN, login(|f| f.with(0, login_op::USER_LOGIN).with(2, acct_raw).with(14, 0).with(15, 0)));
+        // Retour depuis le monde : le client reprend à la liste de ses personnages (AgpmReturnToLogin op 7).
+        if std::mem::take(&mut self.returning) {
+            s.send_raw(crate::world::return_login::end_packet());
+        }
         Ok(())
     }
 
@@ -501,6 +538,7 @@ impl LoginConn {
         db.atomic(vec![
             ("DELETE FROM guild_member WHERE character_id = ?", (ch.id,).into()),
             ("DELETE FROM character_ui_status WHERE character_id = ?", (ch.id,).into()),
+            ("DELETE FROM character_quickbelt WHERE character_id = ?", (ch.id,).into()),
             // « nom#id » libère le nom ; le nom est raccourci pour tenir dans VARCHAR(48).
             ("UPDATE characters SET deleted_at = NOW(), name = CONCAT(LEFT(name, 47 - CHAR_LENGTH(id)), '#', id) WHERE id = ?", (ch.id,).into()),
         ])

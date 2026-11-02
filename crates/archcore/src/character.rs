@@ -284,6 +284,9 @@ pub struct CharacterRow {
     pub murderer_until: i64,
     /// Forme de l'évolution du Dragon Scion (`world/evolution.rs`), 0 : aucune ; `template_id` reste le Scion.
     pub evolution_tid: u32,
+    /// Chaîne « skill init » (AGPMCHARACTER champ 19) : vide tant que l'oubli des compétences chez le maître reste permis,
+    /// « 1 » une fois fait (`world/consumables.rs`).
+    pub skill_init: String,
 }
 
 impl CharacterRow {
@@ -315,6 +318,7 @@ impl CharacterRow {
             criminal_until: col(r, "criminal_until"),
             murderer_until: col(r, "murderer_until"),
             evolution_tid: col(r, "evolution_tid"),
+            skill_init: col(r, "skill_init"),
         }
     }
 
@@ -472,6 +476,8 @@ pub struct CharView {
     pub murderer_left: i64,
     /// Champ 18 (« transformation ») : bit 0 transformé, bit 1 monté (`world/ride.rs`), bit 2 évolution.
     pub transform: i64,
+    /// Champ 19 : chaîne « skill init » (`CharacterRow::skill_init`).
+    pub skill_init: String,
 }
 
 /// Secondes Unix actuelles.
@@ -499,6 +505,7 @@ impl From<&CharacterRow> for CharView {
             criminal_left: (c.criminal_until - unix_now()).clamp(0, 1200),
             murderer_left: (c.murderer_until - unix_now()).clamp(0, 7200),
             transform: 0,
+            skill_init: c.skill_init.clone(),
         }
     }
 }
@@ -527,7 +534,7 @@ pub fn character_packet(ch: &CharView, factors: &Factors, op: i64) -> Vec<u8> {
         .with(16, 0)
         .with(17, 0)
         .with(18, ch.transform)
-        .with(19, "")
+        .with(19, ch.skill_init.as_str())
         .with(20, ch.face)
         .with(21, ch.hair)
         .with(22, ch.option_flag)

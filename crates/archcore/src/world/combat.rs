@@ -568,10 +568,14 @@ pub(super) async fn kill(ctx: &WorldCtx, st: &mut WorldState, killer_sid: u32, c
     for (sid, part) in super::party::share_exp(st, killer_sid, gain, pos, &damage) {
         // Meurtrier de palier 3 : expérience des monstres réduite de moitié.
         let rogue = st.players.get(&sid).is_some_and(|x| super::pvp::murderer_level(x.ch.murderer) >= 3);
-        reward(ctx, st, sid, if rogue { part / 2 } else { part }).await?;
+        // Bonus d'expérience des effets (talismans de Janus, costumes : consumables.rs).
+        let part = super::consumables::with_exp_bonus(ctx, st, sid, if rogue { part / 2 } else { part });
+        reward(ctx, st, sid, part).await?;
     }
     super::loot::on_kill(ctx, st, killer_sid, cid, now);
     super::quests::on_kill(ctx, st, killer_sid, tid).await?;
+    // Objectifs de titre de collecte, si les morts comptent (`Title.CollectCountsKills`).
+    super::titles::on_kill(ctx, st, killer_sid, tid).await?;
     Ok(())
 }
 
@@ -608,6 +612,10 @@ pub(super) async fn reward(ctx: &WorldCtx, st: &mut WorldState, sid: u32, gain: 
     }
     send_system(st, sid, &format!("Vous gagnez {gain} point(s) d'expérience."));
     ctx.db.characters.exec("UPDATE characters SET level = ?, exp = ? WHERE id = ?", (level, exp, cid)).await?;
+    // Objectifs de titre de niveau (Advanced).
+    if ups > 0 {
+        super::titles::refresh(ctx, st, sid).await?;
+    }
     Ok(())
 }
 
@@ -630,6 +638,7 @@ pub async fn set_level(ctx: &WorldCtx, st: &mut WorldState, sid: u32, level: i32
     p.send(c, Fields::new(c).with(0, 1).with(1, cid).with(7, factors_mini(&p.factors)));
     send_around(st, sid, &build_packet(c, &Fields::new(c).with(0, CHARACTER_LEVEL_UP).with(1, cid)));
     ctx.db.characters.exec("UPDATE characters SET level = ?, exp = 0 WHERE id = ?", (level, cid)).await?;
+    super::titles::refresh(ctx, st, sid).await?;
     Ok(())
 }
 
@@ -779,6 +788,8 @@ pub fn player_death(st: &mut WorldState, sid: u32) {
     p.dead = true;
     p.attack = None;
     p.skills.cast = None;
+    // Mort en combat entre joueurs : marquée ensuite par `pvp::on_kill` (perte d'expérience, consumables.rs).
+    p.uses.pk_death = false;
     if let Some(d) = p.dest.take() {
         p.ch.set_pos(d);
     }
@@ -792,8 +803,10 @@ pub fn player_death(st: &mut WorldState, sid: u32) {
     super::summons::on_owner_death(st, sid);
 }
 
-/// AGPMCHARACTER op 9 : résurrection au village de départ de la race, tous PV et PM, invincible 10 s.
+/// AGPMCHARACTER op 9 : résurrection au village de départ de la race, tous PV et PM, invincible 10 s ; perte
+/// d'expérience selon la configuration (`consumables::town_penalty`, désactivée par défaut).
 pub async fn resurrect(ctx: &WorldCtx, st: &mut WorldState, sid: u32) -> anyhow::Result<()> {
+    super::consumables::town_penalty(ctx, st, sid).await?;
     resurrect_at(ctx, st, sid, None).await
 }
 
@@ -802,25 +815,33 @@ pub async fn resurrect_at(ctx: &WorldCtx, st: &mut WorldState, sid: u32, at: Opt
     if !st.players.get(&sid).is_some_and(|p| p.dead) {
         return Ok(());
     }
+    // Battleground : fort de sa race ; Shrine en combat : zone de sa race (battlesquare.rs) ; sinon le village.
+    let (x, y, z) = match at.or_else(|| super::battlesquare::resurrection_point(ctx, st, sid)) {
+        Some(at) => (at.x as f64, Some(at.y as f64), at.z as f64),
+        None => super::travel::home_village(ctx, &st.players[&sid]),
+    };
+    revive(ctx, st, sid);
+    info!("[combat] {} ressuscite en {x:.0}, {z:.0}", st.players[&sid].ch.name);
+    super::teleport(ctx, st, sid, x, y, z).await?;
+    Ok(())
+}
+
+/// Un mort revient à la vie là où il est : facteurs recalculés, tous PV et PM, invincible 10 s, statut normal
+/// (AGPMCHARACTER op 1 autour de lui). Sert au village, aux points de résurrection et à l'orbe (consumables.rs).
+pub fn revive(ctx: &WorldCtx, st: &mut WorldState, sid: u32) {
+    if !st.players.get(&sid).is_some_and(|p| p.dead) {
+        return;
+    }
     super::equipment::refresh_factors(ctx, st, sid);
     let p = st.players.get_mut(&sid).unwrap();
     p.dead = false;
     p.invincible_until = Some(Instant::now() + RESURRECTION_GRACE);
     p.factors.point[POINT_HP] = p.factors.point_max[0];
     p.factors.point[1] = p.factors.point_max[1];
-    // Battleground : fort de sa race ; Shrine en combat : zone de sa race (battlesquare.rs) ; sinon le village.
-    let (x, y, z) = match at.or_else(|| super::battlesquare::resurrection_point(ctx, st, sid)) {
-        Some(at) => (at.x as f64, Some(at.y as f64), at.z as f64),
-        None => super::travel::home_village(ctx, &st.players[&sid]),
-    };
-    let p = st.players.get_mut(&sid).unwrap();
     let plain = status_packet(p, 0);
-    info!("[combat] {} ressuscite en {x:.0}, {z:.0}", p.ch.name);
     send_around(st, sid, &plain);
     // Le droit de mettre son tueur à prix s'éteint.
     super::wanted::on_resurrect(st, sid);
-    super::teleport(ctx, st, sid, x, y, z).await?;
-    Ok(())
 }
 
 /// Montre un monstre réapparu aux joueurs qui voient son secteur.

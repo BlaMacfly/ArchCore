@@ -6,7 +6,7 @@
 //! (« Letter of Pardon » TID 3311, « Letter of Great Pardon » TID 1836, objets de genre « OtherType 4 ») ; il annonce
 //! 2 points retirés (`PvP.RemissionPoints`). Pas de rémission avant la fin du délai de 2 heures qui suit le dernier
 //! meurtre (« REMIT_MSG_NOT_TP » : réponse de type 1, résultat 0).
-use super::items::{item_count, item_remove};
+use super::items::item_remove;
 use super::npc_events::{in_range, range, resolve};
 use super::{WorldCtx, WorldState};
 use crate::character::unix_now;
@@ -77,7 +77,8 @@ async fn remit(ctx: &WorldCtx, st: &mut WorldState, sid: u32) -> anyhow::Result<
         info!("[rémission] {} : délai de 2 heures pas écoulé", p.ch.name);
         return Ok(reply(st, sid, TYPE_TIME, 0));
     }
-    let letters: Vec<(u32, i64)> = p.inventory.items.values().filter(|i| LETTER_TIDS.contains(&i.tid)).map(|i| (i.iid, i.count)).collect();
+    // Letter of Great Pardon : objet Cash, dans l'inventaire Cash.
+    let letters: Vec<(u32, i64)> = p.inventory.items.values().chain(p.inventory.cash.values()).filter(|i| LETTER_TIDS.contains(&i.tid)).map(|i| (i.iid, i.count)).collect();
     if letters.iter().map(|(_, n)| n).sum::<i64>() < LETTERS {
         return Ok(reply(st, sid, TYPE_LETTERS, RESULT_NOT_ENOUGH_LETTERS));
     }
@@ -91,7 +92,7 @@ async fn remit(ctx: &WorldCtx, st: &mut WorldState, sid: u32) -> anyhow::Result<
         need -= n;
         let p = st.players.get_mut(&sid).unwrap();
         match p.inventory.consume(&ctx.db, iid, n).await? {
-            Some(left) => p.send_raw(item_count(&left, cid)),
+            Some(left) => p.send_raw(p.inventory.count_packet(&left, cid)),
             None => p.send_raw(item_remove(iid, Some(cid))),
         }
     }

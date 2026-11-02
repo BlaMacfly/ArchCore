@@ -19,12 +19,29 @@
 //! distance ; un membre déconnecté quitte le groupe. Répartition de l'expérience d'un monstre tué (ajout
 //! d'ArchCore, le serveur d'origine ne la décrit pas) : entre les membres vivants assez proches (5 × 5 secteurs
 //! autour du monstre), selon les dégâts infligés (par défaut) ou selon le niveau.
+//!
+//! Rappel de groupe (épisode 8, orbes d'usage 15 : Summoning Orb, Bead of Summoning…) :
+//! ```text
+//!   lanceur → AGPMITEM op 3 (IID)        un exemplaire consommé ; lanceur ← AGPMITEM op 4 (3 TID, 4 CID, 18 recharge)
+//!                                        (« PartyUseRecallSuccess ») ; chaque autre membre en jeu ← gestion op 15
+//!                                        (1 lanceur, 3 son nom) : fenêtre `UI_ConfirmRecall`
+//!   membre → op 16 (1 lui, 2 lanceur)     accepte (précédé de l'annulation de son échange, 0x07 op 5) : téléporté près
+//!                                        du lanceur ; lanceur ← op 16 (1 membre, 3 son nom)
+//!   membre → op 17 (1 lui, 2 lanceur)     refuse ; lanceur ← op 17 (1 membre, 3 son nom)
+//! ```
+//! Le client ne contrôle ni la région, ni le combat, ni la distance. Règles d'ArchCore (celles d'origine ne sont pas
+//! connues), les mêmes pour le lanceur à l'usage et pour les deux à l'acceptation : refus au mort, en zone de siège en
+//! guerre, dans un Shrine en combat, dans la Battle Square et les Battlegrounds, dans une région sans le bit 0x100 du
+//! Type (celui de la résurrection : prison, tribune…), en combat sauf `Recall.AllowInCombat`. À l'usage, refus aussi
+//! sans autre membre en jeu, pendant la recharge (« Use Interval ») ou hors des niveaux de l'objet ; refus à l'usage :
+//! AGPMITEM op 5. La demande vaut `Recall.RequestSeconds` ; le membre est rappelé à toute distance.
 
-use super::{presence, WorldState};
-use crate::info;
+use super::{presence, WorldCtx, WorldState};
+use crate::{debug, info};
 use archcore_net::schema;
 use archcore_net::{build_packet, Fields, Packet, Value};
 use std::collections::HashMap;
+use std::time::{Duration, Instant};
 
 pub const MAX_MEMBERS: usize = 5;
 pub const MAX_INVITATIONS: usize = 16;
@@ -59,6 +76,23 @@ pub mod mgmt {
     pub const FAILED_MURDERER_SELF: i64 = 18;
     pub const FAILED_MURDERER_TARGET: i64 = 19;
     pub const LEAVE_BY_MURDERER: i64 = 20;
+    /// Rappel de groupe : demande (serveur → membres), acceptation et refus (membre → serveur, puis serveur → lanceur).
+    pub const REQUEST_RECALL: i64 = 15;
+    pub const ACCEPT_RECALL: i64 = 16;
+    pub const REJECT_RECALL: i64 = 17;
+}
+
+/// Type d'usage (« Type » d'un objet d'« ItemType » 1) des orbes de rappel : Summoning Orb, Bead of Summoning…
+pub const USABLE_RECALL_PARTY: i64 = 15;
+/// Décalage du membre rappelé par rapport au lanceur (unités du monde), pour ne pas le poser dessus.
+pub const RECALL_OFFSET: f64 = 100.0;
+
+/// Rappel en attente de la réponse d'un membre.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Recall {
+    /// CID du lanceur.
+    pub leader: u32,
+    pub until: Instant,
 }
 
 /// Répartition de l'expérience : selon les dégâts (défaut) ou selon le niveau.
@@ -84,6 +118,8 @@ pub struct Parties {
     pub of: HashMap<u32, u32>,
     /// CID de l'auteur → CID invités en attente.
     pub invitations: HashMap<u32, Vec<u32>>,
+    /// CID d'un membre → rappel qui attend sa réponse (le dernier reçu).
+    pub recalls: HashMap<u32, Recall>,
     next_id: u32,
 }
 
@@ -115,6 +151,18 @@ impl Parties {
         let Some(i) = list.iter().position(|c| *c == to) else { return false };
         list.remove(i);
         true
+    }
+
+    /// Rappel attendu par `member` de la part de `leader`, encore valable : consommé.
+    pub fn take_recall(&mut self, member: u32, leader: u32, now: Instant) -> bool {
+        match self.recalls.get(&member) {
+            Some(r) if r.leader == leader => {
+                let fresh = r.until > now;
+                self.recalls.remove(&member);
+                fresh
+            }
+            _ => false,
+        }
     }
 
     /// Nouveau groupe de deux membres (chef d'abord).
@@ -309,6 +357,14 @@ pub fn on_management(st: &mut WorldState, sid: u32, p: &Packet) {
             info!("[groupe] {my_name} passe la main à {}", name_of(st, target));
             send_party(st, &party, &management_packet(mgmt::DELEGATION_LEADER, Some(target), Some(me), None), None);
         }
+        Some(mgmt::REJECT_RECALL) => {
+            let Some(leader) = p.int(2).map(|c| c as u32) else { return };
+            if p.int(1).is_some_and(|c| c != me as i64) || !st.parties.take_recall(me, leader, Instant::now()) {
+                return;
+            }
+            info!("[groupe] {my_name} refuse le rappel de {}", name_of(st, leader));
+            send(st, leader, management_packet(mgmt::REJECT_RECALL, Some(me), Some(leader), Some(&my_name)));
+        }
         other => crate::debug!("[groupe] #{sid} gestion op {other:?} (ignorée)"),
     }
 }
@@ -359,6 +415,8 @@ fn join(st: &mut WorldState, id: u32, cid: u32, newly_formed: bool) {
 pub fn remove_member(st: &mut WorldState, cid: u32) {
     let Some(id) = st.parties.of.remove(&cid) else { return };
     st.parties.invitations.remove(&cid);
+    // Les rappels qu'il attendait ou qu'il avait lancés tombent.
+    st.parties.recalls.retain(|m, r| *m != cid && r.leader != cid);
     let party = st.parties.parties.get_mut(&id).unwrap();
     party.members.retain(|c| *c != cid);
     let party = party.clone();
@@ -401,6 +459,117 @@ pub fn on_leave_world(st: &mut WorldState, cid: u32) {
     if st.parties.of.contains_key(&cid) {
         remove_member(st, cid);
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Rappel de groupe
+// ---------------------------------------------------------------------------------------------
+
+/// Pourquoi le joueur `sid` ne peut ni rappeler ni être rappelé ici et maintenant, sinon `None`.
+pub fn recall_refusal(ctx: &WorldCtx, st: &WorldState, sid: u32, now: Instant) -> Option<String> {
+    let p = st.players.get(&sid)?;
+    if p.dead {
+        return Some("mort".into());
+    }
+    if super::siege::war::war_zone(ctx, st, sid).is_some() {
+        return Some("zone de siège en guerre".into());
+    }
+    if super::shrine::active_shrine(ctx, st, sid).is_some() {
+        return Some("Shrine en combat".into());
+    }
+    if super::battlesquare::in_battle_square(ctx, st, sid) || super::battlesquare::in_battleground(ctx, st, sid) {
+        return Some("Battle Square".into());
+    }
+    if let Some(region) = ctx.map.region(p.ch.pos_x, p.ch.pos_z) {
+        if ctx.regions.type_bits(region).is_some_and(|bits| bits & super::consumables::REGION_RESURRECTION == 0) {
+            return Some(format!("région {region} fermée au rappel"));
+        }
+    }
+    if !ctx.config.world.recall_allow_in_combat && now < p.timers.combat_until {
+        return Some("en combat".into());
+    }
+    None
+}
+
+/// Paquet de la demande de rappel (op 15) envoyé à un membre.
+pub fn recall_request_packet(leader: u32, leader_name: &str) -> Vec<u8> {
+    management_packet(mgmt::REQUEST_RECALL, Some(leader), None, Some(leader_name))
+}
+
+/// Orbe de rappel utilisé (AGPMITEM op 3, usage 15) : un exemplaire consommé, op 4 au lanceur, op 15 aux autres membres.
+pub async fn use_recall_item(ctx: &WorldCtx, st: &mut WorldState, sid: u32, item: &super::items::InventoryItem, now: Instant) -> anyhow::Result<()> {
+    let Some(p) = st.players.get(&sid) else { return Ok(()) };
+    let (cid, name) = (p.ch.id, p.ch.name.clone());
+    let u = ctx.catalog.uses.get(&item.tid).cloned().unwrap_or_default();
+    let others: Vec<u32> = st.parties.party_of(cid).map(|x| x.members.iter().copied().filter(|c| *c != cid && sid_of(st, *c).is_some()).collect()).unwrap_or_default();
+    let refusal = if ctx.config.world.recall_excluded_items.contains(&item.tid) {
+        Some("objet sans rappel".to_string())
+    } else if others.is_empty() {
+        Some("aucun autre membre du groupe en jeu".into())
+    } else if let Some(left) = p.uses.left(item.tid, &[], now) {
+        Some(format!("recharge ({} s)", left.as_secs().max(1)))
+    } else if !u.level_ok(p.ch.level) {
+        Some(format!("niveau {} hors de {:?}", p.ch.level, u.level))
+    } else {
+        recall_refusal(ctx, st, sid, now)
+    };
+    if let Some(why) = refusal {
+        info!("[groupe] {name} : rappel refusé ({why})");
+        p.send_raw(super::consumables::failed_packet(item.tid, cid));
+        super::send_system(st, sid, &format!("Rappel du groupe impossible : {why}."));
+        return Ok(());
+    }
+    let p = st.players.get_mut(&sid).unwrap();
+    match p.inventory.consume(&ctx.db, item.iid, 1).await? {
+        Some(left) => p.send_raw(p.inventory.count_packet(&left, cid)),
+        None => p.send_raw(super::items::item_remove(item.iid, Some(cid))),
+    }
+    if u.reuse_ms > 0 {
+        p.uses.item_ready.insert(item.tid, now + Duration::from_millis(u.reuse_ms));
+    }
+    p.send_raw(super::recovery::used_packet(item.tid, cid, Duration::from_millis(u.reuse_ms)));
+    let until = now + Duration::from_secs(ctx.config.world.recall_request_secs);
+    let request = recall_request_packet(cid, &name);
+    for &m in &others {
+        st.parties.recalls.insert(m, Recall { leader: cid, until });
+        send(st, m, request.clone());
+    }
+    info!("[groupe] {name} rappelle son groupe ({} membre(s))", others.len());
+    Ok(())
+}
+
+/// Op 16 reçue : le membre accepte le rappel ; téléporté près du lanceur, qui reçoit l'op 16.
+pub async fn accept_recall(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> anyhow::Result<()> {
+    let Some(me) = st.players.get(&sid).filter(|x| x.in_game).map(|x| x.ch.id) else { return Ok(()) };
+    let Some(leader) = p.int(2).map(|c| c as u32) else { return Ok(()) };
+    let now = Instant::now();
+    if p.int(1).is_some_and(|c| c != me as i64) || !st.parties.take_recall(me, leader, now) {
+        debug!("[groupe] #{sid} acceptation d'un rappel absent ou échu (lanceur {leader})");
+        return Ok(());
+    }
+    let my_name = name_of(st, me);
+    let lsid = sid_of(st, leader).filter(|_| st.parties.same(me, leader));
+    let refusal = match lsid {
+        None => Some("le lanceur n'est plus dans le groupe".to_string()),
+        Some(l) => recall_refusal(ctx, st, l, now).map(|w| format!("lanceur : {w}")).or_else(|| recall_refusal(ctx, st, sid, now)),
+    };
+    let (Some(lsid), None) = (lsid, &refusal) else {
+        let why = refusal.unwrap_or_default();
+        info!("[groupe] rappel de {my_name} refusé ({why})");
+        super::send_system(st, sid, &format!("Rappel impossible : {why}."));
+        if let Some(l) = lsid {
+            super::send_system(st, l, &format!("{my_name} ne peut pas être rappelé : {why}."));
+        }
+        return Ok(());
+    };
+    let target = st.players[&lsid].ch.pos();
+    // Échange en cours annulé (le client l'annule aussi avant d'accepter), boutique refermée.
+    super::trade::cancel(st, sid);
+    super::npc_trade::close(st, sid);
+    super::teleport(ctx, st, sid, target.x as f64 + RECALL_OFFSET, None, target.z as f64).await?;
+    info!("[groupe] {my_name} rejoint {} par le rappel", name_of(st, leader));
+    send(st, leader, management_packet(mgmt::ACCEPT_RECALL, Some(me), Some(leader), Some(&my_name)));
+    Ok(())
 }
 
 /// Part de l'expérience `gain` d'un monstre tué en `pos` revenant à chaque membre du groupe du tueur : membres
@@ -469,5 +638,21 @@ mod tests {
         assert_eq!(p.bytes(5).unwrap(), &[7, 0, 0, 0, 9, 0, 0, 0]);
         let m = archcore_net::decode_packet(&schema::PARTY_MANAGEMENT, &management_packet(mgmt::INVITE, Some(7), Some(9), Some("Alice"))).unwrap();
         assert_eq!((m.int(0), m.int(1), m.int(2), m.text(3).as_deref()), (Some(0), Some(7), Some(9), Some("Alice")));
+        // Demande de rappel : lanceur au champ 1, son nom au champ 3, pas de cible.
+        let r = archcore_net::decode_packet(&schema::PARTY_MANAGEMENT, &recall_request_packet(7, "Alice")).unwrap();
+        assert_eq!((r.int(0), r.int(1), r.int(2), r.text(3).as_deref()), (Some(15), Some(7), None, Some("Alice")));
+    }
+
+    #[test]
+    fn rappels_en_attente() {
+        let now = Instant::now();
+        let mut p = Parties::default();
+        p.recalls.insert(9, Recall { leader: 7, until: now + Duration::from_secs(60) });
+        assert!(!p.take_recall(9, 8, now), "autre lanceur");
+        assert!(p.take_recall(9, 7, now));
+        assert!(!p.take_recall(9, 7, now), "consommé");
+        p.recalls.insert(9, Recall { leader: 7, until: now });
+        assert!(!p.take_recall(9, 7, now + Duration::from_secs(1)), "échu");
+        assert!(p.recalls.is_empty(), "un rappel échu est retiré");
     }
 }

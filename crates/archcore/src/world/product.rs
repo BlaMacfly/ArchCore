@@ -32,7 +32,7 @@
 //!   inventaire plein : code 5, le cadavre reste à récolter ;
 //! - fabrication : matériaux consommés en cas de réussite comme d'échec (quantités additionnées quand un matériau
 //!   revient), objet recette consommé s'il est fourni et valide (sinon ignoré, sans bonus), produit 1 × Result_TID ;
-//!   recette inconnue, d'une autre catégorie, d'un niveau trop haut ou exigeant un titre (ArchCore n'en gère pas) :
+//!   recette inconnue, d'une autre catégorie, d'un niveau trop haut ou exigeant un titre non équipé (`titles.rs`) :
 //!   code 1 sans rien consommer, avec un message système ;
 //! - expérience tirée dans [min, max] de product_exp au niveau courant, sur une réussite seulement ; niveau suivant
 //!   quand l'expérience cumulée atteint le cumul du niveau (15 au plus, expérience bornée au cumul final) ;
@@ -469,7 +469,10 @@ async fn gather(ctx: &WorldCtx, st: &mut WorldState, sid: u32, skill_id: u32, ci
         p.send_raw(reply(result::NOTHING_LEFT));
         return Ok(());
     }
-    let bonus = ctx.product.level(owned.tid, owned.level).map(|l| l.rate_bonus).unwrap_or(0);
+    // Titre équipé : réussite de Collecte en plus (effet 5), objets multipliés sur sa créature (effet 7, titles.rs).
+    let monster_tid = st.monsters.get(cid).map(|m| m.tid).unwrap_or(0);
+    let bonus = ctx.product.level(owned.tid, owned.level).map(|l| l.rate_bonus).unwrap_or(0) + super::titles::product_bonus(ctx, p, CATEGORY_HUNT);
+    let count = super::titles::collect_factor(ctx, p, monster_tid).max(1);
     let (success, item) = {
         let mut rng = rand::thread_rng();
         let success = roll_success(&mut rng, chance(g.rate, bonus));
@@ -482,7 +485,7 @@ async fn gather(ctx: &WorldCtx, st: &mut WorldState, sid: u32, skill_id: u32, ci
     // Inventaire plein : rien n'est fait, le cadavre reste à récolter.
     if let Some(tid) = item {
         let stack = ctx.catalog.get(tid).map(|d| d.stack).unwrap_or(1).max(1);
-        if p.inventory.placement(tid, 1, stack, None).is_none() {
+        if p.inventory.placement(tid, count, stack, None).is_none() {
             p.send_raw(reply(result::FULL_INVENTORY));
             return Ok(());
         }
@@ -494,20 +497,22 @@ async fn gather(ctx: &WorldCtx, st: &mut WorldState, sid: u32, skill_id: u32, ci
         st.players[&sid].send_raw(reply(result::FAIL));
         return Ok(());
     };
-    give(ctx, st, sid, tid).await?;
+    give(ctx, st, sid, tid, count).await?;
     let exp = gain_exp(ctx, st, sid, owned.tid).await?;
-    info!("[production] {name} récolte {tid} sur {cid:#x} (+{exp} d'expérience)");
+    info!("[production] {name} récolte {count} × {tid} sur {cid:#x} (+{exp} d'expérience)");
     if let Some(p) = st.players.get(&sid) {
-        p.send_raw(result_packet(me, skill_id, tid, 1, result::SUCCESS, exp));
+        p.send_raw(result_packet(me, skill_id, tid, count, result::SUCCESS, exp));
     }
+    // Objectifs de titre : une collecte de plus sur cette créature.
+    super::titles::on_collect(ctx, st, sid, monster_tid).await?;
     Ok(())
 }
 
-/// Range un exemplaire de `tid` dans l'inventaire (place déjà vérifiée) et le montre au joueur.
-async fn give(ctx: &WorldCtx, st: &mut WorldState, sid: u32, tid: u32) -> anyhow::Result<()> {
+/// Range `count` exemplaires de `tid` dans l'inventaire (place déjà vérifiée) et les montre au joueur.
+async fn give(ctx: &WorldCtx, st: &mut WorldState, sid: u32, tid: u32, count: i64) -> anyhow::Result<()> {
     let Some(p) = st.players.get_mut(&sid) else { return Ok(()) };
     let stack = ctx.catalog.get(tid).map(|d| d.stack).unwrap_or(1).max(1);
-    let Some((it, created)) = p.inventory.add(&ctx.db, tid, 1, stack, None).await? else { return Ok(()) };
+    let Some((it, created)) = p.inventory.add(&ctx.db, tid, count, stack, None).await? else { return Ok(()) };
     let cid = p.ch.id;
     p.send_raw(if created { item_add_of(&it, cid, item_status::INVENTORY, Some(it.grid)) } else { item_count(&it, cid) });
     Ok(())
@@ -533,6 +538,8 @@ async fn gain_exp(ctx: &WorldCtx, st: &mut WorldState, sid: u32, skill_tid: u32)
         let name = ctx.skills.get(skill_tid).map(|t| t.name.clone()).unwrap_or_default();
         info!("[production] {} passe {name} au niveau {level}", p.ch.name);
         send_system(st, sid, &format!("{name} passe au niveau {level}."));
+        // Objectifs de titre de niveau de production (Researcher).
+        super::titles::refresh(ctx, st, sid).await?;
     }
     Ok(gain)
 }
@@ -553,7 +560,8 @@ async fn compose(ctx: &WorldCtx, st: &mut WorldState, sid: u32, skill_id: u32, r
         Some(c) if c.category != category => Some(format!("{} n'est pas une recette de cette compétence", c.name)),
         Some(c) if !p.recipes.contains(&recipe) => Some(format!("{} : recette pas encore apprise", c.name)),
         Some(c) if owned.level < c.item_level => Some(format!("{} demande le niveau {} de la compétence", c.name, c.item_level)),
-        Some(c) if c.title_tid != 0 => Some(format!("{} demande un titre", c.name)),
+        // Recette à titre (« UsingMonster ») : le titre doit être équipé, comme le vérifie le client (aucune dans les données).
+        Some(c) if c.title_tid != 0 && p.titles.active != Some(c.title_tid) => Some(format!("{} demande le titre {} équipé", c.name, c.title_tid)),
         Some(_) => None,
     };
     if let Some(why) = refused {
@@ -599,7 +607,8 @@ async fn compose(ctx: &WorldCtx, st: &mut WorldState, sid: u32, skill_id: u32, r
         p.send_raw(reply(result::FULL_INVENTORY));
         return Ok(());
     }
-    let bonus = if with_recipe { c.recipe_bonus } else { 0 } + ctx.product.level(owned.tid, owned.level).map(|l| l.rate_bonus).unwrap_or(0);
+    // Titre équipé : réussite d'Alchimie (effet 3) ou de Cuisine (effet 4) en plus (titles.rs).
+    let bonus = if with_recipe { c.recipe_bonus } else { 0 } + ctx.product.level(owned.tid, owned.level).map(|l| l.rate_bonus).unwrap_or(0) + super::titles::product_bonus(ctx, p, category);
     let success = roll_success(&mut rand::thread_rng(), chance(c.success_rate, bonus));
     let (result_tid, name) = (c.result_tid, c.name.clone());
     let p = st.players.get_mut(&sid).unwrap();
@@ -615,7 +624,7 @@ async fn compose(ctx: &WorldCtx, st: &mut WorldState, sid: u32, skill_id: u32, r
         p.send_raw(reply(result::FAIL));
         return Ok(());
     }
-    give(ctx, st, sid, result_tid).await?;
+    give(ctx, st, sid, result_tid, 1).await?;
     let exp = gain_exp(ctx, st, sid, owned.tid).await?;
     info!("[production] {who} fabrique {name} ({result_tid}{}, +{exp} d'expérience)", if with_recipe { ", avec la recette" } else { "" });
     if let Some(p) = st.players.get(&sid) {

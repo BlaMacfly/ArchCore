@@ -64,7 +64,20 @@ défaut, avec un avertissement dans le journal ; une clé inconnue (faute de fra
 | `Chat.ShoutRange` | `0` | Portée du cri local « /s » ; 0 : deux fois `World.ViewRadius` (choix d'ArchCore) |
 | `Wanted.ExpireDays` | `7` | Durée d'un avis de recherche, en jours depuis la dernière mise à prix (choix d'ArchCore) |
 | `Wanted.ExpLossPercent` | `5` | Part de l'expérience du niveau perdue par un criminel recherché tué par un chasseur, sans perte de niveau (choix d'ArchCore) |
+| `Death.ExpPenaltyPercent` | `0` | Part de l'expérience du niveau perdue en ressuscitant au village, sans perte de niveau, rien sous le niveau 6 ni après une mort en combat entre joueurs ; 0 : aucune, comme Archonia (épisode 8 : 3) |
+| `Death.ExpPenaltyRoguePercent` | `0` | La même pour un meurtrier de palier 3, à la place de la précédente quand celle-ci est active (épisode 8 : 10) |
+| `Skill.GameBonusDivisor` | `10` | Unité des bonus d'expérience et de butin des effets (`bonus_exp`, `bonus_drop_rate` : 100 à 1000 aux talismans de Janus) : pour cent = valeur / ce diviseur (unité inconnue, choix d'ArchCore) |
+| `Recall.RequestSeconds` | `60` | Rappel de groupe : secondes laissées à un membre pour accepter la demande (choix d'ArchCore) |
+| `Recall.AllowInCombat` | `0` | 1 = rappel permis en combat, du lanceur comme du membre ; toujours refusé au mort, en siège en guerre, dans un Shrine en combat, dans la Battle Square et dans les régions sans résurrection (choix prudent d'ArchCore) |
+| `Recall.ExcludedItems` | `4817` | TID des objets d'usage 15 qui ne rappellent pas (Bead of Nothernland, description sans rapport) |
+| `Social.MinIntervalMs` | `1000` | Délai minimal entre deux actions sociales d'un joueur ; une action plus rapprochée est ignorée (anti-inondation, choix d'ArchCore) |
+| `ReturnToLogin.LoginAddress` | vide | Adresse « hôte:port » du serveur de connexion donnée au client pour revenir à la sélection des personnages ; vide : le client reprend celle où il s'est connecté |
+| `ReturnToLogin.KeySeconds` | `60` | Durée de validité de la clé à usage unique du retour à la sélection des personnages |
 | `Shrine.Enabled` | `1` | Combats de Shrine selon l'horaire de la table `shrine` ; `0` : seulement par `/shrine open` |
+| `Title.Schola` | `0` | Titres Defender of Chantra et Schola de rangs 1 à 3 (origine incertaine, probablement Archonia) ; rangs 4 et 5 et Christmas Event jamais repris |
+| `Title.ChangeDelaySeconds` | `7200` | Délai entre deux changements du titre actif (équiper ou retirer), les « 2 hours » du client ; `0` : aucun |
+| `Title.ManagerOpensWindow` | `1` | Un « <Title Manager> » ouvre les fenêtres des titres (AgpmTitle op 10) au lieu du dialogue (choix d'ArchCore) |
+| `Title.CollectCountsKills` | `0` | `1` : une condition de collecte compte aussi les morts de la créature ; `0` : seulement les récoltes, comme les textes |
 | `BattleSquare.SupervisorTeleport` | `1` | Parler à un superviseur de la Battle Square (PNJ 551 à 554) envoie à l'étage de son niveau (choix d'ArchCore) |
 | `BattleSquare.SkullTids` | `500,981,982` | TID des crânes de niveau 1, 2 et 3 lâchés dans la Battle Square (choix d'ArchCore) |
 | `Battleground.Schedule` | vide | Plages « HH:MM-HH:MM » (séparées par « ; ») dont début et fin sont annoncés à tous (paquet 0x58) ; vide : aucune annonce |

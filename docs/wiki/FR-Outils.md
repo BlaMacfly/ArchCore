@@ -335,6 +335,53 @@ vue. Bomba (Big Tim, 10 s) : op 1 à l'expiration. Griolli puis Bomba : la limit
 (op 1) avant Big Tim (op 0). Doogie <Rank 1> (objet 7564) : familier (type 8, forcé), renvoyé en réutilisant l'objet.
 Niveau rétabli, compétences et objet retirés de la base à la fin.
 
+## Test des consommables, de l'orbe de résurrection et de l'oubli des compétences
+
+```bash
+ARCHCORE_CONF_DIR=config/test archcore sim consumables [compte] [mdp] [perso]
+```
+
+GmTest (compte MJ) part avec Dual Slash au niveau 2 seulement et une chaîne « skill init » vide. Scorching Stew (TID 111) :
+effet 459 (AGPMSKILL op 4, 300 s), op 4 de l'objet avec la recharge de la compétence (420 000 ms), second ragoût refusé
+(op 5). Janus Talisman of Growth LV1 (50101) : effet 1801 de 30 min, talisman consommé. Reverse Orb (1054) : refusé
+vivant (op 5) ; après `/kill`, résurrection sur place (op 1 statut 0, op 4 puis op 18 de 1 800 000 ms) ; mort de
+nouveau, second orbe refusé pendant la recharge (op 18 puis op 27 code 3), retour au village (op 9). Maître (0x3B op 8
+sans événement) : Dual Slash retirée (AGPMSKILL op 1), 560 pièces rendues, op 23 « 1 », op 9 résultat 0 ; seconde
+demande, puis une autre après reconnexion (chaîne relue en base) : résultat 1. Gem of origin (4876) : Dual Slash, remise
+en base, retirée (op 1), op 4. Compétences, argent et chaîne de GmTest rétablis à la fin.
+
+## Test du rappel de groupe, des actions sociales, de la barre de raccourcis et du retour à la sélection
+
+```bash
+ARCHCORE_CONF_DIR=config/test archcore sim recall|social [compteA mdpA persoA compteB mdpB persoB]
+ARCHCORE_CONF_DIR=config/test archcore sim quickbelt|returnlogin [compte] [mdp] [perso]
+```
+
+`sim recall`, GmTest (compte MJ) et SimA : Bead of Summoning (2756) sans groupe refusé (AGPMITEM op 5) ; groupe formé,
+GmTest s'éloigne (`/move`) et rappelle : op 4 au lanceur, gestion op 15 (lanceur, nom) à SimA, qui accepte (0x07 op 5
+puis op 16) et arrive à côté de GmTest, op 16 au lanceur ; second rappel refusé (op 17 au lanceur) ; acceptation sans
+demande ignorée ; Summoning Orb (1174) : op 4 avec 300 000 ms, second usage refusé (op 5). `sim social` : SimA danse
+(op 16 type 5 reçue par les deux), type 17 ignoré, action trop rapprochée ignorée puis permise. `sim quickbelt`, GmTest :
+op 0 de 50 cases, op 1 sans réponse (compétence déplacée dans sa rangée, potion, objet inconnu vidé, potion de vie),
+barre relue à la reconnexion (compétence par son nouvel identifiant), potion disparue remplacée, case vidée ; barre de
+GmTest effacée au début et à la fin. `sim returnlogin`, GmTest : 0x2F op 1 → op 5 et fermeture du monde ; au serveur de
+connexion op 6, clé de hachage, connexion, op 7, liste des personnages ; même clé refusée (AGPMLOGIN op 15) ; nouvelle
+entrée en jeu.
+
+## Test des titres
+
+```bash
+ARCHCORE_CONF_DIR=config/test archcore sim title [compteA mdpA persoA compteB mdpB persoB]
+```
+
+GmTest (compte MJ, chevalier humain) et SimA. Entrée sans titre : op 5 unique (0x5C = 0). Warrante (« <Title
+Manager> », npc.ini 535) : op 10 au lieu du dialogue. Novice Human Knight (140001) visé au niveau 10 : 6.1 résultat 0 ;
+au niveau 15 : 6.1 puis 6.3 = 15 ; au niveau 16, 6.3 = 16 ; 6.4 → 6.5 puis op 1. Équipé : op 3 (1, 1), op 9 à GmTest et
+à SimA posé à côté, force + 2 (« <Title> Novice Knight ») ; SimA éloigné puis ramené reçoit de nouveau l'op 9. Retrait
+aussitôt après refusé (op 3 résultat 0, code 3). Suppression du titre actif : op 9 bUse 0 chez SimA, op 8 ; objectif
+10001 fixé puis abandonné (op 8) ; `/title` sans titre actif. `isole.sh` vide `character_titles`,
+`character_title_goals` et `characters.title_changed_at`.
+
 ## Test de la discussion, des salons, des coiffeurs et des avis de recherche
 
 ```bash

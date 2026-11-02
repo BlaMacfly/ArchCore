@@ -6,11 +6,14 @@
 //! Une utilisation consomme un exemplaire (pile diminuée par op 2, ou objet retiré par op 1) et se confirme
 //! par op 4 : TID au champ 3, utilisateur aux champs 4 et 12, délai de réutilisation (ms) au champ 18.
 //!
+//! Les autres consommables (compétence d'objet, orbe de résurrection, Gem of origin) passent par `consumables.rs`, les
+//! orbes de rappel du groupe (usage 15) par `party.rs`.
+//!
 //! Hors combat (aucun coup donné ni reçu depuis 10 s), un joueur vivant regagne toutes les 10 s 1,5 % de ses
 //! PV et PM maximum, plus son taux de récupération, plus 5. Les options de régénération de son équipement
 //! (« regen_hp », « regen_mp ») lui rendent aussi leurs points toutes les 10 s, en combat compris.
 
-use super::items::{item_count, item_remove, ItemCatalog};
+use super::items::{item_remove, ItemCatalog};
 use super::{WorldCtx, WorldState};
 use crate::character::{factors_mini, Factors, POINT_HP};
 use crate::{debug, info};
@@ -136,11 +139,21 @@ pub async fn use_item(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet,
     let iid = p.int(2).unwrap_or(0) as u32;
     let now = Instant::now();
     let lord = super::archlord::is_lord(st, sid);
+    // Objet du sac du familier : seulement si le sac est disponible (le client refuse aussi, « sub inventory disabled »).
+    let bag_shut = st.players.get(&sid).is_some_and(|x| x.inventory.sub.contains_key(&iid)) && !super::pet_bag::available(ctx, st, sid);
     let Some(player) = st.players.get_mut(&sid) else { return Ok(()) };
-    if !player.in_game || player.dead {
+    if !player.in_game || bag_shut {
         return Ok(());
     }
-    let Some(item) = player.inventory.get(iid).cloned() else { return Ok(()) };
+    // De l'inventaire, de l'inventaire Cash (familiers, objets de la boutique) ou du sac du familier.
+    let Some(item) = player.inventory.get_usable(iid).cloned() else { return Ok(()) };
+    // Orbe de résurrection : le mort seul s'en sert (consumables.rs).
+    if let Some(u) = catalog.uses.get(&item.tid).filter(|u| u.usable_type == super::consumables::USABLE_REVERSE_ORB) {
+        return super::consumables::use_reverse_orb(ctx, st, sid, &item, u, now).await;
+    }
+    if player.dead {
+        return Ok(());
+    }
     // Potion de métamorphose : ses propres refus (à cheval, transformé, siège : AGPMITEM op 27), morph.rs.
     if let Some(potion) = catalog.morph.get(&item.tid).copied() {
         return super::morph::use_potion(ctx, st, sid, &item, potion, now).await;
@@ -156,8 +169,10 @@ pub async fn use_item(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet,
         super::send_system(st, sid, "Vous ne pouvez pas utiliser cet objet pendant l'évolution.");
         return Ok(());
     }
-    // À cheval : seuls les consommables marqués « EnableOnRide » servent (ride.rs).
-    if super::ride::is_mounted(&player.inventory) && catalog.get(item.tid).is_some_and(|d| !d.enable_on_ride) {
+    // À cheval : seuls les consommables marqués « EnableOnRide » servent (ride.rs), et jamais une Potion of Quickness ou
+    // Beam (sous-type 1 ou 2), sauf pour l'ArchLord, comme le refuse le client.
+    let speed = catalog.speed_potions.contains(&item.tid) && !lord;
+    if super::ride::is_mounted(&player.inventory) && (speed || catalog.get(item.tid).is_some_and(|d| !d.enable_on_ride)) {
         debug!("[objet] {} : objet {} refusé à cheval", player.ch.name, item.tid);
         super::send_system(st, sid, "Cet objet ne s'utilise pas à cheval.");
         return Ok(());
@@ -165,21 +180,40 @@ pub async fn use_item(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet,
     if let Some(scroll) = catalog.get(item.tid).and_then(|d| d.scroll) {
         return super::travel::use_scroll(ctx, st, sid, &item, scroll, now).await;
     }
+    // Gem of origin : oubli de toutes les compétences (consumables.rs).
+    if catalog.get(item.tid).is_some_and(|d| d.usable_type == super::consumables::USABLE_INIT_SKILL) {
+        return super::consumables::use_skill_init_item(ctx, st, sid, &item).await;
+    }
+    // Summoning Orb, Bead of Summoning : rappel du groupe (party.rs).
+    if catalog.get(item.tid).is_some_and(|d| d.usable_type == super::party::USABLE_RECALL_PARTY) {
+        return super::party::use_recall_item(ctx, st, sid, &item, now).await;
+    }
     // Familier, parchemin d'invocation : compétence d'invocation de l'objet (summons.rs).
     if let Some(u) = catalog.use_skill.get(&item.tid).copied().filter(|u| super::summons::is_summons_skill(ctx, u.skill_tid)) {
         return super::summons::use_item(ctx, st, sid, &item, u, now).await;
     }
-    let Some(potion) = catalog.get(item.tid).and_then(|d| d.potion) else {
+    // Ragoûts, potions de vitesse, pierres, ailes, charmes, costumes, talismans : compétence de l'objet (consumables.rs).
+    let potion = catalog.get(item.tid).and_then(|d| d.potion);
+    if let Some(u) = catalog.uses.get(&item.tid).filter(|u| potion.is_none() && !u.skills.is_empty()) {
+        return super::consumables::use_skill_item(ctx, st, sid, &item, u, now).await;
+    }
+    let Some(mut potion) = potion else {
         debug!("[objet] {} utilise l'objet {} : sans effet géré", player.ch.name, item.tid);
         return Ok(());
     };
+    // Titre équipé : récupération en plus pour cette potion (effet 9, titles.rs).
+    if potion.hp > 0 {
+        potion.hp += super::titles::potion_extra(ctx, player, item.tid, potion.hp);
+    } else {
+        potion.mp += super::titles::potion_extra(ctx, player, item.tid, potion.mp);
+    }
     if let Err(why) = drink(&mut player.factors, &potion, &mut player.timers, now) {
         debug!("[objet] {} : potion {} refusée ({why:?})", player.ch.name, item.tid);
         return Ok(());
     }
     let (cid, name) = (player.ch.id, player.ch.name.clone());
     match player.inventory.consume(&ctx.db, iid, 1).await? {
-        Some(left) => player.send_raw(item_count(&left, cid)),
+        Some(left) => player.send_raw(player.inventory.count_packet(&left, cid)),
         None => player.send_raw(item_remove(iid, Some(cid))),
     }
     player.send_raw(used_packet(item.tid, cid, potion.delay));
@@ -187,6 +221,8 @@ pub async fn use_item(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet,
     send_factors(st, sid);
     let label = catalog.get(item.tid).map(|d| d.name.as_str()).unwrap_or("?");
     info!("[objet] {name} boit {label} : {hp} PV, {mp} PM");
+    // Objectifs de titre : une utilisation de plus de cet objet (Addict).
+    super::titles::on_item_used(ctx, st, sid, item.tid).await?;
     Ok(())
 }
 

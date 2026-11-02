@@ -10,7 +10,7 @@
 //! L'aller-retour mémorise l'endroit quitté et l'annonce au client par AGPMITEM op 9 ; le client demande à
 //! y revenir par op 6, refusé en combat ; le serveur répond op 10 (retour désactivé) et y ramène le joueur.
 
-use super::items::{item_count, item_remove, InventoryItem};
+use super::items::{item_remove, InventoryItem};
 use super::recovery::used_packet;
 use super::{send_system, Player, WorldCtx, WorldState};
 use crate::info;
@@ -98,7 +98,7 @@ pub async fn use_scroll(ctx: &WorldCtx, st: &mut WorldState, sid: u32, item: &In
     let player = st.players.get_mut(&sid).unwrap();
     let (cid, name, here) = (player.ch.id, player.ch.name.clone(), player.dest.unwrap_or_else(|| player.ch.pos()));
     match player.inventory.consume(&ctx.db, item.iid, 1).await? {
-        Some(left) => player.send_raw(item_count(&left, cid)),
+        Some(left) => player.send_raw(player.inventory.count_packet(&left, cid)),
         None => player.send_raw(item_remove(item.iid, Some(cid))),
     }
     player.send_raw(used_packet(item.tid, cid, scroll.delay));

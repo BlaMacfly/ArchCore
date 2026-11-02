@@ -11,7 +11,7 @@ Toutes sont en `utf8mb4`.
 
 | Table | Contenu |
 |---|---|
-| `account` | Comptes : nom, empreinte SHA-256 du mot de passe, niveau MJ, ancienne date de fin de bannissement (`banned_until`, encore lue pendant une version), dernière connexion, clé d'entrée dans le monde (unique, effacée une fois utilisée), langue (dernier choix d'un client ArchRust, voir [[Traduction|FR-Traduction]]) |
+| `account` | Comptes : nom, empreinte SHA-256 du mot de passe, niveau MJ, ancienne date de fin de bannissement (`banned_until`, encore lue pendant une version), dernière connexion, clé d'entrée dans le monde (unique, effacée une fois utilisée), clé du retour à la sélection des personnages (`return_key`, `return_key_until` : AgpmReturnToLogin, à usage unique), langue (dernier choix d'un client ArchRust, voir [[Traduction|FR-Traduction]]) |
 | `account_banned` | Bannissements, avec leur historique : compte, date, fin (`NULL` : sans fin), auteur, raison, `active` (0 : levé avant son terme). Un compte est refusé tant qu'un bannissement actif n'est pas échu. L'anti-triche y écrit les siens (auteur `anti-triche`, `AntiCheat.Action = ban`) |
 | `server_group` | Groupes de serveurs affichés dans la liste |
 | `world` | Mondes : nom, groupe, adresse `ip:port` (23 caractères max), statut |
@@ -20,8 +20,8 @@ Toutes sont en `utf8mb4`.
 
 | Table | Contenu |
 |---|---|
-| `characters` | Compte, emplacement, nom unique, modèle (TID), niveau, expérience, PV/PM/PE, position, argent, banque, coiffure, visage, charisme, suppression logique ; `evolution_tid` : forme évoluée d'un Dragon Scion (1722, 1723, 1732 ; 0 aucune), `template_id` restant celui du Scion |
-| `character_items` | Objets : statut 0 inventaire, 1 équipé, 2 banque (rattaché au personnage qui l'a déposé), 3 entrepôt de guilde (`guild_id` ; le personnage qui l'a déposé reste noté), 4 pièce jointe d'un courrier (rattachée au destinataire), 5 en vente dans la maison des ventes (rattaché au vendeur) ; `durability` : -1 pleine (colonne DUR du modèle), sinon durabilité actuelle (usure, `repair.rs`) |
+| `characters` | Compte, emplacement, nom unique, modèle (TID), niveau, expérience, PV/PM/PE, position, argent, banque, coiffure, visage, charisme, suppression logique ; `evolution_tid` : forme évoluée d'un Dragon Scion (1722, 1723, 1732 ; 0 aucune), `template_id` restant celui du Scion ; `skill_init` : chaîne « skill init » (vide : oubli des compétences chez le maître encore permis, « 1 » : fait) ; `pet_auto_pick` : ramassage automatique du sac du familier (AGPMITEM op 30, 1 par défaut) |
+| `character_items` | Objets : statut 0 inventaire, 1 équipé, 2 banque (rattaché au personnage qui l'a déposé), 3 entrepôt de guilde (`guild_id` ; le personnage qui l'a déposé reste noté), 4 pièce jointe d'un courrier (rattachée au destinataire), 5 en vente dans la maison des ventes (rattaché au vendeur), 6 inventaire Cash (statut 51 ; rang dans la liste en `row_idx`), 7 sac du familier (statut 13 ; sac, ligne, colonne) ; un objet Cash encore au statut 0 passe au statut 6 à l'entrée en jeu ; `durability` : -1 pleine (colonne DUR du modèle), sinon durabilité actuelle (usure, `repair.rs`) |
 | `character_quests` | Quêtes en cours (compteurs des monstres A et B) et terminées |
 | `account_bank` | Banque du compte : argent, pages en plus de la première (créée à la première entrée, avec l'argent que les personnages avaient en banque) |
 | `character_skills` | Compétences apprises et leur niveau (« Normal Attack » n'y figure pas : tout personnage la connaît) ; `exp` : expérience cumulée d'une compétence de production |
@@ -42,6 +42,9 @@ Toutes sont en `utf8mb4`.
 | `archlord` | Titre d'ArchLord : une ligne (id 1), personnage en titre (`NULL` : aucun), nom, depuis quand |
 | `castle_tax`, `castle_tax_region` | Taxes des régions : par château, recette totale versée, dernier versement, dernière modification des taux, début de la période ; par région (château et abords), château, taux (0 à 50 %) et recette depuis le dernier versement |
 | `character_ui_status` | Statut d'interface : potions de vie et de mana de la barre, seuils de leur prise automatique (%), affichage du casque |
+| `character_quickbelt` | Barre de raccourcis gardée par le serveur (AgpmUIStatus) : une ligne par case remplie (0 à 49), type de base (5 objet, 7 compétence), TID, IID d'un objet ; supprimée avec le personnage |
+| `character_titles` | Titres possédés (AgpmTitle) : TID, actif (un au plus), compétence choisie (0), date d'obtention (secondes Unix) ; l'heure du dernier changement de titre actif est `characters.title_changed_at` (délai `Title.ChangeDelaySeconds`) |
+| `character_title_goals` | Objectifs de titre en cours : TID, date d'acceptation, valeurs `c1` à `c5` des conditions non vides du modèle |
 
 ## `archcore_world` — données du jeu (`sql/003_world.sql`)
 
@@ -55,12 +58,13 @@ Remplie par `archcore import` à partir des tables du client.
 | `growup_factor` | `GrowUpFactor.txt` | Progression des statistiques |
 | `login_char_pos` | `logincharpos.ini` | Positions de l'écran de sélection |
 | `item_template` | modèles d'objets | Objets |
+| `item_data` | `itemdatatable.txt` | Caractéristiques des objets : niveau, partie, genre, type, prix chez un PNJ (or `npc_price`, revente `pc_price`, charisme `npc_charisma_price` et Shrine Coins `npc_shrine_coin` de la boutique des Shrines), pile, toutes les colonnes en JSON (`raw`) |
 | `skill_template` | `SKILLTEMPLATE.ini` | Compétences (TID, nom) |
 | `skill_spec` | `SKILL_SPEC.txt` | Nature de chaque compétence (colonnes non vides, en JSON) |
 | `quest_template` | `questtemplate.ini` | Quêtes (colonnes non vides, en JSON) |
 | `quest_group` | `questgroup.ini` | Groupes de PNJ : quêtes proposées et rendues |
 | `skill_level` | `SKILL_CONST.txt`, `Skill_Const2.txt` | Valeurs de chaque niveau de chaque compétence (colonnes non vides, en JSON ; groupes `point.`, `percent.`, `magnify.` ; celles de `Skill_Const2.txt`, suffixées de « 2 », sous `point2.`, `percent2.`…) |
-| `skill_mastery` | `SkillMastery_High.txt`, `SkillMastery_Heroic.txt` | Arbres de maîtrise : classe (TID du modèle), compétence, arbre (1 supérieur, 2 héroïque), compétences exigées `[[TID, points]…]`, total de points dépensés |
+| `skill_mastery` | `SkillMastery_High.txt`, `SkillMastery_Heroic.txt` | Arbres de maîtrise : clé (TID du modèle, 10000 + race pour « 10004;4 »), compétence, arbre (1 supérieur, 2 héroïque), compétences exigées `[[TID, niveau]…]` (ConditionA, B), niveaux dans la classe d'un modèle `class_points` `[[TID du modèle, niveaux]…]` (ConditionC), total (ConditionD : niveaux cumulés, ou points héroïques) |
 | `product_category`, `product_compose`, `product_exp`, `product_gather`, `product_result_item` | `productcategory.txt`, `productcompose.txt`, `productexp.txt`, `productgather.txt`, `productresultitem.txt` | Production : compétence de chaque catégorie, 95 recettes (matériaux `[[TID, quantité]…]`, prix, niveau, chance), niveaux 1 à 15, 760 monstres récoltables, objets récoltés par ensemble et niveau (noms de compétence résolus par `SKILLTEMPLATE.ini`) |
 | `npc_spawn` | `npc.ini` | 567 PNJ : modèle, nom, position, orientation, fonctions brutes |
 | `client_table` | autres tables `.txt` | Lignes en JSON, pour les tables pas encore modélisées |
@@ -88,6 +92,8 @@ Remplie par `archcore import` à partir des tables du client.
 | `character_customize` | `charactercustomizelist.txt` | Coiffures (1) et visages (2) par modèle : numéro (champs 20 et 21 d'AGPMCHARACTER), nom, `Case` (0 création et coiffeur, 1 coiffeur, 2 création), niveau exigé, prix en or ou en objets, ordre du fichier |
 | `guild_max_member` | `guildmaxmember.txt` | Tailles de guilde et leur prix ; la première ligne est la guilde neuve (50 places, 10 000 pièces), les suivantes les agrandissements |
 | `guild_mark` | `guildmark.txt` | Éléments d'emblème : couche (1 fond, 2 motif, 3 symbole, 4 couleur), numéro, TID (numéro << 8 × (couche − 1)), nom, prix en or, crânes, argent liquide, couleur ARGB |
+| `title_template` | `titledatatable.txt`, `titlestringtable.txt` | 684 titres de l'épisode 8 (627 Expert Collector, 30 Advanced, 14 Addict, 3 Researcher ; 10 Defender of Chantra et Schola 1-3 marqués `optional`, chargés avec `Title.Schola`) : catégorie (`FirstCategory`), conditions pour fixer l'objectif (niveau, classe, chef de guilde, ArchLord, caractéristiques), or, objets de coût, titres préalables, conditions d'obtention, compétences et effets (JSON) ; Christmas Event et Schola 4/5 d'Archonia non importés |
+| `charisma_title` | `charismatitletable.txt` | 14 rangs de charisme (CHA min, max, titre) : calculés par le client, lus par `/title` |
 
 **Identifiants stables.** Dans `monster_spawn`, `monster_drop` et `resurrection_point`, la colonne `id` n'est qu'un
 numéro d'ordre d'import. La colonne `stable_key` (unique, sensible à la casse) désigne la même ligne d'un import
@@ -180,6 +186,7 @@ fait de même au démarrage :
 | compétence inconnue (`character_skills.skill_tid` → `skill_template`) | grave |
 | quête absente de `quest_template` | avertissement |
 | recette absente de `product_compose` (`character_recipes.recipe_tid`) | avertissement |
+| titre ou objectif de titre absent de `title_template` (`character_titles`, `character_title_goals`) | avertissement |
 | pièce jointe de courrier introuvable (`mail.item_id` sans objet au statut 4 chez le destinataire) | avertissement |
 | objet en vente introuvable (`auction_sale` en vente sans objet au statut 5 chez le vendeur) | avertissement |
 | coiffure ou visage absent de `character_customize` pour le modèle du personnage (table importée) | avertissement |

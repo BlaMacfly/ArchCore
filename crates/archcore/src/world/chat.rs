@@ -300,7 +300,8 @@ async fn area_chat(ctx: &WorldCtx, st: &mut WorldState, sid: u32, area: Area, te
         send_system(st, sid, "Attendez un instant avant de crier de nouveau.");
         return Ok(());
     }
-    let found = p.inventory.items.values().find(|i| area.items().contains(&i.tid)).map(|i| (i.iid, i.tid));
+    // Trompettes et mégaphones : objets Cash, dans l'inventaire Cash (ou encore dans l'inventaire ordinaire).
+    let found = p.inventory.items.values().chain(p.inventory.cash.values()).find(|i| area.items().contains(&i.tid)).map(|i| (i.iid, i.tid));
     let Some((iid, tid)) = found else {
         let wanted = ctx.catalog.get(area.items()[0]).map(|d| d.name.clone()).unwrap_or_else(|| area.item_label().to_string());
         send_system(st, sid, &format!("Il vous faut l'objet « {wanted} » pour ce cri."));
@@ -309,7 +310,7 @@ async fn area_chat(ctx: &WorldCtx, st: &mut WorldState, sid: u32, area: Area, te
     let p = st.players.get_mut(&sid).unwrap();
     let (cid, name, race) = (p.ch.id, p.ch.name.clone(), p.factors.ftype[0]);
     match p.inventory.consume(&ctx.db, iid, 1).await? {
-        Some(left) => p.send_raw(super::items::item_count(&left, cid)),
+        Some(left) => p.send_raw(p.inventory.count_packet(&left, cid)),
         None => p.send_raw(super::items::item_remove(iid, Some(cid))),
     }
     p.chat.shouted = Some(now);

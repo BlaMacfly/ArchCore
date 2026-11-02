@@ -168,7 +168,7 @@ pub fn on_packet(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) {
 }
 
 /// La fenêtre de la banque est ouverte et le gardien à portée.
-fn at_keeper(ctx: &WorldCtx, st: &WorldState, sid: u32) -> bool {
+pub fn at_keeper(ctx: &WorldCtx, st: &WorldState, sid: u32) -> bool {
     let Some(p) = st.players.get(&sid) else { return false };
     let Some(npc) = p.bank.keeper.and_then(|cid| ctx.npcs.get(cid)) else { return false };
     // Fenêtre déjà ouverte : le double de la portée d'ouverture.

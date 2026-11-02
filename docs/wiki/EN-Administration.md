@@ -77,6 +77,7 @@ messages. ArchCore's replies are in French.
 | `/additem <TID> [count]` | 3 | Shortcut for `/create` on yourself: adds the item (1 by default, up to 9999) to the GM's inventory, tradable. ArchCore-specific command |
 | `/simloot <monster TID> <count> [drop rate] [gold rate]` | 2 | Simulates the loot of `count` monsters of this template (1 to 10,000): each death rolls the loot exactly as when a real monster dies (gold, drop groups, monster-specific items), without creating anything or dropping it on the ground. Server rates (`/GetDrop`, `/GetGold`) unless given (0 to 100); monster level: that of a monster of this template present in the world, otherwise the template's; the GM character's level stands for the killer's level. Reply: a header (monsters, rates, gold, number of items and kinds), then one line `· count × name (TID n)` per item, most frequent first (40 at most, then a summary line). The replies are in French, like every GM reply. ArchCore-specific command |
 | `/weather [clear\|rain\|snow]` | 2 | Weather for every player in game (rain, snow, clear); without an argument, the weather and the game hour. ArchCore-specific command |
+| `/title ["name"]` | 1 | Titles of a player in the world (oneself without a name): active title, charisma and its rank (`charisma_title`), titles owned, goals and their conditions' values. The replies are in French, like every GM reply. ArchCore-specific command |
 | `/shrine [open\| `/siege [start|end <castle> | owner <castle> <guild|-> | hp <castle> <HP>]` | 3 | Without an argument, the castles' state; `start` closes the applications and opens the battle, `end` ends it (the guild of the last carving takes the castle), `owner` gives the castle to a guild (`-`: none) and resets its calendar to status 0, `hp` lowers the HP of a warring castle's intact objects (tests). ArchCore-specific command |
 |close <n>]` | 3 | Without an argument, the Shrines' state; `open` opens Shrine `n`'s battle without waiting for its schedule, `close` ends it with no winner. ArchCore-specific command |
 | ✅ `/siege [start|end|owner|hp …]` | Castles' state, forced start and end of a siege, owner, objects' HP (ArchCore addition, not in the panel) |
@@ -203,6 +204,7 @@ Example: `/SetExp 2.0`, then `/GetExp` to check.
 | ✅ `/simloot <monster TID> <count> [drop rate] [gold rate]` | Simulates the loot of a number of monsters and lists the items obtained (ArchCore addition, not in the panel) |
 | ✅ `/speed <1-10>` | Multiplies your movement speed (ArchCore addition, not in the panel) |
 | ✅ `/weather [clear\|rain\|snow]` | Everyone's weather, or weather and game hour (ArchCore addition, not in the panel) |
+| ✅ `/title ["name"]` | Titles, goals and charisma rank of a player (ArchCore addition, not in the panel) |
 | ✅ `/shrine [open\|close <n>]` | Shrines' state, forced opening or closing of a battle (ArchCore addition, not in the panel) |
 | ✅ `/durability <value\|-1>` | Sets the durability of your worn equipment (ArchCore addition, not in the panel) |
 | ✅ `/money <amount> ["name"]` | Sets an online character's gold (ArchCore addition, not in the panel) |

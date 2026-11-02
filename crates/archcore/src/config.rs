@@ -99,9 +99,43 @@ pub struct WorldConfig {
     /// cent (`Wanted.ExpLossPercent`, 5). Choix d'ArchCore : le client n'en dit rien.
     pub wanted_expire_days: i64,
     pub wanted_exp_loss_percent: f64,
+    /// Perte d'expérience à la résurrection au village (`world/consumables.rs`), en pour cent de l'expérience du niveau
+    /// (`Death.ExpPenaltyPercent`, 0 : aucune ; textes de l'épisode 8 : 3) et pour un meurtrier de palier 3
+    /// (`Death.ExpPenaltyRoguePercent`, 0 ; épisode 8 : 10). Jamais de niveau perdu, rien sous le niveau 6 ni après une
+    /// mort en combat entre joueurs. Archonia masque ces textes : désactivée par défaut.
+    pub death_exp_penalty_percent: f64,
+    pub death_exp_penalty_rogue_percent: f64,
+    /// Unité des bonus d'expérience et de butin des effets (`bonus_exp`, `bonus_drop_rate` de SKILL_CONST : 100 à 1000
+    /// aux talismans de Janus, 10 aux costumes) : pour cent = valeur / `Skill.GameBonusDivisor` (10 ; inconnue, choix
+    /// d'ArchCore).
+    pub skill_game_bonus_divisor: f64,
+    /// Rappel de groupe (`world/party.rs`, orbes d'usage 15) : délai laissé au membre pour accepter, en secondes
+    /// (`Recall.RequestSeconds`, 60) ; rappel permis en combat, du lanceur comme du membre (`Recall.AllowInCombat`, 0) ;
+    /// objets d'usage 15 qui ne rappellent pas (`Recall.ExcludedItems`, « 4817 » : Bead of Nothernland, dont la
+    /// description parle d'autre chose). Règles d'origine inconnues : choix prudents d'ArchCore.
+    pub recall_request_secs: u64,
+    pub recall_allow_in_combat: bool,
+    pub recall_excluded_items: Vec<u32>,
+    /// Actions sociales (`world/social.rs`) : délai minimal entre deux actions d'un joueur, en millisecondes
+    /// (`Social.MinIntervalMs`, 1000 ; anti-inondation, choix d'ArchCore).
+    pub social_min_interval_ms: u64,
+    /// Retour à la sélection des personnages (`world/return_login.rs`) : adresse « hôte:port » du serveur de connexion
+    /// donnée au client (`ReturnToLogin.LoginAddress`, vide : le client reprend celle où il s'est connecté) et durée de
+    /// validité de la clé, en secondes (`ReturnToLogin.KeySeconds`, 60).
+    pub return_login_address: String,
+    pub return_login_key_secs: u64,
     /// Combats de Shrine (`world/shrine.rs`) : ouverture selon l'horaire de la table `shrine` (`Shrine.Enabled`, 1 ;
     /// 0 : seulement par la commande MJ `/shrine open`).
     pub shrine_enabled: bool,
+    /// Titres (`world/titles.rs`) : Defender of Chantra et Schola de rangs 1 à 3, d'origine incertaine (`Title.Schola`,
+    /// 0) ; délai entre deux changements du titre actif, en secondes (`Title.ChangeDelaySeconds`, 7200 : les « 2 hours »
+    /// du message du client ; 0 : aucun) ; un « <Title Manager> » ouvre les fenêtres des titres (op 10) au lieu du
+    /// dialogue (`Title.ManagerOpensWindow`, 1) ; une condition de collecte compte aussi les morts de la créature
+    /// (`Title.CollectCountsKills`, 0 : seulement les récoltes, comme le disent les textes). Choix d'ArchCore.
+    pub title_schola: bool,
+    pub title_change_delay_secs: i64,
+    pub title_manager_window: bool,
+    pub title_collect_counts_kills: bool,
     /// Battle Square (`world/battlesquare.rs`) : un superviseur (PNJ 551 à 554) envoie à l'étage du niveau du joueur
     /// quand il lui parle (`BattleSquare.SupervisorTeleport`, 1 ; choix d'ArchCore, aucun portail n'y mène) ; TID des
     /// crânes de niveau 1, 2 et 3 (`BattleSquare.SkullTids`, « 500,981,982 » : Skull of Spite, of Hatred, of Blood).
@@ -328,7 +362,20 @@ impl Default for WorldConfig {
             chat_shout_range: 0.0,
             wanted_expire_days: 7,
             wanted_exp_loss_percent: 5.0,
+            death_exp_penalty_percent: 0.0,
+            death_exp_penalty_rogue_percent: 0.0,
+            skill_game_bonus_divisor: 10.0,
+            recall_request_secs: 60,
+            recall_allow_in_combat: false,
+            recall_excluded_items: vec![4817],
+            social_min_interval_ms: 1000,
+            return_login_address: String::new(),
+            return_login_key_secs: 60,
             shrine_enabled: true,
+            title_schola: false,
+            title_change_delay_secs: 7200,
+            title_manager_window: true,
+            title_collect_counts_kills: false,
             battle_square_supervisor_teleport: true,
             battle_square_skull_tids: vec![500, 981, 982],
             battleground_schedule: String::new(),
@@ -619,7 +666,20 @@ fn read_world(s: &Settings, cfg: &mut Config) {
         chat_shout_range: s.parse("Chat.ShoutRange", d.chat_shout_range).max(0.0),
         wanted_expire_days: s.parse("Wanted.ExpireDays", d.wanted_expire_days).max(1),
         wanted_exp_loss_percent: s.parse("Wanted.ExpLossPercent", d.wanted_exp_loss_percent).clamp(0.0, 100.0),
+        death_exp_penalty_percent: s.parse("Death.ExpPenaltyPercent", d.death_exp_penalty_percent).clamp(0.0, 100.0),
+        death_exp_penalty_rogue_percent: s.parse("Death.ExpPenaltyRoguePercent", d.death_exp_penalty_rogue_percent).clamp(0.0, 100.0),
+        skill_game_bonus_divisor: s.parse("Skill.GameBonusDivisor", d.skill_game_bonus_divisor).max(0.01),
+        recall_request_secs: s.parse("Recall.RequestSeconds", d.recall_request_secs).max(5),
+        recall_allow_in_combat: s.flag("Recall.AllowInCombat", d.recall_allow_in_combat),
+        recall_excluded_items: s.string("Recall.ExcludedItems", "4817").split(',').filter_map(|t| t.trim().parse().ok()).collect(),
+        social_min_interval_ms: s.parse("Social.MinIntervalMs", d.social_min_interval_ms),
+        return_login_address: s.string("ReturnToLogin.LoginAddress", &d.return_login_address),
+        return_login_key_secs: s.parse("ReturnToLogin.KeySeconds", d.return_login_key_secs).max(5),
         shrine_enabled: s.flag("Shrine.Enabled", d.shrine_enabled),
+        title_schola: s.flag("Title.Schola", d.title_schola),
+        title_change_delay_secs: s.parse("Title.ChangeDelaySeconds", d.title_change_delay_secs).max(0),
+        title_manager_window: s.flag("Title.ManagerOpensWindow", d.title_manager_window),
+        title_collect_counts_kills: s.flag("Title.CollectCountsKills", d.title_collect_counts_kills),
         battle_square_supervisor_teleport: s.flag("BattleSquare.SupervisorTeleport", d.battle_square_supervisor_teleport),
         battle_square_skull_tids: s
             .string("BattleSquare.SkullTids", "500,981,982")
@@ -783,7 +843,20 @@ pub fn to_values(cfg: &Config, which: Which) -> Vec<(String, String)> {
             put("Chat.ShoutRange", fmt_num(w.chat_shout_range));
             put("Wanted.ExpireDays", w.wanted_expire_days.to_string());
             put("Wanted.ExpLossPercent", fmt_num(w.wanted_exp_loss_percent));
+            put("Death.ExpPenaltyPercent", fmt_num(w.death_exp_penalty_percent));
+            put("Death.ExpPenaltyRoguePercent", fmt_num(w.death_exp_penalty_rogue_percent));
+            put("Skill.GameBonusDivisor", fmt_num(w.skill_game_bonus_divisor));
+            put("Recall.RequestSeconds", w.recall_request_secs.to_string());
+            put("Recall.AllowInCombat", (w.recall_allow_in_combat as i64).to_string());
+            put("Recall.ExcludedItems", w.recall_excluded_items.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(","));
+            put("Social.MinIntervalMs", w.social_min_interval_ms.to_string());
+            put("ReturnToLogin.LoginAddress", w.return_login_address.clone());
+            put("ReturnToLogin.KeySeconds", w.return_login_key_secs.to_string());
             put("Shrine.Enabled", (w.shrine_enabled as i64).to_string());
+            put("Title.Schola", (w.title_schola as i64).to_string());
+            put("Title.ChangeDelaySeconds", w.title_change_delay_secs.to_string());
+            put("Title.ManagerOpensWindow", (w.title_manager_window as i64).to_string());
+            put("Title.CollectCountsKills", (w.title_collect_counts_kills as i64).to_string());
             put("BattleSquare.SupervisorTeleport", (w.battle_square_supervisor_teleport as i64).to_string());
             put("BattleSquare.SkullTids", w.battle_square_skull_tids.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(","));
             put("Battleground.Schedule", w.battleground_schedule.clone());

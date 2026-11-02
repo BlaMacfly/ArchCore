@@ -4,7 +4,8 @@
 //! client test test SimScion`) se tient chez Gilliwen, maître des compétences du Dragon Scion ; GmTest (MJ) le rejoint, le
 //! passe niveau 20 et lui donne de l'or. Apprentissage de Slayer et Orbiter of Evolution (1189, 1192), refus de Power
 //! Stunner (réservée au Slayer : code 5). Slayer of Evolution lancée : facteurs du Slayer (classe 1, FOR 83 au niveau
-//! 20), AGPMSKILL op 4, op 26 (1722) chez lui et chez GmTest. Orbiter of Evolution : op 27 (1724) puis op 26 (1723) ;
+//! 20), AGPMSKILL op 4, op 26 (1722) chez lui et chez GmTest ; en Slayer, 1155 de l'arbre du Slayer est admise par la
+//! classe mais refusée par sa ConditionC « 1722;30 » (niveaux de compétences du Slayer). Orbiter of Evolution : op 27 (1724) puis op 26 (1723) ;
 //! relancée, refusée. Reconnexion : TID 1723 et bit 2 du champ 18 à l'entrée, op 4 de la compétence, GmTest le voit en
 //! Orbiter. Annulation (AGPMSKILL op 7, action 4) : op 5, op 27 (1724), classe du Scion, forme effacée en base.
 
@@ -19,6 +20,10 @@ const ORBITER: i64 = 1723;
 const SLAYER_OF_EVOLUTION: i64 = 1189;
 const ORBITER_OF_EVOLUTION: i64 = 1192;
 const POWER_STUNNER: i64 = 1147;
+/// Compétence de l'arbre du Slayer (SkillMastery_High.txt) : exige 1153 au niveau 1 et « 1722;30 », trente niveaux de
+/// compétences du Slayer.
+const SLAYER_TREE_TOP: i64 = 1155;
+const SLAYER_TREE_PREVIOUS: i64 = 1153;
 /// Gilliwen (npc_spawn 410) et une place à côté.
 const GILLIWEN: i64 = 0x4000_0000 + 410;
 const SPOT: Vec3 = Vec3 { x: -596_250.0, y: 16_300.0, z: 493_700.0 };
@@ -77,9 +82,13 @@ pub async fn run(user: &str, pass: &str, char_name: &str, ub: &str, pb: &str, cb
     db.characters.exec("UPDATE characters SET evolution_tid = 0 WHERE name = ?", (cb.to_string(),)).await?;
     db.characters
         .exec(
-            "DELETE FROM character_skills WHERE skill_tid IN (?, ?) AND character_id = (SELECT id FROM characters WHERE name = ?)",
-            (SLAYER_OF_EVOLUTION, ORBITER_OF_EVOLUTION, cb.to_string()),
+            "DELETE FROM character_skills WHERE skill_tid IN (?, ?, ?, ?) AND character_id = (SELECT id FROM characters WHERE name = ?)",
+            (SLAYER_OF_EVOLUTION, ORBITER_OF_EVOLUTION, SLAYER_TREE_TOP, SLAYER_TREE_PREVIOUS, cb.to_string()),
         )
+        .await?;
+    // ConditionA de 1155 remplie d'avance : seule « 1722;30 » manque.
+    db.characters
+        .exec("INSERT INTO character_skills (character_id, skill_tid, level) SELECT id, ?, 1 FROM characters WHERE name = ?", (SLAYER_TREE_PREVIOUS, cb.to_string()))
         .await?;
 
     step(&format!("{cb} (Scion) et {char_name} (MJ) entrent en jeu"));
@@ -120,6 +129,13 @@ pub async fn run(user: &str, pass: &str, char_name: &str, ub: &str, pb: &str, cb
     op_char(&mut s, 26, me, SLAYER, "op 26").await?;
     op_char(&mut w, 26, me, SLAYER, "op 26 chez le MJ").await?;
     println!("  ✓ facteurs du Slayer (classe 1, FOR {}), op 4, op 26 → {SLAYER} chez les deux", strength / 100);
+
+    step("arbre du Slayer en forme de Slayer : « 1722;30 » de 1155");
+    s.world.send(sm, master(1).with(4, SLAYER_TREE_TOP)).await?;
+    let ch = &schema::CHATTING;
+    let why = s.world.expect_where(|q| q.ptype == ch.id && q.fields().text(6).is_some_and(|t| t.contains("classe slayer")), 3000, "raison du refus").await?;
+    s.world.expect_where(|q| q.is(sm, Some(6)) && q.int(4) == Some(SLAYER_TREE_TOP) && q.int(5) == Some(1), 3000, "refus (pas de classe)").await?;
+    println!("  ✓ classe admise, condition de l'arbre manquante : « {} »", why.fields().text(6).unwrap_or_default());
 
     step("passage à Orbiter of Evolution");
     tokio::time::sleep(Duration::from_millis(10_300)).await;

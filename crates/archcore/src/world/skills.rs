@@ -13,6 +13,7 @@
 //!     client → op 1 (TID au champ 4) : apprendre ← AGPMSKILL op 0 puis op 6, résultat 0 (réussi), 2 (déjà
 //!             apprise), 3 (pas assez de points), 4 (niveau trop bas), 5 (classe), 1 (autre, dont l'argent)
 //!     client → op 2 (identifiant au champ 3) : améliorer ← AGPMSKILL op 2 puis op 3
+//!     client → op 8 (CID au champ 2, sans événement) : oublier toutes les compétences ← op 9 (`consumables.rs`)
 //!   Lancement : client → AGPMSKILL op 7 (identifiant, action : cible). Le serveur vérifie la compétence, son
 //!             délai de relance, les PM et PV, approche la cible si besoin, puis diffuse op 7 (action 1 :
 //!             durées d'incantation, d'effet et de relance) ; au bout de l'incantation, op 8 (action 2 :
@@ -218,6 +219,9 @@ pub struct SkillLevel {
     /// Formes d'une compétence de transformation (`creature_tid` de SKILL_CONST, liste « ; ») : TID de l'évolution du
     /// Scion (`evolution.rs`), animaux de Mutation (`morph.rs`).
     pub creature_tids: Vec<u32>,
+    /// Famille et rang de l'effet (`skill_classify_id`, `skill_classify_level` de SKILL_CONST ; 0 : aucune famille) : deux
+    /// effets de la même famille ne se cumulent pas (`consumables.rs`).
+    pub classify: (i32, i32),
 }
 
 /// Champs de SKILL_SPEC qui règlent les valeurs d'un niveau.
@@ -303,6 +307,7 @@ impl SkillLevel {
             limit_quantity: num("limit_quantity").max(0.0) as u32,
             skill_type: num("skill_type") as i32,
             creature_tids: c.get("creature_tid").and_then(|v| v.as_str()).map(creature_list).unwrap_or_default(),
+            classify: (num("skill_classify_id") as i32, num("skill_classify_level") as i32),
         }
     }
 
@@ -545,7 +550,11 @@ pub struct Mastery {
     pub heroic: bool,
     /// Compétences exigées : (TID, points), les points d'une compétence étant son niveau.
     pub requires: Vec<(u32, u32)>,
-    /// Points dépensés en tout : points de compétence, ou points héroïques dans l'arbre héroïque.
+    /// ConditionC de l'arbre supérieur : (classe d'un modèle, `None` si son modèle est inconnu ; niveaux cumulés des
+    /// compétences de cette classe, `PlayerSkills::class_levels`).
+    pub class_points: Vec<(Option<usize>, u32)>,
+    /// ConditionD : niveaux cumulés de toutes les compétences (`PlayerSkills::levels`), ou points héroïques dépensés
+    /// dans l'arbre héroïque.
     pub total: i32,
 }
 
@@ -613,16 +622,32 @@ impl SkillCatalog {
             }
         }
         let damage = skills.values().filter(|s| s.instant_damage()).count();
-        // Maîtrises : la classe de l'arbre vient de la race et de la classe de son modèle (CharacterDataTable).
+        // Maîtrises : la classe de l'arbre vient de la race et de la classe de son modèle (CharacterDataTable) ; celle
+        // d'une ConditionC aussi. L'arbre d'une race (clé 10000 + race, « 10004;4 ») n'a pas de modèle : classe `None`.
         let mut masteries: HashMap<u32, Vec<Mastery>> = HashMap::new();
-        let sql = "SELECT m.skill_tid, m.tree, m.requires, m.total_points, JSON_VALUE(d.data, '$.Race') AS race, JSON_VALUE(d.data, '$.Class') AS class \
-                   FROM skill_mastery m LEFT JOIN character_data_table d ON d.tid = m.class_tid";
-        match db.world.rows(sql, ()).await {
+        let classes: HashMap<u32, Option<usize>> = match db.world.rows("SELECT tid, JSON_VALUE(data, '$.Race') AS race, JSON_VALUE(data, '$.Class') AS class FROM character_data_table", ()).await {
+            Ok(rows) => rows
+                .iter()
+                .map(|r| {
+                    let int = |k: &str| col::<Option<String>>(r, k).and_then(|v| v.trim().parse::<i32>().ok()).unwrap_or(0);
+                    (col::<u32>(r, "tid"), class_column(int("race"), int("class")))
+                })
+                .collect(),
+            Err(_) => HashMap::new(),
+        };
+        let class_of = |tid: u32| classes.get(&tid).copied().flatten();
+        match db.world.rows("SELECT class_tid, skill_tid, tree, requires, class_points, total_points FROM skill_mastery", ()).await {
             Ok(rows) => {
                 for r in &rows {
-                    let int = |k: &str| col::<Option<String>>(r, k).and_then(|v| v.trim().parse::<i32>().ok()).unwrap_or(0);
                     let requires: Vec<(u32, u32)> = serde_json::from_str(&col::<String>(r, "requires")).unwrap_or_default();
-                    let m = Mastery { class: class_column(int("race"), int("class")), heroic: col::<i32>(r, "tree") == 2, requires, total: col(r, "total_points") };
+                    let class_points: Vec<(u32, u32)> = serde_json::from_str(&col::<String>(r, "class_points")).unwrap_or_default();
+                    let m = Mastery {
+                        class: class_of(col(r, "class_tid")),
+                        heroic: col::<i32>(r, "tree") == 2,
+                        requires,
+                        class_points: class_points.into_iter().map(|(tid, n)| (class_of(tid), n)).collect(),
+                        total: col(r, "total_points"),
+                    };
                     masteries.entry(col(r, "skill_tid")).or_default().push(m);
                 }
             }
@@ -707,6 +732,8 @@ pub struct PlayerSkills {
     pub status_sent: u64,
     /// Part des compétences des caractéristiques secondaires envoyée au joueur (AGPMSKILL op 3, `effects::sync_attach`).
     pub attach_sent: [i32; 8],
+    /// Compétences du titre équipé (`Skill_Tid_*` de title_template, `titles.rs`) : passives au niveau 1 tant qu'il l'est.
+    pub title_skills: Vec<u32>,
 }
 
 impl PlayerSkills {
@@ -732,9 +759,36 @@ impl PlayerSkills {
             .filter_map(|s| catalog.get(s.tid).map(|t| (1..=s.level).filter_map(|n| t.level(n)).map(|l| l.require_heroic).sum::<i32>()))
             .sum()
     }
+
+    /// Niveaux cumulés de toutes les compétences, chacune bornée à 30 (100 pour la production) : ConditionD de l'arbre
+    /// supérieur (FUN_1402fdc60 d'Archonia sans classe, qui somme le niveau « dirt » 4 de FUN_1402fd210).
+    pub fn levels(&self, catalog: &SkillCatalog) -> i32 {
+        self.list.iter().map(|s| capped_level(catalog.get(s.tid), s.level)).sum()
+    }
+
+    /// Niveaux cumulés des compétences de la classe `class_col` : ConditionC (« 1722;30 »). Comme FUN_1402fdc60
+    /// d'Archonia avec la race et la classe du modèle : compétences dont la colonne `require_class_*` de cette classe
+    /// est remplie (FUN_1402fe170), sauf les passives (unités 9 de `attribute`, bit 0x400) et l'attaque normale
+    /// (`auto_attack`, champ +0x13e60 du modèle) et les évolutions du Scion (masque 0x8000000001000, `transform_target` 5).
+    pub fn class_levels(&self, catalog: &SkillCatalog, class_col: Option<usize>) -> i32 {
+        self.list
+            .iter()
+            .filter_map(|s| catalog.get(s.tid).map(|t| (t, s.level)))
+            .filter(|(t, _)| !t.auto_attack && !t.nature().passive && !t.is_evolution() && t.level(1).is_some_and(|lv| lv.allows(class_col)))
+            .map(|(t, level)| capped_level(Some(t), level))
+            .sum()
+    }
 }
 
-/// Ce qui manque pour apprendre une compétence de son arbre de maîtrise, sinon `None`.
+/// Niveau d'une compétence tel qu'Archonia le compte dans les conditions des maîtrises (FUN_1402fd210) : borné à 30, à
+/// 100 pour une compétence de production.
+fn capped_level(t: Option<&SkillTemplate>, level: u32) -> i32 {
+    level.min(if t.is_some_and(|t| t.is_product()) { 100 } else { 30 }) as i32
+}
+
+/// Ce qui manque pour apprendre une compétence de son arbre de maîtrise, sinon `None`. Conditions dans l'ordre des
+/// colonnes, comme le contrôle d'Archonia (FUN_1402b8f40 pour l'arbre supérieur, FUN_1402b9200 pour l'héroïque) :
+/// compétences (A, B), classe (C), total (D).
 pub fn mastery_unmet(catalog: &SkillCatalog, skills: &PlayerSkills, m: &Mastery) -> Option<String> {
     for &(tid, points) in &m.requires {
         if skills.by_tid(tid).is_none_or(|s| s.level < points) {
@@ -742,8 +796,16 @@ pub fn mastery_unmet(catalog: &SkillCatalog, skills: &PlayerSkills, m: &Mastery)
             return Some(format!("il faut {name} au niveau {points}"));
         }
     }
-    let (spent, what) = if m.heroic { (skills.spent_heroic(catalog), "points héroïques") } else { (skills.spent(catalog), "points de compétence") };
-    (spent < m.total).then(|| format!("il faut {} {what} dépensés en tout ({spent} pour l'instant)", m.total))
+    for &(class_col, n) in &m.class_points {
+        let got = skills.class_levels(catalog, class_col);
+        // Modèle inconnu : refus, comme Archonia quand il ne trouve pas le modèle.
+        if class_col.is_none() || got < n as i32 {
+            let class = class_col.map(|c| CLASS_COLUMNS[c]).unwrap_or("inconnue");
+            return Some(format!("il faut {n} niveaux de compétence de la classe {class} ({got} pour l'instant)"));
+        }
+    }
+    let (got, what) = if m.heroic { (skills.spent_heroic(catalog), "points héroïques dépensés") } else { (skills.levels(catalog), "niveaux de compétence") };
+    (got < m.total).then(|| format!("il faut {} {what} en tout ({got} pour l'instant)", m.total))
 }
 
 /// Compétences d'un personnage : « Normal Attack » puis celles de la base.
@@ -767,7 +829,8 @@ pub async fn load(db: &Databases, catalog: &SkillCatalog, character_id: u32, nex
 }
 
 /// Recrée les effets des compétences passives connues (niveau courant) ; avec `form` (`form_class`), seulement celles
-/// que la classe de la forme admet. Rend vrai si la liste a changé.
+/// que la classe de la forme admet ; puis ceux des compétences du titre équipé (niveau 1, quelle que soit leur nature :
+/// « <Title> Novice Knight »… sont des renforcements sans durée). Rend vrai si la liste a changé.
 pub fn sync_passives(catalog: &SkillCatalog, skills: &mut PlayerSkills, caster_tid: u32, form: Option<usize>) -> bool {
     let before: Vec<(u32, u32)> = skills.effects.iter().filter(|e| e.ends_at.is_none()).map(|e| (e.tid, e.level)).collect();
     skills.effects.retain(|e| e.ends_at.is_some());
@@ -780,6 +843,13 @@ pub fn sync_passives(catalog: &SkillCatalog, skills: &mut PlayerSkills, caster_t
         effects::push(
             &mut skills.effects,
             Effect { skill_id: s.id, tid: s.tid, level: s.level, caster_tid, duration_ms: 0, ends_at: None, mods: lv.mods, dot: None, status: 0, status_until: None, caster_sid: effects::MONSTER_CASTER, purge: None },
+        );
+    }
+    for &tid in &skills.title_skills {
+        let Some(lv) = catalog.get(tid).and_then(|t| t.level(1)).filter(|lv| !lv.mods.is_empty()) else { continue };
+        effects::push(
+            &mut skills.effects,
+            Effect { skill_id: 0, tid, level: 1, caster_tid, duration_ms: 0, ends_at: None, mods: lv.mods, dot: None, status: 0, status_until: None, caster_sid: effects::MONSTER_CASTER, purge: None },
         );
     }
     let after: Vec<(u32, u32)> = skills.effects.iter().filter(|e| e.ends_at.is_none()).map(|e| (e.tid, e.level)).collect();
@@ -1787,6 +1857,11 @@ async fn effects_step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) -> anyh
 
 /// AGPMEVENTSKILLMASTER reçu du client.
 pub async fn on_master_packet(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> anyhow::Result<()> {
+    // Oubli des compétences : envoyé depuis la fenêtre des compétences, sans événement de PNJ.
+    if p.int(0) == Some(super::consumables::master_op::SKILL_INITIALIZE) {
+        super::consumables::master_initialize(ctx, st, sid).await?;
+        return Ok(());
+    }
     let Some(player) = st.players.get(&sid) else { return Ok(()) };
     let base = p.bytes(1).and_then(|b| decode_mini(&mini::EVENT_BASE, b).ok()).unwrap_or_else(|| Fields::new(&mini::EVENT_BASE));
     let Some((npc, _)) = resolve(&ctx.npcs, &base) else {
@@ -1808,7 +1883,8 @@ pub async fn on_master_packet(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: 
     match p.int(0).unwrap_or(-1) {
         master_op::REQUEST_EVENT => {
             info!("[maître] {} consulte {}", player.ch.name, npc.name);
-            player.send(s, reply(master_op::RESPONSE_EVENT).with(5, 0).with(7, 0));
+            // Champ 7 : oubli des compétences déjà fait (chaîne « skill init » remplie, consumables.rs).
+            player.send(s, reply(master_op::RESPONSE_EVENT).with(5, 0).with(7, !player.ch.skill_init.is_empty() as i64));
         }
         master_op::LEARN => {
             let tid = p.int(4).unwrap_or(0) as u32;
@@ -2141,8 +2217,8 @@ mod tests {
         catalog.insert(SkillTemplate { tid: 526, name: "Marching Song".into(), levels: vec![lv(1, 0); 5], ..Default::default() });
         catalog.insert(SkillTemplate { tid: 1437, name: "Shield of the Front".into(), levels: vec![lv(2, 2); 5], ..Default::default() });
         let knight = class_column(1, 1);
-        catalog.insert_mastery(525, Mastery { class: knight, heroic: false, requires: vec![(526, 4)], total: 0 });
-        catalog.insert_mastery(1440, Mastery { class: knight, heroic: true, requires: vec![(1437, 3)], total: 19 });
+        catalog.insert_mastery(525, Mastery { class: knight, heroic: false, requires: vec![(526, 4)], ..Default::default() });
+        catalog.insert_mastery(1440, Mastery { class: knight, heroic: true, requires: vec![(1437, 3)], total: 19, ..Default::default() });
         let mut skills = PlayerSkills { list: vec![Owned { id: 1, tid: 526, level: 3, ready_at: None, exp: 0 }], ..Default::default() };
         let capacitate = catalog.mastery(525, knight).unwrap();
         assert_eq!(mastery_unmet(&catalog, &skills, capacitate).as_deref(), Some("il faut Marching Song au niveau 4"));
@@ -2155,6 +2231,45 @@ mod tests {
         assert!(mastery_unmet(&catalog, &skills, judgement).is_some_and(|w| w.contains("19 points héroïques")));
         assert!(catalog.mastery(1440, class_column(2, 1)).is_some(), "seul arbre qui la porte");
         assert!(catalog.mastery(222, knight).is_none(), "hors des arbres");
+    }
+
+    #[test]
+    fn maitrises_du_scion() {
+        // Arbres du Dragon Scion (SkillMastery_High.txt) : 1155 du Slayer exige 1153 au niveau 1 et « 1722;30 », trente
+        // niveaux de compétences du Slayer ; 1236 du Scion exige 20 niveaux en tout ; 1242 (arbre « 10004;4 »).
+        let (slayer, scion) = (class_column(4, 1), class_column(4, 3));
+        let only = |c: Option<usize>| SkillLevel { classes: 1 << c.unwrap(), require_point: 2, ..Default::default() };
+        let both = SkillLevel { classes: (1 << slayer.unwrap()) | (1 << scion.unwrap()), ..Default::default() };
+        let mut catalog = SkillCatalog::default();
+        catalog.insert(SkillTemplate { tid: 1153, name: "Fury".into(), levels: vec![only(slayer); 30], ..Default::default() });
+        catalog.insert(SkillTemplate { tid: 1147, name: "Battle Stance".into(), levels: vec![only(slayer); 40], ..Default::default() });
+        catalog.insert(SkillTemplate { tid: 1189, name: "Slayer of Evolution".into(), levels: vec![both.clone(); 5], ..Default::default() });
+        // Ni passive (unités 9 de `attribute`) ni attaque normale dans la condition de classe.
+        catalog.insert(SkillTemplate { tid: 1150, name: "Passive".into(), attribute: 9, levels: vec![only(slayer); 5], ..Default::default() });
+        catalog.insert(SkillTemplate { tid: NORMAL_ATTACK, name: "Normal Attack".into(), auto_attack: true, levels: vec![both.clone()], ..Default::default() });
+        catalog.insert(SkillTemplate { tid: 1136, name: "Scion".into(), levels: vec![only(scion); 10], ..Default::default() });
+        catalog.insert_mastery(1155, Mastery { class: slayer, requires: vec![(1153, 1)], class_points: vec![(slayer, 30)], ..Default::default() });
+        catalog.insert_mastery(1236, Mastery { class: scion, requires: vec![(1189, 1)], total: 20, ..Default::default() });
+        catalog.insert_mastery(1242, Mastery { class: None, requires: vec![(351, 1)], ..Default::default() });
+        let owned = |tid: u32, level: u32| Owned { id: tid, tid, level, ready_at: None, exp: 0 };
+        let mut skills = PlayerSkills { list: vec![owned(NORMAL_ATTACK, 1), owned(1153, 1), owned(1189, 1), owned(1150, 5), owned(1147, 20)], ..Default::default() };
+        let strike = catalog.mastery(1155, slayer).unwrap();
+        // 1 + 1 + 20 : la passive et l'attaque normale ne comptent pas, les points (2 par niveau) non plus.
+        assert_eq!(skills.class_levels(&catalog, slayer), 22);
+        assert_eq!(mastery_unmet(&catalog, &skills, strike).as_deref(), Some("il faut 30 niveaux de compétence de la classe slayer (22 pour l'instant)"));
+        skills.list[4].level = 40;
+        assert_eq!(skills.class_levels(&catalog, slayer), 32, "niveau borné à 30");
+        assert_eq!(mastery_unmet(&catalog, &skills, strike), None);
+        // ConditionD : niveaux de toutes les compétences, passive et attaque normale comprises (1 + 1 + 1 + 5 + 30).
+        assert_eq!(skills.levels(&catalog), 38);
+        skills.list.truncate(3);
+        skills.list.push(owned(1136, 10));
+        let courage = catalog.mastery(1236, scion).unwrap();
+        assert_eq!(mastery_unmet(&catalog, &skills, courage).as_deref(), Some("il faut 20 niveaux de compétence en tout (13 pour l'instant)"));
+        skills.list[3].level = 17;
+        assert_eq!(mastery_unmet(&catalog, &skills, courage), None);
+        // Arbre de la race : trouvé quelle que soit la forme.
+        assert!(catalog.mastery(1242, slayer).is_some() && catalog.mastery(1242, scion).is_some());
     }
 
     #[test]

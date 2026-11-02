@@ -103,6 +103,22 @@ fn checks(n: &Names) -> Vec<Check> {
             sample: "CONCAT('recette ', x.recipe_tid, ' de ', COALESCE(p.name, CONCAT('personnage ', x.character_id)))",
         },
         Check {
+            label: "titres absents de title_template",
+            severity: Severity::Warning,
+            rows: format!(
+                "`{c}`.character_titles x LEFT JOIN `{w}`.title_template r ON r.tid = x.title_tid                  LEFT JOIN `{c}`.characters p ON p.id = x.character_id WHERE r.tid IS NULL"
+            ),
+            sample: "CONCAT('titre ', x.title_tid, ' de ', COALESCE(p.name, CONCAT('personnage ', x.character_id)))",
+        },
+        Check {
+            label: "objectifs de titre absents de title_template",
+            severity: Severity::Warning,
+            rows: format!(
+                "`{c}`.character_title_goals x LEFT JOIN `{w}`.title_template r ON r.tid = x.title_tid                  LEFT JOIN `{c}`.characters p ON p.id = x.character_id WHERE r.tid IS NULL"
+            ),
+            sample: "CONCAT('titre ', x.title_tid, ' de ', COALESCE(p.name, CONCAT('personnage ', x.character_id)))",
+        },
+        Check {
             label: "pièces jointes de courrier introuvables",
             severity: Severity::Warning,
             rows: format!(
@@ -255,7 +271,7 @@ mod tests {
     fn requetes_des_controles() {
         let n = Names { auth: "a_auth", characters: "a_chars", world: "a_world" };
         let all = checks(&n);
-        assert_eq!(all.len(), 19);
+        assert_eq!(all.len(), 21);
         // Chaque contrôle nomme ses bases : il passe par le pool des personnages.
         for k in &all {
             assert!(k.rows.contains("`a_chars`.") || k.rows.contains("`a_auth`.") || k.rows.contains("`a_world`.import_run"), "{}", k.label);

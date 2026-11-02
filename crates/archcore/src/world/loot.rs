@@ -10,9 +10,11 @@
 //!
 //! Tout tombe au sol autour du cadavre (AGPMITEM op 0, statut 1 « au sol », champ 6 = position), réservé
 //! au tueur pendant 30 s, et disparaît au bout de 45 s. Le client demande le ramassage par AGPMITEM op 11
-//! (champ 2 = IID) ; le serveur répond op 12 (champ 1 = 0 réussi, 1 échec) puis crédite l'or ou range l'objet.
+//! (champ 2 = IID) ; le serveur répond op 12 (champ 1 = 0 réussi, 1 échec) puis crédite l'or ou range l'objet : un objet
+//! Cash dans l'inventaire Cash, les autres dans l'inventaire, puis, s'il est plein, dans le sac du familier quand il est
+//! disponible (`pet_bag.rs`).
 
-use super::items::{item_count, item_remove, item_status, ItemCatalog};
+use super::items::{item_remove, item_status, ItemCatalog};
 use super::monsters::MonsterStats;
 use super::{set_money, WorldCtx, WorldState};
 use crate::db::{col, Databases};
@@ -417,6 +419,11 @@ pub async fn on_item_packet(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &P
         Some(super::equipment::SPLIT_ITEM) => super::equipment::split(ctx, st, sid, p).await,
         Some(super::equipment::REQUEST_DESTROY_ITEM) => super::equipment::destroy(ctx, st, sid, p.int(2).unwrap_or(0) as u32).await,
         Some(super::bank::REQUEST_BUY_BANK_SLOT) => super::bank::buy_slot(ctx, st, sid).await,
+        Some(super::items::item_op::UNUSE) => {
+            super::summons::stop_item(ctx, st, sid, p.int(2).unwrap_or(0) as u32);
+            Ok(())
+        }
+        Some(super::items::item_op::CHANGE_AUTO_PICK) => super::pet_bag::on_auto_pick(ctx, st, sid, p).await,
         op => {
             debug!("[world] #{sid} AGPMITEM op {op:?} (ignoré)");
             Ok(())
@@ -446,20 +453,31 @@ async fn pick_up(ctx: &WorldCtx, st: &mut WorldState, sid: u32, iid: u32, now: I
         return Ok(());
     }
     let stack = ctx.catalog.get(item.tid).map(|d| d.stack).unwrap_or(1);
+    let bag = super::pet_bag::available(ctx, st, sid);
     let player = st.players.get_mut(&sid).unwrap();
-    let Some((stored, created)) = player.inventory.add(&ctx.db, item.tid, item.count, stack, None).await? else {
+    let placed = if ctx.catalog.is_cash(item.tid) {
+        player.inventory.add_cash(&ctx.db, item.tid, item.count, stack).await?.map(|x| (x, item_status::CASH_INVENTORY))
+    } else {
+        match player.inventory.add(&ctx.db, item.tid, item.count, stack, None).await? {
+            Some(x) => Some((x, item_status::INVENTORY)),
+            // Inventaire plein : le sac du familier, s'il est disponible.
+            None if bag => player.inventory.add_sub(&ctx.db, item.tid, item.count, stack).await?.map(|x| (x, item_status::SUB_INVENTORY)),
+            None => None,
+        }
+    };
+    let Some(((stored, created), status)) = placed else {
         fail(st);
         return Ok(());
     };
     if created {
         player.inventory.set_generated(&ctx.db, stored.iid, &item.options, item.sockets).await?;
-        let stored = player.inventory.get(stored.iid).cloned().unwrap_or(stored);
-        player.send_raw(super::items::item_add_of(&stored, cid, item_status::INVENTORY, Some(stored.grid)));
+        let stored = player.inventory.get_usable(stored.iid).cloned().unwrap_or(stored);
+        player.send_raw(super::items::item_add_of(&stored, cid, status, Some(stored.grid)));
         if let Some(c) = super::items::convert_add(&stored, cid) {
             player.send_raw(c);
         }
     } else {
-        player.send_raw(item_count(&stored, cid));
+        player.send_raw(super::items::item_count_in(&stored, cid, status));
     }
     take_from_ground(st, iid);
     st.players[&sid].send_raw(pickup_result_packet(pickup_result::SUCCESS, iid, item.tid, item.count));
@@ -473,7 +491,9 @@ pub fn on_kill(ctx: &WorldCtx, st: &mut WorldState, killer: u32, monster: u32, n
     let Some(m) = st.monsters.get(monster) else { return };
     let (pos, source) = (m.pos, Source::of(m.tid, m.level, &st.monsters.stats_of(m.tid)));
     let level = st.players.get(&killer).map(|p| p.factors.status[7]).unwrap_or(1);
-    let rates = Rates { gold: st.rates.get("gold"), drop: st.rates.get("drop") };
+    // Bonus de butin des effets du tueur (talismans de Janus, costumes : consumables.rs).
+    let bonus = st.players.get(&killer).map(|p| super::consumables::drop_bonus_pct(ctx, p)).unwrap_or(0.0);
+    let rates = Rates { gold: st.rates.get("gold"), drop: st.rates.get("drop") * (100.0 + bonus) / 100.0 };
     let loot = ctx.loot.roll(&mut rand::thread_rng(), &source, level, rates);
     drop_loot(ctx, st, killer, pos, &loot, &ctx.catalog, source.level, now);
 }

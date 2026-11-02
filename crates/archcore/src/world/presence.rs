@@ -286,6 +286,8 @@ pub(super) fn set_visible(st: &mut WorldState, viewer: u32, target: u32, visible
     let link = super::guild::view_packet(st, tid);
     // Métamorphose : op 11 après le personnage (TID d'origine) et son équipement (morph.rs).
     let morph = super::morph::view_packet(t);
+    // Titre actif : op 9 d'AgpmTitle (titles.rs), le paquet personnage n'en portant aucun.
+    let title = super::titles::view_packet(t);
     let has_dest = t.dest.is_some();
     let mv = if has_dest { Some(move_fields(st, target)) } else { None };
     let v = st.players.get_mut(&viewer).unwrap();
@@ -305,6 +307,9 @@ pub(super) fn set_visible(st: &mut WorldState, viewer: u32, target: u32, visible
         }
         if let Some(m) = morph {
             v.send_raw(m);
+        }
+        if let Some(t) = title {
+            v.send_raw(t);
         }
         if let Some(mv) = mv {
             v.send(&schema::OPT_CHAR_MOVE, mv);
