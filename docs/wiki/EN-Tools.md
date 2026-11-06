@@ -602,7 +602,8 @@ free skill reset offered to everyone ("skill init" emptied), as the point costs 
 ## Original server tables
 
 Monster spawns and the server map are not in the client: they come from the original ArchLord server
-tables, to be placed in `data/server-ini` (never committed) or pointed to with `--server`:
+tables, included in `data/server-ini` with the map in `world/node_data`. `archcore import` finds them
+automatically. Use `--server` to choose another folder:
 
 | File | Content | Table |
 |---|---|---|
@@ -616,7 +617,7 @@ tables, to be placed in `data/server-ini` (never committed) or pointed to with `
 
 ```bash
 archcore db-init
-archcore import data/client-ini --server path/to/ini
+archcore import
 ```
 
 Rows of `spawndatatable.txt` without a position in `spawninstancetable.txt` are skipped and counted.

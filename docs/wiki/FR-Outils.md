@@ -610,8 +610,8 @@ les bases (`mariadb-dump`) avant `--apply`.
 ## Tables du serveur d'origine
 
 Les apparitions de monstres et la carte serveur ne sont pas dans le client : elles viennent des tables du
-serveur d'origine d'ArchLord, à placer dans `data/server-ini` (jamais versionné) ou à désigner avec
-`--server` :
+serveur d'origine d'ArchLord, fournies dans `data/server-ini` avec la carte dans `world/node_data`.
+`archcore import` les trouve automatiquement. L'option `--server` permet de choisir un autre dossier :
 
 | Fichier | Contenu | Table |
 |---|---|---|
@@ -625,7 +625,7 @@ serveur d'origine d'ArchLord, à placer dans `data/server-ini` (jamais versionn�
 
 ```bash
 archcore db-init
-archcore import data/client-ini --server chemin/vers/ini
+archcore import
 ```
 
 Les lignes de `spawndatatable.txt` sans position dans `spawninstancetable.txt` sont ignorées et comptées.

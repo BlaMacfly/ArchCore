@@ -1,3 +1,7 @@
 * text=auto eol=lf
 *.cmd text eol=crlf
 *.png binary
+
+# Préserver les octets et l'encodage des tables EP8 / preserve EP8 data bytes and encoding
+data/server-ini/** -text -diff
+data/server-ini/README.md text eol=lf diff

@@ -5,7 +5,7 @@
 - **Rust 1.85 ou plus**, installé avec [rustup](https://rustup.rs) (testé avec 1.99).
 - **MariaDB** 10.6 ou plus (testé avec 13.0). Sous Windows : `winget install MariaDB.Server`.
 - Un **client ArchLord 64 bits** extrait, par défaut dans `../client/ArchLord/Game` par rapport au dossier ArchCore.
-  ArchCore ne fournit aucune donnée du jeu.
+  Les tables serveur de l'épisode 8 sont fournies dans `data/server-ini` ; le client du jeu reste à fournir.
 
 ## 1. Récupérer et compiler le code
 
@@ -60,8 +60,10 @@ client), ce qui prend quelques minutes.
 régions, boutiques, portails, expérience) viennent des **tables du serveur d'origine** d'ArchLord ; le
 client ne donne plus que les noms, les visuels et les tables purement clientes (quêtes, maîtrises, titres,
 production), sans les lignes propres à Archonia. Ces tables donnent aussi les monstres, le butin et la carte
-(`spawndatatable.txt`, `itemdroptable.txt`, `world/node_data`…). ArchCore ne les fournit pas : placez-les
-dans `data/server-ini` (jamais versionné), ou désignez leur dossier. L'import refuse de partir sans elles :
+(`spawndatatable.txt`, `itemdroptable.txt`, `world/node_data`…). Elles sont incluses dans le dépôt,
+dans `data/server-ini`, avec la carte dans `data/server-ini/world/node_data`. La commande
+`archcore import` les trouve automatiquement : aucun téléchargement séparé ni dump SQL n'est nécessaire.
+Si vous utilisez un autre lot de tables serveur, désignez son dossier explicitement :
 
 ```bash
 archcore import data/client-ini --server chemin/vers/ini
@@ -183,7 +185,8 @@ finished ») : c'est normal.
 | « Cannot access the login server » | ArchCore n'écoute pas sur 11002, ou le fichier `<NomDuClient>Test.ini` est absent |
 | Chargement infini à l'entrée en jeu | Lancer avec `ARCHCORE_TRACE=1` et lire le journal |
 | Le serveur s'arrête au démarrage sur une erreur de base | MariaDB n'est pas lancé, ou ses accès (`Database.*`) sont faux |
-| Aucun monstre dans le monde | Les tables du serveur n'ont pas été importées (`archcore import --server …`) |
+| Tables serveur introuvables à l'import | Mettre à jour ou télécharger de nouveau le dépôt : `data/server-ini` et sa carte `world/node_data` sont fournis ; lancer l'import depuis la racine du dépôt |
+| Aucun monstre dans le monde | Les tables du serveur n'ont pas été importées : relancer `archcore import` après avoir vérifié la présence de `data/server-ini` |
 | Des créatures disparaissent quand on se déplace ou qu'on approche | Réglage d'affichage du client : dans `Game/ini/COption.ini` (client fermé), `CharView` multiplie la distance d'affichage des personnages (0 : 0,25 ; 1 : 0,45 ; 2 : 0,875 ; 3 : sans limite) et `MapView` celle de la carte (0,5 à 1,8). Mettre les deux à `3`, ou au maximum dans les options graphiques du jeu |
 | Un autre joueur reste bloqué après le choix du personnage | `WorldServer.PublicAddress` vaut encore `127.0.0.1`, ou le port 11008 est fermé |
 | Message « colonne inconnue » dans le journal | Code mis à jour sans relancer `archcore db-init` |

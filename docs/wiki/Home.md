@@ -32,6 +32,6 @@
 
 **💬 Discord** : https://discord.gg/JCyrsTm7fR
 
-> ArchLord est une marque de son éditeur. ArchCore est indépendant et ne distribue aucune donnée du jeu.
+> ArchLord est une marque de son éditeur. ArchCore est indépendant et ne distribue pas le client du jeu.
 >
-> ArchLord is a trademark of its publisher. ArchCore is independent and distributes no game data.
+> ArchLord is a trademark of its publisher. ArchCore is independent and does not distribute the game client.

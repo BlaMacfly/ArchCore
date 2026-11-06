@@ -5,7 +5,7 @@
 - **Rust 1.85 or later**, installed with [rustup](https://rustup.rs) (tested with 1.99).
 - **MariaDB** 10.6 or later (tested with 13.0). On Windows: `winget install MariaDB.Server`.
 - An extracted **64-bit ArchLord client**, by default in `../client/ArchLord/Game` relative to the ArchCore folder.
-  ArchCore ships no game data.
+  The Episode 8 server tables are included in `data/server-ini`; you still need to supply the game client.
 
 ## 1. Get and build the code
 
@@ -58,8 +58,9 @@ import converts them to UTF-8. It also reads the ground height from the world ge
 teleports, experience) come from the **original ArchLord server tables**; the client only provides names,
 visuals and purely client tables (quests, masteries, titles, production), without Archonia's own rows.
 These tables also provide monsters, drops and the map (`spawndatatable.txt`, `itemdroptable.txt`,
-`world/node_data`…). ArchCore does not ship them: put them in `data/server-ini` (never versioned), or
-point to their folder. The import refuses to start without them:
+`world/node_data`…). They are included in the repository in `data/server-ini`, with the map in
+`data/server-ini/world/node_data`. `archcore import` finds them automatically: no separate download
+or SQL dump is needed. If you use another set of server tables, point to its folder explicitly:
 
 ```bash
 archcore import data/client-ini --server path/to/ini
@@ -180,7 +181,8 @@ finished"): this is normal.
 | Endless loading when entering the world | Run with `ARCHCORE_TRACE=1` and read the log |
 | The server stops at start-up on a database error | MariaDB is not running, or its credentials (`Database.*`) are wrong |
 | The server refuses to start: "schema of the databases to update" (`schéma des bases à mettre à jour`) | Database not tracked yet or behind: run `archcore db-init`; ahead: update the executable (see [[Database\|EN-Database]]) |
-| No monsters in the world | The server tables were not imported (`archcore import --server …`) |
+| Server tables not found during import | Update or download the repository again: `data/server-ini` and its `world/node_data` map are included; run the import from the repository root |
+| No monsters in the world | The server tables were not imported: run `archcore import` again after checking that `data/server-ini` is present |
 | Creatures vanish when moving or coming closer | Client display setting: in `Game/ini/COption.ini` (client closed), `CharView` multiplies the character draw distance (0: 0.25; 1: 0.45; 2: 0.875; 3: unlimited) and `MapView` the map's (0.5 to 1.8). Set both to `3`, or to the maximum in the game's graphics options |
 | Another player is stuck after choosing a character | `WorldServer.PublicAddress` is still `127.0.0.1`, or port 11008 is closed |
 | "Unknown column" message in the log | Code updated without running `archcore db-init` again |

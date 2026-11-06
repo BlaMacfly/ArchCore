@@ -73,7 +73,7 @@ cargo build --release                         # builds target/release/archcore
 db\start-mariadb.cmd                          # local MariaDB instance (Windows)
 archcore db-init --account test test          # schema + test account
 archcore decrypt                              # decrypts the client tables
-archcore import                               # imports the tables into MariaDB
+archcore import                               # imports bundled EP8 server tables and client data
 archcore export-client-tables <folder>        # value tables for ArchRust (server-data/)
 archcore                                      # login on 11002, world on 11008
 archcore sim client test test Testeur         # replays a full client, without the game
@@ -81,6 +81,10 @@ archcore sim client test test Testeur         # replays a full client, without t
 
 Run the commands from the repository root (where `config/` lives), using
 `target/release/archcore` or `cargo run --release --` in place of `archcore`.
+
+The Episode 8 server tables and server map are included in [`data/server-ini`](data/server-ini).
+`archcore import` finds them automatically. You still need your own 64-bit game client for its assets
+and client data; no separate server-table download or SQL dump is needed.
 
 To connect the game, see the wiki's [Installation](https://github.com/BlaMacfly/ArchCore/wiki/EN-Installation) page.
 
@@ -204,7 +208,7 @@ cargo build --release                         # produit target/release/archcore
 db\start-mariadb.cmd                          # instance MariaDB locale (Windows)
 archcore db-init --account test test          # schéma + compte de test
 archcore decrypt                              # déchiffre les tables du client
-archcore import                               # importe les tables dans MariaDB
+archcore import                               # importe les tables serveur EP8 fournies et les données client
 archcore export-client-tables <dossier>       # tables de valeurs pour ArchRust (server-data/)
 archcore                                      # login sur 11002, monde sur 11008
 archcore sim client test test Testeur         # rejoue un client complet, sans le jeu
@@ -212,6 +216,11 @@ archcore sim client test test Testeur         # rejoue un client complet, sans l
 
 Les commandes se lancent depuis la racine du dépôt (là où se trouve `config/`), avec
 `target/release/archcore` ou `cargo run --release --` à la place de `archcore`.
+
+Les tables serveur de l'épisode 8 et la carte serveur sont fournies dans
+[`data/server-ini`](data/server-ini). `archcore import` les trouve automatiquement. Il faut toujours
+son propre client du jeu 64 bits pour ses ressources et données clientes ; aucun téléchargement
+séparé des tables serveur ni dump SQL n'est nécessaire.
 
 Pour connecter le jeu, voir la page [Installation](https://github.com/BlaMacfly/ArchCore/wiki/FR-Installation) du wiki.
 
