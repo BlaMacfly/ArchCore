@@ -14,7 +14,7 @@ named by `ARCHCORE_CONF_DIR` (see [[Configuration|EN-Configuration]]).
 | `archcore export-client-tables <folder> [--game folder]` | Writes the value tables from the world database in the client format, for ArchRust (see "Export for the client") |
 | `archcore migrate-ep8 [--apply \| --restore n]` | Report, then migration of existing characters to the episode 8 values (see "Character migration") |
 | `archcore content` | Applies the `content/*.sql` content layer to the world database again, without reimporting (see [[Database\|EN-Database]]) |
-| `archcore sim client\|move\|shop\|addon\|lang\|combat\|equip\|potion\|scroll\|patrol\|bag\|skill\|effects\|bank\|portal\|guild\|guildlead\|guildmark\|guildbattle\|guildrelation\|guildwarehouse\|guildstage\|gm\|trade\|quest\|mobskill\|counter\|partyskill\|mastery …` | Simulated clients (see below) |
+| `archcore sim client\|move\|shop\|addon\|lang\|combat\|equip\|potion\|scroll\|patrol\|bag\|skill\|effects\|bank\|portal\|guild\|guildlead\|guilddestroy\|guildmark\|guildbattle\|guildrelation\|guildwarehouse\|guildstage\|gm\|trade\|quest\|mobskill\|counter\|partyskill\|mastery …` | Simulated clients (see below) |
 | `archcore i18n strings [Game]` | Lists the texts still in English in `data/i18n/pending-en.json` |
 | `archcore i18n coverage [Game]` | Measures how much of `ini_fr` is translated |
 | `archcore i18n apply [--ascii] [--dry]` | Applies the translation memory to the client (see [[Translation|EN-Translation]]) |
@@ -175,7 +175,9 @@ ARCHCORE_CONF_DIR=config/test archcore sim guildstage setup|present|chef|dissoud
 ```
 
 These scenarios (`tools/sim/guilds.rs`) create helper accounts `simg01`… (password equal to the name) in the
-test database when needed, to reach the head counts Archonia requires. `sim guildlead` (GmTest master, SimA,
+test database when needed, to reach the head counts Archonia requires. `sim guilddestroy` (GmTest, server with a
+non-zero `Guild.DestroyDelayHours`) creates a guild and checks that disbanding it at once is refused (code 46); the
+other guild scenarios disband their guilds straight away and need that setting at 0. `sim guildlead` (GmTest master, SimA,
 18 helper accounts: 20 members) checks the guild list (page, search, guild not found: code 47), enlarging (not
 enough gold: code 44, then 60 places for 1,000,000 coins), SimA's appointment refused at level 1 then accepted
 (op 48, sub-op 2 → 3 → 4 → 8), removing that rank, the handover (5 → 6 → 7 → 8: GmTest rank 1, SimA master),

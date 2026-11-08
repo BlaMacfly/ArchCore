@@ -1154,8 +1154,8 @@ Créer une guilde demande le niveau 20 et le prix de la première ligne de `guil
 pour 10 000 pièces). Codes utilisés : 0 nom pris, 1 niveau, 2 argent (nombre : prix), 4 caractères, 5 déjà
 membre, 6 guilde pleine, 7 adhésion impossible, 8 départ impossible (le chef), 9 réservé au chef,
 10 mauvais mot de passe, 11 création, 12 dissolution, 13 adhésion, 14 refus, 15 départ, 16 exclusion,
-17 joueur déjà dans une guilde, 44 or insuffisant pour agrandir, 45 crânes insuffisants, 47 guilde cherchée
-introuvable, 48 demande d'adhésion, 50 demande de départ, 56 à 59 emblème (crânes, or ou argent liquide, fond
+17 joueur déjà dans une guilde, 44 or insuffisant pour agrandir, 45 crânes insuffisants, 46 dissolution trop tôt
+(guilde de moins de `Guild.DestroyDelayHours`, boîte « Guild_DestroyFailTooEarly »), 47 guilde cherchée introuvable, 48 demande d'adhésion, 50 demande de départ, 56 à 59 emblème (crânes, or ou argent liquide, fond
 manquant, même emblème qu'une autre guilde : seul 59 a un message dans Archonia, qui propose alors l'op 33).
 
 **Liste des guildes** (FUN_140203630 d'Archonia). Les guildes sont prises dans l'ordre de leur création,

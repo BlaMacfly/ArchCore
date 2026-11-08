@@ -28,6 +28,7 @@
 //!   archcore sim product [compte] [mdp] [perso]               production : Collection Skill chez Kauman, récolte de Vers verts, Cooking et recette chez Lucy, fabrication ; compte MJ (product.rs)
 //!   archcore sim guild [A… B…]                                guilde GmTest + SimA : création, invitation, discussion, annonce, départ, exclusion, dissolution
 //!   archcore sim guildlead [A… B…]                            guilde GmTest + SimA + 18 comptes d'appoint : liste et recherche, agrandissement, second, passation
+//!   archcore sim guilddestroy [A…]                            dissolution refusée avant `Guild.DestroyDelayHours` (code 46)
 //!   archcore sim guildbattle [A… B…]                        combats de guildes : défi, refus, acceptation, annulation, début (ops 46, 27), coups, score (op 26), abandon, mort du chef,
 //!                                                             survie individuelle avec combattants choisis (op 14), bilan
 //!   archcore sim guildmark [A… B…]                          emblèmes : achat (refus, fond, or), annonce, même emblème (code 59, op 33), relecture
@@ -183,6 +184,7 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         Some("guildrelation") => Box::pin(guilds::guild_relation(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("guildwarehouse") => Box::pin(guilds::guild_warehouse(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("guildbattle") => Box::pin(guilds::guild_battle(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
+        Some("guilddestroy") => Box::pin(guilds::guild_destroy_early(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("guildlead") => Box::pin(guilds::guild_lead(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("buddy") => Box::pin(buddy::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("mail") => Box::pin(mail::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
@@ -244,7 +246,7 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         Some("ammo") => Box::pin(rules::ammo(&a(1, "simarcher"), &a(2, "simarcher"), &a(3, "SimArcher"))).await,
         Some("lifetime") => Box::pin(rules::lifetime(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("deathstrike") => Box::pin(rules::death_strike(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
-        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol|bag|skill|effects|status|bank|portal|pvp|reconnect|lastrefine|product|gacha|guild|guildlead|guildbattle|guildrelation|guildwarehouse|guildmark|guildstage|gm|buddy|mail|repair|ride|morph|evolution|auction|itemset|nature|summons|petbag|consumables|usables|chat|gold|channel|customize|wanted|shrine|battlesquare|boss|siege|archlord|tax|title|cheat|recall|social|quickbelt|returnlogin|trade|party|quest|mobskill|counter|partyskill|mastery [arguments]"),
+        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol|bag|skill|effects|status|bank|portal|pvp|reconnect|lastrefine|product|gacha|guild|guildlead|guilddestroy|guildbattle|guildrelation|guildwarehouse|guildmark|guildstage|gm|buddy|mail|repair|ride|morph|evolution|auction|itemset|nature|summons|petbag|consumables|usables|chat|gold|channel|customize|wanted|shrine|battlesquare|boss|siege|archlord|tax|title|cheat|recall|social|quickbelt|returnlogin|trade|party|quest|mobskill|counter|partyskill|mastery [arguments]"),
     }
 }
 

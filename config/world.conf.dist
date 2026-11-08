@@ -165,6 +165,13 @@ World.SlowPacketMs = 100
 
 Guild.BattleReadySeconds = 180
 
+#    Guild.DestroyDelayHours
+#        Âge minimal, en heures, d'une guilde avant sa dissolution (message
+#        « Guild_DestroyFailTooEarly » du client, 24 heures dans son texte). 0 : sans délai.
+#        Défaut : 24
+
+Guild.DestroyDelayHours = 24
+
 #    PvP.MurdererPointsPerKill
 #        Points de meurtrier gagnés en tuant un joueur innocent de plus de 4 niveaux en
 #        dessous, après l'avoir attaqué en premier. Paliers : 40, 60 et 100 points. La

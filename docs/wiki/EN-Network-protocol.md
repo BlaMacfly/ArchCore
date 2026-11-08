@@ -1107,7 +1107,8 @@ Creating a guild takes level 20 and the price of the first `guildmaxmember.txt` 
 10,000 coins). Codes used: 0 name taken, 1 level, 2 money (number: price), 4 characters, 5 already a
 member, 6 guild full, 7 cannot join, 8 cannot leave (master), 9 master only, 10 wrong password, 11 created,
 12 disbanded, 13 joined, 14 refused, 15 left, 16 kicked, 17 player already in a guild, 44 not enough gold to
-enlarge, 45 not enough skulls, 47 searched guild not found, 48 join request, 50 leave request, 56 to 59 guild
+enlarge, 45 not enough skulls, 46 disbanding too early (guild younger than `Guild.DestroyDelayHours`,
+"Guild_DestroyFailTooEarly" box), 47 searched guild not found, 48 join request, 50 leave request, 56 to 59 guild
 mark (skulls, gold or cash, missing background, same mark as another guild: only 59 has a message in
 Archonia, which then offers op 33).
 

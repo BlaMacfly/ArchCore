@@ -94,6 +94,9 @@ pub mod code {
     pub const NOT_ENOUGH_GHELD: i64 = 44;
     /// Crânes insuffisants : « Guild_Not_Enought_Skull ».
     pub const NOT_ENOUGH_SKULL: i64 = 45;
+    /// Dissolution demandée trop tôt après la création : « Guild_DestroyFailTooEarly » (boîte d'information du client,
+    /// FUN_1406a44e0).
+    pub const DESTROY_FAIL_TOO_EARLY: i64 = 46;
     /// Guilde cherchée introuvable : « Guild_No_Exist_Search_Guild ».
     pub const NO_EXIST_SEARCH_GUILD: i64 = 47;
     /// Emblème : crânes, or ou argent liquide insuffisants, fond manquant, autre guilde au même emblème
@@ -333,6 +336,11 @@ fn leads(r: i64) -> bool {
 /// Nom de guilde acceptable : 1 à 32 lettres ou chiffres ASCII.
 pub fn valid_name(name: &str) -> bool {
     !name.is_empty() && name.len() <= MAX_NAME && name.chars().all(|c| c.is_ascii_alphanumeric())
+}
+
+/// Guilde créée il y a moins de `hours` heures (0 : jamais trop tôt ; date de création inconnue : permise).
+fn too_early_to_destroy(created_at: i64, now: i64, hours: i64) -> bool {
+    hours > 0 && created_at > 0 && now - created_at < hours * 3600
 }
 
 fn now() -> i64 {
@@ -821,6 +829,11 @@ async fn destroy(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> a
         send_to(st, sid, system_packet(code::INVALID_PASSWORD, None, None));
         return Ok(());
     }
+    // Guilde trop jeune : le texte d'origine du client dit 24 heures (`Guild.DestroyDelayHours`).
+    if too_early_to_destroy(g.created_at, now(), ctx.config.world.guild_destroy_delay_hours) {
+        send_to(st, sid, system_packet(code::DESTROY_FAIL_TOO_EARLY, None, None));
+        return Ok(());
+    }
     // Entrepôt non vide : Guild_Destory_Keep_Fail.
     warehouse::ensure_loaded(ctx, st, gid).await?;
     if !st.guilds.by_id[&gid].warehouse.is_empty() {
@@ -962,5 +975,16 @@ mod tests {
         assert_eq!((who.text(0).as_deref(), who.int(1), who.int(5)), (Some("GmTest"), Some(rank::MASTER), Some(1)));
         let sys = archcore_net::decode_packet(&schema::GUILD, &system_packet(code::NEED_MORE_MONEY, None, Some(10_000))).unwrap();
         assert_eq!(sys.list(4).map(|l| l.len()), Some(8));
+    }
+
+    #[test]
+    fn dissolution_trop_tot() {
+        let jour = 24 * 3600;
+        assert!(too_early_to_destroy(1_000_000, 1_000_000 + jour - 1, 24));
+        assert!(!too_early_to_destroy(1_000_000, 1_000_000 + jour, 24));
+        assert!(!too_early_to_destroy(1_000_000, 1_000_001, 0), "règle coupée");
+        assert!(!too_early_to_destroy(0, 5, 24), "date de création inconnue");
+        let sys = archcore_net::decode_packet(&schema::GUILD, &system_packet(code::DESTROY_FAIL_TOO_EARLY, None, None)).unwrap();
+        assert_eq!((sys.int(0), sys.int(1)), (Some(op::SYSTEM_MESSAGE), Some(46)));
     }
 }

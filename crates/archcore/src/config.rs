@@ -58,6 +58,9 @@ pub struct WorldConfig {
     pub slow_packet_ms: u64,
     /// Délai (s) entre l'acceptation d'un combat de guildes et son début (`Guild.BattleReadySeconds`).
     pub guild_battle_ready_secs: i64,
+    /// Âge (heures) en dessous duquel une guilde ne peut être dissoute (`Guild.DestroyDelayHours`, 24 : texte d'origine
+    /// de `Guild_DestroyFailTooEarly`, code 46) ; 0 coupe la règle.
+    pub guild_destroy_delay_hours: i64,
     /// Points de meurtrier gagnés par meurtre d'un innocent de plus de 4 niveaux en dessous, attaqué en premier
     /// (`PvP.MurdererPointsPerKill`, 20 ; valeur d'origine inconnue).
     pub pvp_murderer_points: u32,
@@ -442,6 +445,7 @@ impl Default for WorldConfig {
             time_zone: TimeZone::Local,
             slow_packet_ms: 100,
             guild_battle_ready_secs: 180,
+            guild_destroy_delay_hours: 24,
             pvp_murderer_points: 20,
             pvp_remission_points: 2,
             item_weapon_wear_chance: 10.0,
@@ -772,6 +776,7 @@ fn read_world(s: &Settings, cfg: &mut Config) {
         monster_density: s.parse("World.MonsterDensity", d.monster_density),
         slow_packet_ms: s.parse("World.SlowPacketMs", d.slow_packet_ms),
         guild_battle_ready_secs: s.parse("Guild.BattleReadySeconds", d.guild_battle_ready_secs),
+        guild_destroy_delay_hours: s.parse("Guild.DestroyDelayHours", d.guild_destroy_delay_hours).max(0),
         pvp_murderer_points: s.parse("PvP.MurdererPointsPerKill", d.pvp_murderer_points),
         pvp_remission_points: s.parse("PvP.RemissionPoints", d.pvp_remission_points),
         item_weapon_wear_chance: s.parse("Item.WeaponWearChance", d.item_weapon_wear_chance),
@@ -956,6 +961,7 @@ pub fn to_values(cfg: &Config, which: Which) -> Vec<(String, String)> {
             put("World.MonsterDensity", fmt_num(w.monster_density));
             put("World.SlowPacketMs", w.slow_packet_ms.to_string());
             put("Guild.BattleReadySeconds", w.guild_battle_ready_secs.to_string());
+            put("Guild.DestroyDelayHours", w.guild_destroy_delay_hours.to_string());
             put("PvP.MurdererPointsPerKill", w.pvp_murderer_points.to_string());
             put("PvP.RemissionPoints", w.pvp_remission_points.to_string());
             put("Item.WeaponWearChance", fmt_num(w.item_weapon_wear_chance));

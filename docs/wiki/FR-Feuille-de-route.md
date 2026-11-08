@@ -331,7 +331,9 @@
   refus 1 à 6 du client, objet rangé avec ses options. **Butin** : `Rules.LootLevelGap` activée par défaut (11) et dans
   les deux sens d'écart. **Incantation** : le lanceur est figé au début de l'incantation (arrêt diffusé aux seuls
   observateurs). **Effets** : tout sort à durée est annoncé (AGPMSKILL op 4), même sans colonne reprise par ArchCore.
-  Tests unitaires ; scénario `gacha` (nouveau) ; à confirmer en jeu.
+  Tests unitaires ; scénario `gacha` (nouveau) ; à confirmer en jeu. **Guilde** (même jour, derniers messages relevés
+  dans Archonia) : dissolution refusée pendant les 24 heures qui suivent la création (code 46, « Guild_DestroyFailTooEarly »,
+  texte d'origine du client), réglable par `Guild.DestroyDelayHours` ; scénario `guilddestroy` (nouveau).
 - Ops de protocole manquantes (relevé d'Archonia du 2 novembre 2026) : quêtes (op 14 suivi à l'écran, 10 au plus,
   enregistré dans `character_quests.journal` et renvoyé au 5ᵉ entier de l'op 4 ; ops 8 et 9 inventaire plein) ;
   groupe (op 2 : zone d'effet et bonus du groupe, règles réglables `Party.*` ; gestion ops 9, 12 et 13, refus d'un invité

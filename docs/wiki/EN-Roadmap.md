@@ -321,7 +321,9 @@
   refusals 1 to 6, item stored with its options. **Loot**: `Rules.LootLevelGap` on by default (11) and in both gap
   directions. **Casting**: the caster is frozen when casting starts (stop sent to observers only). **Effects**: every
   skill with a duration is announced (AGPMSKILL op 4), even with no column ArchCore reads. Unit tests; `gacha`
-  scenario (new); to be confirmed in game.
+  scenario (new); to be confirmed in game. **Guild** (same day, last messages surveyed in Archonia): disbanding is
+  refused during the 24 hours after creation (code 46, "Guild_DestroyFailTooEarly", the client's original text),
+  set by `Guild.DestroyDelayHours`; `guilddestroy` scenario (new).
 - Missing protocol ops (Archonia survey of 2 November 2026): quests (op 14 on-screen tracking, 10 at most, stored in
   `character_quests.journal` and sent back as the 5th integer of op 4; ops 8 and 9 inventory full); party (op 2: effect
   area and party bonus, configurable `Party.*` rules; management ops 9, 12 and 13, refusal of an invitee at least 10

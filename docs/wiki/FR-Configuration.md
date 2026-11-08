@@ -48,6 +48,7 @@ défaut, avec un avertissement dans le journal ; une clé inconnue (faute de fra
 | `World.MonsterDensity` | `1` | Multiplie le nombre de monstres de chaque point d'apparition (arrondi, au moins 1). Les tables du serveur sont peu peuplées par endroits : 2 ou 3 rapprochent de la densité du jeu d'origine |
 | `World.SlowPacketMs` | `100` | Un paquet traité plus longtemps (ms) sous le verrou du monde est noté « paquet lent », avec le temps d'attente du verrou ; `0` : jamais |
 | `Guild.BattleReadySeconds` | `180` | Délai (s) entre l'acceptation d'un combat de guildes et son début ; le client l'annonce en minutes. Les données d'Archonia ne le donnent pas |
+| `Guild.DestroyDelayHours` | `24` | Âge minimal (h) d'une guilde avant sa dissolution, sinon code 46 (« Guild_DestroyFailTooEarly » : 24 heures dans le texte du client) ; 0 : sans délai |
 | `PvP.MurdererPointsPerKill` | `20` | Points de meurtrier pour le meurtre d'un innocent de plus de 4 niveaux en dessous, attaqué en premier (paliers 40, 60, 100). Valeur d'origine inconnue |
 | `PvP.RemissionPoints` | `2` | Points de meurtrier retirés par une rémission de 10 lettres de pardon, comme le client l'annonce |
 | `Item.WeaponWearChance` | `10` | Probabilité (%) qu'un coup qui blesse use d'un point l'arme qui le porte (choix d'ArchCore ; 0 : pas d'usure) |

@@ -62,6 +62,32 @@ pub async fn guild_lead(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &s
     Ok(())
 }
 
+/// Dissolution trop tôt (`archcore sim guilddestroy`, serveur à `Guild.DestroyDelayHours` non nul) : A crée SimYoung
+/// puis demande sa dissolution : code 46 (« Guild_DestroyFailTooEarly »), sans op 6.
+pub async fn guild_destroy_early(ua: &str, pa: &str, ca: &str) -> anyhow::Result<()> {
+    let cfg = crate::config::load()?;
+    let (gd, c) = (&schema::GUILD, &schema::CHARACTER);
+    step(&format!("{ca} entre en jeu et crée {YOUNG_NAME}"));
+    let mut a = enter_world(&cfg, ua, pa, ca, "A-").await?;
+    Box::pin(leave_old_guild(&mut a)).await?;
+    a.world.send(&schema::CHATTING, chat_line(a.cid, "/level 20")).await?;
+    a.world.send(&schema::CHATTING, chat_line(a.cid, "/money 20000")).await?;
+    a.world.expect_where(|q| q.is(c, Some(1)) && q.int(8) == Some(20_000), 3000, "argent").await?;
+    a.world.send(gd, Fields::new(gd).with(0, 0).with(1, a.cid).with(2, YOUNG_NAME).with(9, LEAD_PASSWORD)).await?;
+    a.world.expect_where(gsys(11), 3000, "création confirmée (code 11)").await?;
+    println!("  ✓ {YOUNG_NAME} créée");
+
+    step(&format!("{ca} dissout aussitôt {YOUNG_NAME} : refus"));
+    a.world.send(gd, Fields::new(gd).with(0, 6).with(1, a.cid).with(2, YOUNG_NAME).with(9, LEAD_PASSWORD)).await?;
+    let q = a.world.expect_where(|q| gsys(46)(q) || gop(6)(q), 3000, "réponse à la dissolution").await?;
+    anyhow::ensure!(gsys(46)(&q), "guilde dissoute malgré son âge");
+    println!("  ✓ code 46 (Guild_DestroyFailTooEarly), guilde gardée");
+    println!("
+dissolution trop tôt : OK");
+    Ok(())
+}
+
+const YOUNG_NAME: &str = "SimYoung";
 const LEAD_NAME: &str = "SimLead";
 const LEAD_PASSWORD: &str = "simpass";
 const LEAD_HELPERS: usize = 18;

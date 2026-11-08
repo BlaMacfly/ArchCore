@@ -14,7 +14,7 @@ dossier désigné par `ARCHCORE_CONF_DIR` (voir [[Configuration|FR-Configuration
 | `archcore export-client-tables <dossier> [--game dossier]` | Écrit depuis la base monde les tables de valeurs au format du client, pour ArchRust (voir « Export pour le client ») |
 | `archcore migrate-ep8 [--apply \| --restore n]` | Rapport, puis migration des personnages existants vers les valeurs de l'épisode 8 (voir « Migration des personnages ») |
 | `archcore content` | Réapplique la couche de contenu `content/*.sql` à la base monde, sans réimporter (voir [[Base de données\|FR-Base-de-donnees]]) |
-| `archcore sim client\|move\|shop\|addon\|lang\|combat\|equip\|potion\|scroll\|patrol\|bag\|skill\|effects\|bank\|portal\|guild\|guildlead\|guildmark\|guildbattle\|guildrelation\|guildwarehouse\|guildstage\|gm\|trade\|quest\|mobskill\|counter\|partyskill\|mastery …` | Clients simulés (voir plus bas) |
+| `archcore sim client\|move\|shop\|addon\|lang\|combat\|equip\|potion\|scroll\|patrol\|bag\|skill\|effects\|bank\|portal\|guild\|guildlead\|guilddestroy\|guildmark\|guildbattle\|guildrelation\|guildwarehouse\|guildstage\|gm\|trade\|quest\|mobskill\|counter\|partyskill\|mastery …` | Clients simulés (voir plus bas) |
 | `archcore i18n strings [Game]` | Liste les textes encore en anglais dans `data/i18n/pending-en.json` |
 | `archcore i18n coverage [Game]` | Mesure la part déjà traduite de `ini_fr` |
 | `archcore i18n apply [--ascii] [--dry]` | Applique la mémoire de traduction au client (voir [[Traduction|FR-Traduction]]) |
@@ -178,7 +178,9 @@ ARCHCORE_CONF_DIR=config/test archcore sim guildstage setup|present|chef|dissoud
 ```
 
 Ces scénarios (`tools/sim/guilds.rs`) créent au besoin des comptes d'appoint `simg01`… (mot de passe identique
-au nom) dans la base de test, pour atteindre les effectifs qu'exige Archonia. `sim guildlead` (GmTest chef,
+au nom) dans la base de test, pour atteindre les effectifs qu'exige Archonia. `sim guilddestroy` (GmTest, serveur à
+`Guild.DestroyDelayHours` non nul) crée une guilde et vérifie que sa dissolution immédiate est refusée (code 46) ; les
+autres scénarios de guilde dissolvent leurs guildes aussitôt et demandent ce réglage à 0. `sim guildlead` (GmTest chef,
 SimA, 18 comptes d'appoint : 20 membres) vérifie la liste des guildes (page, recherche, guilde introuvable :
 code 47), l'agrandissement (or insuffisant : code 44, puis 60 places pour 1 000 000 pièces), la nomination de
 SimA refusée au niveau 1 puis acceptée (op 48, sous-op 2 → 3 → 4 → 8), le retrait de ce rang, la passation
