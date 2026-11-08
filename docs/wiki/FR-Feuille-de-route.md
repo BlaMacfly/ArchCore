@@ -369,6 +369,16 @@
 
 ## Prochaines étapes
 
+00. Source Webzen (8 novembre 2026) : `archcore import … --webzen <dossier ini>` importe du client officiel de
+   Webzen les quêtes (3 082 sur 3 270 : 72 données ou reprises par un objet du monde, que le serveur ne gère pas,
+   3 sans PNJ gardé, 113 à leur suite ; les 14 quêtes d'Archonia retirées), leurs groupes, leurs PNJ et leurs textes
+   en quatre langues, la courbe d'expérience des niveaux 1 à 121 (64 bits au-delà du niveau 112), les 2 768 titres
+   (Natural Enemy, Collector, Killer et Storyteller en plus, conditions au sens de Webzen) et les maîtrises
+   supérieures et héroïques d'origine (second arbre du Berserker, mode berserk d'Archonia, retiré) ; journal des
+   lignes écartées (`data/import-webzen.log`), export pour ArchRust (quêtes, groupes, titres, maîtrises),
+   `migrate-ep8` étendu aux quêtes et titres disparus ; scénarios `quest`, `title` et `exp` adaptés ou ajoutés.
+   Restent : les quêtes données par les objets du monde (événement de quête sur un objet), les essais en jeu.
+
 0. Valeurs de l'épisode 8 (2 novembre 2026) : import (valeurs des tables du serveur d'origine, noms du client,
    résumé par table), export des tables pour ArchRust (`archcore export-client-tables`, empreinte annoncée par
    la capacité `client-tables/1`), migration des personnages (`archcore migrate-ep8`, quarantaine réversible)

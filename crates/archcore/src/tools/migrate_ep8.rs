@@ -3,15 +3,17 @@
 //!
 //! ```text
 //!   Sans option : rapport seulement, par personnage — objets hors EP8, options et runes hors EP8, niveaux de
-//!        compétence au-delà du maximum EP8, compétences hors EP8.
+//!        compétence au-delà du maximum EP8, compétences hors EP8, quêtes (en cours ou terminées) et titres
+//!        (possédés ou visés) absents des tables importées (quêtes et titres de Webzen, `import --webzen`).
 //!   --apply : une passe numérotée (`ep8_quarantine.run_id`), dans une transaction ; rien n'est détruit :
 //!        objet hors EP8 (character_items : inventaire, banque, entrepôt de guilde, courrier, vente) → ligne
 //!        d'origine en JSON dans `ep8_quarantine`, avec les courriers et ventes qui le citaient, puis retiré ;
 //!        option ou rune hors EP8 → retirée de `option_tids` / `socket_tids` (valeur d'origine gardée) ;
 //!        niveau de compétence au-delà du maximum EP8 → ramené au maximum ; compétence hors EP8 → retirée
-//!        (gardée) ; « skill init » remis à vide pour tous : l'oubli gratuit des compétences est offert, les coûts
-//!        en points des niveaux ayant changé.
-//!   --restore n : remet ce que la passe n a changé (objets réinsérés avec leur identifiant, valeurs d'origine).
+//!        (gardée) ; quête ou titre disparu → ligne d'origine (character_quests, character_titles,
+//!        character_title_goals) en JSON dans `ep8_quarantine`, puis retirée ; « skill init » remis à vide pour tous :
+//!        l'oubli gratuit des compétences est offert, les coûts en points des niveaux ayant changé.
+//!   --restore n : remet ce que la passe n a changé (objets, quêtes et titres réinsérés, valeurs d'origine).
 //! ```
 //! Faire une sauvegarde (`mariadb-dump`) des bases avant `--apply`.
 
@@ -28,6 +30,18 @@ pub struct Sets {
     /// Compétences EP8 (`skill_template`) et niveau maximal de celles qui ont des niveaux (`skill_level`).
     pub skills: HashSet<u32>,
     pub skill_max: HashMap<u32, u32>,
+    /// Quêtes (`quest_template`) et titres (`title_template`) importés ; vide : non contrôlés (table non importée).
+    pub quests: HashSet<u32>,
+    pub titles: HashSet<u32>,
+}
+
+/// Quêtes et titres des personnages : (personnage, quête, statut 0 en cours / 1 terminée), (personnage, titre
+/// possédé), (personnage, titre visé).
+#[derive(Debug, Default, Clone)]
+pub struct Progress {
+    pub quests: Vec<(u32, u32, u8)>,
+    pub titles: Vec<(u32, u32)>,
+    pub goals: Vec<(u32, u32)>,
 }
 
 /// Objet d'un personnage (`character_items`).
@@ -49,6 +63,11 @@ pub enum Change {
     Sockets { id: u64, before: String, after: String },
     SkillLevel { tid: u32, from: u32, to: u32 },
     Skill { tid: u32, level: u32 },
+    /// Quête absente des tables importées (en cours ou terminée).
+    Quest { tid: u32, done: bool },
+    /// Titre possédé ou visé absent des tables importées.
+    Title { tid: u32 },
+    TitleGoal { tid: u32 },
 }
 
 fn keep_list(list: &str, keep: impl Fn(u32) -> bool) -> String {
@@ -56,7 +75,7 @@ fn keep_list(list: &str, keep: impl Fn(u32) -> bool) -> String {
 }
 
 /// Changements à faire, par personnage : objets, options et runes (TID sertis absents des objets EP8), compétences.
-pub fn changes(items: &[ItemRow], skills: &[(u32, u32, u32)], sets: &Sets) -> BTreeMap<u32, Vec<Change>> {
+pub fn changes(items: &[ItemRow], skills: &[(u32, u32, u32)], progress: &Progress, sets: &Sets) -> BTreeMap<u32, Vec<Change>> {
     let mut out: BTreeMap<u32, Vec<Change>> = BTreeMap::new();
     for i in items {
         let list = out.entry(i.character_id).or_default();
@@ -81,6 +100,19 @@ pub fn changes(items: &[ItemRow], skills: &[(u32, u32, u32)], sets: &Sets) -> BT
             list.push(Change::SkillLevel { tid, from: level, to: max });
         }
     }
+    if !sets.quests.is_empty() {
+        for &(cid, tid, status) in progress.quests.iter().filter(|q| !sets.quests.contains(&q.1)) {
+            out.entry(cid).or_default().push(Change::Quest { tid, done: status != 0 });
+        }
+    }
+    if !sets.titles.is_empty() {
+        for &(cid, tid) in progress.titles.iter().filter(|t| !sets.titles.contains(&t.1)) {
+            out.entry(cid).or_default().push(Change::Title { tid });
+        }
+        for &(cid, tid) in progress.goals.iter().filter(|t| !sets.titles.contains(&t.1)) {
+            out.entry(cid).or_default().push(Change::TitleGoal { tid });
+        }
+    }
     out.retain(|_, v| !v.is_empty());
     out
 }
@@ -88,6 +120,7 @@ pub fn changes(items: &[ItemRow], skills: &[(u32, u32, u32)], sets: &Sets) -> BT
 /// Ligne du rapport pour un personnage.
 pub fn describe(name: &str, list: &[Change]) -> String {
     let (mut items, mut options, mut runes, mut levels, mut skills) = (Vec::new(), 0, 0, Vec::new(), Vec::new());
+    let (mut quests, mut titles) = (Vec::new(), Vec::new());
     let count = |a: &str, b: &str| keep_list(a, |_| true).split(',').filter(|t| !t.is_empty()).count() - b.split(',').filter(|t| !t.is_empty()).count();
     for c in list {
         match c {
@@ -96,10 +129,13 @@ pub fn describe(name: &str, list: &[Change]) -> String {
             Change::Sockets { before, after, .. } => runes += count(before, after),
             Change::SkillLevel { tid, from, to } => levels.push(format!("{tid} {from}→{to}")),
             Change::Skill { tid, .. } => skills.push(tid.to_string()),
+            Change::Quest { tid, done } => quests.push(format!("{tid}{}", if *done { " terminée" } else { "" })),
+            Change::Title { tid } => titles.push(tid.to_string()),
+            Change::TitleGoal { tid } => titles.push(format!("{tid} visé")),
         }
     }
     let list = |v: &[String]| if v.is_empty() { String::new() } else { format!(" [{}]", v.iter().take(12).cloned().collect::<Vec<_>>().join(", ")) };
-    format!(
+    let mut line = format!(
         "{name} : {} objet(s) hors EP8{}, {options} option(s) et {runes} rune(s) retirée(s), {} niveau(x) ramené(s){}, {} compétence(s) hors EP8{}",
         items.len(),
         list(&items),
@@ -107,7 +143,11 @@ pub fn describe(name: &str, list: &[Change]) -> String {
         list(&levels),
         skills.len(),
         list(&skills)
-    )
+    );
+    if !quests.is_empty() || !titles.is_empty() {
+        line.push_str(&format!(", {} quête(s) disparue(s){}, {} titre(s) disparu(s){}", quests.len(), list(&quests), titles.len(), list(&titles)));
+    }
+    line
 }
 
 async fn load_sets(db: &Databases) -> anyhow::Result<Sets> {
@@ -121,6 +161,8 @@ async fn load_sets(db: &Databases) -> anyhow::Result<Sets> {
         let text = serde_json::from_str::<String>(&col::<String>(&r, "data")).unwrap_or_default();
         s.options = super::ep8::tsv_keys(&text, "tid");
     }
+    s.quests = db.world.rows("SELECT tid FROM quest_template", ()).await?.iter().map(|r| col(r, "tid")).collect();
+    s.titles = db.world.rows("SELECT tid FROM title_template", ()).await?.iter().map(|r| col(r, "tid")).collect();
     anyhow::ensure!(!s.items.is_empty() && !s.skill_max.is_empty(), "base monde vide : lancer `archcore import` d'abord");
     Ok(s)
 }
@@ -171,19 +213,36 @@ async fn report(db: &Databases, apply: bool) -> anyhow::Result<()> {
         .collect();
     let skills: Vec<(u32, u32, u32)> = db.characters.rows("SELECT character_id, skill_tid, level FROM character_skills", ()).await?.iter().map(|r| (col(r, "character_id"), col(r, "skill_tid"), col(r, "level"))).collect();
     let names: HashMap<u32, String> = db.characters.rows("SELECT id, name, skill_init FROM characters", ()).await?.iter().map(|r| (col(r, "id"), col(r, "name"))).collect();
-    let plan = changes(&items, &skills, &sets);
-    println!("Personnages : {} ; {} à migrer (base monde : {} objet(s), {} option(s), {} compétence(s) EP8)", names.len(), plan.len(), sets.items.len(), sets.options.len(), sets.skills.len());
+    let pairs = |rows: Vec<mysql_async::Row>, k: &str| -> Vec<(u32, u32)> { rows.iter().map(|r| (col(r, "character_id"), col(r, k))).collect() };
+    let progress = Progress {
+        quests: db.characters.rows("SELECT character_id, quest_tid, status FROM character_quests", ()).await?.iter().map(|r| (col(r, "character_id"), col(r, "quest_tid"), col(r, "status"))).collect(),
+        titles: pairs(db.characters.rows("SELECT character_id, title_tid FROM character_titles", ()).await?, "title_tid"),
+        goals: pairs(db.characters.rows("SELECT character_id, title_tid FROM character_title_goals", ()).await?, "title_tid"),
+    };
+    let plan = changes(&items, &skills, &progress, &sets);
+    println!(
+        "Personnages : {} ; {} à migrer (base monde : {} objet(s), {} option(s), {} compétence(s) EP8, {} quête(s), {} titre(s))",
+        names.len(),
+        plan.len(),
+        sets.items.len(),
+        sets.options.len(),
+        sets.skills.len(),
+        sets.quests.len(),
+        sets.titles.len()
+    );
     for (cid, list) in &plan {
         println!("  {}", describe(&format!("{} ({cid})", names.get(cid).map(String::as_str).unwrap_or("?")), list));
     }
     let total = |f: fn(&Change) -> bool| plan.values().flatten().filter(|c| f(c)).count();
     println!(
-        "Total : {} objet(s) en quarantaine, {} objet(s) aux options et {} aux runes corrigées, {} niveau(x) ramené(s), {} compétence(s) retirée(s)",
+        "Total : {} objet(s) en quarantaine, {} objet(s) aux options et {} aux runes corrigées, {} niveau(x) ramené(s), {} compétence(s) retirée(s), {} quête(s) et {} titre(s) disparus en quarantaine",
         total(|c| matches!(c, Change::Item { .. })),
         total(|c| matches!(c, Change::Options { .. })),
         total(|c| matches!(c, Change::Sockets { .. })),
         total(|c| matches!(c, Change::SkillLevel { .. })),
-        total(|c| matches!(c, Change::Skill { .. }))
+        total(|c| matches!(c, Change::Skill { .. })),
+        total(|c| matches!(c, Change::Quest { .. })),
+        total(|c| matches!(c, Change::Title { .. } | Change::TitleGoal { .. }))
     );
     if !apply {
         println!("Rapport seulement : `archcore migrate-ep8 --apply` applique (sauvegarder les bases avant).");
@@ -192,6 +251,15 @@ async fn report(db: &Databases, apply: bool) -> anyhow::Result<()> {
     let run: u32 = db.characters.first("SELECT COALESCE(MAX(run_id), 0) + 1 AS n FROM ep8_quarantine", ()).await?.map(|r| col(&r, "n")).unwrap_or(1);
     let mut tx = db.characters.begin().await?;
     let columns: Vec<String> = tx.query::<mysql_async::Row, _>("SHOW COLUMNS FROM character_items").await?.iter().map(|c| c.get::<String, _>(0).unwrap_or_default()).collect();
+    // Ligne d'une table de progression (quêtes, titres) en JSON, retirée : (données, nombre de lignes).
+    async fn take_row(tx: &mut mysql_async::Transaction<'_>, table: &str, key: &str, cid: u32, tid: u32) -> anyhow::Result<Option<String>> {
+        let cols: Vec<String> = tx.query::<mysql_async::Row, _>(format!("SHOW COLUMNS FROM {table}")).await?.iter().map(|c| c.get::<String, _>(0).unwrap_or_default()).collect();
+        let row: Option<mysql_async::Row> = tx.exec_first(format!("SELECT * FROM {table} WHERE character_id = ? AND {key} = ?"), (cid, tid)).await?;
+        let Some(row) = row else { return Ok(None) };
+        let fields: serde_json::Map<String, serde_json::Value> = cols.iter().enumerate().map(|(i, c)| (c.clone(), row.as_ref(i).map(to_json).unwrap_or_default())).collect();
+        tx.exec_drop(format!("DELETE FROM {table} WHERE character_id = ? AND {key} = ?"), (cid, tid)).await?;
+        Ok(Some(serde_json::json!({ "table": table, "row": fields }).to_string()))
+    }
     let mut rows: Vec<(u32, String, u64, String, String)> = Vec::new();
     for (cid, list) in &plan {
         for c in list {
@@ -221,6 +289,21 @@ async fn report(db: &Databases, apply: bool) -> anyhow::Result<()> {
                 Change::Skill { tid, level } => {
                     rows.push((*cid, "skill".into(), *tid as u64, serde_json::json!({ "level": level }).to_string(), "compétence hors EP8".into()));
                     tx.exec_drop("DELETE FROM character_skills WHERE character_id = ? AND skill_tid = ?", (cid, tid)).await?;
+                }
+                Change::Quest { tid, done } => {
+                    if let Some(data) = take_row(&mut tx, "character_quests", "quest_tid", *cid, *tid).await? {
+                        rows.push((*cid, "quest".into(), *tid as u64, data, format!("quête {} absente des tables importées", if *done { "terminée" } else { "en cours" })));
+                    }
+                }
+                Change::Title { tid } => {
+                    if let Some(data) = take_row(&mut tx, "character_titles", "title_tid", *cid, *tid).await? {
+                        rows.push((*cid, "title".into(), *tid as u64, data, "titre absent des tables importées".into()));
+                    }
+                }
+                Change::TitleGoal { tid } => {
+                    if let Some(data) = take_row(&mut tx, "character_title_goals", "title_tid", *cid, *tid).await? {
+                        rows.push((*cid, "title_goal".into(), *tid as u64, data, "titre visé absent des tables importées".into()));
+                    }
                 }
             }
         }
@@ -266,6 +349,13 @@ async fn restore(db: &Databases, run: u32) -> anyhow::Result<()> {
             "skill_level" => tx.exec_drop("UPDATE character_skills SET level = ? WHERE character_id = ? AND skill_tid = ?", (level, cid, ref_id)).await?,
             "skill" => tx.exec_drop("INSERT IGNORE INTO character_skills (character_id, skill_tid, level) VALUES (?, ?, ?)", (cid, ref_id, level)).await?,
             "skill_init" => tx.exec_drop("UPDATE characters SET skill_init = ? WHERE id = ?", (text("skill_init"), cid)).await?,
+            // Quête ou titre : ligne d'origine réinsérée dans sa table.
+            "quest" | "title" | "title_goal" => {
+                let (Some(table), Some(fields)) = (data.get("table").and_then(|v| v.as_str()), data.get("row").and_then(|v| v.as_object())) else { continue };
+                let cols: Vec<&String> = fields.keys().collect();
+                let sql = format!("INSERT IGNORE INTO {table} ({}) VALUES ({})", cols.iter().map(|c| format!("`{c}`")).collect::<Vec<_>>().join(","), vec!["?"; cols.len()].join(","));
+                tx.exec_drop(sql, fields.values().map(from_json).collect::<Vec<_>>()).await?
+            }
             _ => continue,
         }
     }
@@ -281,11 +371,11 @@ mod tests {
 
     #[test]
     fn rapport_de_migration() {
-        let sets = Sets { items: [10, 463, 20].into(), options: [5, 6].into(), skills: [30, 31].into(), skill_max: [(30, 15), (31, 20)].into() };
+        let sets = Sets { items: [10, 463, 20].into(), options: [5, 6].into(), skills: [30, 31].into(), skill_max: [(30, 15), (31, 20)].into(), ..Default::default() };
         let item = |id, cid, tid, o: &str, s: &str| ItemRow { id, character_id: cid, tid, option_tids: o.into(), socket_tids: s.into() };
         let items = [item(1, 7, 10, "5,13437,6", "463,15000"), item(2, 7, 14611, "13437", ""), item(3, 8, 20, "5", "463"), item(4, 8, 10, "", "")];
         let skills = [(7, 30, 20), (7, 31, 20), (8, 4000, 3), (8, 30, 15)];
-        let plan = changes(&items, &skills, &sets);
+        let plan = changes(&items, &skills, &Progress::default(), &sets);
         assert_eq!(
             plan[&7],
             vec![
@@ -301,7 +391,15 @@ mod tests {
             describe("Grokk", &plan[&7]),
             "Grokk : 1 objet(s) hors EP8 [14611], 1 option(s) et 1 rune(s) retirée(s), 1 niveau(x) ramené(s) [30 20→15], 0 compétence(s) hors EP8"
         );
-        assert!(changes(&[item(4, 8, 10, "5", "")], &[(8, 30, 15)], &sets).is_empty(), "rien à migrer");
+        assert!(changes(&[item(4, 8, 10, "5", "")], &[(8, 30, 15)], &Progress::default(), &sets).is_empty(), "rien à migrer");
+        // Quêtes et titres disparus (quêtes et titres de Webzen importés) ; table vide : rien n'est contrôlé.
+        let progress = Progress { quests: vec![(7, 2, 1), (7, 4599, 0), (8, 4621, 1)], titles: vec![(7, 140_001), (8, 11_000)], goals: vec![(7, 36)] };
+        let with = Sets { quests: [2].into(), titles: [140_001].into(), ..sets.clone() };
+        let plan = changes(&[], &[], &progress, &with);
+        assert_eq!(plan[&7], vec![Change::Quest { tid: 4599, done: false }, Change::TitleGoal { tid: 36 }]);
+        assert_eq!(plan[&8], vec![Change::Quest { tid: 4621, done: true }, Change::Title { tid: 11_000 }]);
+        assert!(describe("Grokk", &plan[&8]).ends_with("1 quête(s) disparue(s) [4621 terminée], 1 titre(s) disparu(s) [11000]"));
+        assert!(changes(&[], &[], &progress, &sets).is_empty(), "quêtes et titres non importés : non contrôlés");
         assert_eq!((to_json(&Value::UInt(7)), from_json(&serde_json::json!("a"))), (serde_json::json!(7), Value::Bytes(b"a".to_vec())));
     }
 }

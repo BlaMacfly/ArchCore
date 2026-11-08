@@ -523,6 +523,10 @@ async fn pick_up(ctx: &WorldCtx, st: &mut WorldState, sid: u32, iid: u32, now: I
     st.players[&sid].send_raw(pickup_result_packet(pickup_result::SUCCESS, iid, item.tid, item.count));
     let label = ctx.catalog.get(item.tid).map(|d| d.name.clone()).unwrap_or_else(|| format!("TID {}", item.tid));
     info!("[butin] {name} ramasse {} × {label}", item.count);
+    // Butin d'un monstre (réservé à son tueur) : objectifs de titre Collector.
+    if item.owner.is_some() {
+        super::titles::on_loot(ctx, st, sid, item.tid, item.count.clamp(1, i32::MAX as i64) as i32).await?;
+    }
     Ok(())
 }
 

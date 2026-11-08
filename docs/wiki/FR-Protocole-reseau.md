@@ -335,7 +335,8 @@ CharacterDataTable.txt. Les monstres n'ont pas de résistance élémentaire dans
 retiré 20 s plus tard (op 3), puis le monstre réapparaît à sa place avec tous ses PV. Le tueur reçoit
 l'expérience du modèle (`Exp` de CharacterDataTable.txt × taux `exp`) dans ses facteurs (op 1, champ 7)
 et un message système ; l'expérience se compte par niveau (`LevelUpExp.txt`), et une montée de niveau
-est signalée par AGPMCHARACTER **op 5**. Seuls les modèles dont le type porte les bits « attaquable »
+est signalée par AGPMCHARACTER **op 5**. L'expérience est un entier de 64 bits : `FACTOR_POINT` 3 en porte les 32 bits
+de poids faible, `FACTOR_POINT` 4 ceux de poids fort (la courbe de Webzen dépasse 2³² dès le niveau 113). Seuls les modèles dont le type porte les bits « attaquable »
 (0x10000) et « ciblable » (0x20000) peuvent être visés : les créatures d'ambiance (type 8 : coqs,
 poules…) ne le sont pas.
 
@@ -1908,9 +1909,12 @@ répond à la demande de dialogue par l'op 10 (`Title.ManagerOpensWindow`). Fixe
 du client dans son ordre (ArchLord, chef de guilde, classe — `Require_class_Type` 101 à 901 race et classe, 1001
 Dragon Scion, 1101 à 1301 ses formes évoluées —, niveau, Con, Str, Int, Dex, Wis, Cha, or, objets, titres préalables)
 et ses bornes (999 objectifs, 500 titres et objectifs), puis **consomme** l'or et les objets de coût ; 6.1, puis 6.3 si
-des conditions sont déjà remplies ; refus : 6.1 résultat 0 et un message. Conditions : 2 récolte réussie sur un
-cadavre de la créature Set (`Title.CollectCountsKills` : ses morts aussi), 5 utilisation de l'objet Set (potions), 15
-niveau, 25 / 26 / 27 niveau d'Alchimie / Cuisine / Collecte ; 6.3 à chaque changement, compteurs enregistrés.
+des conditions sont déjà remplies ; refus : 6.1 résultat 0 et un message. Conditions (`Title_Check`, au sens de la
+table de Webzen : TID du premier titre de la famille ; les types d'Archonia 2, 5, 15, 25 à 27 sont ramenés à 10001,
+40001, 140001, 200001 à 200003) : 1 objet Set ramassé sur un monstre, 10001 récolte réussie sur un cadavre de la
+créature Set (`Title.CollectCountsKills` : ses morts aussi), 30001 créature Set tuée, 40001 utilisation de l'objet
+Set (potions), 90001 joueur tué, 140001 niveau, 170001 quête terminée, 200001 / 200002 / 200003 niveau d'Alchimie /
+Cuisine / Collecte ; 6.3 à chaque changement, compteurs enregistrés.
 Terminer (6.4) : toutes les valeurs atteintes, 6.5 puis op 1. Équiper ou retirer (op 2) : refusé moins de
 `Title.ChangeDelaySeconds` (7200) après le dernier changement (op 3 résultat 0, code 3, heure du changement) ; sinon
 op 3 puis op 9 au joueur et aux joueurs qui le voient ; un joueur qui entre dans la vue d'un porteur reçoit son op 9.

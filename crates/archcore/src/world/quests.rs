@@ -549,12 +549,17 @@ async fn complete(ctx: &WorldCtx, st: &mut WorldState, sid: u32, tid: u32, event
             None => warn!("[quête] {name} : récompense {item} perdue (inventaire plein)"),
         }
     }
-    if q.gift_money > 0 {
-        super::set_money(ctx, st, sid, (money + q.gift_money).min(super::npc_trade::MAX_MONEY)).await?;
+    // Titre Storyteller équipé : expérience et or des récompenses + Value_1 % (effets 1 et 2).
+    let (exp_bonus, gold_bonus) = st.players.get(&sid).map_or((0, 0), |p| super::titles::quest_bonus(ctx, p));
+    let gift_money = q.gift_money + q.gift_money * gold_bonus / 100;
+    let gift_exp = q.gift_exp + q.gift_exp * exp_bonus.max(0) as u64 / 100;
+    if gift_money > 0 {
+        super::set_money(ctx, st, sid, (money + gift_money).min(super::npc_trade::MAX_MONEY)).await?;
     }
-    if q.gift_exp > 0 {
-        super::combat::reward(ctx, st, sid, q.gift_exp).await?;
+    if gift_exp > 0 {
+        super::combat::reward(ctx, st, sid, gift_exp).await?;
     }
+    super::titles::on_quest(ctx, st, sid).await?;
     info!("[quête] {name} termine « {} »", q.name);
     send_system(st, sid, &format!("Quête « {} » terminée.", q.name));
     Ok(())

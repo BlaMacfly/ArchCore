@@ -10,7 +10,7 @@ dossier désigné par `ARCHCORE_CONF_DIR` (voir [[Configuration|FR-Configuration
 | `archcore db-init [--account nom mdp [mj]]` | Crée les bases, rejoue la base de référence et applique les migrations manquantes ; avec `--account`, crée ou met à jour un compte |
 | `archcore db-check` | Contrôle de cohérence, en lecture seule : versions du schéma, références entre bases, plages d'identifiants ; se termine en erreur sur une anomalie grave (voir [[Base de données\|FR-Base-de-donnees]]) |
 | `archcore decrypt [source] [destination]` | Déchiffre `Game/ini` (RC4, MD5(« 1111 »)) vers `data/client-ini` |
-| `archcore import [dossier] [--server dossier]` | Importe dans `archcore_world` les valeurs de l'épisode 8 (tables du serveur d'origine, `--server` ou `data/server-ini`, exigées) avec les noms, visuels et tables purement clientes de `data/client-ini` (CP949 → UTF-8, voir « Valeurs de l'épisode 8 » plus bas), la hauteur du sol depuis `world/b*x.ma2` du dossier Game (`map_height`, quelques minutes), les apparitions de monstres, le butin et la carte serveur ; applique enfin la couche de contenu `content/*.sql`, note chaque source dans `import_run` et affiche le résumé des lignes gardées et écartées par table |
+| `archcore import [dossier] [--server dossier] [--webzen dossier]` | Importe dans `archcore_world` les valeurs de l'épisode 8 (tables du serveur d'origine, `--server` ou `data/server-ini`, exigées) avec les noms, visuels et tables purement clientes de `data/client-ini` (CP949 → UTF-8, voir « Valeurs de l'épisode 8 » plus bas), la hauteur du sol depuis `world/b*x.ma2` du dossier Game (`map_height`, quelques minutes), les apparitions de monstres, le butin et la carte serveur ; avec `--webzen`, quêtes, courbe d'expérience, titres et maîtrises du client officiel de Webzen (voir « Source Webzen ») ; applique enfin la couche de contenu `content/*.sql`, note chaque source dans `import_run` et affiche le résumé des lignes gardées et écartées par table |
 | `archcore export-client-tables <dossier> [--game dossier]` | Écrit depuis la base monde les tables de valeurs au format du client, pour ArchRust (voir « Export pour le client ») |
 | `archcore migrate-ep8 [--apply \| --restore n]` | Rapport, puis migration des personnages existants vers les valeurs de l'épisode 8 (voir « Migration des personnages ») |
 | `archcore content` | Réapplique la couche de contenu `content/*.sql` à la base monde, sans réimporter (voir [[Base de données\|FR-Base-de-donnees]]) |
@@ -402,8 +402,9 @@ Manager> », npc.ini 535) : op 10 au lieu du dialogue. Novice Human Knight (1400
 au niveau 15 : 6.1 puis 6.3 = 15 ; au niveau 16, 6.3 = 16 ; 6.4 → 6.5 puis op 1. Équipé : op 3 (1, 1), op 9 à GmTest et
 à SimA posé à côté, force + 2 (« <Title> Novice Knight ») ; SimA éloigné puis ramené reçoit de nouveau l'op 9. Retrait
 aussitôt après refusé (op 3 résultat 0, code 3). Suppression du titre actif : op 9 bUse 0 chez SimA, op 8 ; objectif
-10001 fixé puis abandonné (op 8) ; `/title` sans titre actif. `isole.sh` vide `character_titles`,
-`character_title_goals` et `characters.title_changed_at`.
+10001 fixé puis abandonné (op 8) ; `/title` sans titre actif. Storyteller (170001, titre de Webzen) : au niveau 4,
+objectif fixé (6.1), la quête personnelle Learning Skill (3196) prise et terminée fait avancer son compteur (6.3 = 1),
+objectif abandonné. `isole.sh` vide `character_titles`, `character_title_goals` et `characters.title_changed_at`.
 
 ## Test de la discussion, des salons, des coiffeurs et des avis de recherche
 
@@ -430,11 +431,24 @@ GmTest), seconde refusée, tableau chez Rembrandt (op 4 puis fin de page), SimA 
 ARCHCORE_CONF_DIR=config/test archcore sim quest [compte] [mdp] [personnage]
 ```
 
-Le compte MJ (`gmtest`), passé au niveau 120 (`/questreset` remet d'abord les quêtes du test à zéro), prend
-Shattered Roots depuis le journal, se voit refuser de la terminer sans les 50 Corrupted Root Cores, les
-reçoit (`/create`), la termine (objets repris, Tempering Gem reçue), se voit refuser de la reprendre et de
-prendre Winged Menace (niveau 25 à 40), prend puis abandonne Gladiator's Demise ; à la reconnexion,
-Shattered Roots figure parmi les quêtes terminées et la quête abandonnée n'est plus au journal.
+Quêtes de Webzen (import `--webzen`). Le compte MJ (`gmtest`, chevalier humain), passé au niveau 4 (`/questreset`
+remet d'abord les quêtes du test à zéro), prend depuis le journal Decision of Anchorville Trader's Union (3195), se
+voit refuser de la terminer sans les 5 Giant Bats, les compte en base entre deux connexions et la termine ; prend
+Knight's Armor (3188) avec une Halfsteel Armor reçue (`/create`), inventaire rempli d'épées : op 8, puis la termine
+(armure reprise, récompense lue dans la base reçue) ; se voit refuser de reprendre 3195 et de prendre Alchemy
+Cauldron (3208, niveau 15 à 17) ; prend Learning Skill (3196), la suit à l'écran (op 14) ; à la reconnexion, 3195 et
+3188 figurent parmi les quêtes terminées et 3196 est suivie ; il la retire du suivi et l'abandonne.
+
+## Test de l'expérience au-delà de 2³²
+
+```bash
+ARCHCORE_CONF_DIR=config/test archcore sim exp [compte] [mdp] [personnage]
+```
+
+Courbe de Webzen (import `--webzen` : 6 298 132 446 points pour passer le niveau 120). Le compte MJ, au niveau 120,
+reçoit 5 000 000 000 points (`/exp`) : facteurs reçus (points 3 et 4 : 32 bits de poids faible et de poids fort),
+`characters.exp` en base ; à l'entrée en jeu suivante, `/exp 1` donne 5 000 000 001 ; au niveau 112, 4 088 758 700
+points le font passer au niveau 113 avec 7 points. Niveau d'origine remis (expérience à 0).
 
 ## Test des compétences
 
@@ -572,17 +586,58 @@ client d'Archonia seulement les noms, les visuels et les tables purement cliente
 | Valeurs | Colonnes de la table EP8 ; les colonnes d'Archonia (`CategoryName` des options, `AlwaysSuccess` des runes, `Keep …` du raffinage, `Critical_Defense_Rate`, `Regen_HP` des monstres…) ne sont pas lues : la règle tombe sur la valeur neutre d'origine (objet raffiné neuf, rune selon `Success_Rate`) |
 | Noms | Ceux du client, joints par TID (`ItemName`, `Name`, `Description` des options) |
 | Compétences | `skilltemplate.ini`, `skillspec.txt`, `skillconst.txt`, `skillconst2.txt` ; la jointure nom → TID se fait avec le modèle EP8 (930 s'y appelle « <Battle>Skill Upgrade », le nom du 524 est mal encodé côté client) ; `skill_template` garde le nom et les icônes du client |
-| Expérience | Niveaux 1 à 100 de la table EP8, 101 à 121 du client (seul barème connu au-delà) |
+| Expérience | Niveaux 1 à 100 de la table EP8, 101 à 121 du client ; avec `--webzen`, toute la courbe de Webzen (1 à 121) |
 | Croissance | `growupfactor.ini` ; le modèle 1276 (ArchLord), absent de la table EP8, garde la croissance du client |
 | PNJ | Fusion de `npc.ini` : nom du client ; modèle, position et événements EP8 (listes Function / EventID parallèles, élément par élément) ; quêtes (fonction 27), réparation (17) et avis de recherche (32) du client, que la table EP8 a retirés ; boutique EP8 si elle est importée, sinon celle du client ; un PNJ déplacé de plus de 1 000 unités hors du terrain du client garde sa position ; PNJ au modèle hors EP8 (2207) et PNJ 814 et 526 écartés. 35 numéros désignent un autre PNJ dans la table EP8 (sapins de Noël, PNJ « Event » à la place des maîtres des titres, des superviseurs de la Battle Square…) : ces PNJ du client gardent leurs valeurs, ceux de la table EP8 ne sont pas importés |
-| Tables purement clientes | Quêtes (39 retirées : les 30 qui citent un monstre ou un objet à rapporter hors EP8, et 9 dont la récompense « TID;nombre » est un objet d'Archonia — Shard of Rebirth, Tempering Gem… ; leurs groupes vidés aussi), maîtrises, titres, production, fenêtre des boss (13 boss d'Archonia retirés), sièges : gardées, sans les lignes qui citent un TID hors EP8 |
+| Tables purement clientes | Avec `--webzen`, quêtes, titres et maîtrises de Webzen (voir « Source Webzen »). Sans : quêtes (39 retirées : les 30 qui citent un monstre ou un objet à rapporter hors EP8, et 9 dont la récompense « TID;nombre » est un objet d'Archonia — Shard of Rebirth, Tempering Gem… ; leurs groupes vidés aussi), maîtrises, titres, production, fenêtre des boss (13 boss d'Archonia retirés), sièges : gardées, sans les lignes qui citent un TID hors EP8 |
 | Partage des dégâts | Colonne `divide` de la table EP8 (Divine Protection 1, Martyr's Mark 2) : le lanceur prend la part de son groupe ; le bit 16 qu'Archonia y ajoutait n'est plus exigé |
 | Régénération des monstres | Pas de colonne d'origine : règle d'ArchCore (soignés en revenant à leur point d'apparition) |
 
 Résumé du dernier import (bases de copie) : 16 973 objets gardés (3 848 écartés), 2 028 modèles (428),
 1 825 compétences (923), 10 910 niveaux de compétence (2 042), 5 025 options (1 097), 532 runes (606),
 4 541 recettes (1 190), 300 régions (31), 301 points de téléportation (5), 557 PNJ (2 du client, 8 au modèle
-d'Archonia ; 56 de la table EP8 non importés), 144 boutiques (39), 14 quêtes (39), 12 boss (13).
+d'Archonia ; 56 de la table EP8 non importés), 144 boutiques (39), 12 boss (13) ; avec `--webzen` : 3 082 quêtes
+(188), 993 groupes de quêtes (53), 2 768 titres (0), 287 maîtrises (0), 121 niveaux d'expérience.
+
+## Source Webzen
+
+`archcore import … --webzen <dossier>` lit le dossier `ini` du client officiel de Webzen (fichiers chiffrés RC4 sur
+le fichier entier, clé MD5(« 1111 »), ou déjà en clair ; `tools/webzen.rs`). Ses données datent de 2011 : elles ne
+remplacent que des tables que les tables EP8 n'ont pas, et seulement pour ce qu'elles citent de présent dans les
+tables EP8 importées. Rien n'est copié dans le dépôt : l'import lit les fichiers sur le disque.
+
+| Table | Fichiers de Webzen | Règle |
+|---|---|---|
+| Quêtes (`quest_template`) | `fr/questtemplate.ini` (3 270 quêtes, trois lignes d'en-tête), `questtemplate.ini` | Valeurs du dossier `fr/` ; textes anglais de la racine quand elle a la quête, sinon ceux de `fr/` (souvent restés en coréen). Écartées : quête qui cite un monstre, un objet ou une compétence hors EP8 (aucune), quête qu'aucun PNJ gardé ne donne ou ne reprend (sauf quête personnelle, `Self_Quest`), dont celles d'un objet du monde (donneur désigné par un numéro d'objet : le serveur ne gère les quêtes que sur les PNJ), quête qui suit une quête écartée. Les 14 quêtes d'Archonia (TID ≥ 4585, origine non prouvée) disparaissent |
+| Groupes (`quest_group`) | `fr/questgroup.ini`, `questgroup.ini` | Listes de `fr/`, noms de la racine ; un groupe vidé par les quêtes écartées est retiré |
+| PNJ (`npc_spawn`) | `npc.ini` | Événements de quête (fonction 27) de Webzen sur les PNJ gardés par la fusion EP8, quand le PNJ de Webzen a le même nom ou le même modèle |
+| Textes (`localized_text`, `client_table`) | `fr/`, `de/`, `esp/`, `portu/` | Nom (`quest_name`) et dialogue de départ (`quest_desc`) en fr, de, es, pt-BR (source `webzen`) ; textes de chaque langue rangés dans `client_table` (`questtemplate.ini@<langue>`) pour l'export ; une cellule restée en coréen n'est pas une traduction |
+| Expérience (`level_exp`) | `levelupexp.txt` | Niveaux 1 à 121, à la place de la table EP8 et du client ; au-delà de 2³² dès le niveau 113 (entiers 64 bits partout : base, serveur, paquets, ArchRust) |
+| Titres (`title_template`) | `titledatatable.txt`, `titlestringtable.txt` | 2 768 titres (Collector, Expert Collector, Natural Enemy, Addict, Killer, Advanced, Storyteller, Researcher), sans titre propre à Archonia ; écartés : coût, compétence ou cible d'une condition ou d'un effet hors EP8 (aucun) ; fichiers gardés rangés dans `client_table` pour l'export |
+| Maîtrises (`skill_mastery`) | `skillmastery_high.txt`, `skillmastery_heroic.txt` | Conditions et TID d'origine ; un seul arbre héroïque par classe (le second arbre du Berserker, mode berserk d'Archonia, n'est plus lu) |
+
+`Title_Check_N` n'a pas le même sens dans les deux tables : Webzen y écrit le TID du premier titre de la famille qui
+définit la condition (son client lit la colonne telle quelle), Archonia un numéro de type. ArchCore garde le sens de
+Webzen et ramène les types d'Archonia (`world/titles.rs`, `check::normalize`) :
+
+| Condition (Webzen) | Type (Archonia) | Compte |
+|---|---|---|
+| 1 Collector | — | objet Set ramassé sur un monstre (butin), autant que la quantité |
+| 10001 Expert Collector | 2 | récolte sur un cadavre de la créature Set (et ses morts avec `Title.CollectCountsKills`) |
+| 30001 Natural Enemy | — | créature Set tuée |
+| 40001 Addict | 5 | objet Set utilisé |
+| 90001 Killer | — | joueur tué |
+| 140001 Advanced | 15 | niveau |
+| 170001 Storyteller | — | quête terminée |
+| 200001 / 200002 / 200003 Researcher | 25 / 26 / 27 | niveau d'Alchimie / Cuisine / Collecte |
+
+Effets en plus de ceux d'Archonia, toujours sur le titre équipé : 1 et 2 expérience et or des récompenses de quête
++ Value_1 %, 6 réussite du sertissage de la pierre Value_1 + Value_2 points, 8 expérience de la créature Value_1
++ Value_2 %.
+
+Chaque ligne écartée et sa raison sont écrites dans `data/import-webzen.log` ; l'import affiche le nombre par raison.
+Dernier import (bases de copie) : 3 082 quêtes sur 3 270 (72 données ou reprises par un objet du monde, 3 sans PNJ
+gardé, 113 à la suite d'une quête écartée), 993 groupes (53 vidés), 2 768 titres, 287 maîtrises.
 
 ## Export pour le client
 
@@ -596,6 +651,11 @@ d'ArchRust (`server-data/` à côté de `realmlist.wtf`, lu avant les packs) :
 - texte en clair, fins de ligne CRLF, page de code du dossier : CP949 pour `ini/` et `ini_ko`,
   Windows-1252 pour `ini_fr`, `ini_de`, `ini_es`, Shift-JIS pour `ini_ja`, GBK pour `ini_zh` ;
 - dans un dossier de langue, les textes traduits du client sont gardés, les valeurs viennent de la base ;
+- quêtes (`questtemplate.ini`) : lignes de la base sous l'en-tête du client, textes de la langue du dossier repris de
+  Webzen (`questtemplate.ini@<langue>`) ; groupes (`questgroup.ini`) : ceux de la base ; titres
+  (`titledatatable.txt`, `titlestringtable.txt`) et maîtrises (`SkillMastery_High.txt`,
+  `SkillMastery_Heroic.txt`) : fichiers rangés par l'import (Webzen), un titre traduit par le client gardant son
+  texte dans un dossier de langue ; `LevelUpExp.txt` : la courbe de la base (64 bits) ;
 - `tables.toml` à la racine : `format`, `fingerprint` (« sha256:… », chemins et contenus des fichiers),
   `software`, `generated`.
 
@@ -611,8 +671,10 @@ passent de 20 à 15 niveaux), compétences hors EP8. Avec `--apply`, dans une tr
 détruire (table `ep8_quarantine`, voir [[Base de données|FR-Base-de-donnees]]) : objets hors EP8 mis en
 quarantaine (avec les courriers et ventes qui les citaient), options et runes hors EP8 retirées, niveaux
 ramenés au maximum, compétences hors EP8 retirées, et oubli des compétences offert à tous (« skill init »
-remis à vide), les coûts en points des niveaux ayant changé. `--restore n` annule la passe n. Sauvegarder
-les bases (`mariadb-dump`) avant `--apply`.
+remis à vide), les coûts en points des niveaux ayant changé. Les quêtes (en cours ou terminées) et les titres
+(possédés ou visés) absents des tables importées (après un import `--webzen`) sont aussi au rapport, puis mis en
+quarantaine avec leur ligne d'origine (sortes `quest`, `title`, `title_goal`) ; une table de quêtes ou de titres
+vide n'est pas contrôlée. `--restore n` annule la passe n. Sauvegarder les bases (`mariadb-dump`) avant `--apply`.
 
 ## Tables du serveur d'origine
 

@@ -89,6 +89,7 @@ messages. ArchCore's replies are in French.
 | `/recast` | 3 | Resets the GM's skill recast delays on the server side (the client may still show its own). ArchCore-specific command |
 | `/last_refine` | 3 | Runs again the last recipe refined successfully since login (the panel's "Use last refine recipe"), like the client's op 6: ingredients taken from the inventory, gold paid, result in the refining window. Refused without a successful refine |
 | `/level <level> ["name"]` | 3 | Sets the online character's level (1 to 120): experience reset, HP and MP restored, skill points recomputed; without a name, on yourself. ArchCore-specific command |
+| `/exp <points> ["name"]` | 3 | Gives the online character experience like a killed monster (64 bits, level-ups included); without a name, on yourself. ArchCore-specific command |
 | `/money <amount> ["name"]` | 3 | Sets the online character's gold (0 to 1,000,000,000); without a name, on yourself. ArchCore-specific command |
 | `/charisma <points> ["name"]` | 3 | Gives charisma points to the online character (1 to 1,000,000, multiplied by the `Rate.Charisma` rate and the charisma bonuses of its effects, except the boss one); without a name, to yourself. ArchCore-specific command (Archonia has none), until player-versus-player fights exist |
 | `/announce_restart <minutes> <seconds>` | 3 | Announces to every player, reminds every minute, counts down the last seconds. `0 0` cancels |
@@ -210,6 +211,7 @@ Example: `/SetExp 2.0`, then `/GetExp` to check.
 | ✅ `/money <amount> ["name"]` | Sets an online character's gold (ArchCore addition, not in the panel) |
 | ✅ `/charisma <points> ["name"]` | Gives charisma points to an online character (ArchCore addition, not in the panel) |
 | ✅ `/level <level> ["name"]` | Sets an online character's level (ArchCore addition, not in the panel) |
+| ✅ `/exp <points> ["name"]` | Gives an online character experience (ArchCore addition, not in the panel) |
 | ✅ `/questreset <TID>` | Clears a quest from the GM's journal (ArchCore addition, not in the panel) |
 | ✅ `/recast` | Resets the GM's skill recast delays (ArchCore addition, not in the panel) |
 | ✅ `/last_refine` | Runs the last successful refine recipe again |

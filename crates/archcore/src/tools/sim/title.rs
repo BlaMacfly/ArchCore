@@ -7,7 +7,9 @@
 //! Str + 2 de la compétence « <Title> Novice Knight ») : SimA, posé à côté, reçoit l'op 9 de GmTest, puis de nouveau
 //! quand GmTest rentre dans sa vue. Le retrait aussitôt après est refusé (op 3 code 3, `Title.ChangeDelaySeconds`). La
 //! suppression du titre actif l'efface chez SimA (op 9 bUse 0) et répond op 8 ; un objectif de collecte (10001) est
-//! fixé puis abandonné (op 7 → op 8). `isole.sh` vide les tables des titres et l'heure du dernier changement.
+//! fixé puis abandonné (op 7 → op 8). Titre Storyteller de Webzen (170001, condition 170001 : quêtes terminées) : au
+//! niveau 4, la quête personnelle Learning Skill (3196, sans objectif) terminée fait avancer son compteur (6.3 = 1).
+//! `isole.sh` vide les tables des titres et l'heure du dernier changement.
 
 use super::{enter_world, gm_place, step, InWorld, Recv};
 use archcore_net::schema::{self, chat_type, mini, ptype, title_op, title_quest};
@@ -16,6 +18,9 @@ use std::time::Duration;
 
 const NOVICE_KNIGHT: u32 = 140_001;
 const COLLECTOR: u32 = 10_001;
+/// Storyteller (titledatatable.txt de Webzen) et une quête personnelle sans objectif (Learning Skill, chevalier humain).
+const STORYTELLER: u32 = 170_001;
+const LEARN: i64 = 3196;
 /// Warrante, « <Title Manager> » d'Anchorville (npc.ini 535), un point à côté, et un point hors de sa vue.
 const WARRANTE: i64 = 0x4000_0000 + 535;
 const NEAR_WARRANTE: Vec3 = Vec3 { x: -483_900.0, y: 5_060.0, z: -64_900.0 };
@@ -192,6 +197,27 @@ pub async fn run(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> 
     let state = gm(&mut a, "/title").await?;
     anyhow::ensure!(state.contains("aucun"), "/title : {state}");
     println!("  ✓ op 9 bUse 0 chez {cb}, op 8 ; objectif {COLLECTOR} fixé puis abandonné (op 8)");
+
+    step(&format!("objectif {STORYTELLER} (Storyteller) : une quête terminée le fait avancer"));
+    gm(&mut a, &format!("/questreset {LEARN}")).await?;
+    gm(&mut a, "/level 4").await?;
+    quest(&mut a, ca, title_quest::ADD, 0x50, STORYTELLER).await?;
+    let r = a.world.expect_where(title(title_op::QUEST, Some(title_quest::ADD_RESULT)), 3000, "6.1 Storyteller").await?;
+    anyhow::ensure!(i32_at(&raw(&r), 0x58) == 1, "6.1 Storyteller : {}", i32_at(&raw(&r), 0x58));
+    let qs = &schema::QUEST;
+    let ask = |op: i64| Fields::new(qs).with(0, op).with(1, acid).with(4, LEARN);
+    a.world.send(qs, ask(0)).await?;
+    let ok = a.world.expect_where(|q| q.is(qs, Some(1)) && q.int(4) == Some(LEARN), 3000, "quête prise").await?;
+    anyhow::ensure!(ok.int(6) == Some(1), "quête {LEARN} refusée");
+    a.world.send(qs, ask(2)).await?;
+    let ok = a.world.expect_where(|q| q.is(qs, Some(3)) && q.int(4) == Some(LEARN), 3000, "quête terminée").await?;
+    anyhow::ensure!(ok.int(6) == Some(1), "quête {LEARN} non terminée");
+    let chk = a.world.expect_where(|q| title(title_op::QUEST, Some(title_quest::CHECK))(q) && i32_at(&raw(q), 0x48) == STORYTELLER as i64, 3000, "6.3 Storyteller").await?;
+    anyhow::ensure!(i32_at(&raw(&chk), 0x50) == 1, "6.3 Storyteller : {}", i32_at(&raw(&chk), 0x50));
+    request(&mut a, ca, title_op::DELETE, 0x4C, STORYTELLER, |_| {}).await?;
+    a.world.expect_where(title(title_op::DELETE_RESULT, None), 3000, "op 8 (abandon)").await?;
+    gm(&mut a, &format!("/questreset {LEARN}")).await?;
+    println!("  ✓ 6.1, quête {LEARN} terminée, 6.3 = 1, objectif abandonné");
 
     step("remise du niveau");
     gm(&mut a, &format!("/level {}", level_a.max(1))).await?;

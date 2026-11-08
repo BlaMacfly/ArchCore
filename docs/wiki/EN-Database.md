@@ -44,7 +44,7 @@ ArchCore uses three main MariaDB databases, plus a log database, created and upd
 | `character_quickbelt` | Quick belt kept by the server (AgpmUIStatus): one row per filled slot (0 to 49), base type (5 item, 7 skill), TID, IID of an item; deleted with the character |
 | `character_titles` | Titles owned (AgpmTitle): TID, active (one at most), chosen skill (0), date obtained (Unix seconds); the time of the last change of active title is `characters.title_changed_at` (`Title.ChangeDelaySeconds` delay) |
 | `character_title_goals` | Running title goals: TID, acceptance date, values `c1` to `c5` of the template's non-empty conditions |
-| `ep8_quarantine` | Switch to the episode 8 values (`archcore migrate-ep8 --apply`): what was removed or changed, nothing destroyed — pass (`run_id`), character, kind (`item`: `character_items` row as JSON with the mail and sales citing it; `options`, `sockets`: original `option_tids` / `socket_tids`; `skill_level`, `skill`; `skill_init`), `ref_id` (item or skill TID), original values (JSON), reason, date; `restored_at` set by `--restore` |
+| `ep8_quarantine` | Switch to the episode 8 values (`archcore migrate-ep8 --apply`): what was removed or changed, nothing destroyed — pass (`run_id`), character, kind (`item`: `character_items` row as JSON with the mail and sales citing it; `options`, `sockets`: original `option_tids` / `socket_tids`; `skill_level`, `skill`; `skill_init`; `quest`, `title`, `title_goal`: `character_quests`, `character_titles` or `character_title_goals` row as JSON, quest or title missing from the imported tables), `ref_id` (item, skill, quest or title TID), original values (JSON), reason, date; `restored_at` set by `--restore` |
 
 ## `archcore_world` — game data (`sql/003_world.sql`)
 
@@ -57,20 +57,20 @@ same name (`characterdatatable.txt`, `skillconst.txt`, `levelupexp.ini`…) prov
 |---|---|---|
 | `character_template` | `charactertemplate.ini` | Character and NPC templates: race, class, stats |
 | `character_data_table` | `CharacterDataTable.txt` | Server stats per template (HP, speeds, damage, experience…); names of the playable base templates |
-| `level_exp` | `LevelUpExp.txt` | Experience per level |
+| `level_exp` | `LevelUpExp.txt` (Webzen's `levelupexp.txt` with `--webzen`) | Experience to pass each level, `BIGINT UNSIGNED`: the Webzen curve exceeds 2³² from level 113 (6,640,723,530 at level 121); `characters.exp` is 64-bit too |
 | `growup_factor` | `GrowUpFactor.txt` | Stat growth |
 | `login_char_pos` | `logincharpos.ini` | Character selection screen positions |
 | `item_template` | item templates | Items |
 | `item_data` | `itemdatatable.txt` | Item stats: level, part, kind, type, NPC prices (gold `npc_price`, resale `pc_price`, charisma `npc_charisma_price` and Shrine Coins `npc_shrine_coin` of the Shrine shop), stack, every column as JSON (`raw`) |
 | `skill_template` | `SKILLTEMPLATE.ini` | Skills (TID, name) |
 | `skill_spec` | `SKILL_SPEC.txt` | Each skill's nature (non-empty columns, as JSON) |
-| `quest_template` | `questtemplate.ini` | Quests (non-empty columns, as JSON) |
-| `quest_group` | `questgroup.ini` | NPC groups: quests offered and handed in |
+| `quest_template` | `questtemplate.ini` (Webzen's `fr/questtemplate.ini` with `--webzen`: 3,082 quests) | Quests (non-empty columns, as JSON; English texts when Webzen has them) |
+| `quest_group` | `questgroup.ini` (Webzen's `fr/questgroup.ini`) | NPC groups: name, quests offered and handed in |
 | `skill_level` | `SKILL_CONST.txt`, `Skill_Const2.txt` | Values of each level of each skill (non-empty columns, as JSON; `point.`, `percent.`, `magnify.` groups; those of `Skill_Const2.txt`, suffixed with "2", under `point2.`, `percent2.`…) |
 | `skill_mastery` | `SkillMastery_High.txt`, `SkillMastery_Heroic.txt` | Mastery trees: key (template TID, 10000 + race for "10004;4"), skill, tree (1 high, 2 heroic), required skills `[[TID, level]…]` (ConditionA, B), levels in a template's class `class_points` `[[template TID, levels]…]` (ConditionC), total (ConditionD: levels in total, or heroic points) |
 | `product_category`, `product_compose`, `product_exp`, `product_gather`, `product_result_item` | `productcategory.txt`, `productcompose.txt`, `productexp.txt`, `productgather.txt`, `productresultitem.txt` | Production: skill of each category, 95 recipes (materials `[[TID, count]…]`, price, level, chance), levels 1 to 15, 760 monsters that can be gathered, items gathered per set and level (skill names resolved through `SKILLTEMPLATE.ini`) |
 | `npc_spawn` | `npc.ini` (merged with the EP8 table) | 557 NPCs: template, name, position, orientation, raw functions |
-| `client_table` | other tables | Whole texts (row 0): `itemoptiontable.txt`, `itemruneattributetable.txt`, `ItemConvertTable.txt`, `itemlotterybox.txt`, `avatarset.ini`, `refineryrecipetable.txt`, `gachatypetemplate.ini`, `gachadroptable*.txt` (EP8 tables), `RegionTemplate.ini`, `TeleportPoint.ini` (EP8, kept for `export-client-tables`), `optionnumdroprate.txt`, `socketnumdroprate.txt` |
+| `client_table` | other tables | Whole texts (row 0): `itemoptiontable.txt`, `itemruneattributetable.txt`, `ItemConvertTable.txt`, `itemlotterybox.txt`, `avatarset.ini`, `refineryrecipetable.txt`, `gachatypetemplate.ini`, `gachadroptable*.txt` (EP8 tables), `RegionTemplate.ini`, `TeleportPoint.ini` (EP8, kept for `export-client-tables`), `optionnumdroprate.txt`, `socketnumdroprate.txt`; for the export, `SkillMastery_High.txt`, `SkillMastery_Heroic.txt` (files read by the import), and with `--webzen` `titledatatable.txt`, `titlestringtable.txt` (kept titles, texts in the client format) and `questtemplate.ini@<language>` (quest texts of each Webzen language, JSON TID → column → text) |
 | `monster_spawn` | original server tables (`spawndatatable.txt` + `spawninstancetable.txt`) | 12,802 spawn points, 36,960 creatures: template, level (the EP8 template's), count, respawn (`respawn_sec`–`respawn_max_sec` range for the `UIBoss.xml` bosses), position, radius, public name (`CharacterTemplatePublic.ini`) |
 | `map_segment` | original server `world/node_data` | 45,312 sectors: blocked ground and region per 400-unit segment |
 | `map_height` | client `world/b*x.ma2` (ground geometry) | 46,592 sectors: ground height at the 17 × 17 cell corners (i16) |
@@ -96,7 +96,7 @@ same name (`characterdatatable.txt`, `skillconst.txt`, `levelupexp.ini`…) prov
 | `character_customize` | `charactercustomizelist.txt` | Hair styles (1) and faces (2) per model: number (AGPMCHARACTER fields 20 and 21), name, `Case` (0 creation and stylist, 1 stylist, 2 creation), required level, gold or item price, file order |
 | `guild_max_member` | `guildmaxmember.txt` | Guild sizes and their price; the first row is a new guild (50 places, 10,000 coins), the next ones the enlargements |
 | `guild_mark` | `guildmark.txt` | Guild mark items: layer (1 background, 2 pattern, 3 symbol, 4 colour), number, TID (number << 8 × (layer − 1)), name, gold price, skulls, cash, ARGB colour |
-| `title_template` | `titledatatable.txt`, `titlestringtable.txt` | 684 episode 8 titles (627 Expert Collector, 30 Advanced, 14 Addict, 3 Researcher; 10 Defender of Chantra and Schola 1-3 marked `optional`, loaded with `Title.Schola`): category (`FirstCategory`), requirements to set the goal (level, class, guild master, ArchLord, stats), gold, cost items, prerequisite titles, conditions, skills and effects (JSON); Archonia's Christmas Event and Schola 4/5 not imported |
+| `title_template` | `titledatatable.txt`, `titlestringtable.txt` | Episode 8 titles: with `--webzen`, Webzen's 2,768 (627 Expert Collector, 2,058 Natural Enemy, 30 Advanced, 29 Collector, 14 Addict, 4 Killer, 3 Storyteller, 3 Researcher), otherwise the client's 684 (10 Defender of Chantra and Schola 1-3 marked `optional`, loaded with `Title.Schola`): category (`FirstCategory`), requirements to set the goal (level, class, guild master, ArchLord, stats), gold, cost items, prerequisite titles, conditions (`checks`: [condition, Set, Value], condition in Webzen's sense — TID of the family's first title, 10001, 30001… —, Archonia's types being mapped on loading), skills and effects (JSON); Archonia's Christmas Event and Schola 4/5 not imported |
 | `charisma_title` | `charismatitletable.txt` | 14 charisma ranks (min CHA, max, title): computed by the client, read by `/title` |
 
 **Stable identifiers.** In `monster_spawn`, `monster_drop` and `resurrection_point`, the `id` column is only an
@@ -111,7 +111,7 @@ filled by `archcore import`.
 | Table | Content |
 |---|---|
 | `language` | Languages offered to clients: BCP 47 code, names, tier (1 official version, 2 Webzen 2010 client, 3 community), client text folder, `enabled`, order; 11 rows inserted by `db-init` |
-| `localized_text` | Localized texts: `kind` (`npc_name`, `monster_name`, `item_name`, `item_desc`, `quest_name`, `quest_desc`, `skill_name`, `region_name`, `npc_dialog`), `ref_id` (identifier in the source table), `lang`, `text`, `source`; filled by `archcore i18n db <language>` (source `import`, the only rows it replaces) and by hand (source `manual` by default, kept by `i18n db`) |
+| `localized_text` | Localized texts: `kind` (`npc_name`, `monster_name`, `item_name`, `item_desc`, `quest_name`, `quest_desc`, `skill_name`, `region_name`, `npc_dialog`), `ref_id` (identifier in the source table), `lang`, `text`, `source`; filled by `archcore i18n db <language>` (source `import`, the only rows it replaces), by `archcore import --webzen` (source `webzen`: quest names and starting dialogs in fr, de, es, pt-BR, replaced on each import) and by hand (source `manual` by default, kept by `i18n db`) |
 
 See [[Translation|EN-Translation]] for the fallback and [[ArchRust extensions|EN-ArchRust-extensions]] for the protocol.
 

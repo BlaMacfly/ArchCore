@@ -45,7 +45,7 @@ Toutes sont en `utf8mb4`.
 | `character_quickbelt` | Barre de raccourcis gardée par le serveur (AgpmUIStatus) : une ligne par case remplie (0 à 49), type de base (5 objet, 7 compétence), TID, IID d'un objet ; supprimée avec le personnage |
 | `character_titles` | Titres possédés (AgpmTitle) : TID, actif (un au plus), compétence choisie (0), date d'obtention (secondes Unix) ; l'heure du dernier changement de titre actif est `characters.title_changed_at` (délai `Title.ChangeDelaySeconds`) |
 | `character_title_goals` | Objectifs de titre en cours : TID, date d'acceptation, valeurs `c1` à `c5` des conditions non vides du modèle |
-| `ep8_quarantine` | Passage aux valeurs de l'épisode 8 (`archcore migrate-ep8 --apply`) : ce qui a été retiré ou changé, rien n'est détruit — passe (`run_id`), personnage, sorte (`item` : ligne de `character_items` en JSON avec les courriers et ventes qui la citaient ; `options`, `sockets` : `option_tids` / `socket_tids` d'origine ; `skill_level`, `skill` ; `skill_init`), `ref_id` (objet ou TID de compétence), valeurs d'origine (JSON), raison, date ; `restored_at` remplie par `--restore` |
+| `ep8_quarantine` | Passage aux valeurs de l'épisode 8 (`archcore migrate-ep8 --apply`) : ce qui a été retiré ou changé, rien n'est détruit — passe (`run_id`), personnage, sorte (`item` : ligne de `character_items` en JSON avec les courriers et ventes qui la citaient ; `options`, `sockets` : `option_tids` / `socket_tids` d'origine ; `skill_level`, `skill` ; `skill_init` ; `quest`, `title`, `title_goal` : ligne de `character_quests`, `character_titles` ou `character_title_goals` en JSON, quête ou titre absent des tables importées), `ref_id` (objet, TID de compétence, de quête ou de titre), valeurs d'origine (JSON), raison, date ; `restored_at` remplie par `--restore` |
 
 ## `archcore_world` — données du jeu (`sql/003_world.sql`)
 
@@ -59,20 +59,20 @@ les valeurs.
 |---|---|---|
 | `character_template` | `charactertemplate.ini` | Modèles de personnages et de PNJ : race, classe, statistiques |
 | `character_data_table` | `CharacterDataTable.txt` | Caractéristiques serveur par modèle (PV, vitesses, dégâts, expérience…) ; noms des modèles de base jouables |
-| `level_exp` | `LevelUpExp.txt` | Expérience par niveau |
+| `level_exp` | `LevelUpExp.txt` (`levelupexp.txt` de Webzen avec `--webzen`) | Expérience pour passer chaque niveau, `BIGINT UNSIGNED` : la courbe de Webzen dépasse 2³² dès le niveau 113 (6 640 723 530 au niveau 121) ; `characters.exp` est aussi en 64 bits |
 | `growup_factor` | `GrowUpFactor.txt` | Progression des statistiques |
 | `login_char_pos` | `logincharpos.ini` | Positions de l'écran de sélection |
 | `item_template` | modèles d'objets | Objets |
 | `item_data` | `itemdatatable.txt` | Caractéristiques des objets : niveau, partie, genre, type, prix chez un PNJ (or `npc_price`, revente `pc_price`, charisme `npc_charisma_price` et Shrine Coins `npc_shrine_coin` de la boutique des Shrines), pile, toutes les colonnes en JSON (`raw`) |
 | `skill_template` | `SKILLTEMPLATE.ini` | Compétences (TID, nom) |
 | `skill_spec` | `SKILL_SPEC.txt` | Nature de chaque compétence (colonnes non vides, en JSON) |
-| `quest_template` | `questtemplate.ini` | Quêtes (colonnes non vides, en JSON) |
-| `quest_group` | `questgroup.ini` | Groupes de PNJ : quêtes proposées et rendues |
+| `quest_template` | `questtemplate.ini` (`fr/questtemplate.ini` de Webzen avec `--webzen` : 3 082 quêtes) | Quêtes (colonnes non vides, en JSON ; textes anglais quand Webzen les a) |
+| `quest_group` | `questgroup.ini` (`fr/questgroup.ini` de Webzen) | Groupes de PNJ : nom, quêtes proposées et rendues |
 | `skill_level` | `SKILL_CONST.txt`, `Skill_Const2.txt` | Valeurs de chaque niveau de chaque compétence (colonnes non vides, en JSON ; groupes `point.`, `percent.`, `magnify.` ; celles de `Skill_Const2.txt`, suffixées de « 2 », sous `point2.`, `percent2.`…) |
 | `skill_mastery` | `SkillMastery_High.txt`, `SkillMastery_Heroic.txt` | Arbres de maîtrise : clé (TID du modèle, 10000 + race pour « 10004;4 »), compétence, arbre (1 supérieur, 2 héroïque), compétences exigées `[[TID, niveau]…]` (ConditionA, B), niveaux dans la classe d'un modèle `class_points` `[[TID du modèle, niveaux]…]` (ConditionC), total (ConditionD : niveaux cumulés, ou points héroïques) |
 | `product_category`, `product_compose`, `product_exp`, `product_gather`, `product_result_item` | `productcategory.txt`, `productcompose.txt`, `productexp.txt`, `productgather.txt`, `productresultitem.txt` | Production : compétence de chaque catégorie, 95 recettes (matériaux `[[TID, quantité]…]`, prix, niveau, chance), niveaux 1 à 15, 760 monstres récoltables, objets récoltés par ensemble et niveau (noms de compétence résolus par `SKILLTEMPLATE.ini`) |
 | `npc_spawn` | `npc.ini` (fusion avec la table EP8) | 557 PNJ : modèle, nom, position, orientation, fonctions brutes |
-| `client_table` | autres tables | Textes entiers (ligne 0) : `itemoptiontable.txt`, `itemruneattributetable.txt`, `ItemConvertTable.txt`, `itemlotterybox.txt`, `avatarset.ini`, `refineryrecipetable.txt`, `gachatypetemplate.ini`, `gachadroptable*.txt` (tables EP8), `RegionTemplate.ini`, `TeleportPoint.ini` (EP8, gardés pour `export-client-tables`), `optionnumdroprate.txt`, `socketnumdroprate.txt` |
+| `client_table` | autres tables | Textes entiers (ligne 0) : `itemoptiontable.txt`, `itemruneattributetable.txt`, `ItemConvertTable.txt`, `itemlotterybox.txt`, `avatarset.ini`, `refineryrecipetable.txt`, `gachatypetemplate.ini`, `gachadroptable*.txt` (tables EP8), `RegionTemplate.ini`, `TeleportPoint.ini` (EP8, gardés pour `export-client-tables`), `optionnumdroprate.txt`, `socketnumdroprate.txt` ; pour l'export, `SkillMastery_High.txt`, `SkillMastery_Heroic.txt` (fichiers lus par l'import), et avec `--webzen` `titledatatable.txt`, `titlestringtable.txt` (titres gardés, textes au format du client) et `questtemplate.ini@<langue>` (textes des quêtes de chaque langue de Webzen, JSON TID → colonne → texte) |
 | `monster_spawn` | tables du serveur d'origine (`spawndatatable.txt` + `spawninstancetable.txt`) | 12 802 points d'apparition, 36 960 créatures : modèle, niveau (celui du modèle EP8), nombre, réapparition (plage `respawn_sec`–`respawn_max_sec` pour les boss de `UIBoss.xml`), position, rayon, nom public (`CharacterTemplatePublic.ini`) |
 | `map_segment` | `world/node_data` du serveur d'origine | 45 312 secteurs : sol infranchissable et région par segment de 400 unités |
 | `map_height` | `world/b*x.ma2` du client (géométrie du sol) | 46 592 secteurs : hauteur du sol aux 17 × 17 coins de cellule (i16) |
@@ -98,7 +98,7 @@ les valeurs.
 | `character_customize` | `charactercustomizelist.txt` | Coiffures (1) et visages (2) par modèle : numéro (champs 20 et 21 d'AGPMCHARACTER), nom, `Case` (0 création et coiffeur, 1 coiffeur, 2 création), niveau exigé, prix en or ou en objets, ordre du fichier |
 | `guild_max_member` | `guildmaxmember.txt` | Tailles de guilde et leur prix ; la première ligne est la guilde neuve (50 places, 10 000 pièces), les suivantes les agrandissements |
 | `guild_mark` | `guildmark.txt` | Éléments d'emblème : couche (1 fond, 2 motif, 3 symbole, 4 couleur), numéro, TID (numéro << 8 × (couche − 1)), nom, prix en or, crânes, argent liquide, couleur ARGB |
-| `title_template` | `titledatatable.txt`, `titlestringtable.txt` | 684 titres de l'épisode 8 (627 Expert Collector, 30 Advanced, 14 Addict, 3 Researcher ; 10 Defender of Chantra et Schola 1-3 marqués `optional`, chargés avec `Title.Schola`) : catégorie (`FirstCategory`), conditions pour fixer l'objectif (niveau, classe, chef de guilde, ArchLord, caractéristiques), or, objets de coût, titres préalables, conditions d'obtention, compétences et effets (JSON) ; Christmas Event et Schola 4/5 d'Archonia non importés |
+| `title_template` | `titledatatable.txt`, `titlestringtable.txt` | Titres de l'épisode 8 : avec `--webzen`, les 2 768 de Webzen (627 Expert Collector, 2 058 Natural Enemy, 30 Advanced, 29 Collector, 14 Addict, 4 Killer, 3 Storyteller, 3 Researcher), sinon 684 du client (dont 10 Defender of Chantra et Schola 1-3 marqués `optional`, chargés avec `Title.Schola`) : catégorie (`FirstCategory`), conditions pour fixer l'objectif (niveau, classe, chef de guilde, ArchLord, caractéristiques), or, objets de coût, titres préalables, conditions d'obtention (`checks` : [condition, Set, Value], condition au sens de Webzen — TID du premier titre de la famille, 10001, 30001… —, les types d'Archonia étant ramenés au chargement), compétences et effets (JSON) ; Christmas Event et Schola 4/5 d'Archonia non importés |
 | `charisma_title` | `charismatitletable.txt` | 14 rangs de charisme (CHA min, max, titre) : calculés par le client, lus par `/title` |
 
 **Identifiants stables.** Dans `monster_spawn`, `monster_drop` et `resurrection_point`, la colonne `id` n'est qu'un
@@ -113,7 +113,7 @@ points de résurrection est remplie par `archcore import`.
 | Table | Contenu |
 |---|---|
 | `language` | Langues proposées aux clients : code BCP 47, noms, niveau (1 version officielle, 2 client Webzen 2010, 3 communauté), dossier de textes du client, `enabled`, ordre ; 11 lignes insérées par `db-init` |
-| `localized_text` | Textes localisés : `kind` (`npc_name`, `monster_name`, `item_name`, `item_desc`, `quest_name`, `quest_desc`, `skill_name`, `region_name`, `npc_dialog`), `ref_id` (identifiant de la table d'origine), `lang`, `text`, `source` ; remplie par `archcore i18n db <langue>` (source `import`, seules lignes qu'il remplace) et à la main (source `manual` par défaut, gardée par `i18n db`) |
+| `localized_text` | Textes localisés : `kind` (`npc_name`, `monster_name`, `item_name`, `item_desc`, `quest_name`, `quest_desc`, `skill_name`, `region_name`, `npc_dialog`), `ref_id` (identifiant de la table d'origine), `lang`, `text`, `source` ; remplie par `archcore i18n db <langue>` (source `import`, seules lignes qu'il remplace), par `archcore import --webzen` (source `webzen` : noms et dialogues de départ des quêtes en fr, de, es, pt-BR, remplacés à chaque import) et à la main (source `manual` par défaut, gardée par `i18n db`) |
 
 Voir [[Traduction|FR-Traduction]] pour le repli et [[Extensions ArchRust|FR-Extensions-ArchRust]] pour le protocole.
 

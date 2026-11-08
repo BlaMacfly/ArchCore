@@ -327,7 +327,8 @@ When a monster dies, AGPMCHARACTER op 1 with field 11 (action status) set to 2; 
 20 s later (op 3), then the monster respawns in place with full HP. The killer gets the template's
 experience (`Exp` from CharacterDataTable.txt × the `exp` rate) in its factors (op 1, field 7) and a
 system message; experience is counted per level (`LevelUpExp.txt`), and a level up is announced with
-AGPMCHARACTER **op 5**. Only templates whose type has the "attackable" (0x10000) and "targetable"
+AGPMCHARACTER **op 5**. Experience is a 64-bit integer: `FACTOR_POINT` 3 carries its low 32 bits, `FACTOR_POINT` 4
+its high 32 bits (the Webzen curve exceeds 2³² from level 113). Only templates whose type has the "attackable" (0x10000) and "targetable"
 (0x20000) bits can be targeted: ambient creatures (type 8: roosters, hens…) cannot.
 
 **Growth with level.** A player's factors follow their level according to `GrowUpFactor.txt` (table
@@ -1836,9 +1837,11 @@ answers the dialog request with op 10 (`Title.ManagerOpensWindow`). Setting a go
 its order (ArchLord, guild master, class — `Require_class_Type` 101 to 901 race and class, 1001 Dragon Scion, 1101 to
 1301 its evolved forms —, level, Con, Str, Int, Dex, Wis, Cha, gold, items, prerequisite titles) and bounds (999 goals,
 500 titles and goals), then **takes** the gold and cost items; 6.1, then 6.3 when conditions are already met; refusal:
-6.1 result 0 and a message. Conditions: 2 successful gathering on a corpse of creature Set (`Title.CollectCountsKills`:
-its deaths too), 5 using item Set (potions), 15 level, 25 / 26 / 27 Alchemy / Cooking / Gathering level; 6.3 on every
-change, counters saved. Completing (6.4): every value reached, 6.5 then op 1. Equipping or removing (op 2): refused
+6.1 result 0 and a message. Conditions (`Title_Check`, in the Webzen table's sense: TID of the family's first title;
+Archonia's types 2, 5, 15, 25 to 27 are mapped to 10001, 40001, 140001, 200001 to 200003): 1 item Set picked up from a
+monster, 10001 successful gathering on a corpse of creature Set (`Title.CollectCountsKills`: its deaths too), 30001
+creature Set killed, 40001 using item Set (potions), 90001 player killed, 140001 level, 170001 quest completed,
+200001 / 200002 / 200003 Alchemy / Cooking / Gathering level; 6.3 on every change, counters saved. Completing (6.4): every value reached, 6.5 then op 1. Equipping or removing (op 2): refused
 less than `Title.ChangeDelaySeconds` (7200) after the last change (op 3 result 0, code 3, time of the change);
 otherwise op 3 then op 9 to the player and to those who see them; a player who comes into a holder's view receives
 their op 9. Deleting the active title clears it (op 9 bUse 0) with no delay. Effects of the **equipped** title only:

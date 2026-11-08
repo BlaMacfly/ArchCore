@@ -39,7 +39,7 @@ Client data (`data/client-ini`, Archonia client) and server tables (`--server`):
 |---|---|---|
 | Swashbuckler class | 5 | ✅ items and class known to ArchCore |
 | Dragon Scion race and its classes | 6 | ✅ templates, "드래곤시온" zones, skills |
-| Experience table up to level 120, monsters up to level 120 | 7 | ✅ `level_exp`: levels 1 to 100 from the server tables, identical to the client's; 101 to 121 from the client (the server tables' scale stops at 100) |
+| Experience table up to level 120, monsters up to level 120 | 7 | ✅ `level_exp`: with `--webzen`, the Webzen curve for levels 1 to 121 (64 bits beyond level 112); without, levels 1 to 100 from the server tables and 101 to 121 from the client |
 | Heaven's Hell zone ("헤븐즈 헬의 옥좌") | 7 | ✅ client and server |
 | Five elemental Shrines (fire, water, wind, lightning, poison), each split by race; "Shrine" potions | 8 | ✅ client and server |
 | Battle Ground (two fields) | 2012 Webzen update | ✅ regions |
@@ -57,7 +57,7 @@ Check of 25 October 2026, Archonia client data and `Archonia.exe`:
 | Content | Source in ArchCore | Status |
 |---|---|---|
 | NPCs | merged `npc.ini`: template, position, functions and shops from the server tables; name, quests, repair and wanted board from the client (557 NPCs) | ✅ EP8 values (2 Archonia NPCs, 8 with an Archonia template dropped; 35 client NPCs whose number points to another NPC in the server tables kept as they are; 56 NPCs specific to the server tables not imported) |
-| Quests | `questtemplate.ini` of the client's `Ini` folder (53 quests, 39 of them removed: they cite Archonia monsters, items or rewards; 14 kept) | ✅ like the client: at start-up, `Archonia.exe` only reads `IniQuestTemplate.ini`, whatever the language. The `ini_ko` table (3,321 quests, those of the original game) is not loaded: group quests missing from it are offered neither by the client nor by ArchCore |
+| Quests | With `--webzen`: `fr/questtemplate.ini` of the Webzen client (3,270 quests, 3,082 kept: NPCs, items, monsters and rewards of the episode 8 tables; world object quests not handled), texts in English, French, German, Spanish and Portuguese; without: `questtemplate.ini` of the Archonia client (14 quests of unproven origin) | ✅ Webzen quests; Archonia's 14 (TID 4585 and above, later than the Webzen table) are not kept |
 | Monster stats | server tables' `characterdatatable.txt`, client names | ✅ EP8 values (2,028 templates; Archonia's 428 dropped) |
 | Monster level | the template's level in the server tables' `characterdatatable.txt` | ✅ EP8 values: the 70 monsters raised by Archonia go back to their original level (1,118 spawn points take the template's level) |
 | Boss respawn | Archonia's boss window (`UIBoss.xml`): delay drawn in the announced range | ✅ 16 points (Battlesquare 30 to 45 min, Asylum and Balor King 30 to 60 min, Chaotic Frontier 20 to 40 min, Shinewood invaders 75 to 90 min) |

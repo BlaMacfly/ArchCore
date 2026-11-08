@@ -66,6 +66,19 @@ or SQL dump is needed. If you use another set of server tables, point to its fol
 archcore import data/client-ini --server path/to/ini
 ```
 
+**Webzen quests, experience, titles and masteries.** If you have the official Webzen client, point to its `ini`
+folder (encrypted or already plain files): its 3,270 quests (with their groups, NPCs and texts in French, German,
+Spanish and Portuguese), its experience curve for levels 1 to 121, its 2,768 titles and its mastery trees replace
+those of the Archonia client, without what cites an NPC, item or monster missing from the episode 8 tables. The
+files stay on your disk; nothing is copied into the repository.
+
+```bash
+archcore import data/client-ini --webzen path/to/webzen-client/ini
+```
+
+What is dropped, and why, is written to `data/import-webzen.log`. After this first import, run
+`archcore migrate-ep8` (report): characters that had quests or titles that are gone are listed there.
+
 The import ends with a summary: rows kept and dropped, table by table. Rules and files are detailed in
 [[Tools|EN-Tools]].
 

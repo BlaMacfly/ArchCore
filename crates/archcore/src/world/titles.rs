@@ -16,12 +16,16 @@
 //!   C op 7    supprimer un titre possédé ou abandonner un objectif ← op 9 bUse 0 si le titre était actif, op 8 (1)
 //!   C op 4, 6.6 (sans appelant dans Archonia) ← listes ; op 11 (choix d'une compétence, Archonia) journalisée
 //! ```
-//! Conditions (`Title_Check`) : 2 récolte réussie sur un cadavre de la créature Set (aussi ses morts avec
-//! `Title.CollectCountsKills`), 5 utilisation de l'objet Set, 15 niveau, 25 / 26 / 27 niveau d'Alchimie / Cuisine /
-//! Collecte ; remplie quand la valeur atteint Value. Effets du titre **équipé** seulement : compétences `Skill_Tid_*`
-//! (passives, `skills::sync_passives`), 3 / 4 / 5 réussite d'Alchimie / Cuisine / Collecte + Value_1 %, 7 objets
-//! récoltés × Value_2 sur la créature Value_1, 9 potion Value_1 : + Value_2 points (Set 0) ou % (Set 1). Le charisme et
-//! ses rangs (`charisma_title`) restent du ressort du client, qui les déduit du CHA envoyé.
+//! Conditions (`Title_Check`, TID du premier titre de la famille comme dans la table de Webzen ; les numéros de type
+//! d'Archonia sont ramenés par `check::normalize`) : 1 objet Set ramassé sur un monstre (Collector), 10001 récolte
+//! réussie sur un cadavre de la créature Set (aussi ses morts avec `Title.CollectCountsKills`), 30001 créature Set tuée
+//! (Natural Enemy), 40001 utilisation de l'objet Set, 90001 joueur tué (Killer), 140001 niveau, 170001 quête terminée
+//! (Storyteller), 200001 / 200002 / 200003 niveau d'Alchimie / Cuisine / Collecte ; remplie quand la valeur atteint
+//! Value. Effets du titre **équipé** seulement : compétences `Skill_Tid_*` (passives, `skills::sync_passives`), 1 / 2
+//! expérience / or des récompenses de quête + Value_1 %, 3 / 4 / 5 réussite d'Alchimie / Cuisine / Collecte + Value_1 %,
+//! 6 sertissage de la pierre Value_1 + Value_2 %, 7 objets récoltés × Value_2 sur la créature Value_1, 8 expérience de la
+//! créature Value_1 + Value_2 %, 9 potion Value_1 : + Value_2 points (Set 0) ou % (Set 1). Le charisme et ses rangs
+//! (`charisma_title`) restent du ressort du client, qui les déduit du CHA envoyé.
 //! Choix d'ArchCore (le serveur d'origine est absent) : listes poussées à l'entrée, coûts pris à l'acceptation (Cost_Cash
 //! ignoré, toujours vide), bornes du client seulement, délai compté entre deux changements quels qu'ils soient (équiper
 //! ou retirer ; la suppression d'un titre actif le retire sans délai), Schola 1-3 et Defender of Chantra derrière
@@ -51,22 +55,55 @@ pub const CODE_TOO_SOON: i32 = 3;
 /// Préfixe du nom des PNJ qui ouvrent les fenêtres des titres (npc.ini, 18 PNJ à dialogue, fonction 21).
 pub const MANAGER_PREFIX: &str = "<Title Manager>";
 
-/// Types de condition (`Title_Check_N`).
+/// Types de condition (`Title_Check_N`) : TID du premier titre de la famille qui la définit (titledatatable.txt de
+/// Webzen : la colonne est lue telle quelle par son client, `FUN_0087bce0`, et décrite par titlestringtable.txt).
 pub mod check {
-    pub const COLLECT: i64 = 2;
-    pub const USE_ITEM: i64 = 5;
-    pub const LEVEL: i64 = 15;
-    pub const ALCHEMY: i64 = 25;
-    pub const COOKING: i64 = 26;
-    pub const GATHERING: i64 = 27;
+    /// Collector : objet Set ramassé sur un monstre.
+    pub const COLLECT_ITEM: i64 = 1;
+    /// Expert Collector : récolte sur un cadavre de la créature Set.
+    pub const COLLECT: i64 = 10_001;
+    /// Natural Enemy : créature Set tuée.
+    pub const KILL: i64 = 30_001;
+    /// Addict : objet Set utilisé.
+    pub const USE_ITEM: i64 = 40_001;
+    /// Killer : joueur tué.
+    pub const PK: i64 = 90_001;
+    /// Advanced : niveau du personnage.
+    pub const LEVEL: i64 = 140_001;
+    /// Storyteller : quête terminée.
+    pub const QUEST: i64 = 170_001;
+    /// Researcher : niveaux d'Alchimie, de Cuisine, de Collecte.
+    pub const ALCHEMY: i64 = 200_001;
+    pub const COOKING: i64 = 200_002;
+    pub const GATHERING: i64 = 200_003;
+
+    /// Type d'une condition : numéros de type d'Archonia (2, 5, 15, 25 à 27) ramenés aux TID de Webzen.
+    pub fn normalize(kind: i64) -> i64 {
+        match kind {
+            2 => COLLECT,
+            5 => USE_ITEM,
+            15 => LEVEL,
+            25 => ALCHEMY,
+            26 => COOKING,
+            27 => GATHERING,
+            k => k,
+        }
+    }
 }
 
-/// Types d'effet (`Title_Effect_N`).
+/// Types d'effet (`Title_Effect_N`), les mêmes chez Webzen et chez Archonia.
 pub mod effect {
+    /// Storyteller : expérience et or des récompenses de quête + Value_1 %.
+    pub const QUEST_EXP: i64 = 1;
+    pub const QUEST_GOLD: i64 = 2;
     pub const ALCHEMY: i64 = 3;
     pub const COOKING: i64 = 4;
     pub const GATHERING: i64 = 5;
+    /// Collector : sertissage de la pierre Value_1 + Value_2 % de réussite.
+    pub const REFINE: i64 = 6;
     pub const DOUBLE_COLLECT: i64 = 7;
+    /// Natural Enemy : expérience de la créature Value_1 + Value_2 %.
+    pub const KILL_EXP: i64 = 8;
     pub const POTION: i64 = 9;
 }
 
@@ -123,6 +160,10 @@ impl TitleDef {
     pub fn collect_factor(&self, monster_tid: u32) -> i64 {
         self.effects.iter().filter(|e| e.kind == effect::DOUBLE_COLLECT && e.v1 == monster_tid as i64).map(|e| e.v2.max(1)).max().unwrap_or(1)
     }
+    /// Bonus (pour cent) de l'effet `kind` dont Value_1 désigne `tid` (6 pierre sertie, 8 créature tuée) : Value_2.
+    pub fn bonus_on(&self, kind: i64, tid: u32) -> i64 {
+        self.effects.iter().filter(|e| e.kind == kind && e.v1 == tid as i64).map(|e| e.v2).sum()
+    }
     /// Récupération en plus d'une potion `item_tid` qui rend `amount` (effet 9 : points si Set 0, pour cent si Set 1).
     pub fn potion_extra(&self, item_tid: u32, amount: i32) -> i32 {
         self.effects
@@ -175,7 +216,7 @@ impl TitleCatalog {
                         cost_geld: n("cost_geld"),
                         cost_items: json_list::<(u32, i64)>(&col::<String>(r, "cost_items")),
                         first_titles: json_list(&col::<String>(r, "first_titles")),
-                        checks: json_list::<(i64, i64, i64)>(&col::<String>(r, "checks")).into_iter().take(CHECKS).map(|(kind, set, value)| Check { kind, set, value }).collect(),
+                        checks: json_list::<(i64, i64, i64)>(&col::<String>(r, "checks")).into_iter().take(CHECKS).map(|(kind, set, value)| Check { kind: check::normalize(kind), set, value }).collect(),
                         skills: json_list(&col::<String>(r, "skills")),
                         effects: json_list::<(i64, i64, i64, i64)>(&col::<String>(r, "effects")).into_iter().map(|(kind, set, v1, v2)| TitleEffect { kind, set, v1, v2 }).collect(),
                     };
@@ -286,6 +327,14 @@ pub enum Event {
     Collect(u32),
     /// Objet utilisé.
     UseItem(u32),
+    /// Créature tuée.
+    Kill(u32),
+    /// Objet ramassé sur un monstre (butin), autant de fois que la quantité.
+    Loot(u32, i32),
+    /// Joueur tué.
+    Pk,
+    /// Quête terminée.
+    Quest,
     /// Niveau ou niveau de production changé.
     Refresh,
 }
@@ -310,11 +359,13 @@ pub fn advance(def: &TitleDef, counters: &mut [i32; CHECKS], ev: Event, s: &Snap
             continue;
         }
         let hit = match (c.kind, ev) {
-            (check::COLLECT, Event::Collect(tid)) | (check::USE_ITEM, Event::UseItem(tid)) => c.set == tid as i64,
-            _ => false,
+            (check::COLLECT, Event::Collect(tid)) | (check::USE_ITEM, Event::UseItem(tid)) | (check::KILL, Event::Kill(tid)) => (c.set == tid as i64) as i32,
+            (check::COLLECT_ITEM, Event::Loot(tid, n)) if c.set == tid as i64 => n.max(1),
+            (check::PK, Event::Pk) | (check::QUEST, Event::Quest) => 1,
+            _ => 0,
         };
-        if hit {
-            counters[i] = counters[i].saturating_add(1);
+        if hit > 0 {
+            counters[i] = counters[i].saturating_add(hit);
         }
     }
     *counters != before
@@ -890,12 +941,28 @@ pub async fn on_collect(ctx: &WorldCtx, st: &mut WorldState, sid: u32, monster_t
     progress(ctx, st, sid, Event::Collect(monster_tid)).await
 }
 
-/// Monstre `monster_tid` tué par `sid` : compte comme une récolte avec `Title.CollectCountsKills` (`combat.rs`).
+/// Monstre `monster_tid` tué par `sid` (`combat.rs`) : Natural Enemy, et récolte avec `Title.CollectCountsKills`.
 pub async fn on_kill(ctx: &WorldCtx, st: &mut WorldState, sid: u32, monster_tid: u32) -> anyhow::Result<()> {
+    progress(ctx, st, sid, Event::Kill(monster_tid)).await?;
     if !ctx.config.world.title_collect_counts_kills {
         return Ok(());
     }
     progress(ctx, st, sid, Event::Collect(monster_tid)).await
+}
+
+/// Joueur tué par `sid` (`pvp.rs`) : Killer.
+pub async fn on_pk(ctx: &WorldCtx, st: &mut WorldState, sid: u32) -> anyhow::Result<()> {
+    progress(ctx, st, sid, Event::Pk).await
+}
+
+/// Quête terminée par `sid` (`quests.rs`) : Storyteller.
+pub async fn on_quest(ctx: &WorldCtx, st: &mut WorldState, sid: u32) -> anyhow::Result<()> {
+    progress(ctx, st, sid, Event::Quest).await
+}
+
+/// Butin d'un monstre ramassé par `sid` (`loot.rs`) : Collector.
+pub async fn on_loot(ctx: &WorldCtx, st: &mut WorldState, sid: u32, item_tid: u32, count: i32) -> anyhow::Result<()> {
+    progress(ctx, st, sid, Event::Loot(item_tid, count)).await
 }
 
 /// Objet `item_tid` utilisé (`recovery.rs`).
@@ -923,6 +990,21 @@ pub fn product_bonus(ctx: &WorldCtx, p: &Player, category: i64) -> i64 {
 /// Multiplicateur des objets récoltés sur `monster_tid` par le titre équipé (effet 7).
 pub fn collect_factor(ctx: &WorldCtx, p: &Player, monster_tid: u32) -> i64 {
     p.titles.active_def(&ctx.titles).map_or(1, |d| d.collect_factor(monster_tid))
+}
+
+/// Expérience en plus (pour cent) de la créature `monster_tid` par le titre équipé (effet 8).
+pub fn kill_exp_bonus(ctx: &WorldCtx, p: &Player, monster_tid: u32) -> i64 {
+    p.titles.active_def(&ctx.titles).map_or(0, |d| d.bonus_on(effect::KILL_EXP, monster_tid))
+}
+
+/// Réussite du sertissage de la pierre `stone_tid` en plus (points de pour cent) par le titre équipé (effet 6).
+pub fn refine_bonus(ctx: &WorldCtx, p: &Player, stone_tid: u32) -> i64 {
+    p.titles.active_def(&ctx.titles).map_or(0, |d| d.bonus_on(effect::REFINE, stone_tid))
+}
+
+/// Expérience et or des récompenses de quête en plus (pour cent) par le titre équipé (effets 1 et 2).
+pub fn quest_bonus(ctx: &WorldCtx, p: &Player) -> (i64, i64) {
+    p.titles.active_def(&ctx.titles).map_or((0, 0), |d| (d.bonus(effect::QUEST_EXP), d.bonus(effect::QUEST_GOLD)))
 }
 
 /// Récupération en plus de la potion `item_tid` (qui rend `amount`) par le titre équipé (effet 9).
@@ -1087,6 +1169,21 @@ mod tests {
         let mut counters = [0; CHECKS];
         advance(&alchemy, &mut counters, Event::Refresh, &Snapshot { level: 1, product: [3, 5, 10] });
         assert!(complete(&alchemy, &counters));
+        // Natural Enemy (créature 33, 6 fois), Collector (objet 463 ramassé, 30), Killer et Storyteller.
+        let enemy = TitleDef { checks: vec![Check { kind: check::KILL, set: 33, value: 6 }], ..Default::default() };
+        let mut counters = [5, 0, 0, 0, 0];
+        assert!(!advance(&enemy, &mut counters, Event::Collect(33), &s), "récolte, pas mort");
+        assert!(advance(&enemy, &mut counters, Event::Kill(33), &s) && complete(&enemy, &counters));
+        let stones = TitleDef { checks: vec![Check { kind: check::COLLECT_ITEM, set: 463, value: 30 }], ..Default::default() };
+        let mut counters = [0; CHECKS];
+        assert!(advance(&stones, &mut counters, Event::Loot(463, 3), &s) && counters[0] == 3);
+        assert!(!advance(&stones, &mut counters, Event::Loot(466, 1), &s));
+        let story = TitleDef { checks: vec![Check { kind: check::QUEST, set: 0, value: 100 }, Check { kind: check::PK, set: 0, value: 30 }], ..Default::default() };
+        let mut counters = [0; CHECKS];
+        assert!(advance(&story, &mut counters, Event::Quest, &s) && advance(&story, &mut counters, Event::Pk, &s));
+        assert_eq!(counters[..2], [1, 1]);
+        // Types d'Archonia ramenés aux TID de Webzen.
+        assert_eq!([2, 5, 15, 25, 26, 27, 30_001].map(check::normalize), [10_001, 40_001, 140_001, 200_001, 200_002, 200_003, 30_001]);
         // Sans condition : terminable aussitôt.
         assert!(complete(&TitleDef::default(), &[0; CHECKS]));
     }
@@ -1140,6 +1237,8 @@ mod tests {
         assert_eq!((addict.potion_extra(190, 75), addict.potion_extra(1125, 150), addict.potion_extra(193, 45)), (25, 15, 0));
         let alchemy = TitleDef { effects: vec![TitleEffect { kind: effect::ALCHEMY, set: 0, v1: 10, v2: 0 }], ..Default::default() };
         assert_eq!((alchemy.bonus(effect::ALCHEMY), alchemy.bonus(effect::GATHERING)), (10, 0));
+        let enemy = TitleDef { effects: vec![TitleEffect { kind: effect::KILL_EXP, set: 0, v1: 33, v2: 10 }, TitleEffect { kind: effect::REFINE, set: 0, v1: 463, v2: 3 }], ..Default::default() };
+        assert_eq!((enemy.bonus_on(effect::KILL_EXP, 33), enemy.bonus_on(effect::KILL_EXP, 450), enemy.bonus_on(effect::REFINE, 463)), (10, 0, 3));
     }
 
     #[test]

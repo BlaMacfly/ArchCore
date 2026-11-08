@@ -277,6 +277,7 @@ pub static COMMANDS: &[CommandDef] = &[
     CommandDef { name: "recast", level: 3, args: Some(&[]), usage: "/recast" },
     CommandDef { name: "last_refine", level: 3, args: Some(&[]), usage: "/last_refine" },
     CommandDef { name: "level", level: 3, args: Some(&["int", "name?"]), usage: "/level <niveau> \"nom\"" },
+    CommandDef { name: "exp", level: 3, args: Some(&["int", "name?"]), usage: "/exp <points> \"nom\"" },
     CommandDef { name: "money", level: 3, args: Some(&["int", "name?"]), usage: "/money <montant> \"nom\"" },
     CommandDef { name: "charisma", level: 3, args: Some(&["int", "name?"]), usage: "/charisma <points> \"nom\"" },
     CommandDef { name: "announce_restart", level: 3, args: Some(&["int", "int?"]), usage: "/announce_restart <minutes> <secondes>" },
@@ -386,7 +387,7 @@ pub fn needs_character(name: &str, tokens: &[String]) -> bool {
     match name {
         "invincible" | "additem" | "speed" | "durability" | "questreset" | "recast" | "last_refine" => true,
         "kill" => tokens.is_empty(),
-        "level" | "money" | "charisma" => tokens.len() < 2,
+        "level" | "exp" | "money" | "charisma" => tokens.len() < 2,
         "move" => split_move_target(tokens).1.is_none(),
         _ => false,
     }
@@ -596,6 +597,22 @@ pub(super) async fn run(world: &Arc<World>, st: &mut WorldState, sid: u32, gm_le
             let p = &st.players[&target];
             info!("[mj] {} passe {} au niveau {level}", caller_name(st, sid), p.ch.name);
             Ok(format!("{} est maintenant niveau {level} ({} point(s) de compétence).", p.ch.name, p.factors.dirt[super::skills::DIRT_SKILL_POINT]))
+        }
+        "exp" => {
+            // Expérience donnée comme celle d'un monstre (64 bits : montées de niveau comprises, combat.rs).
+            let points = a[0].int().unwrap_or(0);
+            let target = match a[1].name() {
+                Some(n) => st.by_name(n),
+                None => Some(sid),
+            };
+            let Some(target) = target else { return Ok(err(format!("personnage absent du monde : {}", a[1].name().unwrap_or("")))) };
+            if points <= 0 {
+                return Ok(err("nombre de points positif attendu"));
+            }
+            super::combat::reward(ctx, st, target, points as u64).await?;
+            let p = &st.players[&target];
+            info!("[mj] {} donne {points} point(s) d'expérience à {}", caller_name(st, sid), p.ch.name);
+            Ok(format!("{} : niveau {}, {} point(s) d'expérience.", p.ch.name, p.ch.level, p.ch.exp))
         }
         "announce_restart" => {
             let (minutes, seconds) = (a[0].int().unwrap_or(0), a[1].int().unwrap_or(0));

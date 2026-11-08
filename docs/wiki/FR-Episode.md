@@ -40,7 +40,7 @@ Données du client (`data/client-ini`, client Archonia) et tables du serveur (`-
 |---|---|---|
 | Classe Swashbuckler | 5 | ✅ objets et classe connus d'ArchCore |
 | Race Dragon Scion et ses classes | 6 | ✅ modèles, zones « 드래곤시온 », compétences |
-| Barème d'expérience jusqu'au niveau 120, monstres jusqu'au niveau 120 | 7 | ✅ `level_exp` : niveaux 1 à 100 des tables du serveur, identiques à ceux du client ; 101 à 121 du client (le barème des tables du serveur s'arrête à 100) |
+| Barème d'expérience jusqu'au niveau 120, monstres jusqu'au niveau 120 | 7 | ✅ `level_exp` : avec `--webzen`, courbe de Webzen des niveaux 1 à 121 (64 bits au-delà du niveau 112) ; sans, niveaux 1 à 100 des tables du serveur et 101 à 121 du client |
 | Zone Heaven's Hell (« 헤븐즈 헬의 옥좌 ») | 7 | ✅ client et serveur |
 | Cinq Shrines élémentaires (feu, eau, vent, foudre, poison), chacune découpée par race ; potions « Shrine » | 8 | ✅ client et serveur |
 | Battle Ground (deux terrains) | mise à jour Webzen 2012 | ✅ régions |
@@ -59,7 +59,7 @@ Contrôle du 25 octobre 2026, données du client Archonia et `Archonia.exe` :
 | Contenu | Source dans ArchCore | État |
 |---|---|---|
 | PNJ | `npc.ini` fusionné : modèle, position, fonctions et boutiques des tables du serveur ; nom, quêtes, réparation et avis de recherche du client (557 PNJ) | ✅ valeurs EP8 (2 PNJ d'Archonia, 8 au modèle d'Archonia écartés ; 35 PNJ du client dont le numéro désigne un autre PNJ dans les tables du serveur gardés tels quels ; 56 PNJ propres aux tables du serveur non importés) |
-| Quêtes | `questtemplate.ini` du dossier `Ini` du client (53 quêtes, dont 39 retirées : elles citent des monstres, des objets ou des récompenses d'Archonia ; 14 gardées) | ✅ comme le client : au démarrage, `Archonia.exe` ne lit que `IniQuestTemplate.ini`, quelle que soit la langue. La table de `ini_ko` (3 321 quêtes, celles du jeu d'origine) n'est pas chargée : les quêtes des groupes qui n'y figurent pas ne sont proposées ni par le client ni par ArchCore |
+| Quêtes | Avec `--webzen` : `fr/questtemplate.ini` du client de Webzen (3 270 quêtes, 3 082 gardées : PNJ, objets, monstres et récompenses des tables de l'épisode 8 ; quêtes des objets du monde non gérées), textes en anglais, français, allemand, espagnol et portugais ; sans : `questtemplate.ini` du client d'Archonia (14 quêtes d'origine non prouvée) | ✅ quêtes de Webzen ; les 14 d'Archonia (TID 4585 et plus, postérieures à la table de Webzen) ne sont pas reprises |
 | Caractéristiques des monstres | `characterdatatable.txt` des tables du serveur, noms du client | ✅ valeurs EP8 (2 028 modèles ; les 428 d'Archonia écartés) |
 | Niveau des monstres | niveau du modèle dans `characterdatatable.txt` des tables du serveur | ✅ valeurs EP8 : les 70 monstres relevés par Archonia reviennent à leur niveau d'origine (1 118 points d'apparition prennent le niveau du modèle) |
 | Réapparition des boss | fenêtre des boss d'Archonia (`UIBoss.xml`) : délai tiré dans la plage annoncée | ✅ 16 points (Battlesquare 30 à 45 min, Asylum et Balor King 30 à 60 min, Chaotic Frontier 20 à 40 min, envahisseurs de Shinewood 75 à 90 min) |

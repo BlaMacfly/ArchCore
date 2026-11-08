@@ -69,6 +69,19 @@ Si vous utilisez un autre lot de tables serveur, désignez son dossier explicite
 archcore import data/client-ini --server chemin/vers/ini
 ```
 
+**Quêtes, expérience, titres et maîtrises de Webzen.** Si vous avez le client officiel de Webzen, désignez son
+dossier `ini` (fichiers chiffrés ou déjà en clair) : ses 3 270 quêtes (avec leurs groupes, leurs PNJ et leurs
+textes en français, allemand, espagnol et portugais), sa courbe d'expérience des niveaux 1 à 121, ses 2 768 titres
+et ses arbres de maîtrises remplacent ceux du client d'Archonia, sans ce qui cite un PNJ, un objet ou un monstre
+absent des tables de l'épisode 8. Les fichiers restent sur votre disque ; rien n'est copié dans le dépôt.
+
+```bash
+archcore import data/client-ini --webzen chemin/vers/client-webzen/ini
+```
+
+Ce qui est écarté, et pourquoi, est écrit dans `data/import-webzen.log`. Après ce premier import, lancez
+`archcore migrate-ep8` (rapport) : les personnages qui avaient des quêtes ou des titres disparus y figurent.
+
 L'import finit par un résumé : lignes gardées et écartées, table par table. Le détail des règles et des
 fichiers est dans [[Outils|FR-Outils]].
 

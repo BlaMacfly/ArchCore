@@ -13,6 +13,7 @@ pub mod migrate_ep8;
 pub mod re;
 pub mod sim;
 pub mod terrain;
+pub mod webzen;
 
 use std::path::{Path, PathBuf};
 

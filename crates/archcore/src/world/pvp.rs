@@ -464,6 +464,8 @@ pub async fn on_kill(ctx: &WorldCtx, st: &mut WorldState, sid: u32, tsid: u32) -
     let guilty = !battleground && ((aggressor && innocent) || murderer_level(k.ch.murderer) >= 1);
     part(st, sid, tsid);
     info!("[pvp] {kname} tue {vname}");
+    // Objectifs de titre Killer (joueurs tués).
+    super::titles::on_pk(ctx, st, sid).await?;
     // Prime touchée sur un criminel recherché : ce meurtre ne donne pas de points de meurtrier.
     let bounty = super::wanted::on_kill(ctx, st, sid, tsid, guilty).await?;
     let zone = zone_mode(ctx, st, sid);

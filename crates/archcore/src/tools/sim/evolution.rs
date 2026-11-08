@@ -2,7 +2,9 @@
 //!
 //! SimScion (Scion, TID 1724, compte sans droits MJ ; à créer une fois par `ARCHCORE_SIM_CREATE_TID=1724 archcore sim
 //! client test test SimScion`) se tient chez Gilliwen, maître des compétences du Dragon Scion ; GmTest (MJ) le rejoint, le
-//! passe niveau 20 et lui donne de l'or. Apprentissage de Slayer et Orbiter of Evolution (1189, 1192), refus de Power
+//! passe niveau 20 et lui donne de l'or. Conditions d'origine de Webzen (`SkillMastery_High.txt`) : Slayer et Orbiter of
+//! Evolution demandent 10 niveaux de compétences du Scion (« 1724;10 ») et 10 en tout : Disturb (1136) niveau 10 posé en
+//! base d'avance. Apprentissage de Slayer et Orbiter of Evolution (1189, 1192), refus de Power
 //! Stunner (réservée au Slayer : code 5). Slayer of Evolution lancée : facteurs du Slayer (classe 1, FOR 83 au niveau
 //! 20), AGPMSKILL op 4, op 26 (1722) chez lui et chez GmTest ; en Slayer, 1155 de l'arbre du Slayer est admise par la
 //! classe mais refusée par sa ConditionC « 1722;30 » (niveaux de compétences du Slayer). Orbiter of Evolution : op 27 (1724) puis op 26 (1723) ;
@@ -24,6 +26,8 @@ const POWER_STUNNER: i64 = 1147;
 /// compétences du Slayer.
 const SLAYER_TREE_TOP: i64 = 1155;
 const SLAYER_TREE_PREVIOUS: i64 = 1153;
+/// Disturb, compétence du Scion : ses niveaux remplissent « 1724;10 » des évolutions.
+const SCION_SKILL: i64 = 1136;
 /// Gilliwen (npc_spawn 410) et une place à côté.
 const GILLIWEN: i64 = 0x4000_0000 + 410;
 const SPOT: Vec3 = Vec3 { x: -596_250.0, y: 16_300.0, z: 493_700.0 };
@@ -82,14 +86,16 @@ pub async fn run(user: &str, pass: &str, char_name: &str, ub: &str, pb: &str, cb
     db.characters.exec("UPDATE characters SET evolution_tid = 0 WHERE name = ?", (cb.to_string(),)).await?;
     db.characters
         .exec(
-            "DELETE FROM character_skills WHERE skill_tid IN (?, ?, ?, ?) AND character_id = (SELECT id FROM characters WHERE name = ?)",
-            (SLAYER_OF_EVOLUTION, ORBITER_OF_EVOLUTION, SLAYER_TREE_TOP, SLAYER_TREE_PREVIOUS, cb.to_string()),
+            "DELETE FROM character_skills WHERE skill_tid IN (?, ?, ?, ?, ?) AND character_id = (SELECT id FROM characters WHERE name = ?)",
+            (SLAYER_OF_EVOLUTION, ORBITER_OF_EVOLUTION, SLAYER_TREE_TOP, SLAYER_TREE_PREVIOUS, SCION_SKILL, cb.to_string()),
         )
         .await?;
-    // ConditionA de 1155 remplie d'avance : seule « 1722;30 » manque.
-    db.characters
-        .exec("INSERT INTO character_skills (character_id, skill_tid, level) SELECT id, ?, 1 FROM characters WHERE name = ?", (SLAYER_TREE_PREVIOUS, cb.to_string()))
-        .await?;
+    // ConditionA de 1155 (« 1153;2 ») remplie d'avance : seule « 1722;30 » manque. Disturb niveau 10 : « 1724;10 ».
+    for (tid, level) in [(SLAYER_TREE_PREVIOUS, 2), (SCION_SKILL, 10)] {
+        db.characters
+            .exec("INSERT INTO character_skills (character_id, skill_tid, level) SELECT id, ?, ? FROM characters WHERE name = ?", (tid, level, cb.to_string()))
+            .await?;
+    }
 
     step(&format!("{cb} (Scion) et {char_name} (MJ) entrent en jeu"));
     let mut s = enter_world(&cfg, ub, pb, cb, "S-").await?;

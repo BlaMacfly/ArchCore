@@ -698,7 +698,9 @@ async fn spirit_stone(ctx: &super::WorldCtx, st: &mut super::WorldState, sid: u3
     let s = ctx.convert.stones[rank];
     let rate = if is_weapon(e) { s.weapon_rate } else { s.armor_rate };
     let luck = lucky(ctx, p);
-    let ok = rand::thread_rng().gen_range(0..100) < rate + luck.map(|l| l.1).unwrap_or(0);
+    // Titre Collector équipé : réussite du sertissage de cette pierre + Value_2 points (effet 6).
+    let title = super::titles::refine_bonus(ctx, p, stone.tid).clamp(0, 100) as u32;
+    let ok = rand::thread_rng().gen_range(0..100) < rate + luck.map(|l| l.1).unwrap_or(0) + title;
     let mut conv = item.conv.clone();
     if ok {
         conv.sockets = sockets_of(e, &conv);

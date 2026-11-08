@@ -32,6 +32,8 @@ pub const EP8_ONLY_ITEM_COLUMNS: [&str; 1] = ["NPC Arena Coin"];
 #[derive(Debug, Default)]
 pub struct Bilan {
     pub rows: Vec<(String, usize, usize, String)>,
+    /// Lignes écartées une à une, avec leur raison (journal de `--webzen`, `data/import-webzen.log`).
+    pub details: Vec<String>,
 }
 
 impl Bilan {
@@ -214,19 +216,28 @@ pub fn merge_skill_template(ep8: &str, client: &str) -> (String, usize, usize, V
     (text, kept, dropped, renamed)
 }
 
-/// Ensemble EP8 visé par une colonne de TID de questtemplate.ini (d'après son nom) : monstres, compétences, objets ;
+/// Sorte de TID d'une colonne de questtemplate.ini (d'après son nom) : « monstre », « compétence » ou « objet » ;
 /// `None` pour une quête (chaîne de quêtes) ou une colonne qui n'est pas un TID.
-fn quest_column_set<'a>(column: &str, sets: &'a Ep8Sets) -> Option<&'a HashSet<u32>> {
+pub fn quest_column_kind(column: &str) -> Option<&'static str> {
     let c = column.to_ascii_lowercase();
     if !c.ends_with("tid") || c == "tid" || c.contains("quest") {
         return None;
     }
     Some(if c.contains("monster") || c.contains("npc") {
-        &sets.models
+        "monstre"
     } else if c.contains("skill") {
-        &sets.skills
+        "compétence"
     } else {
-        &sets.items
+        "objet"
+    })
+}
+
+/// Ensemble EP8 visé par une colonne de TID de questtemplate.ini (voir `quest_column_kind`).
+pub fn quest_column_set<'a>(column: &str, sets: &'a Ep8Sets) -> Option<&'a HashSet<u32>> {
+    Some(match quest_column_kind(column)? {
+        "monstre" => &sets.models,
+        "compétence" => &sets.skills,
+        _ => &sets.items,
     })
 }
 
@@ -314,6 +325,9 @@ pub struct NpcRules<'a> {
     pub quest_groups: &'a HashSet<u32>,
     /// Position (x, z) sur le terrain du client.
     pub on_terrain: &'a dyn Fn(f64, f64) -> bool,
+    /// Événements de quête (fonction 27) d'une autre source que le client (npc.ini de Webzen, `--webzen`), par numéro de
+    /// PNJ : ils remplacent ceux du client quand le PNJ de cette source a le même nom ou le même modèle.
+    pub quest_events: Option<&'a HashMap<String, Section>>,
 }
 
 /// Bilan de la fusion des PNJ.
@@ -446,7 +460,19 @@ pub fn merge_npcs(ep8: &str, client: &str, rules: &NpcRules) -> (String, NpcStat
                 }
             }
         }
-        for b in client_blocks.iter().filter(|b| fun(b) == "27") {
+        // Quêtes : celles de l'autre source (Webzen) quand elle a ce PNJ, sous le même nom ou le même modèle.
+        let quest_blocks: Vec<Vec<(String, String)>> = match rules.quest_events {
+            None => client_blocks.iter().filter(|b| fun(b) == "27").cloned().collect(),
+            Some(other) => other
+                .get(&c.id)
+                .filter(|o| {
+                    let same = |k: &str| c.first(k).map(str::trim).is_some_and(|v| o.first(k).map(str::trim) == Some(v));
+                    same("Name") || same("TID")
+                })
+                .map(|o| npc_parts(o).1.into_iter().filter(|b| fun(b) == "27").collect())
+                .unwrap_or_default(),
+        };
+        for b in quest_blocks.iter() {
             if get(b, "QuestGroupID").and_then(|g| g.trim().parse::<u32>().ok()).is_some_and(|g| rules.quest_groups.contains(&g)) {
                 blocks.push(b.clone());
                 st.quest_events += 1;
@@ -640,7 +666,7 @@ mod tests {
         let shops: HashSet<u32> = [104].into();
         let groups: HashSet<u32> = [1].into();
         let terrain = |x: f64, _z: f64| x.abs() < 100_000.0;
-        let (text, st) = merge_npcs(ep8, client, &NpcRules { models: &models, shops: &shops, quest_groups: &groups, on_terrain: &terrain });
+        let (text, st) = merge_npcs(ep8, client, &NpcRules { models: &models, shops: &shops, quest_groups: &groups, on_terrain: &terrain, quest_events: None });
         assert_eq!((st.kept, st.client_only, st.ep8_only, st.bad_model, st.client_position, st.client_shop, st.quest_events), (3, 1, 2, 1, 1, 1, 1));
         assert_eq!(st.client_kept, 1, "535 : autre PNJ au même numéro dans la table EP8");
         let warrante = parse_ini(&text).into_iter().find(|s| s.id == "535").unwrap();
@@ -653,6 +679,18 @@ mod tests {
         assert_eq!(s[0].first("QuestGroupID"), Some("1"));
         assert_eq!(s[0].order.last().map(|p| p.0.as_str()), Some("EnumEnd"));
         assert_eq!(s[1].first("Position"), Some("0,0,0"), "déplacé hors du terrain : position du client");
+        // Quêtes d'une autre source (npc.ini de Webzen) : celles du PNJ de même nom remplacent celles du client.
+        let webzen: HashMap<String, Section> = parse_ini(
+            "[3]\r\nName=<Merchant> Darryl\r\nTID=584\r\nFunction=27\r\nEventID=3\r\nCondStart=0\r\nCondEnd=0\r\nQuestGroupID=7\r\nQuestEnd=0\r\nEnumEnd=0\r\n\
+             [7]\r\nName=Autre\r\nTID=999\r\nFunction=27\r\nEventID=3\r\nQuestGroupID=7\r\nEnumEnd=0\r\n",
+        )
+        .into_iter()
+        .map(|s| (s.id.clone(), s))
+        .collect();
+        let groups: HashSet<u32> = [1, 7].into();
+        let (text, st) = merge_npcs(ep8, client, &NpcRules { models: &models, shops: &shops, quest_groups: &groups, on_terrain: &terrain, quest_events: Some(&webzen) });
+        let s = parse_ini(&text);
+        assert_eq!((s[0].all("QuestGroupID"), s[1].all("QuestGroupID"), st.quest_events), (vec!["7"], vec![], 1), "groupe 7 de Webzen ; 7 : autre PNJ chez Webzen");
     }
 
     #[test]

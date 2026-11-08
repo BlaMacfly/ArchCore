@@ -354,6 +354,16 @@
 
 ## Next steps
 
+00. Webzen source (8 November 2026): `archcore import … --webzen <ini folder>` imports from the official Webzen
+   client the quests (3,082 of 3,270: 72 given or taken back by a world object, which the server does not handle, 3
+   without a kept NPC, 113 following them; Archonia's 14 quests removed), their groups, NPCs and texts in four
+   languages, the experience curve for levels 1 to 121 (64 bits beyond level 112), the 2,768 titles (Natural Enemy,
+   Collector, Killer and Storyteller added, conditions in Webzen's sense) and the original high and heroic masteries
+   (the Berserker's second tree, Archonia's berserk mode, removed); log of dropped rows (`data/import-webzen.log`),
+   export for ArchRust (quests, groups, titles, masteries), `migrate-ep8` extended to missing quests and titles;
+   `quest`, `title` and `exp` scenarios adapted or added. Remaining: quests given by world objects (quest event on
+   an object), in-game tests.
+
 0. Episode 8 values (2 November 2026): import (original server table values, client names, per-table
    summary), table export for ArchRust (`archcore export-client-tables`, fingerprint announced through the
    `client-tables/1` capability), character migration (`archcore migrate-ep8`, reversible quarantine) done;

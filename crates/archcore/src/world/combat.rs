@@ -747,6 +747,8 @@ pub(super) async fn kill(ctx: &WorldCtx, st: &mut WorldState, killer_sid: u32, c
         let rogue = st.players.get(&sid).is_some_and(|x| super::pvp::murderer_level(x.ch.murderer) >= 3);
         // Bonus d'expérience des effets (talismans de Janus, costumes : consumables.rs).
         let part = super::consumables::with_exp_bonus(ctx, st, sid, if rogue { part / 2 } else { part });
+        // Titre Natural Enemy équipé : expérience de cette créature + Value_2 % (effet 8).
+        let part = part + part * st.players.get(&sid).map_or(0, |x| super::titles::kill_exp_bonus(ctx, x, tid)).max(0) as u64 / 100;
         reward(ctx, st, sid, part).await?;
     }
     super::loot::on_kill(ctx, st, killer_sid, cid, now);

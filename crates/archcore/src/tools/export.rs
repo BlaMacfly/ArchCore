@@ -9,8 +9,12 @@
 //!        ini_ko, Windows-1252 pour ini_fr, ini_de, ini_es, Shift-JIS pour ini_ja, GBK pour ini_zh.
 //!   Cellules : valeur de la base ; dans un dossier de langue, un texte traduit (cellule non numérique qui
 //!        diffère de celle de ini/) est gardé ; une cellule dont la valeur ne change pas garde ses octets.
-//!   Lignes : celles de la base (lignes d'Archonia absentes) ; tables purement clientes (quêtes, titres, fenêtre
-//!        des boss) : lignes du client gardées par l'import.
+//!   Lignes : celles de la base (lignes d'Archonia absentes). Quêtes (questtemplate.ini) : lignes de la base sous
+//!        l'en-tête du client, textes d'un dossier de langue repris des textes de Webzen de la langue
+//!        (`questtemplate.ini@<langue>` de client_table, import `--webzen`) ; groupes (questgroup.ini) : ceux de la base.
+//!        Titres (titledatatable.txt, titlestringtable.txt) et maîtrises (SkillMastery_High.txt,
+//!        SkillMastery_Heroic.txt) : fichiers rangés par l'import dans client_table (Webzen), sinon lignes du client
+//!        gardées par l'import ; fenêtre des boss : lignes du client gardées.
 //!   tables.toml : empreinte « sha256:… » des fichiers écrits (chemin et contenu), version d'ArchCore, date. Le
 //!        serveur monde l'annonce (capacité client-tables/1, HELLO_ACK champ 21) quand `Client.TablesDir`
 //!        désigne ce dossier.
@@ -28,10 +32,11 @@ use std::path::{Path, PathBuf};
 pub const MANIFEST_FILE: &str = "tables.toml";
 
 /// Tables exportées (noms du client). Les dossiers de langue n'ont que celles dont ils ont une copie.
-pub const TABLES: [&str; 20] = [
+pub const TABLES: [&str; 23] = [
     "itemdatatable.txt", "CharacterDataTable.txt", "itemoptiontable.txt", "itemruneattributetable.txt", "SKILLTEMPLATE.ini", "SKILL_SPEC.txt",
     "SKILL_CONST.txt", "Skill_Const2.txt", "RegionTemplate.ini", "questtemplate.ini", "titledatatable.txt", "RefineryItem2.txt", "ItemConvertTable.txt",
-    "TeleportPoint.ini", "TeleportFee.txt", "LevelUpExp.txt", "GrowUpFactor.txt", "npc.ini", "questgroup.ini", "UIBoss.xml",
+    "TeleportPoint.ini", "TeleportFee.txt", "LevelUpExp.txt", "GrowUpFactor.txt", "npc.ini", "questgroup.ini", "UIBoss.xml", "titlestringtable.txt",
+    "SkillMastery_High.txt", "SkillMastery_Heroic.txt",
 ];
 
 /// Page de code d'un dossier de tables du client.
@@ -374,8 +379,8 @@ pub struct Data {
     growth: BTreeMap<u32, Vec<Vec<f64>>>,
     npcs: Vec<(u32, Vec<(String, String)>)>,
     fees: Vec<(String, String, i64)>,
-    quests: std::collections::HashSet<u32>,
-    groups: HashMap<u32, (Vec<u32>, Vec<u32>)>,
+    quests: BTreeMap<u32, serde_json::Map<String, Json>>,
+    groups: BTreeMap<u32, (String, Vec<u32>, Vec<u32>)>,
     titles: std::collections::HashSet<u32>,
     bosses: std::collections::HashSet<u32>,
 }
@@ -422,10 +427,12 @@ impl Data {
         for r in w.rows("SELECT source, destination, fee FROM teleport_fee", ()).await? {
             d.fees.push((col(&r, "source"), col(&r, "destination"), col(&r, "fee")));
         }
-        d.quests = w.rows("SELECT tid FROM quest_template", ()).await?.iter().map(|r| col(r, "tid")).collect();
-        for r in w.rows("SELECT id, give, confirm FROM quest_group", ()).await? {
+        for r in w.rows("SELECT tid, data FROM quest_template", ()).await? {
+            d.quests.insert(col(&r, "tid"), object(&col::<String>(&r, "data")));
+        }
+        for r in w.rows("SELECT id, name, give, confirm FROM quest_group", ()).await? {
             let list = |k: &str| serde_json::from_str::<Vec<u32>>(&col::<String>(&r, k)).unwrap_or_default();
-            d.groups.insert(col(&r, "id"), (list("give"), list("confirm")));
+            d.groups.insert(col(&r, "id"), (col(&r, "name"), list("give"), list("confirm")));
         }
         d.titles = w.rows("SELECT tid FROM title_template", ()).await?.iter().map(|r| col(r, "tid")).collect();
         d.bosses = w.rows("SELECT tid FROM boss_window", ()).await?.iter().map(|r| col(r, "tid")).collect();
@@ -573,19 +580,43 @@ pub fn build_folder(d: &Data, folder: &str, ini: &HashMap<String, (String, Vec<u
         out.push((name, write_ini_values(i, l, text("RegionTemplate.ini"), e)));
     }
     if let Some((name, i, l)) = pick("questtemplate.ini") {
-        // Quêtes gardées par l'import : lignes du fichier du dossier.
-        let base = l.unwrap_or(i);
+        // Quêtes de la base sous l'en-tête du client ; dans un dossier de langue, textes de Webzen de cette langue.
+        let code = super::webzen::LANGUAGES.iter().find(|x| x.2.eq_ignore_ascii_case(folder)).map(|x| x.1);
+        let lang_texts: HashMap<u32, HashMap<String, String>> =
+            code.and_then(|c| d.texts.get(&format!("questtemplate.ini@{c}"))).and_then(|t| serde_json::from_str(t).ok()).unwrap_or_default();
+        let header = lines(i).first().map(|h| header_names(h, false)).unwrap_or_default();
+        let key = header.first().cloned().unwrap_or_else(|| "Tid".into());
+        let rows: Vec<Row> = d
+            .quests
+            .iter()
+            .map(|(tid, data)| {
+                let mut c = strings(data);
+                if let Some(t) = lang_texts.get(tid) {
+                    c.extend(t.iter().map(|(k, v)| (k.clone(), v.clone())));
+                }
+                tid_row(*tid, c)
+            })
+            .collect();
+        out.push((name, write_keyed(i, l, &key, &rows, e)));
+    }
+    // Titres et leurs textes rangés par l'import (Webzen) : tels quels ; dans un dossier de langue, textes du client
+    // pour les titres qu'il traduit.
+    if let (Some((name, _, l)), Some(stored)) = (pick("titlestringtable.txt"), d.texts.get("titlestringtable.txt")) {
+        let lang_rows: HashMap<Vec<u8>, &[u8]> = l.map(|l| lines(l).into_iter().skip(1).filter_map(|x| Some((trim(cells(x).first()?).to_vec(), x))).collect()).unwrap_or_default();
         let mut bytes = Vec::new();
-        for (n, line) in lines(base).into_iter().enumerate() {
-            let tid = cells(line).first().and_then(|c| number(c)).map(|t| t as u32);
-            if n == 0 || tid.is_some_and(|t| d.quests.contains(&t)) {
-                bytes.extend_from_slice(line);
-                bytes.extend_from_slice(b"\r\n");
+        for (n, line) in super::lines(stored).filter(|x| !x.is_empty()).enumerate() {
+            let tid = line.split('\t').next().unwrap_or("").trim().as_bytes().to_vec();
+            match lang_rows.get(&tid).filter(|_| n > 0) {
+                Some(own) => bytes.extend_from_slice(own),
+                None => bytes.extend(encode(line, e)),
             }
+            bytes.extend_from_slice(b"\r\n");
         }
         out.push((name, bytes));
     }
-    if let Some((name, i, l)) = pick("titledatatable.txt") {
+    if let (Some((name, _, _)), Some(stored)) = (pick("titledatatable.txt"), d.texts.get("titledatatable.txt")) {
+        out.push((name, super::lines(stored).filter(|x| !x.is_empty()).flat_map(|x| encode(x, e).into_iter().chain(*b"\r\n")).collect()));
+    } else if let Some((name, i, l)) = pick("titledatatable.txt") {
         let base = l.unwrap_or(i);
         let mut bytes = Vec::new();
         for (n, line) in lines(base).into_iter().enumerate() {
@@ -657,20 +688,21 @@ pub fn build_folder(d: &Data, folder: &str, ini: &HashMap<String, (String, Vec<u
         }
         out.push((name, b));
     }
-    if let Some((name, i, _)) = pick("questgroup.ini") {
+    if let Some((name, _, _)) = pick("questgroup.ini") {
+        // Groupes de la base (numéro, nom, quêtes proposées et reprises « a:b: »), dans l'ordre des numéros.
         let mut b = Vec::new();
-        for line in lines(i) {
-            let mut c: Vec<Vec<u8>> = cells(line).iter().map(|x| x.to_vec()).collect();
-            let Some(id) = c.first().and_then(|x| number(x)).map(|x| x as u32) else { continue };
-            let Some((give, confirm)) = d.groups.get(&id) else { continue };
-            c.resize(c.len().max(4), Vec::new());
-            let list = |l: &[u32]| l.iter().map(|t| format!("{t}:")).collect::<String>().into_bytes();
-            c[2] = list(give);
-            c[3] = list(confirm);
-            b.extend(join(&c));
+        let list = |l: &[u32]| l.iter().map(|t| format!("{t}:")).collect::<String>();
+        for (id, (group, give, confirm)) in &d.groups {
+            b.extend(encode(&format!("{id}\t{group}\t{}\t{}\t", list(give), list(confirm)), e));
             b.extend_from_slice(b"\r\n");
         }
         out.push((name, b));
+    }
+    // Arbres de maîtrise lus par l'import (Webzen ou client), tels quels.
+    for file in ["SkillMastery_High.txt", "SkillMastery_Heroic.txt"] {
+        if let (Some((name, _, _)), Some(stored)) = (pick(file), d.texts.get(file)) {
+            out.push((name, super::lines(stored).flat_map(|x| encode(x, e).into_iter().chain(*b"\r\n")).collect()));
+        }
     }
     if let Some((name, i, _)) = pick("UIBoss.xml") {
         let xml = super::latin1(i);
