@@ -921,8 +921,6 @@ fn enter_world(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle) {
     presence::enter(ctx, st, sid);
     // Guilde : la guilde, ses membres et le lien du joueur ; les membres le voient en ligne.
     guild::on_enter(st, sid);
-    // Potions de la barre et seuils de leur prise automatique.
-    ui_status::on_enter(st, sid);
     // Recettes de cuisine et d'alchimie connues (AgpmProduct op 1).
     product::on_enter(st, sid);
     // Victoires et défaites entre joueurs, mode de la zone (AgpmPvP op 0) ; listes d'ennemis et guildes ennemies (ops 6,
@@ -954,6 +952,9 @@ fn enter_world(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle) {
     siege::on_enter(ctx, st, sid);
     // ArchLord (op 0), étape de la guerre de Rensphere (op 5) ; taux des régions taxées (AgpmTax op 4).
     archlord::on_enter(ctx, st, sid);
+    // Barre de raccourcis, potions et seuils de leur prise automatique : après les compétences de l'ArchLord, sinon
+    // `add_fields` écarte leurs cases (compétences pas encore connues du joueur).
+    ui_status::on_enter(st, sid);
     tax::on_enter(ctx, st, sid);
     // Titres possédés (op 5), objectifs (op 6.7), titre actif (op 9).
     titles::on_enter(ctx, st, sid);

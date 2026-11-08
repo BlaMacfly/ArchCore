@@ -139,7 +139,7 @@ Un taux est un multiplicateur : `1.0` = normal, `2.0` = double.
 | ✅ `/SetExp <x>` | Multiplicateur d'expérience |
 | ✅ `/SetGold <x>` | Multiplicateur d'or gagné |
 | ✅ `/SetDrop <x>` | Multiplicateur de butin |
-| ✅ `/SetUniqueDrop <x>` | Multiplicateur de butin unique |
+| ✅ `/SetUniqueDrop <x>` | Multiplicateur de butin unique : gardé et affiché, mais sans effet sur le butin pour l'instant (sens d'« unique » dans l'épisode 8 à établir) |
 | ✅ `/SetCharisma <x>` | Multiplicateur de points de charisme |
 | ✅ `/SetPrestigeRate <x>` | Multiplicateur de prestige |
 | ✅ `/SetChatBuff <0\|1>` | Désactive (0) ou active (1) le bonus de discussion |

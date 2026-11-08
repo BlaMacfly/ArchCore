@@ -137,7 +137,7 @@ A rate is a multiplier: `1.0` = normal, `2.0` = double.
 | ✅ `/SetExp <x>` | Experience multiplier |
 | ✅ `/SetGold <x>` | Gold gain multiplier |
 | ✅ `/SetDrop <x>` | Loot multiplier |
-| ✅ `/SetUniqueDrop <x>` | Unique loot multiplier |
+| ✅ `/SetUniqueDrop <x>` | Unique loot multiplier: stored and shown, but no effect on loot yet (meaning of "unique" in Episode 8 still to be established) |
 | ✅ `/SetCharisma <x>` | Charisma point multiplier |
 | ✅ `/SetPrestigeRate <x>` | Prestige multiplier |
 | ✅ `/SetChatBuff <0\|1>` | Turns the chat bonus off (0) or on (1) |

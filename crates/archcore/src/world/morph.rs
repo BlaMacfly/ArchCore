@@ -269,7 +269,7 @@ pub async fn use_potion(ctx: &WorldCtx, st: &mut WorldState, sid: u32, item: &In
         send_system(st, sid, &format!("Métamorphose impossible pour encore {} min.", left.as_secs().div_ceil(60)));
         return Ok(());
     }
-    if ctx.templates.get(potion.tid).is_none() {
+    if !known_form(&ctx.templates, &st.monsters, potion.tid) {
         debug!("[métamorphose] {name} : forme {} inconnue", potion.tid);
         return Ok(());
     }
@@ -349,9 +349,15 @@ pub fn step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) {
     monster_step(st, now);
 }
 
+/// Forme connue du serveur : modèle de charactertemplate.ini ou ligne de CharacterDataTable. Celui de l'ArchLord
+/// (1276, Archlord Event Item 3909) n'est que dans la seconde.
+pub fn known_form(templates: &crate::character::Templates, monsters: &super::monsters::MonsterRegistry, tid: u32) -> bool {
+    templates.get(tid).is_some() || monsters.stats.contains_key(&tid)
+}
+
 /// Forme tirée pour une Mutation : un TID de la liste du niveau que le serveur connaît.
-pub fn pick_form(ctx: &WorldCtx, tids: &[u32], rng: &mut impl rand::Rng) -> Option<u32> {
-    let known: Vec<u32> = tids.iter().copied().filter(|t| ctx.templates.get(*t).is_some()).collect();
+pub fn pick_form(ctx: &WorldCtx, monsters: &super::monsters::MonsterRegistry, tids: &[u32], rng: &mut impl rand::Rng) -> Option<u32> {
+    let known: Vec<u32> = tids.iter().copied().filter(|t| known_form(&ctx.templates, monsters, *t)).collect();
     known.choose(rng).copied()
 }
 
@@ -373,7 +379,7 @@ pub async fn mutate(ctx: &WorldCtx, st: &mut WorldState, tsid: u32, tids: &[u32]
         debug!("[métamorphose] {} : immunisé contre la Mutation", v.ch.name);
         return Ok(false);
     }
-    let Some(tid) = pick_form(ctx, tids, &mut rand::thread_rng()) else { return Ok(false) };
+    let Some(tid) = pick_form(ctx, &st.monsters, tids, &mut rand::thread_rng()) else { return Ok(false) };
     if super::ride::is_mounted(&v.inventory) && !super::equipment::force_unequip(ctx, st, tsid, super::equipment::part::RIDE).await? {
         return Ok(false);
     }
@@ -408,7 +414,7 @@ pub fn mutate_monster(ctx: &WorldCtx, st: &mut WorldState, cid: u32, tids: &[u32
     if !monster_mutable(ctx, st, cid, now) {
         return false;
     }
-    let Some(tid) = pick_form(ctx, tids, &mut rand::thread_rng()) else { return false };
+    let Some(tid) = pick_form(ctx, &st.monsters, tids, &mut rand::thread_rng()) else { return false };
     let life = mutation_life(duration_ms);
     st.monsters.morphs.insert(cid, MonsterMorph { tid, ends_at: now + life });
     st.monsters.morph_immune.insert(cid, now + life + downtime);
@@ -507,5 +513,17 @@ mod tests {
         assert_eq!(form.bits(), TRANSFORMED);
         form.evolved = Some(super::super::evolution::Evolved { tid: 1722, skill_tid: 1189, skill_id: 3 });
         assert_eq!(form.bits(), TRANSFORMED | EVOLVED);
+    }
+
+    #[test]
+    fn forme_de_characterdatatable_seule() {
+        let mut templates = crate::character::Templates { all: Default::default(), base: Vec::new() };
+        templates.all.insert(272, crate::character::Template::default());
+        let mut monsters = super::super::monsters::MonsterRegistry::default();
+        // Modèle de l'ArchLord : CharacterDataTable seulement, pas charactertemplate.ini.
+        monsters.stats.insert(1276, Default::default());
+        assert!(known_form(&templates, &monsters, 272));
+        assert!(known_form(&templates, &monsters, 1276), "Archlord Event Item 3909");
+        assert!(!known_form(&templates, &monsters, 9999));
     }
 }
