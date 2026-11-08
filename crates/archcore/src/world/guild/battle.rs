@@ -409,11 +409,9 @@ fn member_list_packet(st: &WorldState, gid: u32) -> Option<Vec<u8>> {
     Some(build_packet(&schema::GUILD, &guild(op::BATTLE_MEMBER_LIST).with(2, g.name.as_str()).with(20, list)))
 }
 
-/// Op 46 : manche `round` du combat de `g` (au premier entier du champ 4 et au champ 14 du combat).
+/// Op 46 : manche `round` du combat de `g`, au champ 14 du combat (le seul que le client lit pour cette opération).
 fn round_packet(g: &Guild, round: i64) -> Vec<u8> {
-    let mut numbers = vec![archcore_net::Value::Int(round)];
-    numbers.resize(8, archcore_net::Value::Int(0));
-    build_packet(&schema::GUILD, &guild(op::BATTLE_ROUND).with(2, g.name.as_str()).with(4, numbers).with(17, battle_mini(bfields().with(14, round))))
+    build_packet(&schema::GUILD, &guild(op::BATTLE_ROUND).with(2, g.name.as_str()).with(17, battle_mini(bfields().with(14, round))))
 }
 
 /// Op 16 : la guilde défiée accepte ; le combat commence dans `ready` secondes.
@@ -730,6 +728,7 @@ mod tests {
         let p = archcore_net::decode_packet(&schema::GUILD, &round_packet(&g, 1)).unwrap();
         let b = decode_mini(&mini::GUILD_BATTLE, p.bytes(17).unwrap()).unwrap();
         assert_eq!((p.int(0), p.text(2).as_deref(), b.int(14)), (Some(46), Some("SimLead"), Some(1)));
+        assert!(p.get(4).is_none(), "le client lit la manche au champ 14 du combat, pas au champ 4");
     }
 
     #[test]

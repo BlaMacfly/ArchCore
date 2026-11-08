@@ -102,6 +102,7 @@ unknown key (typo) is reported.
 | `Rules.Ammunition` | `1` | Ammunition (`ammo.rs`): one arrow (194) or bolt (238) per hit with a bow or crossbow, `cost_arrow` per skill; without any, result 2 / 3 or refusal 12 |
 | `Rules.WeaponRequirement` | `1` | Weapon required by a skill (`requirement.rs`, `requirement` column): cast refused (action 8), passive without effect |
 | `Rules.ItemLifetime` | `1` | Timed items (`lifetime.rs`): play time (`RemainTime`) and expiry date (`ExpireTime`) of Cash items counted down; at the end, message 5 and the item is consumed |
+| `Rules.LotteryKeys` | `1` | Lottery box with a `SubType` (gold, silver, bronze, platinum): the key of the same `SubType` is required and spent |
 | `Rules.DeathStrike` | `1` | Death Strike: instant death of an ordinary monster (neither boss nor siege object), the passive's `death` chance |
 | `Rules.ForcedMove` | `1` | Skill forced moves (`move_pos`: target pulled into contact, monster rush; Body Check knockback) |
 | `Rules.KnockbackUnit` | `100` | Game units per `move_distance` point (Body Check knockback; the table's unit is unknown) |
@@ -110,6 +111,7 @@ unknown key (typo) is reported.
 | `Rules.ProvokeSeconds` | `10` | Provoke, Zone Provoke: how long the monster keeps the caster as its target |
 | `Rules.MonsterKin` | `1` | Monster summons, followers and reinforcement (`ai_kin.rs`, aidatatable `SummonTID`, `FollowerTID`, `PinchMonster` columns) |
 | `Rules.PinchHpPercent` | `30` | HP threshold (percent) under which a monster calls its reinforcement (`PinchMonster`), once per life |
+| `Rules.LootLevelGap` | `11` | Original loot rule: beyond this level gap between the killer and the monster, either way (monster too weak or too strong), the monster drops a single gold coin and no item. 0 turns the rule off. Real deaths only; `/simloot` ignores it. |
 | `AntiCheat.Enabled` | `1` | Server-side anti-cheat checks: positions sent by the client and normal hit rate (see [[Administration|EN-Administration]]); `0`: off (the packet limit stays) |
 | `AntiCheat.Action` | `log` | Sanction for a player reaching `AntiCheat.Threshold` anomalies: `log` (journal only), `kick` (disconnect, no reconnection wait) or `ban` (account ban, then disconnect) |
 | `AntiCheat.Threshold`, `AntiCheat.WindowMinutes` | `10`, `10` | Anomalies of one character within the sliding window (minutes) that trigger the sanction |

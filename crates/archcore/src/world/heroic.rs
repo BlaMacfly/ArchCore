@@ -21,7 +21,8 @@
 //!     « dot_dmg_heroic », part héroïque de chaque tic (`effects::DOT_COLUMNS`).
 //! ```
 //! Règle proposée, d'après les colonnes de l'épisode 8 (aucun binaire ne montre le calcul) ; `Rules.Heroic` (1) l'active.
-//! Non fait : renvoi héroïque (« reflect_heroic_attack », « heroic_reflect_max » : forme inconnue).
+//! Sans objet : renvoi héroïque (« reflect_heroic_attack », « heroic_reflect_max ») : le chargeur du client lit ces colonnes,
+//! vides sur toutes les lignes des tables de l'épisode 8 et du client.
 
 use super::combat::{class, Attacker, Defender};
 use crate::character::Factors;

@@ -472,6 +472,7 @@ ARCHCORE_CONF_DIR=config/test archcore sim counter [compte] [mdp] [personnage]
 ARCHCORE_CONF_DIR=config/test archcore sim mobskill [compte] [mdp] [personnage]
 ARCHCORE_CONF_DIR=config/test archcore sim convert [compte] [mdp] [personnage]
 ARCHCORE_CONF_DIR=config/test archcore sim refinery [compte] [mdp] [personnage]
+ARCHCORE_CONF_DIR=config/test archcore sim gacha [compte] [mdp] [personnage]
 ```
 
 `sim mastery` (GmTest, niveau 60) oublie en base Capacitate et Marching Song, se voit refuser Capacitate chez
@@ -489,7 +490,11 @@ réussite), sertit la pierre (op 7, résultat 0) puis une pierre de prière d'at
 (+2, sockets, pierre et rune) dans les objets reçus à l'entrée, puis détruit l'épée. `sim refinery` (GmTest, compte MJ) ouvre une sphère d'alchimie, voit refuser une
 potion seule (résultat 2), obtient le devis puis raffine 100 Breath Elemental Stone en 10 Gale Elemental Stone
 (recette 4013, 5000 pièces), refait la recette par son identifiant (op 6), est refusé sans ingrédients
-(résultat 1), puis raffine une White Wing Dagger et ses pierres (recette 183) en dague à une option.
+(résultat 1), puis raffine une White Wing Dagger et ses pierres (recette 183) en dague à une option. `sim gacha`
+(GmTest, niveau 25) n'obtient rien d'un socle à 3000 unités ni d'une sphère d'alchimie, ouvre le socle des armes
+d'Anchorville (op 1 : code 1, 1 Fortune Gate Pass demandé, bande non vide), est refusé sans pass (op 3, code 1), tire
+un objet de la bande avec trois pass, est refusé sac plein (épées, code 4), puis tire au socle du charisme contre
+100 points.
 
 ```bash
 ARCHCORE_CONF_DIR=config/test archcore sim heroic [compte] [mdp] [personnage]

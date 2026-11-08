@@ -17,6 +17,8 @@
 - NPC shops: Darryl's shop (Anchorville) shows its 43 items, and buying takes the gold and puts the
   item in the inventory.
 - Character inventory shown on world entry.
+- Inventory: five bags of 25 slots (125 total), matching the client grid; existing item coordinates are preserved.
+- Necklace wing/cloak runes: socketing locates the rune in normal or Cash inventory, rejecting active items; On/Off consumables remain distinct. The client displays socketed rune effects and names.
 
 ## Verified with the simulator, to confirm in game
 
@@ -297,9 +299,29 @@
   `disturb`, `target_restriction`, provocation); monster AI (`ai_kin.rs`: `SummonTID` summons, `FollowerTID`
   followers, `PinchMonster` reinforcement); boots `PDR` in evasion, ring stat bonuses, `QuestItem` = quest number
   (item destroyed when the quest is abandoned or completed). Not done: pet stamina (Archonia does not show it: pet
-  "Immortal"), taming (no skill in the tables), timed item pause (op 25), chains 1, 2, 6, 7, 8, heroic reflection,
-  `Skill_plus` (field 21: the `skill_levelup` option still applies to every skill). Unit tests; `ammo` and `lifetime`
+  "Immortal"), taming (no skill in the tables), `Skill_plus` (field 21: the `skill_levelup` option still applies to every skill). Unit tests; `ammo` and `lifetime`
   scenarios (new), skill scenarios now hold a weapon; to be confirmed in game.
+- Last points surveyed in Archonia (4 November 2026): AGPMSKILL op 10 (visual effects: 1 end of Time Attack, 2 forced
+  move and teleport, 4 HP absorbed, 6 hit turned into HP, 7 invisibility (others drop their target), 8 Lens Stone, 9
+  detection, 10 friendly purge; the client does nothing with 5, no table carries 3); op 16 (level bonus of one skill: `skill_levelup` 2 and 4); HP absorption
+  (`convert_type` 4 Life Extinction, 6 Vampiric Impact); chains 1 (Time Attack: damage at the end of the effect), 2 (Shadow
+  Chaser, Ambush: teleport to contact), 6 (Bomba: the creature explodes when it dies or its duration ends), 7 and 8 (Scion
+  combos: "…2" columns only if the target bears the `Connection_TID2` effect or the caster is invisible: the second hit is
+  no longer unconditional); ground targeting (`range` 701 Narcolepsy, Imposed Fatigue, Meteoric Shower; 702 Concealment,
+  ShadowIllusion: caster's guild); GUILD op 46: round in battle field 14 only. Set aside, with proof: heroic reflection
+  (columns empty on every table row), timed item pause (op 25: no column or text says when), stamina (op 29: empty mini,
+  decoded without storing anything), <Battle> and <Event> Ability (chain 6: nothing casts them). Lottery boxes and keys
+  (`lottery.rs`, usages 17 and 18, `itemlotterybox.txt` table, `Rules.LotteryKeys`); costume sets (`avatar.rs`, usage 31,
+  `avatarset.ini`: pieces of parts 16 to 21 worn with no effect on factors). Unit tests; `chain` scenario (new), `consumables`
+  extended.
+- Decisions of 8 November 2026: **episode 8 gacha** ("Fortune Gate", AgpmEventGacha 0x57, `gacha.rs`): town pedestals
+  (function 38 objects, `gacha_object` table: weapons 9081, armour 5780, accessories 5891, charisma 13173), EP8 draw
+  types and tables (`gachatypetemplate.ini`, `gachadroptable*.txt`), drawable items from their `Gacha_Type_Numer`,
+  `GachaRank`, `GachaMinLv`/`GachaMaxLv`, race and class columns; cost (Fortune Gate Pass, gold, charisma), the client's
+  refusals 1 to 6, item stored with its options. **Loot**: `Rules.LootLevelGap` on by default (11) and in both gap
+  directions. **Casting**: the caster is frozen when casting starts (stop sent to observers only). **Effects**: every
+  skill with a duration is announced (AGPMSKILL op 4), even with no column ArchCore reads. Unit tests; `gacha`
+  scenario (new); to be confirmed in game.
 - Missing protocol ops (Archonia survey of 2 November 2026): quests (op 14 on-screen tracking, 10 at most, stored in
   `character_quests.journal` and sent back as the 5th integer of op 4; ops 8 and 9 inventory full); party (op 2: effect
   area and party bonus, configurable `Party.*` rules; management ops 9, 12 and 13, refusal of an invitee at least 10
@@ -309,7 +331,7 @@
   reset when effects end, op 14 level bonus of the `skill_levelup` options, applied to casts); chat (op 4 recipient
   absent, ops 1 to 3 whisper blocking); items (op 15 gold dropped on the ground, without an owner; op 28 cooldown per
   template); AGPMCHARACTER op 8 before closing a session taken over by another connection; portals (ops 2, 3 and 6). Set
-  aside: quests 11 to 13, items 8 and 29, skills 9, 10, 16 and 17, PvP 17. Unit tests; `quest`, `party`, `pk`, `pvp`,
+  aside: quests 11 to 13, items 8 and 29, skills 9 and 17, PvP 17. Unit tests; `quest`, `party`, `pk`, `pvp`,
   `guildbattle`, `guildrelation`, `chat` and `gold` (new) scenarios in the simulator on 2 November 2026, to be confirmed
   in game (party bonus rules in particular).
 - ArchRust client ([own repository](https://github.com/BlaMacfly/ArchRust)): combat (attacking, hits, death, resurrection, loot), parties, other

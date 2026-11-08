@@ -474,6 +474,7 @@ pub async fn step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) -> anyhow::
     // Suiveurs, invocations et renforts des monstres ; zones au sol ; objets à durée.
     super::ai_kin::step(ctx, st, now);
     super::skill_extra::fields_step(ctx, st, now).await?;
+    super::skill_extra::pending_step(ctx, st, now).await?;
     super::lifetime::step(ctx, st, now).await?;
     ai::patrol_step(ctx, st, now);
     ai::preemptive_step(st, now);
@@ -622,7 +623,10 @@ async fn attack_step(ctx: &WorldCtx, st: &mut WorldState, sid: u32, now: Instant
     }
     if damage > 0 {
         // Effets d'un seul coup (Lens Stone) consommés.
-        super::skill_extra::spend_one_hit(ctx, st, sid);
+        super::skill_extra::spend_one_hit(ctx, st, sid, m.cid);
+        // PV absorbés (Life Extinction, skill_extra.rs).
+        let drain = st.players.get(&sid).map(effects_absorb).unwrap_or((0.0, 0.0));
+        super::skill_extra::absorb(ctx, st, sid, m.cid, damage, drain);
     }
     if hp == 0 {
         kill(ctx, st, sid, m.cid, now).await?;
@@ -658,6 +662,36 @@ pub(super) fn approach(st: &mut WorldState, sid: u32, m: &Monster, hit_range: f6
         o.send(mv, fields.clone());
     }
     debug!("[combat] approche de {} sur {:.0} unités", m.name, distance);
+    travel
+}
+
+/// PV absorbés par les coups normaux du joueur : chance et part des dégâts de ses effets.
+fn effects_absorb(p: &super::Player) -> (f64, f64) {
+    let m = super::effects::total(&p.skills.effects);
+    (m.absorb_rate, m.absorb)
+}
+
+/// Fait courir le joueur vers une position visée au sol, jusqu'à portée `range` (même paquet que `approach`). Rend la durée
+/// du trajet.
+pub(super) fn approach_point(st: &mut WorldState, sid: u32, at: Vec3, range: f64, now: Instant) -> Duration {
+    let p = st.players.get_mut(&sid).unwrap();
+    let from = p.ch.pos();
+    let distance = dist2d(from, at).max(1.0);
+    let k = ((distance - range * 0.9) / distance).max(0.0) as f32;
+    let dest = Vec3::new(from.x + (at.x - from.x) * k, at.y, from.z + (at.z - from.z) * k);
+    let speed = p.factors.status[9].max(1) as f64 / 10.0;
+    let travel = Duration::from_secs_f64(distance * k as f64 / speed).min(MAX_APPROACH);
+    p.dest = Some(dest);
+    p.move_flags = MOVE_FAST;
+    p.moved_at = now;
+    p.dirty = true;
+    let cid = p.ch.id;
+    let mv = &schema::OPT_CHAR_MOVE;
+    let fields = Fields::new(mv).with(0, cid).with(1, from).with(2, dest).with(5, MOVE_FAST).with(6, 0);
+    p.send(mv, fields.clone());
+    for (_, o) in st.players.iter().filter(|(other, o)| **other != sid && o.seen_players.contains(&cid)) {
+        o.send(mv, fields.clone());
+    }
     travel
 }
 

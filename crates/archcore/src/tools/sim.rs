@@ -86,8 +86,9 @@
 //!   archcore sim status [compte] [mdp] [perso]                état spécial : Shield Bash étourdit un Ver vert (champ 17), puis l'état retombe ; compte MJ, personnage GmEffets
 //!   archcore sim effects [compte] [mdp] [perso]               passive (défense), renforcement (vitesse d'attaque), zone, affaiblissement d'un Ver vert ; compte MJ, personnage GmEffets
 //!   archcore sim refinery [compte] [mdp] [perso]              sphère d'alchimie : refus (trop loin, objet inconnu, pas de recette), devis et raffinage de la grille, raffinage d'une recette ; compte MJ
+//!   archcore sim gacha [compte] [mdp] [perso]                 socles de tirage (Fortune Gate) : refus (trop loin, autre objet, sans pass, sac plein), tirage contre un pass, socle du charisme ; compte MJ (gacha.rs)
 //!   archcore sim convert [compte] [mdp] [perso]               forgeron Halo : socket, pierre d'eau, renforcement +2, état relu à la reconnexion ; compte MJ
-//!   archcore sim heroic|divide|dispel|ignore|rune|trigger      compétences et objets (voir `sim/competences.rs`) ; compte MJ
+//!   archcore sim heroic|divide|dispel|chain|ignore|rune|trigger      compétences et objets (voir `sim/competences.rs`) ; compte MJ
 //!   archcore sim ammo|lifetime|deathstrike                     munitions et arme exigée (SimArcher), objets à durée, Death Strike (voir `sim/rules.rs`) ; compte MJ
 //! ```
 //! À lancer contre un serveur de test (`ARCHCORE_CONF_DIR`) : les personnages sont créés au besoin,
@@ -105,6 +106,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
 mod buddy;
+mod bug2;
 mod channel;
 mod cheat;
 mod chat;
@@ -112,6 +114,7 @@ mod competences;
 mod consumables;
 mod customize;
 mod evolution;
+mod gacha;
 mod gold;
 mod guilds;
 mod lang;
@@ -152,6 +155,8 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
     let a = |i: usize, d: &str| args.get(i).cloned().unwrap_or_else(|| d.to_string());
     match args.first().map(String::as_str) {
         Some("client") => client(&a(1, "test"), &a(2, "test"), &a(3, "Testeur"), args.get(4..).unwrap_or_default()).await,
+        Some("bug2") => Box::pin(bug2::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
+        Some("bug2cash") => Box::pin(bug2::cash(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("move") => movement(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "simb"), &a(5, "simb"), &a(6, "SimB")).await,
         Some("shop") => shop(&a(1, "sima"), &a(2, "sima"), &a(3, "SimA")).await,
         Some("addon") => {
@@ -228,16 +233,18 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         Some("mastery") => Box::pin(mastery(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("convert") => Box::pin(convert(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("refinery") => Box::pin(refinery(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
+        Some("gacha") => Box::pin(gacha::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("heroic") => Box::pin(competences::heroic(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("divide") => Box::pin(competences::divide(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("dispel") => Box::pin(competences::dispel(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
+        Some("chain") => Box::pin(competences::chain(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("ignore") => Box::pin(competences::ignore(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("rune") => Box::pin(competences::rune(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("trigger") => Box::pin(competences::trigger(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("ammo") => Box::pin(rules::ammo(&a(1, "simarcher"), &a(2, "simarcher"), &a(3, "SimArcher"))).await,
         Some("lifetime") => Box::pin(rules::lifetime(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("deathstrike") => Box::pin(rules::death_strike(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
-        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol|bag|skill|effects|status|bank|portal|pvp|reconnect|lastrefine|product|guild|guildlead|guildbattle|guildrelation|guildwarehouse|guildmark|guildstage|gm|buddy|mail|repair|ride|morph|evolution|auction|itemset|nature|summons|petbag|consumables|usables|chat|gold|channel|customize|wanted|shrine|battlesquare|boss|siege|archlord|tax|title|cheat|recall|social|quickbelt|returnlogin|trade|party|quest|mobskill|counter|partyskill|mastery [arguments]"),
+        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol|bag|skill|effects|status|bank|portal|pvp|reconnect|lastrefine|product|gacha|guild|guildlead|guildbattle|guildrelation|guildwarehouse|guildmark|guildstage|gm|buddy|mail|repair|ride|morph|evolution|auction|itemset|nature|summons|petbag|consumables|usables|chat|gold|channel|customize|wanted|shrine|battlesquare|boss|siege|archlord|tax|title|cheat|recall|social|quickbelt|returnlogin|trade|party|quest|mobskill|counter|partyskill|mastery [arguments]"),
     }
 }
 
@@ -1552,7 +1559,7 @@ async fn quest(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
     let mut w = enter_world(&cfg, user, pass, char_name, "").await?;
     // Cases restantes remplies d'épées (une par case), jusqu'au refus « inventaire plein ».
     let mut swords = Vec::new();
-    for _ in 0..80 {
+    for _ in 0..126 {
         w.world.send(ch, say(w.cid, &format!("/create \"{char_name}\" {SWORD} 1"))).await?;
         let r = w.world.expect_where(|q| (q.is(it, Some(0)) && q.int(3) == Some(SWORD)) || system(q), 3000, "épée").await?;
         if r.ptype == ch.id {

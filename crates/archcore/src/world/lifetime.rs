@@ -17,8 +17,9 @@
 //!     exemplaire restant de la pile repart de zéro.
 //!   Restrictions : un objet en cours d'utilisation ou à date d'expiration ne s'échange pas.
 //! ```
-//! Règle proposée (le client affiche, sans minuterie : il ne retire rien lui-même) ; `Rules.ItemLifetime` (1). Non fait :
-//! la pause (op 25, message 8) quand l'effet ne peut pas tenir.
+//! Règle proposée (le client affiche, sans minuterie : il ne retire rien lui-même) ; `Rules.ItemLifetime` (1). Sans objet :
+//! la pause (op 25, message 8 ; le client affiche « Toggled Off ») : ni colonne ni texte ne dit quand un objet s'y met ; et
+//! l'endurance du familier (op 29) : le client décode le paquet sans rien en ranger, sa jauge n'a pas de valeurs.
 
 use super::items::{cash_mini_full, item_remove, Inventory};
 use super::{WorldCtx, WorldState};
@@ -174,6 +175,8 @@ pub async fn step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) -> anyhow::
 
 /// Fin de vie d'un exemplaire : effets retirés, op 26, message système 5, un exemplaire consommé.
 pub async fn expire(ctx: &WorldCtx, st: &mut WorldState, sid: u32, iid: u32) -> anyhow::Result<()> {
+    // Costume : ses pièces tombent avec lui (avatar.rs).
+    super::avatar::take_off(st, sid, iid);
     let Some(p) = st.players.get_mut(&sid) else { return Ok(()) };
     let Some(item) = p.inventory.get_usable(iid).cloned() else { return Ok(()) };
     let cid = p.ch.id;

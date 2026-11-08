@@ -792,6 +792,24 @@ Rules.WeaponRequirement = 1
 
 Rules.ItemLifetime = 1
 
+#    Rules.LotteryKeys
+#        Boîte de loterie à « SubType » (or, argent, bronze, platine) : la clé de
+#        même « SubType » est exigée et consommée. À 0, toute boîte s'ouvre seule.
+#        Défaut : 1
+
+Rules.LotteryKeys = 1
+
+#    Rules.LootLevelGap
+#        Règle de butin d'origine : au-delà de cet écart de niveaux entre le
+#        tueur et le monstre, dans un sens comme dans l'autre (monstre trop
+#        faible ou trop fort), le monstre ne donne qu'une pièce d'or et aucun
+#        objet. 0 coupe la règle (tirage complet à tout écart). Ne concerne que
+#        les morts réelles, /simloot reste un outil de tirage des tables sans
+#        cette restriction.
+#        Défaut : 11 (activée)
+
+Rules.LootLevelGap = 11
+
 #    Rules.DeathStrike
 #        Death Strike : mort instantanée d'un monstre ordinaire (ni boss, ni
 #        objet de siège) avec la chance « death » de la passive.

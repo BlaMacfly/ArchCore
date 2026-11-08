@@ -151,6 +151,7 @@ fn spawn(ctx: &WorldCtx, st: &mut WorldState, tid: u32, at: Vec3, now: Instant) 
         respawn_max_sec: 0,
         life: Life::Alive,
         home: pos,
+        zone: pos,
         aggro: Vec::new(),
         target: None,
         ready_at: now,

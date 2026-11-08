@@ -70,7 +70,7 @@ same name (`characterdatatable.txt`, `skillconst.txt`, `levelupexp.ini`…) prov
 | `skill_mastery` | `SkillMastery_High.txt`, `SkillMastery_Heroic.txt` | Mastery trees: key (template TID, 10000 + race for "10004;4"), skill, tree (1 high, 2 heroic), required skills `[[TID, level]…]` (ConditionA, B), levels in a template's class `class_points` `[[template TID, levels]…]` (ConditionC), total (ConditionD: levels in total, or heroic points) |
 | `product_category`, `product_compose`, `product_exp`, `product_gather`, `product_result_item` | `productcategory.txt`, `productcompose.txt`, `productexp.txt`, `productgather.txt`, `productresultitem.txt` | Production: skill of each category, 95 recipes (materials `[[TID, count]…]`, price, level, chance), levels 1 to 15, 760 monsters that can be gathered, items gathered per set and level (skill names resolved through `SKILLTEMPLATE.ini`) |
 | `npc_spawn` | `npc.ini` (merged with the EP8 table) | 557 NPCs: template, name, position, orientation, raw functions |
-| `client_table` | other tables | Whole texts (row 0): `itemoptiontable.txt`, `itemruneattributetable.txt`, `ItemConvertTable.txt`, `refineryrecipetable.txt` (EP8 tables), `RegionTemplate.ini`, `TeleportPoint.ini` (EP8, kept for `export-client-tables`), `optionnumdroprate.txt`, `socketnumdroprate.txt` |
+| `client_table` | other tables | Whole texts (row 0): `itemoptiontable.txt`, `itemruneattributetable.txt`, `ItemConvertTable.txt`, `itemlotterybox.txt`, `avatarset.ini`, `refineryrecipetable.txt`, `gachatypetemplate.ini`, `gachadroptable*.txt` (EP8 tables), `RegionTemplate.ini`, `TeleportPoint.ini` (EP8, kept for `export-client-tables`), `optionnumdroprate.txt`, `socketnumdroprate.txt` |
 | `monster_spawn` | original server tables (`spawndatatable.txt` + `spawninstancetable.txt`) | 12,802 spawn points, 36,960 creatures: template, level (the EP8 template's), count, respawn (`respawn_sec`–`respawn_max_sec` range for the `UIBoss.xml` bosses), position, radius, public name (`CharacterTemplatePublic.ini`) |
 | `map_segment` | original server `world/node_data` | 45,312 sectors: blocked ground and region per 400-unit segment |
 | `map_height` | client `world/b*x.ma2` (ground geometry) | 46,592 sectors: ground height at the 17 × 17 cell corners (i16) |
@@ -89,6 +89,7 @@ same name (`characterdatatable.txt`, `skillconst.txt`, `levelupexp.ini`…) prov
 | `teleport_point` | `TeleportPoint.ini` | 301 teleport points: number (rank in the file, from 1), landing radius, allowed races, groups (arrival, destinations) |
 | `teleport_object` | `obj*.ini` (event 8) | 291 portals: object, point carried, position |
 | `refinery_object` | `obj*.ini` (event 26) | 20 alchemy spheres: object, position (refining within 1600 units) |
+| `gacha_object` | `obj*.ini` (event 38) | 60 gacha pedestals: object, draw type (`Type=` of the `GachaStart` data), position (window within 600 units) |
 | `teleport_fee` | `TeleportFee.txt` | 227 trip fees (departure, arrival) |
 | `bank_slot_price` | `bankslotprice.txt` | Price of extra bank pages (-1: cannot be bought with gold) |
 | `item_transform` | `itemtransformtable.txt` | 89 metamorphosis potions: item TID, form, level and Korean name (for reference), bonuses added to the transformed player's factors (run speed, attack speed, max HP and MP, defense, min and max damage; may be negative) |
@@ -202,3 +203,6 @@ After updating ArchCore, run `archcore db-init` before the server (without `--ac
 ```bash
 archcore db-init --account <name> <password> [gm_level]
 ```
+
+
+`character_items`: normal inventory now accepts five bags, five rows and five columns (coordinates 0 through 4). Existing columns suffice; no migration or redistribution of stored items is needed.

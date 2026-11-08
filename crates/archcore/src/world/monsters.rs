@@ -200,6 +200,8 @@ pub struct Monster {
     pub life: Life,
     /// Position d'apparition, où il revient quand il abandonne.
     pub home: Vec3,
+    /// Centre de sa zone (position du point d'apparition) : la promenade reste à `roam` de lui.
+    pub zone: Vec3,
     pub aggro: Vec<Aggro>,
     /// Joueur visé (CID).
     pub target: Option<u32>,
@@ -349,6 +351,7 @@ pub fn spawn_point(p: &SpawnPoint, first_cid: u32, blocked: &dyn Fn(f64, f64) ->
                 respawn_max_sec: p.respawn_max_sec,
                 life: Life::Alive,
                 home: pos,
+                zone: p.pos,
                 aggro: Vec::new(),
                 target: None,
                 ready_at: now,
@@ -663,6 +666,8 @@ mod tests {
         let placed = |v: &[Monster]| v.iter().map(|m| (m.pos, m.degree_y)).collect::<Vec<_>>();
         assert_eq!(placed(&a), placed(&spawn_point(&p, MONSTER_CID_BASE, &|_, _| false)), "même graine, mêmes positions");
         for m in &a {
+            assert_eq!(m.zone, p.pos, "le centre de promenade reste celui du point");
+            assert_eq!(m.home, m.pos, "le retour garde la position dispersée initiale");
             assert!((m.pos.x - 1000.0).abs() <= 2500.0 && (m.pos.z + 2000.0).abs() <= 2500.0);
             assert!((-180.0..180.0).contains(&m.degree_y));
             assert_eq!(m.hp, 136);

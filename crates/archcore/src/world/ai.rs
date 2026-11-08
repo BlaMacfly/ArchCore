@@ -24,8 +24,9 @@
 //! aggro cachée (états 6 et 7) : voir `status_rules.rs`. Invocations, suiveurs et renfort : `ai_kin.rs`.
 //!
 //! Patrouille : un monstre (type « monstre ») au repos, vu par au moins un joueur et dont le point a un rayon,
-//! marche toutes les 15 à 45 s vers un endroit tiré au hasard dans ce rayon, hors sol infranchissable ; au plus
-//! 16 départs par tour.
+//! marche toutes les 15 à 45 s vers un endroit tiré au hasard dans sa zone (le carré du rayon autour du point
+//! d'apparition, pas autour de la place où il est apparu : il n'en sort pas), hors sol infranchissable ; au plus
+//! 16 départs par tour. Un monstre en marche (promenade ou retour) finit son trajet avant d'en prendre un autre.
 
 use super::combat::{self, Attacker, Defender};
 use super::effects::{self, status, Guard};
@@ -261,6 +262,11 @@ pub fn walk_step(map: &WorldMap, st: &mut WorldState, now: Instant) {
     }
 }
 
+/// Endroit de promenade tiré dans la zone : le carré de côté `2 × roam` autour de son centre, hors sol infranchissable.
+fn patrol_spot(rng: &mut impl Rng, zone: Vec3, roam: f64, blocked: impl Fn(f64, f64) -> bool) -> Option<(f64, f64)> {
+    (0..PATROL_TRIES).map(|_| (zone.x as f64 + rng.gen_range(-roam..roam), zone.z as f64 + rng.gen_range(-roam..roam))).find(|(x, z)| !blocked(*x, *z))
+}
+
 /// Promenades des monstres au repos que voit au moins un joueur.
 pub fn patrol_step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) {
     let mut watched: Vec<u32> = st.players.values().filter(|p| p.in_game).flat_map(|p| p.seen_monsters.iter().copied()).collect();
@@ -273,7 +279,7 @@ pub fn patrol_step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) {
             break;
         }
         let Some(m) = st.monsters.get(cid) else { continue };
-        if !m.is_alive() || m.target.is_some() || !m.aggro.is_empty() || m.roam <= 0.0 || now < m.patrol_at || now < m.ready_at || st.monsters.morphs.contains_key(&cid) {
+        if !m.is_alive() || m.target.is_some() || !m.aggro.is_empty() || m.roam <= 0.0 || now < m.patrol_at || now < m.ready_at || st.monsters.morphs.contains_key(&cid) || st.monsters.walking.contains_key(&cid) {
             continue;
         }
         if st.monsters.status(cid, now) & status::NO_MOVE != 0 {
@@ -281,14 +287,13 @@ pub fn patrol_step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) {
         }
         let stats = st.monsters.stats_of(m.tid);
         let next = now + Duration::from_millis(rng.gen_range(PATROL_MIN.as_millis() as u64..=PATROL_MAX.as_millis() as u64));
-        let (home, roam) = (m.home, m.roam);
+        let (home, zone, roam) = (m.home, m.zone, m.roam);
         st.monsters.get_mut(cid).unwrap().patrol_at = next;
         if stats.char_type & TYPE_MONSTER == 0 {
             continue;
         }
-        let spot = (0..PATROL_TRIES).map(|_| (rng.gen_range(-roam..roam), rng.gen_range(-roam..roam))).find(|(dx, dz)| !ctx.map.is_blocked(home.x as f64 + dx, home.z as f64 + dz));
-        let Some((dx, dz)) = spot else { continue };
-        let dest = Vec3::new(home.x + dx as f32, home.y, home.z + dz as f32);
+        let Some((x, z)) = patrol_spot(&mut rng, zone, roam, |x, z| ctx.map.is_blocked(x, z)) else { continue };
+        let dest = Vec3::new(x as f32, home.y, z as f32);
         let t = go(&ctx.map, st, cid, dest, stats.walk, false);
         st.monsters.get_mut(cid).unwrap().ready_at = now + t;
         started += 1;
@@ -317,6 +322,28 @@ fn disengage(st: &mut WorldState, cid: u32) {
     st.monsters.engaged.remove(&cid);
 }
 
+/// Monstre remis d'un coup à son point, soigné : il sort de la vue de ceux qui le voyaient et y rentre chez ceux qui
+/// voient sa place (la vue porte ses PV).
+fn teleport_home(ctx: &WorldCtx, st: &mut WorldState, cid: u32) {
+    let map = &ctx.map;
+    let Some(home) = st.monsters.get(cid).map(|m| m.home) else { return };
+    let home = on_ground(map, st, cid, home);
+    st.monsters.walking.remove(&cid);
+    st.monsters.relocate(cid, home);
+    let Some(m) = st.monsters.get_mut(cid) else { return };
+    m.hp = m.max_hp;
+    let Some(m) = st.monsters.get(cid) else { return };
+    for p in st.players.values_mut().filter(|p| p.in_game) {
+        if p.seen_monsters.remove(&cid) {
+            p.send_raw(super::character_remove_packet(cid));
+        }
+        if super::sector::sees(p.view_pos, home) && p.seen_monsters.insert(cid) {
+            let name = ctx.locale.resolve(crate::locale::kind::MONSTER_NAME, m.tid, &p.language, &m.name);
+            p.send_raw(st.monsters.view_packet_named(m, &name));
+        }
+    }
+}
+
 fn monster_step(ctx: &WorldCtx, st: &mut WorldState, cid: u32, now: Instant) -> Option<(u32, u32)> {
     let map = &ctx.map;
     let Some(m) = st.monsters.get(cid).cloned() else {
@@ -335,10 +362,7 @@ fn monster_step(ctx: &WorldCtx, st: &mut WorldState, cid: u32, now: Instant) -> 
     // Trop loin de chez lui : ramené d'un coup, soigné.
     if combat::dist2d(m.pos, m.home) > LEASH {
         disengage(st, cid);
-        walk(map, st, cid, m.home, stats.run);
-        if let Some(m) = st.monsters.get_mut(cid) {
-            m.hp = m.max_hp;
-        }
+        teleport_home(ctx, st, cid);
         debug!("[ia] {} ({cid:#x}) trop loin de son point : ramené", m.name);
         return None;
     }
@@ -456,6 +480,7 @@ fn monster_step(ctx: &WorldCtx, st: &mut WorldState, cid: u32, now: Instant) -> 
     // Qui frappe s'arrête (le client arrête aussi le monstre au début de son coup).
     st.monsters.walking.remove(&cid);
     let mut countered = 0;
+    let mut converted_hp = None;
     if outcome == combat::result::SUCCESS {
         let p = st.players.get_mut(&sid).unwrap();
         // Effets et équipement (esquive et coups changés en PV des options) ; blocage des options (facteur de défense 9).
@@ -478,6 +503,7 @@ fn monster_step(ctx: &WorldCtx, st: &mut WorldState, cid: u32, now: Instant) -> 
                 let c = &archcore_net::schema::CHARACTER;
                 let (pcid, f) = (p.ch.id, crate::character::factors_mini(&p.factors));
                 p.send(c, Fields::new(c).with(0, 1).with(1, pcid).with(7, f));
+                converted_hp = matches!(guard, Guard::ToHp(_)).then_some(pcid);
             }
         }
         if guard != Guard::Hit {
@@ -488,6 +514,10 @@ fn monster_step(ctx: &WorldCtx, st: &mut WorldState, cid: u32, now: Instant) -> 
     }
     debug!("[ia] {} ({cid:#x}) frappe : résultat {outcome}, {damage} dégât(s)", m.name);
     combat::hit_player(st, sid, cid, outcome, &parts);
+    // Coup changé en PV : effet visuel (op 10, type 6).
+    if let Some(pcid) = converted_hp {
+        combat::send_around(st, sid, &effects::additional_effect_packet(pcid, effects::additional::CONVERT_HP, cid));
+    }
     if outcome == combat::result::SUCCESS && damage > 0 {
         monster_skills::on_hit(ctx, st, cid, sid, now);
         // Enchaînement 3 (Frost Armor…) : l'effet additionnel du porteur sur le monstre (skill_extra.rs).
@@ -576,6 +606,26 @@ mod tests {
         assert_eq!(travel(1200.0, 0, true), Duration::from_secs(1), "course inconnue : 12000");
         assert_eq!(travel(400.0, 0, false), Duration::from_secs(1), "marche inconnue : 4000");
         assert_eq!(travel(1e9, 3850, true), MAX_TRAVEL);
+    }
+
+    #[test]
+    fn promenade_dans_la_zone() {
+        // Point d'apparition en (1000, -500), rayon 200 : quelle que soit la place du monstre, il reste dans le carré.
+        let zone = Vec3::new(1000.0, 0.0, -500.0);
+        let mut rng = <rand::rngs::StdRng as rand::SeedableRng>::seed_from_u64(23);
+        for _ in 0..500 {
+            let (x, z) = patrol_spot(&mut rng, zone, 200.0, |_, _| false).unwrap();
+            assert!((800.0..1200.0).contains(&x) && (-700.0..-300.0).contains(&z), "{x}, {z}");
+        }
+        assert_eq!(patrol_spot(&mut rng, zone, 200.0, |_, _| true), None, "tout est infranchissable");
+        let mut libres = 0;
+        for _ in 0..500 {
+            if let Some((x, _)) = patrol_spot(&mut rng, zone, 200.0, |x, _| x < 1000.0) {
+                assert!(x >= 1000.0, "sol infranchissable évité");
+                libres += 1;
+            }
+        }
+        assert!(libres > 0, "au moins une destination réellement trouvée");
     }
 
     #[test]

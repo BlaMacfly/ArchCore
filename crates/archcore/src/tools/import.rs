@@ -825,6 +825,30 @@ pub fn parse_refinery_objects(text: &str) -> Vec<(u32, [f64; 3])> {
     out
 }
 
+/// Socles de gacha d'un fichier obj*.ini : objets qui portent l'événement de gacha (fonction 38), avec le type de
+/// tirage de leurs données (`GachaStart=0`, `Type=N`, `GachaEnd=0` après le `Function=38`) et leur position.
+pub fn parse_gacha_objects(text: &str) -> Vec<(u32, u32, [f64; 3])> {
+    let mut out = Vec::new();
+    for s in parse_ini(text).iter().filter(|s| is_uint(&s.id)) {
+        let Some(p) = s.first("Position") else { continue };
+        // `Type=` suit `GachaStart` ; l'objet a aussi un `ObjectType`, d'où le suivi de la section de données.
+        let (mut gacha, mut data, mut kind) = (false, false, None);
+        for (k, val) in &s.order {
+            match k.as_str() {
+                "Function" => gacha = val.trim() == "38",
+                "GachaStart" if gacha => data = true,
+                "GachaEnd" => data = false,
+                "Type" if data => kind = val.trim().parse::<u32>().ok(),
+                _ => {}
+            }
+        }
+        let Some(kind) = kind else { continue };
+        let p: Vec<f64> = p.split(',').map(|x| js_number(x, 0.0)).collect();
+        out.push((s.id.parse().unwrap(), kind, [p.first().copied().unwrap_or(0.0), p.get(1).copied().unwrap_or(0.0), p.get(2).copied().unwrap_or(0.0)]));
+    }
+    out
+}
+
 /// Prix des trajets de TeleportFee.txt : (départ, arrivée, prix) ; un couple répété garde sa dernière ligne.
 pub fn parse_teleport_fees(text: &str) -> Vec<(String, String, i64)> {
     let (h, rows) = parse_tsv(text);
@@ -1715,6 +1739,19 @@ async fn import_all(db: &Databases, src: &Source, server: &Source, sets: &super:
         store_text(db, "itemruneattributetable.txt", &runes).await?;
         bilan.add("itemruneattributetable", ep8_runes.len(), client_runes.difference(&ep8_runes).count(), "« AlwaysSuccess » (Archonia) absente");
         store_text(db, "ItemConvertTable.txt", &server.read("itemconverttable.txt")?).await?;
+        // Boîtes de loterie et costumes (world/lottery.rs, world/avatar.rs) : tables de l'épisode 8.
+        store_text(db, "itemlotterybox.txt", &server.read("itemlotterybox.txt")?).await?;
+        store_text(db, "avatarset.ini", &server.read("avatarset.ini")?).await?;
+        // Gacha (world/gacha.rs) : types de tirage et leur table par niveau ; le client n'a que la table des armes,
+        // aux valeurs d'Archonia.
+        let gacha_types = server.read("gachatypetemplate.ini")?;
+        store_text(db, "gachatypetemplate.ini", &gacha_types).await?;
+        let mut gacha_tables = 0;
+        for name in crate::world::gacha::drop_table_names(&gacha_types) {
+            store_text(db, &name, &server.read(&name)?).await?;
+            gacha_tables += 1;
+        }
+        bilan.add("gacha (tables de tirage)", gacha_tables, 0, "tables EP8 ; GachaDropTableWeapon.txt du client écartée");
         bilan.add("ItemConvertTable", 1, 0, "table EP8 (lue par position)");
         let recipes = server.read("refineryrecipetable.txt")?;
         let ids = |text: &str| -> std::collections::HashSet<u32> { parse_tsv(text).1.iter().filter_map(|r| r.first()?.trim().parse().ok()).collect() };
@@ -1805,6 +1842,7 @@ async fn import_all(db: &Databases, src: &Source, server: &Source, sets: &super:
         let client_files = std::fs::read_dir(&src.0)?.filter_map(|e| e.ok()?.file_name().into_string().ok()).filter(|n| n.starts_with("obj") && n.ends_with(".ini") && n != "objecttemplate.ini").count();
         let mut portals: std::collections::BTreeMap<u32, (String, [f64; 3])> = std::collections::BTreeMap::new();
         let mut spheres: std::collections::BTreeMap<u32, [f64; 3]> = std::collections::BTreeMap::new();
+        let mut gachas: std::collections::BTreeMap<u32, (u32, [f64; 3])> = std::collections::BTreeMap::new();
         for f in &files {
             let file = f.file_name().unwrap().to_str().unwrap();
             let text = objects.read(file)?;
@@ -1832,6 +1870,7 @@ async fn import_all(db: &Databases, src: &Source, server: &Source, sets: &super:
                 portals.insert(object, (point, pos));
             }
             spheres.extend(parse_refinery_objects(&text));
+            gachas.extend(parse_gacha_objects(&text).into_iter().map(|(id, kind, pos)| (id, (kind, pos))));
         }
         let out: Vec<Vec<Value>> = siege_points
             .iter()
@@ -1930,6 +1969,9 @@ async fn import_all(db: &Databases, src: &Source, server: &Source, sets: &super:
         let out: Vec<Vec<Value>> = spheres.iter().map(|(id, pos)| vec![v(*id), v(pos[0]), v(pos[1]), v(pos[2])]).collect();
         let s = replace(db, "refinery_object", "INSERT INTO refinery_object (object_id,pos_x,pos_y,pos_z) VALUES (?,?,?,?)", out).await?;
         println!("✓ refinery_object : {s} sphère(s) d'alchimie");
+        let out: Vec<Vec<Value>> = gachas.iter().map(|(id, (kind, pos))| vec![v(*id), v(*kind), v(pos[0]), v(pos[1]), v(pos[2])]).collect();
+        let g = replace(db, "gacha_object", "INSERT INTO gacha_object (object_id,gacha_type,pos_x,pos_y,pos_z) VALUES (?,?,?,?,?)", out).await?;
+        println!("✓ gacha_object : {g} socle(s) de gacha");
         // Portails vers un point gardé seulement.
         let out: Vec<Vec<Value>> = portals.iter().filter(|(_, (point, _))| names.contains(point.as_str())).map(|(id, (point, pos))| vec![v(*id), v(point.clone()), v(pos[0]), v(pos[1]), v(pos[2])]).collect();
         let m = replace(db, "teleport_object", "INSERT INTO teleport_object (object_id,point,pos_x,pos_y,pos_z) VALUES (?,?,?,?,?)", out).await?;
@@ -2253,6 +2295,9 @@ mod tests {
         assert_eq!(parse_portals(obj), vec![(19_990_004, "Village".to_string(), [-762800.0, 1600.0, -578820.0])]);
         let spheres = "[139264002]\nTID=201\nPosition=-360200.000000,8429.980469,77400.000000\nFunction=26\nEventID=7\n[139264003]\nPosition=1,2,3\nFunction=8\nPointName=X\n";
         assert_eq!(parse_refinery_objects(spheres), vec![(139_264_002, [-360200.0, 8429.980469, 77400.0])]);
+        // Socle de gacha : le `Type` des données de la fonction 38, pas l'`ObjectType` de l'objet.
+        let gachas = "[126159030]\nTID=9081\nObjectType=257\nPosition=-587393.375,7935.329102,22147.894531\nFunction=38\nEventID=1073741863\nCondStart=0\nCondEnd=0\nGachaStart=0\nType=1\nGachaEnd=0\n[126159031]\nPosition=1,2,3\nFunction=26\nEventID=7\n[126159032]\nPosition=4,5,6\nFunction=38\nGachaStart=0\nType=5\nGachaEnd=0\n";
+        assert_eq!(parse_gacha_objects(gachas), vec![(126_159_030, 1, [-587393.375, 7935.329102, 22147.894531]), (126_159_032, 5, [4.0, 5.0, 6.0])]);
         let fees = parse_teleport_fees("start_portal\tfinish_portal\tcost\r\nA\tB\t500 \r\nA\tB\t700\r\nB\tA\t\r\n");
         assert_eq!(fees, vec![("A".to_string(), "B".to_string(), 700)]);
         let transform = parse_item_transform("ItemTid	Tid	level	Name	Movement Run	ATK Speed	Max_HP	Max_MP	Defence	Min_Damage	Max_Damage

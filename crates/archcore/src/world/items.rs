@@ -64,8 +64,8 @@ pub mod stored_status {
     pub const SUB_INVENTORY: i64 = 7;
 }
 
-/// Inventaire : 4 sacs de 4 × 4 cases utilisés (la grille du client en a 5 × 5 × 5).
-pub const INVENTORY: (i64, i64, i64) = (4, 4, 4);
+/// Inventaire : 5 sacs de 5 × 5 cases, comme les onglets et la grille de la fenêtre `UI_Inventory` du client.
+pub const INVENTORY: (i64, i64, i64) = (5, 5, 5);
 /// Inventaire Cash : une liste de 200 places (1 × 200 × 1).
 pub const CASH_INVENTORY: (i64, i64, i64) = (1, 200, 1);
 /// Sac du familier : 4 sacs de 2 lignes × 4 colonnes (fenêtre `UI_SubInventory`).
@@ -426,6 +426,11 @@ pub struct ItemCatalog {
     pub shops: HashMap<i64, Vec<ShopEntry>>,
     /// Objets qui lancent une compétence à l'utilisation, par TID.
     pub use_skill: HashMap<u32, UseSkill>,
+    /// Boîtes de loterie (`lottery.rs`), par TID, et « SubType » des boîtes et des clés.
+    pub lottery: HashMap<u32, Vec<super::lottery::Pot>>,
+    pub lottery_sub_types: HashMap<u32, i64>,
+    /// Costumes (`avatar.rs`) : objet → pièces.
+    pub avatars: HashMap<u32, Vec<u32>>,
     /// Potions de métamorphose (type d'usage 7) et leurs bonus (table `item_transform`), par TID (`morph.rs`).
     pub morph: HashMap<u32, super::morph::Potion>,
     /// Potions of Quickness et Beam (type d'usage 12, sous-type 1 ou 2), refusées sous métamorphose.
@@ -516,7 +521,28 @@ impl ItemCatalog {
             uses.len()
         );
         info!("{} objet(s) à durée, {} objet(s) de quête", lifespans.len(), quest_items.len());
-        Ok(ItemCatalog { items, shops, use_skill, morph, speed_potions, uses, lifespans, quest_items })
+        // Boîtes de loterie et costumes : tables de l'épisode 8, textes gardés dans `client_table`.
+        let text_of = |name: &'static str| async move {
+            let row = db.world.first("SELECT data FROM client_table WHERE row_idx = 0 AND name = ?", (name,)).await.ok().flatten();
+            row.and_then(|r| serde_json::from_str::<String>(&col::<String>(&r, "data")).ok()).unwrap_or_default()
+        };
+        let mut lottery = super::lottery::parse(&text_of("itemlotterybox.txt").await);
+        lottery.retain(|tid, pots| {
+            pots.retain(|p| items.contains_key(&p.tid));
+            items.contains_key(tid) && !pots.is_empty()
+        });
+        let mut avatars = super::avatar::parse(&text_of("avatarset.ini").await);
+        avatars.retain(|tid, pieces| {
+            pieces.retain(|p| items.contains_key(p));
+            items.contains_key(tid) && !pieces.is_empty()
+        });
+        let lottery_sub_types = raws
+            .iter()
+            .filter(|(_, raw)| matches!(usable_type_of(raw), super::lottery::USABLE_BOX | super::lottery::USABLE_KEY))
+            .filter_map(|(tid, raw)| Some((*tid, raw.get("SubType")?.as_str()?.trim().parse::<i64>().ok()?)))
+            .collect();
+        info!("{} boîte(s) de loterie, {} costume(s)", lottery.len(), avatars.len());
+        Ok(ItemCatalog { items, shops, use_skill, lottery, lottery_sub_types, avatars, morph, speed_potions, uses, lifespans, quest_items })
     }
 
     pub fn get(&self, tid: u32) -> Option<&ItemData> {
@@ -583,6 +609,9 @@ pub struct Inventory {
     /// Objets Cash en cours d'utilisation (octet « inuse » du mini Cash) ; jamais enregistré : le familier ne revient
     /// pas de lui-même à l'entrée en jeu.
     pub in_use: BTreeSet<u32>,
+    /// Costume porté (`avatar.rs`) : l'objet de l'inventaire Cash, et ses pièces, qui ne comptent pas dans les facteurs.
+    pub avatar_item: Option<u32>,
+    pub avatar: Vec<InventoryItem>,
     /// Le sac du familier a été envoyé au client pendant cette session (`pet_bag.rs`).
     pub sub_sent: bool,
     /// Ramassage automatique du sac du familier coupé (op 30 à 0 ; `characters.pet_auto_pick`).
@@ -664,6 +693,11 @@ impl Inventory {
     /// libre. Rend (objet, créé ?) ou `None` s'il est plein.
     pub async fn add_cash(&mut self, db: &Databases, tid: u32, count: i64, max_stack: i64) -> anyhow::Result<Option<(InventoryItem, bool)>> {
         self.add_to(db, tid, count, max_stack, stored_status::CASH_INVENTORY).await
+    }
+
+    /// L'inventaire Cash peut-il recevoir `count` objets `tid` (pile existante ou place libre) ?
+    pub fn cash_has_room(&self, tid: u32, count: i64, max_stack: i64) -> bool {
+        self.cash.values().any(|i| max_stack > 1 && i.tid == tid && i.count + count <= max_stack) || free_in(&self.cash, CASH_INVENTORY, None).is_some()
     }
 
     /// Ajoute `count` objets au sac du familier (pile existante, sinon première case libre). `None` s'il est plein.
@@ -820,12 +854,13 @@ impl Inventory {
             out.push(item_add_of(i, self.character_id, item_status::EQUIP, None));
             out.extend(convert_add(i, self.character_id));
         }
+        out.extend(self.avatar.iter().map(|i| item_add_of(i, self.character_id, item_status::EQUIP, None)));
         out
     }
 
     /// Paquets AGPMITEM d'ajout de l'équipement porté (pour le porteur ou ceux qui le voient).
     pub fn equip_packets(&self) -> Vec<Vec<u8>> {
-        self.equipment.values().map(|i| item_add_of(i, self.character_id, item_status::EQUIP, None)).collect()
+        self.equipment.values().chain(self.avatar.iter()).map(|i| item_add_of(i, self.character_id, item_status::EQUIP, None)).collect()
     }
 
     pub fn free_count(&self) -> usize {
@@ -993,7 +1028,11 @@ mod tests {
         assert_eq!(inv.free_slot(), Some([0, 0, 1]));
         assert_eq!(inv.stack_for(190, 10, 9999), Some(3));
         assert_eq!(inv.stack_for(190, 10, 1), None);
-        assert!(!inv.is_free([4, 0, 0]));
+        assert!(inv.is_free([4, 4, 4]));
+        assert!(!inv.is_free([5, 0, 0]));
+        assert!(!inv.is_free([0, 5, 0]));
+        assert!(!inv.is_free([0, 0, 5]));
+        assert_eq!(inv.free_count(), 124);
     }
 
     #[test]

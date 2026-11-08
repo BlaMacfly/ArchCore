@@ -67,6 +67,32 @@ pub mod op {
     pub const MODIFIED_SKILL_LEVEL: i64 = 14;
     /// Recharge d'une compétence remise à zéro (1 identifiant, 4 TID).
     pub const INIT_COOLTIME: i64 = 15;
+    /// Effet visuel d'une action (1 type, 2 lanceur, 4 CID de la cible : `additional`).
+    pub const ADDITIONAL_EFFECT: i64 = 10;
+    /// Bonus de niveau d'une seule compétence (1 identifiant, 2 propriétaire, 4 bonus).
+    pub const SPECIFIC_SKILL_LEVEL: i64 = 16;
+}
+
+/// Types de l'op 10 : le client (AgcmSkill) joue l'effet commun d'`ee_common_char.txt` qui leur correspond. 5 n'a pas
+/// d'effet (on ne l'envoie pas) ; 3 (absorption de PM) n'a aucune ligne dans les tables de l'épisode 8 ; 7 n'est pas un
+/// effet visuel : chaque client lâche sa cible et son attaque si elles visent ce personnage.
+pub mod additional {
+    /// TIMEATTACK : fin de l'effet de Time Attack.
+    pub const END_BUFF_EXPLOSION: i64 = 1;
+    /// TELEPORT : déplacement forcé, attaque par téléportation.
+    pub const TELEPORT: i64 = 2;
+    /// ABSORBLIFE : PV absorbés par un coup porté.
+    pub const ABSORB_HP: i64 = 4;
+    /// MENTALCIRCUIT : coup reçu changé en PV.
+    pub const CONVERT_HP: i64 = 6;
+    /// Le personnage ne peut plus être visé : invisibilité posée.
+    pub const RELEASE_TARGET: i64 = 7;
+    /// LENS_STONE : effet d'un seul coup consommé.
+    pub const LENS_STONE: i64 = 8;
+    /// DETECT_SCROLL : effet de détection posé.
+    pub const DETECT_SCROLL: i64 = 9;
+    /// CURE : effet retiré par une compétence amie.
+    pub const CURE: i64 = 10;
 }
 
 /// Bonus de niveau des compétences accepté par le client (op 14).
@@ -249,6 +275,10 @@ pub struct Mods {
     pub to_hp: f64,
     pub to_mp_rate: f64,
     pub to_mp: f64,
+    /// PV absorbés par les coups normaux du porteur : chance, part des dégâts (pour cent ; `convert_type` 4 : Life
+    /// Extinction).
+    pub absorb_rate: f64,
+    pub absorb: f64,
     /// Chance d'échapper à l'étourdissement (pour cent).
     pub stun_protect: f64,
     /// Résistance aux critiques (pour cent, ôtée de la chance de coup critique de l'assaillant).
@@ -401,6 +431,8 @@ impl Mods {
         self.to_hp += o.to_hp;
         self.to_mp_rate += o.to_mp_rate;
         self.to_mp += o.to_mp;
+        self.absorb_rate += o.absorb_rate;
+        self.absorb += o.absorb;
         self.stun_protect += o.stun_protect;
         self.crit_resist += o.crit_resist;
         self.counter += o.counter;
@@ -802,6 +834,19 @@ pub fn all_buffs_packet(owner: u32, list: &[&Effect], now: Instant) -> Vec<u8> {
 pub fn init_cooltime_packet(owner: u32, skill_id: u32, tid: u32) -> Vec<u8> {
     let k = &schema::SKILL;
     build_packet(k, &Fields::new(k).with(0, op::INIT_COOLTIME).with(1, skill_id).with(2, base(owner)).with(4, tid))
+}
+
+/// AGPMSKILL op 10 : effet visuel `kind` (`additional`) de `caster` vers `target`.
+pub fn additional_effect_packet(caster: u32, kind: i64, target: u32) -> Vec<u8> {
+    let k = &schema::SKILL;
+    build_packet(k, &Fields::new(k).with(0, op::ADDITIONAL_EFFECT).with(1, kind).with(2, base(caster)).with(4, target))
+}
+
+/// AGPMSKILL op 16 : bonus de niveau de la seule compétence `skill_id` de `owner` (le client le range dans la compétence
+/// et l'ajoute au niveau de ses lancements, à côté du bonus de l'op 14).
+pub fn specific_level_packet(owner: u32, skill_id: u32, bonus: i64) -> Vec<u8> {
+    let k = &schema::SKILL;
+    build_packet(k, &Fields::new(k).with(0, op::SPECIFIC_SKILL_LEVEL).with(1, skill_id).with(2, base(owner)).with(4, bonus))
 }
 
 /// AGPMSKILL op 14 : bonus de niveau de toutes les compétences de `owner` (options « skill_levelup » portées).

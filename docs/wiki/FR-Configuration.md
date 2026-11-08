@@ -102,6 +102,7 @@ défaut, avec un avertissement dans le journal ; une clé inconnue (faute de fra
 | `Rules.Ammunition` | `1` | Munitions (`ammo.rs`) : une flèche (194) ou un carreau (238) par coup à l'arc ou à l'arbalète, `cost_arrow` par compétence ; sans munition, résultat 2 / 3 ou refus 12 |
 | `Rules.WeaponRequirement` | `1` | Arme exigée par une compétence (`requirement.rs`, colonne `requirement`) : lancement refusé (action 8), passive sans effet |
 | `Rules.ItemLifetime` | `1` | Objets à durée (`lifetime.rs`) : temps de jeu (`RemainTime`) et date d'expiration (`ExpireTime`) des objets Cash décomptés ; à la fin, message 5 et objet consommé |
+| `Rules.LotteryKeys` | `1` | Boîte de loterie à `SubType` (or, argent, bronze, platine) : la clé de même `SubType` est exigée et consommée |
 | `Rules.DeathStrike` | `1` | Death Strike : mort instantanée d'un monstre ordinaire (ni boss, ni objet de siège), chance `death` de la passive |
 | `Rules.ForcedMove` | `1` | Déplacements forcés des compétences (`move_pos` : cible tirée au contact, ruée d'un monstre ; recul de Body Check) |
 | `Rules.KnockbackUnit` | `100` | Unités du jeu par point de `move_distance` (recul de Body Check ; unité de la table inconnue) |
@@ -110,6 +111,7 @@ défaut, avec un avertissement dans le journal ; une clé inconnue (faute de fra
 | `Rules.ProvokeSeconds` | `10` | Provoke, Zone Provoke : durée pendant laquelle le monstre garde le lanceur pour cible |
 | `Rules.MonsterKin` | `1` | Invocations, suiveurs et renfort des monstres (`ai_kin.rs`, colonnes `SummonTID`, `FollowerTID`, `PinchMonster` d'aidatatable) |
 | `Rules.PinchHpPercent` | `30` | Seuil de PV (pour cent) sous lequel un monstre appelle son renfort (`PinchMonster`), une fois par vie |
+| `Rules.LootLevelGap` | `11` | Règle de butin d’origine : au-delà de cet écart de niveaux entre le tueur et le monstre, dans un sens comme dans l’autre (monstre trop faible ou trop fort), le monstre ne donne qu’une pièce d’or et aucun objet. 0 coupe la règle. Morts réelles seulement ; `/simloot` l’ignore. |
 | `AntiCheat.Enabled` | `1` | Contrôles anti-triche côté serveur : positions envoyées par le client et cadence des coups normaux (voir [[Administration|FR-Administration]]) ; `0` : désactivés (la limite de paquets reste) |
 | `AntiCheat.Action` | `log` | Sanction d'un joueur qui atteint `AntiCheat.Threshold` anomalies : `log` (journal seul), `kick` (déconnexion, sans attente de reconnexion) ou `ban` (bannissement du compte, puis déconnexion) |
 | `AntiCheat.Threshold`, `AntiCheat.WindowMinutes` | `10`, `10` | Anomalies d'un personnage dans la fenêtre glissante (minutes) qui déclenchent la sanction |

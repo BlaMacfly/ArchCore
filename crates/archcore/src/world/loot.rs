@@ -458,7 +458,7 @@ pub async fn on_item_packet(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &P
         Some(super::items::item_op::UNUSE) => {
             // Fortune Manual, Talisman of Protection (consumables.rs), sinon familier.
             let iid = p.int(2).unwrap_or(0) as u32;
-            if !super::consumables::stop_lit(ctx, st, sid, iid) {
+            if !super::avatar::stop(ctx, st, sid, iid) && !super::consumables::stop_lit(ctx, st, sid, iid) {
                 super::summons::stop_item(ctx, st, sid, iid);
             }
             Ok(())
@@ -526,6 +526,12 @@ async fn pick_up(ctx: &WorldCtx, st: &mut WorldState, sid: u32, iid: u32, now: I
     Ok(())
 }
 
+/// Butin réduit à une pièce d'or, sans objet : plus de `gap` niveaux d'écart entre le tueur et le monstre, dans un
+/// sens comme dans l'autre (`Rules.LootLevelGap`, 11 par défaut ; 0 : jamais).
+fn reduced_loot(source_level: i64, killer_level: i32, gap: i64) -> bool {
+    gap > 0 && i64::from(killer_level).abs_diff(source_level) > gap as u64
+}
+
 /// Mort d'un monstre : tirage et dépôt du butin.
 pub fn on_kill(ctx: &WorldCtx, st: &mut WorldState, killer: u32, monster: u32, now: Instant) {
     let Some(m) = st.monsters.get(monster) else { return };
@@ -536,7 +542,11 @@ pub fn on_kill(ctx: &WorldCtx, st: &mut WorldState, killer: u32, monster: u32, n
     let bonus = st.players.get(&killer).map(|p| super::consumables::drop_bonus_pct(ctx, p)).unwrap_or(0.0);
     let gold = st.players.get(&killer).map(|p| super::consumables::gold_bonus_pct(ctx, p)).unwrap_or(0.0);
     let rates = Rates { gold: st.rates.get("gold") * (100.0 + gold) / 100.0, drop: st.rates.get("drop") * (100.0 + bonus) / 100.0 };
-    let loot = ctx.loot.roll(&mut rand::thread_rng(), &source, level, rates);
+    let loot = if reduced_loot(source.level, level, crate::config::rules().loot_level_gap) {
+        vec![(GOLD_TID, 1)]
+    } else {
+        ctx.loot.roll(&mut rand::thread_rng(), &source, level, rates)
+    };
     drop_loot(ctx, st, killer, pos, &loot, &ctx.catalog, source.level, now);
 }
 
@@ -589,6 +599,26 @@ mod tests {
         assert_eq!(loot, vec![(GOLD_TID, 20), (99, 2)]);
         // Sans or ni rang de butin : seulement les objets propres.
         assert_eq!(t.roll(&mut rng, &Source { geld_max: 0, drop_rank: 0, ..worm() }, 1, ONE), vec![(99, 2)]);
+    }
+
+    #[test]
+    fn grand_ecart_de_niveau_dans_les_deux_sens() {
+        assert!(!reduced_loot(1, 81, 0), "0 : règle coupée");
+        assert_eq!(crate::config::RulesConfig::default().loot_level_gap, 11);
+        // Au-delà de 11 niveaux d'écart : tueur plus haut ou plus bas que le monstre.
+        assert!(!reduced_loot(10, 21, 11));
+        assert!(reduced_loot(10, 22, 11));
+        assert!(!reduced_loot(21, 10, 11));
+        assert!(reduced_loot(22, 10, 11));
+        // Le tirage des tables (et /simloot) ne connaît pas la règle : elle s'applique à la mort réelle (`on_kill`).
+        let t = tables();
+        for niveau in [11, 12, 81] {
+            let mut rng = rand::rngs::StdRng::seed_from_u64(26);
+            let loot = t.roll(&mut rng, &worm(), niveau, ONE);
+            assert!(loot.contains(&(99, 2)), "objet propre garanti au niveau {niveau}");
+            assert!(loot.contains(&(10, 1)), "groupe garanti au niveau {niveau}");
+            assert!((10..=12).contains(&loot[0].1), "or conservé");
+        }
     }
 
     #[test]

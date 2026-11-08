@@ -70,6 +70,7 @@ pub async fn run(mode: &str) -> anyhow::Result<()> {
         let convert = crate::world::convert::ConvertTable::load(&db).await?;
         let options = crate::world::options::OptionCatalog::load(&db).await?;
         let recipes = crate::world::refinery::Recipes::load(&db).await?;
+        let gacha = crate::world::gacha::GachaCatalog::load(&db).await;
         let product = crate::world::product::ProductCatalog::load(&db).await?;
         let customize = crate::world::customize::CustomizeTable::load(&db).await;
         let shrines = crate::world::shrine::ShrineCatalog::load(&db).await;
@@ -100,7 +101,7 @@ pub async fn run(mode: &str) -> anyhow::Result<()> {
             ..Default::default()
         };
         let w = Arc::new(crate::world::World {
-            ctx: crate::world::WorldCtx { db: db.clone(), templates: templates.clone(), config: config.clone(), npcs, catalog, map, level_exp, loot, regions, skills, quests, locale, portals, bank_slot_prices, convert, options, recipes, product, customize, shrines, bosses, skulls, sieges, titles, view_radius: config.world.view_radius },
+            ctx: crate::world::WorldCtx { db: db.clone(), templates: templates.clone(), config: config.clone(), npcs, catalog, map, level_exp, loot, regions, skills, quests, locale, portals, bank_slot_prices, convert, options, recipes, gacha, product, customize, shrines, bosses, skulls, sieges, titles, view_radius: config.world.view_radius },
             state: tokio::sync::Mutex::new(state),
         });
         crate::world::presence::spawn_autosave(w.clone());

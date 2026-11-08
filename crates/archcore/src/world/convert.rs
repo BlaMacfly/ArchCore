@@ -713,12 +713,19 @@ async fn spirit_stone(ctx: &super::WorldCtx, st: &mut super::WorldState, sid: u3
     Ok(())
 }
 
-/// Sertit la rune `rune_iid` dans l'objet `iid` de l'inventaire ; la rune est consommée dans tous les cas.
+/// Une rune peut provenir du sac normal ou Cash (statuts 2 et 51 de la règle de conversion).
+/// Un objet allumé ne se consomme pas pour un sertissage.
+fn rune_material(inv: &super::items::Inventory, iid: u32) -> Option<&super::items::InventoryItem> {
+    if inv.in_use.contains(&iid) { return None }
+    inv.get(iid).or_else(|| inv.cash.get(&iid))
+}
+
+/// Sertit la rune `rune_iid` (sac normal ou Cash) dans l'objet `iid` de l'inventaire ; la rune est consommée dans tous les cas.
 async fn rune(ctx: &super::WorldCtx, st: &mut super::WorldState, sid: u32, iid: u32, rune_iid: u32) -> anyhow::Result<()> {
     use rand::Rng;
     let Some(p) = st.players.get_mut(&sid) else { return Ok(()) };
     let cid = p.ch.id;
-    let (Some(item), Some(rune_item)) = (p.inventory.get(iid).cloned(), p.inventory.get(rune_iid).cloned()) else { return Ok(()) };
+    let (Some(item), Some(rune_item)) = (p.inventory.get(iid).cloned(), rune_material(&p.inventory, rune_iid).cloned()) else { return Ok(()) };
     let Some(e) = ctx.catalog.get(item.tid).and_then(|d| d.equip.as_ref()) else { return Ok(()) };
     let mut conv = item.conv.clone();
     conv.sockets = sockets_of(e, &conv);
@@ -856,6 +863,21 @@ async fn physical(ctx: &super::WorldCtx, st: &mut super::WorldState, sid: u32, i
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rune_du_sac_cash() {
+        use super::super::items::{Inventory, InventoryItem, DURABILITY_FULL};
+        let mut inv = Inventory::default();
+        let rune = InventoryItem { iid: 9, tid: 4571, count: 2, grid: [0, 0, 0], conv: Default::default(), options: Vec::new(), durability: DURABILITY_FULL };
+        inv.cash.insert(9, rune);
+        assert_eq!(rune_material(&inv, 9).map(|i| (i.tid, i.count)), Some((4571, 2)));
+        inv.in_use.insert(9);
+        assert!(rune_material(&inv, 9).is_none());
+        inv.in_use.clear();
+        let rune = inv.cash.remove(&9).unwrap();
+        inv.equipment.insert(13, rune);
+        assert!(rune_material(&inv, 9).is_none(), "objet porté refusé");
+    }
 
     fn weapon(rank: i64) -> EquipData {
         EquipData { kind: super::super::equipment::KIND_WEAPON, physical_rank: rank, min_socket: 1, min_damage: 10, max_damage: 12, ..Default::default() }

@@ -224,6 +224,8 @@ pub fn recompute_factors(ctx: &WorldCtx, p: &mut Player) {
         p.skills.levels_sent = levels;
         p.send_raw(super::effects::skill_level_bonus_packet(p.ch.id, levels));
     }
+    // Bonus de niveau d'une seule compétence changé (effets de type 2 et 4) : AGPMSKILL op 16.
+    super::skill_extra::sync_specific_levels(&ctx.skills, p);
     f.point[..5].copy_from_slice(&old.point[..5]);
     f.status[7] = old.status[7];
     f.dirt = old.dirt;
@@ -351,7 +353,8 @@ pub async fn equip(ctx: &WorldCtx, st: &mut WorldState, sid: u32, iid: u32, quie
     let (level, race, class, gender) = (f.status[7] as i64, f.ftype[0] as i64, f.ftype[2] as i64, f.ftype[1] as i64);
     if let Err(why) = check(&e, level, race, class, gender) {
         info!("[équipement] {} : {} refusé ({why})", p.ch.name, data.name);
-        refused(st, &format!("Vous ne pouvez pas porter {} : {why}.", data.name));
+        let reason = if level < e.level { format!("niveau {} requis (votre niveau : {level})", e.level) } else { why.to_string() };
+        refused(st, &format!("Vous ne pouvez pas porter {} : {reason}.", data.name));
         return Ok(false);
     }
     let at = target_part(&p.inventory, &e);

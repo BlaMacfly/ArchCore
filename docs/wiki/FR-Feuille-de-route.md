@@ -17,6 +17,8 @@
 - Boutiques des PNJ : la boutique de Darryl (Anchorville) affiche ses 43 objets, et l'achat débite
   l'or et range l'objet dans l'inventaire.
 - Inventaire du personnage affiché à l'entrée en jeu.
+- Inventaire : cinq sacs de 25 cases (125 places), alignés sur la grille du client ; les coordonnées existantes sont conservées.
+- Runes ailes/capes des colliers : recherche de la rune dans le sac normal ou Cash pour le sertissage, refus des objets allumés ; les consommables On/Off restent distincts. Le client affiche les effets et les noms des runes serties.
 
 ## Validé avec le simulateur, à confirmer en jeu
 
@@ -305,10 +307,31 @@
   `target_restriction`, provocation) ; IA des monstres (`ai_kin.rs` : invocations `SummonTID`, suiveurs `FollowerTID`,
   renfort `PinchMonster`) ; `PDR` des bottes dans l'esquive, bonus de caractéristiques des anneaux, `QuestItem` = numéro
   de quête (objet détruit à l'abandon et à la fin de la quête). Non faits : endurance des familiers (le client
-  d'Archonia ne l'affiche pas : familier « Immortal »), apprivoisement (aucune compétence dans les tables), pause des
-  objets à durée (op 25), enchaînements 1, 2, 6, 7, 8, renvoi héroïque, `Skill_plus` (champ 21 : l'option
-  `skill_levelup` vaut toujours pour toutes les compétences). Tests unitaires ; scénarios `ammo` et `lifetime`
+  d'Archonia ne l'affiche pas : familier « Immortal »), apprivoisement (aucune compétence dans les tables), `Skill_plus`
+  (champ 21 : l'option `skill_levelup` vaut toujours pour toutes les compétences). Tests unitaires ; scénarios `ammo` et `lifetime`
   (nouveaux), les scénarios à compétences portent désormais une arme ; à confirmer en jeu.
+- Derniers points relevés dans Archonia (4 novembre 2026) : AGPMSKILL op 10 (effets visuels : 1 fin de Time Attack, 2
+  déplacement forcé et téléportation, 4 PV absorbés, 6 coup changé en PV, 7 invisibilité (les autres lâchent leur cible), 8 Lens Stone, 9
+  détection, 10 purge amie ; le client ne fait rien du 5, aucune table ne porte 3) ; op 16 (bonus de niveau d'une compétence : `skill_levelup` 2
+  et 4) ; PV absorbés (`convert_type` 4 Life Extinction, 6 Vampiric Impact) ; enchaînements 1 (Time Attack : dégâts à la
+  fin de l'effet), 2 (Shadow Chaser, Ambush : téléportation au contact), 6 (Bomba : la créature explose à sa mort ou à la fin
+  de sa durée), 7 et 8 (combos du Scion : colonnes « …2 » seulement si la cible porte l'effet de `Connection_TID2` ou si
+  le lanceur est invisible : le second coup n'est plus sans condition) ; visée au sol (`range` 701 Narcolepsy, Imposed
+  Fatigue, Meteoric Shower ; 702 Concealment, ShadowIllusion : guilde du lanceur) ; GUILD op 46 : manche au seul champ 14
+  du combat. Écartés, preuve à l'appui : renvoi héroïque (colonnes vides sur toutes les lignes des tables), pause des
+  objets à durée (op 25 : ni colonne ni texte ne dit quand), endurance (op 29 : mini vide, décodé sans rien ranger),
+  <Battle> et <Event> Ability (enchaînement 6 : rien ne les lance). Boîtes de loterie et clés (`lottery.rs`, usages 17 et
+  18, table `itemlotterybox.txt`, `Rules.LotteryKeys`) ; costumes par ensembles (`avatar.rs`, usage 31, `avatarset.ini` :
+  pièces des parties 16 à 21 portées sans effet sur les facteurs). Tests unitaires ; scénario `chain` (nouveau), `consumables`
+  étendu.
+- Décisions du 8 novembre 2026 : **gacha de l'épisode 8** (« Fortune Gate », AgpmEventGacha 0x57, `gacha.rs`) : socles
+  des villes (objets de fonction 38, table `gacha_object` : armes 9081, armures 5780, accessoires 5891, charisme 13173),
+  types et tables de tirage EP8 (`gachatypetemplate.ini`, `gachadroptable*.txt`), objets tirables par leurs colonnes
+  `Gacha_Type_Numer`, `GachaRank`, `GachaMinLv`/`GachaMaxLv`, race et classe ; coût (Fortune Gate Pass, or, charisme),
+  refus 1 à 6 du client, objet rangé avec ses options. **Butin** : `Rules.LootLevelGap` activée par défaut (11) et dans
+  les deux sens d'écart. **Incantation** : le lanceur est figé au début de l'incantation (arrêt diffusé aux seuls
+  observateurs). **Effets** : tout sort à durée est annoncé (AGPMSKILL op 4), même sans colonne reprise par ArchCore.
+  Tests unitaires ; scénario `gacha` (nouveau) ; à confirmer en jeu.
 - Ops de protocole manquantes (relevé d'Archonia du 2 novembre 2026) : quêtes (op 14 suivi à l'écran, 10 au plus,
   enregistré dans `character_quests.journal` et renvoyé au 5ᵉ entier de l'op 4 ; ops 8 et 9 inventaire plein) ;
   groupe (op 2 : zone d'effet et bonus du groupe, règles réglables `Party.*` ; gestion ops 9, 12 et 13, refus d'un invité
@@ -319,7 +342,7 @@
   des options `skill_levelup`, appliqué aux lancements) ; discussion (op 4 destinataire absent, ops 1 à 3 blocage des
   chuchotements) ; objets (op 15 or jeté au sol, sans propriétaire ; op 28 recharge par modèle) ; AGPMCHARACTER op 8
   avant de fermer une session reprise par une autre connexion ; portails (ops 2, 3 et 6). Écartées : quêtes 11 à 13,
-  objets 8 et 29, compétences 9, 10, 16 et 17, PvP 17. Tests unitaires ; scénarios `quest`, `party`, `pk`, `pvp`,
+  objets 8 et 29, compétences 9 et 17, PvP 17. Tests unitaires ; scénarios `quest`, `party`, `pk`, `pvp`,
   `guildbattle`, `guildrelation`, `chat` et `gold` (nouveau) au simulateur le 2 novembre 2026, à confirmer en jeu
   (règles du bonus du groupe en particulier).
 - Client ArchRust ([dépôt à part](https://github.com/BlaMacfly/ArchRust)) : combat (attaque, coups, mort, résurrection, butin), groupes, autres

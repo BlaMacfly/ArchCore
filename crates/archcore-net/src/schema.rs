@@ -94,6 +94,8 @@ pub mod ptype {
     pub const TAX: u8 = 0x53;
     /// AgpmArchlord (0x55) : titre d'ArchLord, gardes, étapes de la guerre de Rensphere.
     pub const ARCHLORD: u8 = 0x55;
+    /// AgpmEventGacha (0x57) : socles de tirage des villes (« Fortune Gate », fonction d'objet 38).
+    pub const EVENT_GACHA: u8 = 0x57;
     /// Extensions ArchRust ↔ ArchCore. Hors de la plage 0x01-0x77 acceptée par le répartiteur du
     /// client d'origine, qui l'ignore donc sans erreur.
     pub const ARCHCORE_EXT: u8 = 0xac;
@@ -961,6 +963,25 @@ pub static TAX: Schema = Schema {
     ],
 };
 
+/// AgpmEventGacha (0x57) — drapeaux 2 (constructeur 0x14027cd00 d'Archonia, réception 0x14027e640) : ops `gacha_op`
+/// (`world/gacha.rs`). Le sens des champs 3 à 7 dépend de l'op.
+pub static EVENT_GACHA: Schema = Schema {
+    name: "AGPMEVENTGACHA",
+    id: ptype::EVENT_GACHA,
+    flag_len: 2,
+    fields: &[
+        f(I8),       // 0 opération
+        f(Packet),   // 1 EVENT_BASE (objet du monde, fonction 38)
+        f(I32),      // 2 CID
+        f(I32),      // 3 op 0 : valeur de l'événement ; op 1 : code (`gacha_result`) ; op 3 : TID tiré
+        f(I32),      // 4 op 1 : TID de l'objet demandé ; op 3 : code (`gacha_result`)
+        f(I32),      // 5 op 1 : nombre d'objets demandés
+        f(I32),      // 6 op 1 : or demandé
+        f(I32),      // 7 op 1 : points de charisme demandés
+        f(MemBlock), // 8 op 1 : TID des objets de la bande (u32 à la suite)
+    ],
+};
+
 /// Tous les schémas principaux, pour l'aiguillage par type.
 pub static MAIN: &[&Schema] = &[
     &CONFIG, &CHARACTER, &CHAR_MANAGER, &LOGIN, &TIMER, &WORLD, &CHATTING, &ADMIN, &ITEM, &EVENT_NPC_TRADE,
@@ -968,6 +989,7 @@ pub static MAIN: &[&Schema] = &[
     &STARTUP_ENCRYPTION, &ARCHCORE_EXT, &RECONNECT, &PVP, &REMISSION, &PRODUCT, &EVENT_PRODUCT, &BUDDY, &MAILBOX,
     &EVENT_ITEM_REPAIR, &RIDE, &AUCTION, &EVENT_NATURE, &NATURE_EFFECT, &ITEM_SET, &SUMMONS, &CHANNEL, &AREA_CHATTING,
     &EVENT_CHAR_CUSTOMIZE, &WANTED_CRIMINAL, &TITLE, &SHRINE_BATTLE, &BOSS, &SIEGE_WAR, &EVENT_SIEGE_WAR_NPC, &WAR_INFO, &ARCHLORD, &TAX,
+    &EVENT_GACHA,
 ];
 
 pub fn main_by_id(id: u8) -> Option<&'static Schema> {
@@ -1753,6 +1775,35 @@ pub mod tax_result {
     pub const NOT_TIME: i64 = 2;
     /// « TAX_MODIFY_F_EX_RANGE » : hors de 0 à 50 %.
     pub const OUT_OF_RANGE: i64 = 3;
+}
+
+/// Opérations d'AgpmEventGacha (champ 0) ; « C » : du client, « S » : du serveur.
+pub mod gacha_op {
+    /// C : clic sur un socle (EVENT_BASE de la fonction 38).
+    pub const REQUEST: i64 = 0;
+    /// S : fenêtre UI_Gacha ouverte (codes 0 à 4) avec le coût et la bande, ou message seul (5, 6).
+    pub const OPEN: i64 = 1;
+    /// C : bouton « Start ».
+    pub const ROLL: i64 = 2;
+    /// S : objet tiré (champ 3) ou refus (champ 4).
+    pub const RESULT: i64 = 3;
+}
+
+/// Codes d'AgpmEventGacha (op 1 champ 3, op 3 champ 4) : messages du client (sysstr).
+pub mod gacha_result {
+    pub const SUCCESS: i64 = 0;
+    /// sysstr 729 « You do not have enough Items to use the Fortune Gate. »
+    pub const NOT_ENOUGH_ITEM: i64 = 1;
+    /// sysstr 730 (or).
+    pub const NOT_ENOUGH_GOLD: i64 = 2;
+    /// sysstr 739 (charisme).
+    pub const NOT_ENOUGH_CHARISMA: i64 = 3;
+    /// sysstr 731 « You do not have enough room in your inventory. »
+    pub const INVENTORY_FULL: i64 = 4;
+    /// sysstr 732 « Unknown Error ».
+    pub const UNKNOWN: i64 = 5;
+    /// sysstr 733 « Fortune Gate Level Limit ».
+    pub const LEVEL_LIMIT: i64 = 6;
 }
 
 /// Opérations d'AgpmWantedCriminal (champ 0) ; « C » : du client, « S » : du serveur.

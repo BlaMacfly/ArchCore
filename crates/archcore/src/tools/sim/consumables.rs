@@ -185,6 +185,32 @@ async fn scenario(cfg: &crate::config::Config, db: &crate::db::Databases, id: u3
     anyhow::ensure!(init_result(&mut w).await? == 1, "seconde demande acceptée");
     println!("  ✓ seconde demande : résultat 1");
 
+    step("boîtes de loterie et clés");
+    let sys = |code: i64| move |q: &Recv| q.ptype == schema::SYSTEM_MESSAGE.id && q.int(1) == Some(code);
+    let chest = add_item(&mut w, 3616, 1).await?; // Gold Treasure Chest
+    use_item(&mut w, chest).await?;
+    w.world.expect_where(sys(2), 3000, "clé d'or exigée (message 2)").await?;
+    let key = add_item(&mut w, 1838, 1).await?; // Gold Key
+    use_item(&mut w, key).await?;
+    w.world.expect_where(sys(1), 3000, "clé seule (message 1)").await?;
+    use_item(&mut w, chest).await?;
+    let got = w.world.expect_where(sys(0), 5000, "boîte ouverte (message 0)").await?;
+    anyhow::ensure!(got.int(2).unwrap_or(0) > 0 && got.fields().text(4).as_deref() == Some("Gold Treasure Chest"), "message {:?} {:?}", got.int(2), got.fields().text(4));
+    println!("  ✓ refus sans clé, message de la clé, {} × {} tirés", got.int(2).unwrap_or(0), got.fields().text(5).unwrap_or_default());
+    let left: Vec<u32> = db.characters.rows("SELECT template_id FROM character_items WHERE character_id = ? AND template_id IN (3616, 1838)", (id,)).await?.iter().map(|r| crate::db::col(r, "template_id")).collect();
+    anyhow::ensure!(left.is_empty(), "boîte ou clé encore en base : {left:?}");
+    println!("  ✓ boîte et clé consommées");
+
+    step("costume par ensemble : Wedding Dress");
+    let dress = add_item(&mut w, 6446, 1).await?;
+    use_item(&mut w, dress).await?;
+    let piece = w.world.expect_where(|q| q.is(it, Some(0)) && q.int(3) == Some(5451) && q.int(1) == Some(3), 5000, "pièce du costume équipée").await?;
+    let piece = piece.int(2).unwrap_or(0);
+    println!("  ✓ pièce 5451 équipée ({piece:#x})");
+    use_item(&mut w, dress).await?;
+    w.world.expect_where(|q| q.is(it, Some(1)) && q.int(2) == Some(piece), 5000, "pièce retirée (op 1)").await?;
+    println!("  ✓ objet réutilisé : pièce retirée");
+
     step("reconnexion : chaîne relue, Gem of origin");
     db.characters.exec("INSERT INTO character_skills (character_id, skill_tid, level) VALUES (?, ?, 1)", (id, DUAL_SLASH)).await?;
     drop(w);

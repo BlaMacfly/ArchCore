@@ -377,6 +377,7 @@ fn spawn(ctx: &WorldCtx, st: &mut WorldState, sid: u32, sp: &Spawn, now: Instant
         respawn_max_sec: 0,
         life: Life::Alive,
         home: pos,
+        zone: pos,
         aggro: Vec::new(),
         target: None,
         ready_at: now,
@@ -461,6 +462,7 @@ pub fn dismiss(st: &mut WorldState, cid: u32, why: &str, immediate: bool) {
 
 /// Mort d'une invocation (PV à 0) : statut « mort » chez ceux qui la voient, puis disparition.
 pub fn died(st: &mut WorldState, cid: u32) {
+    super::skill_extra::on_summon_end(st, cid);
     if let Some(m) = st.monsters.get_mut(cid) {
         m.life = Life::Dead { remove_at: Instant::now() };
     }
@@ -743,6 +745,7 @@ pub async fn step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) -> anyhow::
             continue;
         };
         if s.ends_at.is_some_and(|t| now >= t) {
+            super::skill_extra::on_summon_end(st, cid);
             dismiss(st, cid, "durée écoulée", true);
             continue;
         }

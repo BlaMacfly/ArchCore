@@ -8,6 +8,9 @@
 //!   archcore sim ignore  [compte] [mdp] [perso]       Stunner : la part d'eau d'un coup passe de 3 à 4 contre un ver résistant à 50 %
 //!   archcore sim rune    [compte] [mdp] [perso]       pierre de prière de glace sertie : Cold Prayer Stone part sur un coup (op 8, puis op 4)
 //!   archcore sim trigger [compte] [mdp] [perso]       option « 28 % d'étourdir 3 s » : un Ver vert étourdi (champ 17)
+//!   archcore sim chain   [compte] [mdp] [perso]       visée au sol (Imposed Fatigue), Time Attack (op 10 type 1 et dégâts à la
+//!                                                     fin de l'effet), Shadow Chaser (op 10 type 2), Masquerade (op 16),
+//!                                                     Concealment au sol (op 10 type 7)
 //! ```
 //! Comptes MJ requis (GmTest). Les compétences et les objets sont préparés en base (personnage hors jeu), puis
 //! retirés à la fin.
@@ -15,7 +18,7 @@
 use super::{cast_fields, character_id, enter_world, factors_hp, o, skill_owner, step, InWorld, Recv};
 use archcore_net::schema::{self, chat_type, mini};
 use crate::config::Config;
-use archcore_net::{decode_mini, Fields, Vec3};
+use archcore_net::{build_mini, decode_mini, Fields, Vec3};
 use std::future::Future;
 use std::pin::Pin;
 use std::collections::HashSet;
@@ -328,6 +331,104 @@ pub async fn dispel(user: &str, pass: &str, char_name: &str) -> anyhow::Result<(
     db.characters.exec("DELETE FROM character_skills WHERE character_id = ? AND skill_tid IN (?, ?)", (id, BLADE_STING, ANTIMAGIC)).await?;
     db.close().await;
     println!("\npurges : OK");
+    Ok(())
+}
+
+/// Enchaînements et visée au sol : Imposed Fatigue lancée sur une position (l'effet tombe sur le ver le plus proche de ce
+/// point), Time Attack (dégâts et op 10 type 1 à la fin de l'effet), Shadow Chaser (op 10 type 2, le lanceur au contact),
+/// Lunar Masquerade (op 16 pour Close Skirmish, compétence de sa liste, puis 0 quand l'effet tombe n'est pas attendu : 240 s).
+pub async fn chain(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
+    const TIME_ATTACK: i64 = 296;
+    const SHADOW_CHASER: i64 = 297;
+    const IMPOSED_FATIGUE: i64 = 636;
+    const LUNAR_MASQUERADE: i64 = 688;
+    const CLOSE_SKIRMISH: i64 = 672;
+    const CONCEALMENT: i64 = 618;
+    let tids = [TIME_ATTACK, SHADOW_CHASER, IMPOSED_FATIGUE, LUNAR_MASQUERADE, CLOSE_SKIRMISH, CONCEALMENT];
+    let cfg = crate::config::load()?;
+    let (k, sa, sb, mv) = (&schema::SKILL, &mini::SKILL_ACTION, &mini::SKILL_BASE, &schema::OPT_CHAR_MOVE);
+    step("préparation : compétences en base");
+    let db = crate::db::Databases::new(&cfg.database);
+    let id = character_id(&db, char_name).await?;
+    for tid in tids {
+        db.characters.exec("INSERT INTO character_skills (character_id, skill_tid, level) VALUES (?, ?, 1) ON DUPLICATE KEY UPDATE level = 1", (id, tid)).await?;
+    }
+    // Niveau 2 : la liste de Lunar Masquerade commence à Close Skirmish.
+    db.characters.exec("UPDATE character_skills SET level = 2 WHERE character_id = ? AND skill_tid = ?", (id, LUNAR_MASQUERADE)).await?;
+    step(&format!("{char_name} entre en jeu"));
+    let mut w = enter(&cfg, user, pass, char_name, "").await?;
+    super::hold_weapon(&mut w).await?;
+    let level = w.level.max(1);
+    let id_of = |w: &InWorld, tid: i64| w.skills.iter().find(|s| s.1 == tid).map(|s| s.0).unwrap_or(0);
+    let ids: Vec<i64> = tids.iter().map(|t| id_of(&w, *t)).collect();
+    anyhow::ensure!(ids.iter().all(|i| *i != 0), "compétences absentes : {:?}", w.skills);
+    gm(&mut w, "/level 100").await?;
+    gm(&mut w, "/invincible 1").await?;
+    gm(&mut w, "/recast").await?;
+    let worm = worms(&mut w).await?[0];
+    let worm_pos = w.monsters.iter().find(|m| m.cid as i64 == worm).map(|m| m.pos).unwrap_or(HUNT);
+
+    step("Imposed Fatigue visée au sol, sur le ver");
+    let me = build_mini(sb, &Fields::new(sb).with(0, 3).with(1, w.cid));
+    let act = build_mini(sa, &Fields::new(sa).with(0, 0).with(1, me).with(3, worm_pos));
+    w.world.send(k, Fields::new(k).with(0, 7).with(1, ids[2]).with(6, act)).await?;
+    let me_cid = w.cid as i64;
+    w.world.expect_where(|q| q.is(k, Some(7)) && q.int(1) == Some(ids[2]) && skill_owner(q, 2) == Some(me_cid), 30_000, "lancement au sol (op 7)").await?;
+    let hit = w.world.expect_where(|q| q.is(k, Some(4)) && q.int(1) == Some(ids[2]) && skill_owner(q, 2).is_some_and(|o| o != me_cid), 30_000, "effet sur un monstre de la zone").await?;
+    println!("  ✓ Imposed Fatigue posée sur {:#x} par la position visée", skill_owner(&hit, 2).unwrap_or(0));
+    // Sans position (paquet sans champ 3) : refus, type d'action 7.
+    gm(&mut w, "/recast").await?;
+    w.world.send(k, cast_fields(ids[2], 0)).await?;
+    let refused = |q: &Recv| q.is(k, Some(7)) && q.int(1) == Some(ids[2]) && q.fields().bytes(6).and_then(|b| decode_mini(sa, b).ok()).and_then(|a| a.int(0)) == Some(7);
+    w.world.expect_where(refused, 3000, "refus sans position").await?;
+    println!("  ✓ sans position : refus (action 7)");
+
+    step("Time Attack : dégâts à la fin de l'effet");
+    // Niveau 34 (exigé par la compétence) : l'attaque automatique ne tue pas le ver avant la fin de l'effet.
+    gm(&mut w, "/level 34").await?;
+    gm(&mut w, "/recast").await?;
+    w.world.send(k, cast_fields(ids[0], worm)).await?;
+    w.world.expect_where(|q| q.is(k, Some(4)) && q.int(1) == Some(ids[0]) && skill_owner(q, 2) == Some(worm), 30_000, "effet de Time Attack").await?;
+    let armed = std::time::Instant::now();
+    w.world.send(mv, Fields::new(mv).with(0, w.cid).with(1, HUNT).with(2, HUNT).with(5, STOP).with(6, 0)).await?;
+    w.world.expect_where(|q| q.is(k, Some(10)) && q.int(1) == Some(1) && q.int(4) == Some(worm), 10_000, "op 10 type 1").await?;
+    anyhow::ensure!(armed.elapsed() >= Duration::from_millis(2500), "op 10 trop tôt ({:?})", armed.elapsed());
+    println!("  ✓ op 10 type 1 après {:?}", armed.elapsed());
+
+    step("Lunar Masquerade : op 16 pour Close Skirmish");
+    gm(&mut w, "/recast").await?;
+    w.world.send(k, cast_fields(ids[3], w.cid as i64)).await?;
+    let skirmish = ids[4];
+    let p = w.world.expect_where(|q| q.is(k, Some(16)) && q.int(1) == Some(skirmish), 30_000, "op 16").await?;
+    anyhow::ensure!(p.int(4).unwrap_or(0) > 0, "bonus nul");
+    println!("  ✓ op 16 : Close Skirmish +{}", p.int(4).unwrap_or(0));
+
+    step("Shadow Chaser : téléportation au contact");
+    // Le ver de Time Attack a pu mourir de l'attaque automatique : un ver vivant.
+    let worm = worms(&mut w).await?[0];
+    // Niveau 100 : assez de PM après Time Attack et Lunar Masquerade.
+    gm(&mut w, "/level 100").await?;
+    gm(&mut w, "/recast").await?;
+    w.world.send(k, cast_fields(ids[1], worm)).await?;
+    w.world.expect_where(|q| q.is(k, Some(10)) && q.int(1) == Some(2) && q.int(4) == Some(worm), 30_000, "op 10 type 2").await?;
+    println!("  ✓ op 10 type 2 vers {worm:#x}");
+
+    step("Concealment visée au sol : invisibilité, op 10 type 7");
+    w.world.send(mv, Fields::new(mv).with(0, w.cid).with(1, HUNT).with(2, HUNT).with(5, STOP).with(6, 0)).await?;
+    gm(&mut w, "/level 100").await?;
+    gm(&mut w, "/recast").await?;
+    let me = build_mini(sb, &Fields::new(sb).with(0, 3).with(1, w.cid));
+    let act = build_mini(sa, &Fields::new(sa).with(0, 0).with(1, me).with(3, HUNT));
+    w.world.send(k, Fields::new(k).with(0, 7).with(1, ids[5]).with(6, act)).await?;
+    w.world.expect_where(|q| q.is(k, Some(10)) && q.int(1) == Some(7), 30_000, "op 10 type 7").await?;
+    println!("  ✓ op 10 type 7 (les autres clients lâchent leur cible)");
+
+    gm(&mut w, "/invincible 0").await?;
+    gm(&mut w, &format!("/level {level}")).await?;
+    db.characters.exec("DELETE FROM character_skills WHERE character_id = ? AND skill_tid IN (?, ?, ?, ?, ?, ?)", (id, tids[0], tids[1], tids[2], tids[3], tids[4], tids[5])).await?;
+    db.close().await;
+    println!("
+enchaînements : OK");
     Ok(())
 }
 

@@ -165,7 +165,9 @@ answer). The amount (1 at least, no more than the gold carried, not during a tra
 (character op 1, field 8) and falls at their feet as a gold stack (TID 268) **without an owner** (field 4 absent), which
 anyone can pick up (op 11, op 12); it disappears after 45 s. **Op 28** (UPDATE_COOLDOWN, server: 3 TID, 4 CID, 5 integer
 left at 0, 18 time left in ms): cooldown of the items of a template; sent at 0 by the `/recast` GM command. Op 8 (cancel
-the return scroll) has no caller in the client; op 29 (pet stamina): format not established; neither is handled.
+the return scroll) has no caller in the client; op 29 (pet stamina: 2 IID, 4 CID, empty Cash mini in field 23) is decoded
+without storing anything: neither is handled. Op 25 (pause: 2 IID, 4 CID; the client sets "in use" to 2, shows "Toggled
+Off"): no data says when, not sent.
 
 ## NPC shops (type 0x32, AgcmEventNPCTrade)
 
@@ -561,6 +563,28 @@ item made); `Combine Use Price` is its gold price.
   Reinforcement Level`, `Keep Item Socket Count`, `Keep Socketed Items` and `Keep Item Options` columns. The
   "failure" outcome (`MakeItem IsFail`) makes its item like the others: the client does not read the column.
 
+## Gacha (type 0x57, AgpmEventGacha)
+
+Episode 8 "Fortune Gate": town pedestals, function 38 world objects (`gacha_object`), three side by side (weapons 9081,
+armour 5780, accessories 5891) and the charisma ones (13173). The draw type comes from the event data (`GachaStart`,
+`Type=N`, `GachaEnd`); `gachatypetemplate.ini` gives, per type, the checks (`RaceCheck`, `ClassCheck`, `LevelCheck`,
+`LevelLimit`) and the per-level table (`gachadroptable*.txt`: required item `Gacha_ItemTID` × `Gacha_Item_Number`,
+gold `Gacha_Cost`, charisma `CharismaPoint`, weights `Rank1`-`Rank4` out of 10,000).
+
+- **Schema** (2 flag bytes): 0 op, 1 EVENT_BASE, 2 CID, 3 to 7 INT32, 8 memory block.
+- **op 0** (client): click on the pedestal; refused without reply beyond 600 units (range of Archonia's shared code),
+  on another object or an object with another function.
+- **op 1** (server): 3 code, 4 TID and 5 count of the required item, 6 gold, 7 charisma, 8 TIDs of the strip (u32 in a
+  row, 200 at most) the client scrolls. Codes 0 to 4: `UI_Gacha` opens; 5 and 6: message only.
+- **op 2** (client): "Start" button.
+- **op 3** (server): 3 TID drawn, 4 code. Codes (client `sysstr` messages): 0 success, 1 missing items (729), 2 gold
+  (730), 3 charisma (739), 4 inventory full (731), 5 unknown error (732), 6 level outside the table (733).
+- **Draw**: rank from the cumulative thresholds of the player's level (`R4`, `R3+R4`, `R2+R3+R4`, rank 1 takes the
+  rest, as Archonia reads them), then a random item among those of the type and rank (`Gacha_Type_Numer`, `GachaRank`)
+  whose `GachaMinLv`-`GachaMaxLv` includes the level and that suit the race and class; empty rank: the lower rank,
+  then the higher (ArchCore's choice). Cost taken on the draw (items from the inventory or the Cash inventory: the
+  Fortune Gate Pass is a Cash item), item stored first: bag full, nothing taken.
+
 ## Production (types 0x17 and 0x3A, AgpmProduct and AgpmEventProduct)
 
 Gathering from corpses (Collection Skill, TID 663, tool 654 Gathering Knife), cooking (Cooking 203, tool 655 Cooking
@@ -716,6 +740,20 @@ refused (also for the `/go` target). `/nick text` (Signature of Glory): signatur
 character's op 0; `/nick` alone clears it. Each time: item used up, op 4 (cooldown), "Item … used" message (text
 `JumpItemUsed`).
 
+**Lottery boxes** (usage 17, Episode 8 `itemlotterybox.txt` table: 123 boxes, 3,121 rows). AGPMITEM **op 3** on the box: one
+item drawn by `Rate`, quantity between `MinStack` and `MaxStack`, stored (op 0), box and key spent, system message **0** ("You
+have acquired %d %s by opening %s.": field 2 quantity, 4 box, 5 item). Box with a `SubType` (1 gold, 2 silver, 4 platinum; Bronze
+Treasure Chest: 3) without the key (usage 18) of the same `SubType`: message **2**, **3**, **28** or **23**, nothing spent (choice,
+`Rules.LotteryKeys`: only the messages exist in the client). Key used alone: message **1**. Full bag: op 5, nothing spent. Usage 17
+item with no table row: no effect.
+
+**Costumes** (usage 31, Episode 8 `avatarset.ini` table: 2,163 sets; `tid0` the item, `tid1…` the pieces, parts 16 to 21). AGPMITEM
+**op 3** on the Cash inventory item: its skill and life, then each piece through **op 0** (status 3, equipped; identifiers from
+0x7E000000), to the player and those who see them, and with their view's equipment afterwards. No effect on factors, not in the
+database, for the session. Refused (op 5): another costume, part taken. Item used again, **op 23** or end of life: pieces removed
+(**op 1**), effects removed, op 26; refused under metamorphosis, like the client (`CannotUnEquipAvatarOnTransform`).
+`avatarsetsummoner.ini` (15 sets whose items do not exist in Episode 8): not read.
+
 **Fireworks** (usage 22: Small firecracker, Middle Fireworks Shine 1-3, Unique Fireworks Heart, Bead of Love): one
 used up, AGPMITEM op 4 (3 TID, 4 CID, 18 cooldown) to the player and those who see them; "Use Interval" cooldown
 (op 5 otherwise). The other usage 22 items (Chantra shop packages) have no effect.
@@ -754,9 +792,30 @@ character's current effects, to the player on entering the world and to others w
 whose effect they gave themselves is reset; also by `/recast`. **Op 14** (MODIFIED_SKILL_LEVEL: 1 bonus, below 31,
 2 base): extra levels of all learned skills, sum of the `skill_levelup` columns of the worn options ("Learned skills
 upgraded by n ranks"), sent on entering the world and on every change; the server casts skills at that level (the
-skill's last level at most, not production skills). Op 16 (a single skill's level) is not sent: no option of the data
-gives one (`Skill_id`, `Skill_level` empty); nor op 10 (additional effect), for lack of knowing when; op 17 is an
-Archonia addition.
+skill's last level at most, not production skills). Op 17 is an Archonia addition.
+
+**Op 16** (server: 1 skill identifier, 2 owner, 4 bonus): level bonus of a single skill, `skill_levelup` 2 and 4 effects;
+the client adds it to the level of its casts, on every change.
+
+**Op 10** (server: 1 type, 2 caster, 4 target CID): the client plays the type's common effect (`ee_common_char.txt`).
+
+| Type | Common effect | Sent |
+|---|---|---|
+| 1 | TIMEATTACK | end of the Time Attack effect (the damage lands then) |
+| 2 | TELEPORT | forced move (`move_pos`, knockback), teleport attack (Shadow Chaser, Ambush) |
+| 3 | ABSORBMANA | never: no table column absorbs it |
+| 4 | ABSORBLIFE | HP absorbed (`convert_type` 4, 6) |
+| 5 | none | never: the client does nothing with it |
+| 6 | MENTALCIRCUIT | hit taken turned into HP |
+| 7 | none: each client drops its target and attack if they aim at this character | invisibility applied |
+| 8 | LENS_STONE | one-hit effect spent |
+| 9 | DETECT_SCROLL | detection effect applied |
+| 10 | CURE | effect removed by a friendly skill |
+
+**Ground targeting** (SKILL_SPEC `range`: 701 enemies, 702 caster's guild, sphere of radius `area_r`). The client sends
+AGPMSKILL **op 7** with, in the SKILL_ACTION mini: 0 action 0, 1 target base (null, or the caster), 3 **aimed position**, 4
+forced attack. ArchCore reads field 3 (no position: refused, action 7), moves the player within range, sends op 7 back with
+the caster as target and the position (the client then keeps the packet's position), then hits the area.
 
 **Skill master.** "Trainer" NPCs carry function 25, with the race and class they teach (`SkillRaceType`,
 `SkillClassType`), sent in their view (INT8, INT8 mini). AGPMEVENTSKILLMASTER (0x3B, 1 flag byte): op,
@@ -1092,8 +1151,8 @@ in a battle (24, 25), the enemy master is online (26) and does not refuse guild 
 The enemy master gets op 15, the challenger code 28 and status 1; without an answer within 60 seconds, the
 request lapses. Refusal (op 17): code 30. Acceptance (op 16): status 2 and GUILD_BATTLE to both guilds; the
 battle starts `Guild.BattleReadySeconds` later (op 21, status 3), then the clock (op 22) goes out every
-second; at the start also **op 46** (round: 1, in the first of the eight numbers of field 4 and in field 14 of the
-battle; ArchCore has no multi-round battle) and **op 27** (both sides' fighter lists: field 20 mini {U32 n1, block of
+second; at the start also **op 46** (round: 1, in field 14 of the battle, the only one the client reads, guild in field
+2; ArchCore has no multi-round battle) and **op 27** (both sides' fighter lists: field 20 mini {U32 n1, block of
 n1 0x48-byte records of the field 2 guild, U32 n2, block of the enemy guild}; record (`FUN_1404dee40`): zero-terminated
 name in 0x38 bytes, points, enemies killed, deaths (U32), then an integer of unknown meaning, -1 = unchanged). For each
 enemy killed, **op 26** to both guilds for the killer and the victim (field 2 = recipient's guild, field 19 mini {guild,
@@ -2018,7 +2077,7 @@ none of them, it only shows their inputs and outputs.
 | 0x31 | Teleport portals | 0x15 | Guilds |
 | 0x39 | Guild manager | 0x16 | Item conversion |
 | 0x38 | Blacksmith (conversion) | 0x4B | Refining |
-| 0x3F | Alchemy sphere (refining) | | |
+| 0x3F | Alchemy sphere (refining) | 0x57 | Gacha (AgpmEventGacha) |
 | 0x07 | Trading between players | 0x3E | NPC quests |
 | 0x17 | Production | 0x3A | Production NPCs |
 | 0x2B | Friends and ignore list | 0x2D | Mail |
@@ -2034,3 +2093,9 @@ none of them, it only shows their inputs and outputs.
 | 0x53 | Region taxes (AgpmTax) | | |
 
 Full schemas for the 86 modules are in `data/re/packet-schemas.json`.
+
+
+Inventory (second playtest report): AGPMITEM retains its three `[bag, row, column]` coordinates, each from 0 through 4. Five bags of 5 × 5 slots; existing coordinates need no migration. The client trash button asks for confirmation before AGPMITEM op 21 (destroy).
+
+
+Socketing (AGPMITEMCONVERT op 3): the rune may come from normal or Cash inventory (status 2 or 51), except an active item; validation is unchanged and consumption retains its source status. EP8 wing/cloak runes go into necklaces and remain distinct from On/Off consumables.

@@ -267,6 +267,15 @@ pub struct SkillLevel {
     /// (« specific_skill_levelup2 » de Skill_Const2) : voir `SkillTemplate::levelup_kind`.
     pub levelup: i32,
     pub levelup_list: Vec<u32>,
+    /// Enchaînements 7 et 8 (`skill_extra.rs`) : compétence dont l'effet doit être sur la cible (« Connection_TID2 ») et
+    /// ce que le niveau gagne alors, ou quand le lanceur est invisible, en plus du second coup : colonnes « …2 » de
+    /// Skill_Const2 (modificateurs, dégâts sur la durée, chance et durée d'étourdissement).
+    pub combo_on: u32,
+    pub combo_mods: Mods,
+    pub combo_dot: Vec<(usize, f64)>,
+    pub combo_stun: (f64, u64),
+    /// PV absorbés par le coup de la compétence (`convert_type` 6, Vampiric Impact) : chance, part des dégâts.
+    pub drain: (f64, f64),
     /// Zone au sol (`skill_extra.rs`) : dégâts fixes par élément à chaque période (« ea_damage_* » : indice dans le
     /// résultat, dégâts), période (« interval », ms), PV et PM rendus à chaque période par une aura (« regen_hp »,
     /// « regen_mp »).
@@ -292,6 +301,8 @@ pub struct Spec {
     pub cooldown_cap: i64,
     /// skill_levelup : nature du bonus de niveau (1 toutes les compétences, 2 celles des arbres de maîtrise, 4 une liste).
     pub skill_levelup: i64,
+    /// action_on_action : enchaînement (`skill_extra.rs`).
+    pub action_on_action: i64,
 }
 
 /// Bits de la colonne reflect_melee_attack (au-delà des valeurs exactes 1, renvoi, et 2, bouclier).
@@ -378,6 +389,11 @@ impl SkillLevel {
             additional_secs: num("additional_duration").max(0.0) as u64,
             levelup: num("skill_levelup") as i32,
             levelup_list: tids("specific_skill_levelup2"),
+            combo_on: num("Connection_TID2").max(0.0) as u32,
+            combo_mods: if matches!(sp.action_on_action, 7 | 8) { Mods::from_consts(&second_columns(c)) } else { Mods::default() },
+            combo_dot: effects::DOT_COLUMNS.iter().map(|(k, i)| (*i, num(&format!("dot_dmg_{k}2")))).filter(|(_, d)| *d > 0.0).collect(),
+            combo_stun: (num("skill_rate2"), num("stun_time2").max(0.0) as u64),
+            drain: if sp.convert_type == 6 { (num("skill_rate"), num("damage_convert_hp")) } else { (0.0, 0.0) },
             area_damage: effects::DOT_COLUMNS.iter().map(|(k, i)| (*i, num(&format!("ea_damage_{k}")))).filter(|(_, d)| *d > 0.0).collect(),
             interval_ms: num("interval").max(0.0) as u64,
             regen: (num("regen_hp"), num("regen_mp")),
@@ -387,6 +403,30 @@ impl SkillLevel {
     /// Le niveau a un second coup (Skill_Const2).
     pub fn has_second_hit(&self) -> bool {
         self.damage2 != 0.0 || self.damage2_pct != 0.0 || self.spirit2.iter().any(|(f, p)| *f != 0.0 || *p != 0.0)
+    }
+
+    /// Le niveau d'une compétence d'enchaînement 7 ou 8 : avec ce que la condition lui donne (`active`), sinon sans.
+    pub fn with_combo(&self, active: bool) -> SkillLevel {
+        let mut lv = self.clone();
+        if !active {
+            lv.damage2 = 0.0;
+            lv.damage2_pct = 0.0;
+            lv.spirit2 = [(0.0, 0.0); 8];
+            return lv;
+        }
+        lv.mods.add(&self.combo_mods);
+        for (i, d) in &self.combo_dot {
+            match lv.dot.damages.iter_mut().find(|(j, _)| j == i) {
+                Some((_, x)) => *x += d,
+                None => lv.dot.damages.push((*i, *d)),
+            }
+        }
+        if self.combo_stun.0 > 0.0 && self.combo_stun.1 > 0 {
+            lv.status |= effects::status::STUN;
+            lv.status_rate = self.combo_stun.0;
+            lv.status_ms = self.combo_stun.1;
+        }
+        lv
     }
 
     /// Le niveau tel que le lance un personnage : incantation et relance réduites de `cast_pct` et `delay_pct` (facteurs
@@ -411,20 +451,39 @@ impl SkillLevel {
         class_col.is_some_and(|c| self.classes & (1 << c) != 0)
     }
 
-    /// Laisse un effet durable sur ses cibles.
+    /// Laisse un effet durable que reprend ArchCore (modificateur, dégât périodique, purge répétée) ; les essais s'en
+    /// servent, l'annonce suit `leaves_effect`.
+    #[cfg(test)]
     pub fn lasting(&self) -> bool {
         self.duration_ms > 0 && (!self.mods.is_empty() || !self.dot.is_empty() || self.purge_every_ms.is_some() && self.dispel != 0)
     }
 
-    /// Laisse un effet, compte tenu des états effectivement posés.
+    /// Laisse un effet, compte tenu des états effectivement posés : tout sort à durée, comme le client d'Archonia
+    /// l'attend (AGPMSKILL op 4, icône et fin à l'échéance), même si ArchCore n'en reprend aucune colonne
+    /// (modificateur, dégât périodique, purge) ; sinon un état posé pour un temps.
     pub fn leaves_effect(&self, status: u64) -> bool {
-        self.lasting() || status != 0 && self.status_ms > 0
+        self.duration_ms > 0 || status != 0 && self.status_ms > 0
     }
 }
 
 /// Liste de TID de la colonne `creature_tid` de SKILL_CONST (« 100;103;104 »), zéros écartés.
 pub fn creature_list(text: &str) -> Vec<u32> {
     text.split(';').filter_map(|t| t.trim().parse::<u32>().ok()).filter(|t| *t > 0).collect()
+}
+
+/// Colonnes « point2.x2 » et « percent2.x2 » de Skill_Const2 renommées « point.x » et « percent.x » : mêmes modificateurs
+/// que le niveau, lus de la même façon.
+fn second_columns(c: &serde_json::Value) -> serde_json::Value {
+    let mut out = serde_json::Map::new();
+    for (k, v) in c.as_object().into_iter().flatten() {
+        let renamed = k.strip_prefix("point2.").map(|r| ("point", r)).or_else(|| k.strip_prefix("percent2.").map(|r| ("percent", r)));
+        if let Some((prefix, rest)) = renamed {
+            if let Some(name) = rest.strip_suffix('2') {
+                out.insert(format!("{prefix}.{name}"), v.clone());
+            }
+        }
+    }
+    serde_json::Value::Object(out)
 }
 
 /// Modificateurs d'un niveau, avec les effets de combat que règle SKILL_SPEC.
@@ -447,6 +506,7 @@ fn combat_mods(c: &serde_json::Value, sp: &Spec) -> Mods {
     match sp.convert_type {
         1 => (m.to_hp_rate, m.to_hp) = (convert_rate, num("damage_convert_hp")),
         2 => (m.to_mp_rate, m.to_mp) = (convert_rate, num("damage_convert_mp")),
+        4 => (m.absorb_rate, m.absorb) = (convert_rate, num("damage_convert_hp")),
         _ => {}
     }
     if sp.status & effects::status::STUN_PROTECT != 0 {
@@ -489,6 +549,8 @@ pub enum Area {
     Single,
     Sphere { around_target: bool },
     Line,
+    /// Sphère autour d'une position visée au sol (701, 702).
+    Ground,
 }
 
 pub fn area(range_code: i64) -> Area {
@@ -497,6 +559,7 @@ pub fn area(range_code: i64) -> Area {
     match if c >= 100 { c / 100 } else { c } {
         3 => Area::Sphere { around_target },
         4 => Area::Line,
+        7 => Area::Ground,
         _ => Area::Single,
     }
 }
@@ -506,7 +569,7 @@ pub fn area(range_code: i64) -> Area {
 pub fn in_area(shape: Area, m: Vec3, center: Vec3, from: Vec3, toward: Vec3, lv: &SkillLevel) -> bool {
     match shape {
         Area::Single => false,
-        Area::Sphere { .. } => lv.area_r > 0.0 && combat::dist2d(m, center) <= lv.area_r,
+        Area::Sphere { .. } | Area::Ground => lv.area_r > 0.0 && combat::dist2d(m, center) <= lv.area_r,
         Area::Line => {
             let (length, width) = (if lv.area_f1 > 0.0 { lv.area_f1 } else { 600.0 }, if lv.area_f2 > 0.0 { lv.area_f2 } else { 300.0 });
             let (dx, dz) = ((toward.x - from.x) as f64, (toward.z - from.z) as f64);
@@ -631,7 +694,15 @@ impl SkillTemplate {
     }
     /// Se lance sans cible désignée : zone autour du lanceur, ou compétence non offensive.
     pub fn needs_target(&self) -> bool {
-        self.offensive() && self.area() != Area::Sphere { around_target: false }
+        self.offensive() && !matches!(self.area(), Area::Sphere { around_target: false } | Area::Ground)
+    }
+    /// Visée au sol et réservée à la guilde du lanceur (702 : Concealment, ShadowIllusion).
+    pub fn ground_guild(&self) -> bool {
+        self.range_code % 1000 == 702
+    }
+    /// Frappe des ennemis : offensive, ou visée au sol sur les ennemis (701 : Meteoric Shower, champ target 100).
+    pub fn hits_foes(&self) -> bool {
+        !self.ground_guild() && (self.offensive() || self.range_code % 1000 == 701)
     }
     pub fn can_upgrade(&self) -> bool {
         matches!(self.upgradable, 1 | 3)
@@ -705,6 +776,7 @@ impl SkillCatalog {
                 Spec {
                     melee_attack: int("melee_attack"),
                     reflect_melee_attack: int("reflect_melee_attack"),
+                    action_on_action: int("action_on_action"),
                     convert_type: int("convert_type"),
                     defense_melee_attack: int("defense_melee_attack"),
                     status,
@@ -848,6 +920,8 @@ pub struct Cast {
     pub stage: Stage,
     /// Attaque forcée (Ctrl, champ 4 du mini SKILL_ACTION) : nécessaire contre un joueur qui n'est pas un ennemi.
     pub forced: bool,
+    /// Position visée au sol (champ 3 du mini SKILL_ACTION) : compétence de zone 701, 702.
+    pub ground: Option<Vec3>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -875,6 +949,8 @@ pub struct PlayerSkills {
     pub held: u32,
     /// Bonus de niveau de toutes les compétences envoyé au joueur (AGPMSKILL op 14).
     pub levels_sent: i64,
+    /// Bonus de niveau de chaque compétence déjà annoncés (AGPMSKILL op 16, identifiant → bonus).
+    pub specific_sent: HashMap<u32, i64>,
 }
 
 impl PlayerSkills {
@@ -1194,6 +1270,7 @@ fn request_cast(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) {
         .and_then(|b| b.int(1))
         .unwrap_or(0) as u32;
     let forced = action.as_ref().and_then(|a| a.int(4)).unwrap_or(0) != 0;
+    let ground = action.as_ref().and_then(|a| a.vec3(3));
     let now = Instant::now();
     let Some(player) = st.players.get(&sid) else { return };
     if !player.in_game || player.dead {
@@ -1276,6 +1353,23 @@ fn request_cast(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) {
         debug!("[compétence] {name} : {} refusée sous une forme d'animal", t.name);
         return stop(st, sid);
     }
+    // Visée au sol (701, 702) : la position du paquet compte, pas la cible, que le client laisse nulle ou met à lui-même.
+    if t.area() == Area::Ground {
+        let Some(at) = ground else {
+            debug!("[compétence] {name} : {} sans position visée", t.name);
+            player.send_raw(refusal_packet(player.ch.id, &owned, target, super::skill_extra::INVALID_TARGET));
+            return stop(st, sid);
+        };
+        let me = player.ch.id;
+        st.players.get_mut(&sid).unwrap().skills.cast = Some(Cast { skill_id, target: me, stage: Stage::Approach { check_at: now }, forced, ground: Some(at) });
+        debug!("[compétence] {name} prépare {} au sol en {:.0}, {:.0}", t.name, at.x, at.z);
+        return;
+    }
+    // Attaque par téléportation (enchaînement 2) : pas sur un objet de siège (infobulle de Shadow Chaser).
+    if t.action_on_action == super::skill_extra::CHAIN_BLINK && st.monsters.get(target).is_some_and(|m| st.monsters.siege_spawns.contains_key(&m.spawn_id)) {
+        player.send_raw(refusal_packet(player.ch.id, &owned, target, super::skill_extra::INVALID_TARGET));
+        return stop(st, sid);
+    }
     let alive = st.monsters.get(target).is_some_and(|m| m.is_alive() && st.monsters.attackable(m));
     // Objet de siège : seulement pendant le combat, selon le camp et l'ordre d'attaque (siege/war.rs).
     if alive && t.offensive() && !super::siege::war::may_hit(ctx, st, sid, target) {
@@ -1326,7 +1420,7 @@ fn request_cast(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) {
         player.ch.id
     };
     let player = st.players.get_mut(&sid).unwrap();
-    player.skills.cast = Some(Cast { skill_id, target, stage: Stage::Approach { check_at: now }, forced });
+    player.skills.cast = Some(Cast { skill_id, target, stage: Stage::Approach { check_at: now }, forced, ground: None });
     debug!("[compétence] {name} prépare {} niveau {} sur {target:#x}", t.name, owned.level);
 }
 
@@ -1396,6 +1490,17 @@ fn begin(ctx: &WorldCtx, st: &mut WorldState, sid: u32, cast: Cast, now: Instant
             return;
         }
     }
+    // Position visée au sol : à portée, sinon le joueur s'en approche.
+    if let Some(at) = cast.ground {
+        let range = if lv.range > 0.0 { lv.range } else { p.factors.attack[0].max(50) as f64 };
+        if combat::dist2d(me, at) > range + REACH_TOLERANCE {
+            let travel = combat::approach_point(st, sid, at, range, now);
+            if let Some(c) = st.players.get_mut(&sid).and_then(|p| p.skills.cast.as_mut()) {
+                c.stage = Stage::Approach { check_at: now + travel };
+            }
+            return;
+        }
+    }
     // Incantation et relance réduites (facteurs d'attaque 3 et 4 : options et effets), PM selon les effets.
     let lv = &lv.timed(p.factors.attack[3] as f64, p.factors.attack[4] as f64, effects::total(&p.skills.effects).mp_cost_pct);
     let f = &p.factors;
@@ -1416,7 +1521,11 @@ fn begin(ctx: &WorldCtx, st: &mut WorldState, sid: u32, cast: Cast, now: Instant
         return stop(st, sid);
     }
     let name = t.name.clone();
+    // Lancement effectif : le lanceur s'arrête où il est (Archonia l'arrête avant de jouer le clip) ; position
+    // relue après l'arrêt.
+    super::presence::stop_for_cast(st, sid, now);
     let p = st.players.get_mut(&sid).unwrap();
+    let me = p.ch.pos();
     p.factors.point[1] -= lv.cost_mp;
     p.factors.point[POINT_HP] -= lv.cost_hp;
     let complete_at = now + Duration::from_millis(lv.cast_ms);
@@ -1427,11 +1536,11 @@ fn begin(ctx: &WorldCtx, st: &mut WorldState, sid: u32, cast: Cast, now: Instant
     if let Some(a) = p.attack.as_mut() {
         a.ready_at = a.ready_at.max(complete_at);
     }
-    if !product && (target.is_some() || (t.offensive() && friend.is_some())) {
+    if !product && (target.is_some() || (t.offensive() && friend.is_some()) || (t.hits_foes() && cast.ground.is_some())) {
         super::recovery::in_combat(&mut p.timers, now);
     }
     let cid = p.ch.id;
-    let target_pos = target.as_ref().map(|m| m.pos).or(friend).unwrap_or(me);
+    let target_pos = target.as_ref().map(|m| m.pos).or(friend).or(cast.ground).unwrap_or(me);
     let c = &schema::CHARACTER;
     p.send(c, Fields::new(c).with(0, 1).with(1, cid).with(7, factors_mini(&p.factors)));
     let pkt = cast_packet(cid, &owned, cast.target, target_pos, lv);
@@ -1484,20 +1593,26 @@ async fn complete(ctx: &WorldCtx, st: &mut WorldState, sid: u32, cast: Cast, now
     if t.at_field != 0 && super::skill_extra::cast_field(st, sid, &owned, t, lv, now) {
         return Ok(());
     }
-    if !t.offensive() {
+    if !t.hits_foes() {
         // Compétence amie : son lanceur (soin, renforcement) et, pour une compétence de groupe, les membres de son
         // groupe dans la zone.
         let mut friends = vec![st.by_cid.get(&cast.target).copied().filter(|s| st.players.contains_key(s)).unwrap_or(sid)];
         if t.party() {
             friends.extend(party_near(st, sid, me, lv.area_r));
         }
+        // Visée au sol (702) : les membres de la guilde autour de la position.
+        if let (true, Some(at)) = (t.ground_guild(), cast.ground) {
+            friends.extend(super::skill_extra::guild_near(st, sid, at, lv.area_r));
+        }
         for friend in friends {
             if !lv.heal.is_empty() {
                 effects::heal(&mut st.players.get_mut(&friend).unwrap().factors, &lv.heal);
                 super::equipment::refresh_factors(ctx, st, friend);
             }
-            if lv.dispel != 0 {
-                purge_player(ctx, st, friend, lv.dispel);
+            if lv.dispel != 0 && purge_player(ctx, st, friend, lv.dispel) > 0 {
+                let target = st.players.get(&friend).map(|f| f.ch.id).unwrap_or(0);
+                let caster = st.players.get(&sid).map(|p| p.ch.id).unwrap_or(0);
+                combat::send_around(st, friend, &effects::additional_effect_packet(caster, effects::additional::CURE, target));
             }
             if lv.leaves_effect(lv.status) {
                 add_player_effect(ctx, st, friend, Effect { caster_sid: sid, ..new_effect(&owned, lv, caster_tid, lv.status, None, now) });
@@ -1509,10 +1624,13 @@ async fn complete(ctx: &WorldCtx, st: &mut WorldState, sid: u32, cast: Cast, now
     if super::morph::harmless(st, sid) {
         return Ok(());
     }
+    // Attaque par téléportation (enchaînement 2) : le lanceur est d'abord posé au contact de sa cible (skill_extra.rs).
+    let me = if t.action_on_action == super::skill_extra::CHAIN_BLINK { super::skill_extra::blink(ctx, st, sid, cast.target, now).unwrap_or(me) } else { me };
     // Cibles : la cible désignée (toujours attaquable : une Mutation a pu la changer en animal), puis les monstres de
     // la zone.
     let primary = st.monsters.get(cast.target).filter(|m| m.is_alive() && st.monsters.attackable(m)).map(|m| (m.cid, m.pos));
     let center = match (t.area(), primary) {
+        (Area::Ground, _) => cast.ground.unwrap_or(me),
         (Area::Sphere { around_target: true }, Some((_, pos))) | (Area::Line, Some((_, pos))) => pos,
         _ => me,
     };
@@ -1585,8 +1703,11 @@ async fn complete(ctx: &WorldCtx, st: &mut WorldState, sid: u32, cast: Cast, now
 
 /// Effet d'une compétence offensive sur un monstre : dégâts immédiats, effet durable.
 #[allow(clippy::too_many_arguments)]
-async fn hit_monster(ctx: &WorldCtx, st: &mut WorldState, sid: u32, owned: &Owned, t: &SkillTemplate, lv: &SkillLevel, cid: u32, caster_tid: u32, now: Instant) -> anyhow::Result<()> {
+pub(super) async fn hit_monster(ctx: &WorldCtx, st: &mut WorldState, sid: u32, owned: &Owned, t: &SkillTemplate, lv: &SkillLevel, cid: u32, caster_tid: u32, now: Instant) -> anyhow::Result<()> {
     let Some(m) = st.monsters.get(cid).filter(|m| m.is_alive()).cloned() else { return Ok(()) };
+    // Enchaînements 7 et 8 : colonnes « …2 » selon la cible ou le lanceur (skill_extra.rs).
+    let combo = super::skill_extra::is_combo(t).then(|| lv.with_combo(super::skill_extra::combo_ready(st, sid, t, lv, cid)));
+    let lv = combo.as_ref().unwrap_or(lv);
     let Some(p) = st.players.get(&sid) else { return Ok(()) };
     let caster = p.ch.id;
     let stats = st.monsters.stats_for(&m);
@@ -1615,6 +1736,8 @@ async fn hit_monster(ctx: &WorldCtx, st: &mut WorldState, sid: u32, owned: &Owne
     combat::broadcast(st, &watchers, &result_packet(caster, owned, cid, result_factors(hp, stats.max_mp, &damages)));
     super::ai::add_aggro(st, cid, caster, total.max(1) as u64, now);
     debug!("[compétence] {} → {} : {total} dégât(s), {hp}/{} PV", t.name, m.name, m.max_hp);
+    // PV absorbés par le coup (Vampiric Impact, skill_extra.rs).
+    super::skill_extra::absorb(ctx, st, sid, cid, total, lv.drain);
     if hp == 0 {
         return combat::kill(ctx, st, sid, cid, now).await;
     }
@@ -1623,7 +1746,12 @@ async fn hit_monster(ctx: &WorldCtx, st: &mut WorldState, sid: u32, owned: &Owne
         return Ok(());
     }
     // Cible tirée au contact du lanceur ou reculée (skill_extra.rs).
-    super::skill_extra::after_skill_hit(ctx, st, t, lv, from, cid);
+    super::skill_extra::after_skill_hit(ctx, st, t, lv, from, caster, cid);
+    // Time Attack (enchaînement 1) : l'effet est posé, les dégâts viendront à sa fin (skill_extra.rs).
+    if t.action_on_action == super::skill_extra::CHAIN_TIMED {
+        super::skill_extra::arm_timed(ctx, st, sid, owned, lv, cid, caster_tid, now);
+        return Ok(());
+    }
     // Mutation : le monstre prend une forme d'animal pour la durée du niveau, passif (morph.rs).
     if t.is_mutation() {
         super::morph::mutate_monster(ctx, st, cid, &lv.creature_tids, lv.duration_ms, super::morph::downtime(ctx, t), now);
@@ -1659,12 +1787,15 @@ async fn hit_monster(ctx: &WorldCtx, st: &mut WorldState, sid: u32, owned: &Owne
 /// Effet d'une compétence offensive sur un joueur (combat entre joueurs) : dégâts immédiats, effet durable, inimitié
 /// et mort comme pour un coup normal (`pvp.rs`).
 #[allow(clippy::too_many_arguments)]
-async fn hit_player(ctx: &WorldCtx, st: &mut WorldState, sid: u32, owned: &Owned, lv: &SkillLevel, tsid: u32, caster_tid: u32, now: Instant) -> anyhow::Result<()> {
+pub(super) async fn hit_player(ctx: &WorldCtx, st: &mut WorldState, sid: u32, owned: &Owned, lv: &SkillLevel, tsid: u32, caster_tid: u32, now: Instant) -> anyhow::Result<()> {
     let (Some(p), Some(v)) = (st.players.get(&sid), st.players.get(&tsid)) else { return Ok(()) };
     if v.dead || !v.in_game {
         return Ok(());
     }
     let (caster, target) = (p.ch.id, v.ch.id);
+    // Enchaînements 7 et 8 : colonnes « …2 » selon la cible ou le lanceur (skill_extra.rs).
+    let combo = ctx.skills.get(owned.tid).filter(|t| super::skill_extra::is_combo(t)).map(|t| lv.with_combo(super::skill_extra::combo_ready(st, sid, t, lv, target)));
+    let lv = combo.as_ref().unwrap_or(lv);
     let (attacker, spirit) = (Attacker::of_player(p), spirit_ranges(&p.factors));
     let defender = attacker.pierce(&Defender::of_player(&v.factors));
     let mods = effects::total(&v.skills.effects);
@@ -1695,9 +1826,15 @@ async fn hit_player(ctx: &WorldCtx, st: &mut WorldState, sid: u32, owned: &Owned
         }
     }
     super::pvp::on_hit(ctx, st, sid, tsid, now);
+    super::skill_extra::absorb(ctx, st, sid, target, total, lv.drain);
     if hp == 0 {
         combat::player_death(st, tsid);
         return super::pvp::on_kill(ctx, st, sid, tsid).await;
+    }
+    // Time Attack (enchaînement 1) : l'effet est posé, les dégâts viendront à sa fin (skill_extra.rs).
+    if !shielded && ctx.skills.get(owned.tid).is_some_and(|t| t.action_on_action == super::skill_extra::CHAIN_TIMED) {
+        super::skill_extra::arm_timed(ctx, st, sid, owned, lv, target, caster_tid, now);
+        return Ok(());
     }
     let status = roll_status(&mut rand::thread_rng(), lv, &Mods { stun_protect: effects::pierced(mods.stun_protect, gear.1), ..mods });
     if !shielded && lv.leaves_effect(status) {
@@ -1946,6 +2083,13 @@ pub fn sync_player_status(st: &mut WorldState, sid: u32, now: Instant) {
     }
     let cid = p.ch.id;
     combat::send_around(st, sid, &effects::status_packet(cid, status));
+    // Invisibilité posée : ceux qui visaient le joueur le lâchent (op 10, type 7 ; AgcmSkill en fait autant chez eux).
+    if status & effects::status::INVISIBLE != 0 && old & effects::status::INVISIBLE == 0 {
+        combat::send_around(st, sid, &effects::additional_effect_packet(cid, effects::additional::RELEASE_TARGET, cid));
+        for (_, o) in st.players.iter_mut().filter(|(other, o)| **other != sid && o.attack.as_ref().is_some_and(|a| a.target == cid)) {
+            o.attack = None;
+        }
+    }
     super::status_rules::on_player_status(st, sid, old, status);
 }
 
@@ -1973,6 +2117,10 @@ pub fn add_player_effect(ctx: &WorldCtx, st: &mut WorldState, sid: u32, e: Effec
         combat::send_around(st, sid, &effects::remove_packet(cid, &old));
     }
     combat::send_around(st, sid, &effects::add_packet(cid, &e));
+    // Détection (skill_extra.rs) : effet visuel du parchemin.
+    if ctx.skills.get(e.tid).is_some_and(|t| t.detect != 0) {
+        combat::send_around(st, sid, &effects::additional_effect_packet(cid, effects::additional::DETECT_SCROLL, cid));
+    }
     super::equipment::refresh_factors(ctx, st, sid);
 }
 
@@ -2474,6 +2622,9 @@ mod tests {
         );
         assert_eq!((bash.status, bash.status_rate, bash.status_ms), (effects::status::STUN, 30.0, 3000));
         assert!(bash.leaves_effect(effects::status::STUN) && !bash.leaves_effect(0) && !bash.lasting());
+        // Sort à durée dont aucune colonne n'est reprise (« magnify.stun_resistance ») : effet annoncé quand même.
+        let unknown = SkillLevel::from_consts(&serde_json::json!({ "magnify.stun_resistance": "100", "duration": "30000" }));
+        assert!(unknown.mods.is_empty() && !unknown.lasting() && unknown.leaves_effect(0), "sort à durée : toujours annoncé");
         let snare = SkillLevel::with_spec(
             &serde_json::json!({ "percent.movement": "-20", "duration": "8000" }),
             &Spec { status: effects::status::SLOW, offensive: true, ..Default::default() },

@@ -202,6 +202,14 @@ pub async fn use_item(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet,
     // autres (Return Orb, objets de commande, Release of Agreement, Marvel Scroll) servent ailleurs : l'op 3 est sans effet.
     match catalog.get(item.tid).map(|d| d.usable_type).unwrap_or(0) {
         super::consumables::USABLE_ADD_BANK_SLOT => return super::bank::use_secret_safe(ctx, st, sid, &item).await,
+        // Boîtes de loterie et clés (lottery.rs).
+        super::lottery::USABLE_BOX if catalog.lottery.contains_key(&item.tid) => return super::lottery::open(ctx, st, sid, &item).await,
+        super::lottery::USABLE_KEY => {
+            super::lottery::use_key(st, sid);
+            return Ok(());
+        }
+        // Costume : pièces de l'ensemble (avatar.rs).
+        _ if catalog.avatars.contains_key(&item.tid) => return super::avatar::use_item(ctx, st, sid, &item, now).await,
         u if super::consumables::lit_usage(u) => {
             super::consumables::toggle_lit(ctx, st, sid, &item, u);
             return Ok(());

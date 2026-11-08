@@ -75,6 +75,8 @@ pub async fn run(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> 
     step(&format!("{char_name} entre en jeu, reçoit une épée et une armure"));
     let mut w = enter_world(&cfg, user, pass, char_name, "").await?;
     let me = w.cid as i64;
+    // L'armure exige le niveau 2 ; un scénario précédent peut avoir remis le personnage au niveau 1.
+    gm(&mut w, "/level 2", "maintenant niveau 2").await?;
     gm(&mut w, "/invincible 1", "Invincibilité").await?;
     gm(&mut w, "/money 1000", "pièce(s) d'or").await?;
     let (sword, armor) = (give(&mut w, SWORD).await?, give(&mut w, ARMOR).await?);

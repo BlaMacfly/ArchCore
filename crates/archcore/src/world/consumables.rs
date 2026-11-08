@@ -49,6 +49,7 @@
 //!             reste sans effet : ArchCore ne fait rien perdre à la mort, comme les données d'origine (pvpitemdroptable.txt
 //!             à 0 partout, réglage « bPCDropItemOnDeath » à 0, texte « Holding items will not be dropped even in case of
 //!             PK death » à l'entrée des zones de combat) ; les messages PvP 8 et 23 ne partent donc jamais.
+//!   Boîtes de loterie et clés (usages 17, 18) : `lottery.rs` ; pièces des costumes (usage 31) : `avatar.rs`.
 //!   Feux d'artifice (usage 22, `FIREWORKS`) : un exemplaire consommé, recharge « Use Interval », op 4 (TID, CID, 18
 //!             recharge) au joueur et à ceux qui le voient (le client joue l'effet de l'objet). Les autres objets de
 //!             l'usage 22 sont des paquets de la boutique : sans effet.
@@ -332,7 +333,7 @@ pub fn init_result_packet(cid: u32, result: i64) -> Vec<u8> {
 }
 
 /// Un exemplaire de l'objet consommé : quantité (op 2) ou retrait (op 1) envoyés.
-async fn consume_one(ctx: &WorldCtx, p: &mut Player, iid: u32) -> anyhow::Result<()> {
+pub(super) async fn consume_one(ctx: &WorldCtx, p: &mut Player, iid: u32) -> anyhow::Result<()> {
     let cid = p.ch.id;
     match p.inventory.consume(&ctx.db, iid, 1).await? {
         Some(left) => p.send_raw(p.inventory.count_packet(&left, cid)),

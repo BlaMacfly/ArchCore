@@ -349,6 +349,30 @@ pub fn stop(st: &mut WorldState, sid: u32) {
     broadcast_move(st, sid);
 }
 
+/// Lanceur figé au début de son incantation : Archonia arrête toujours le personnage avant de jouer le clip
+/// (`FUN_14069d250`), et son client n'envoie pas d'arrêt (un ordre de déplacement annulerait l'incantation, voir
+/// `on_move`). Position avancée jusqu'à `now`, destination et suivi effacés ; l'arrêt n'est diffusé qu'aux joueurs
+/// qui le voient (le lanceur s'arrête de lui-même au paquet d'incantation, un arrêt reçu lui ferait renvoyer un STOP).
+/// Rien à faire s'il ne marchait pas.
+pub fn stop_for_cast(st: &mut WorldState, sid: u32, now: Instant) {
+    let Some(p) = st.players.get_mut(&sid) else { return };
+    advance(p, now);
+    if p.dest.is_none() && p.follow_target == 0 {
+        return;
+    }
+    p.dest = None;
+    p.follow_target = 0;
+    p.follow_distance = 0;
+    p.dirty = true;
+    let cid = p.ch.id;
+    let fields = move_fields(st, sid);
+    for (other, o) in &st.players {
+        if *other != sid && o.seen_players.contains(&cid) {
+            o.send(&schema::OPT_CHAR_MOVE, fields.clone());
+        }
+    }
+}
+
 fn broadcast_move(st: &WorldState, sid: u32) {
     let fields = move_fields(st, sid);
     let cid = st.players[&sid].ch.id;

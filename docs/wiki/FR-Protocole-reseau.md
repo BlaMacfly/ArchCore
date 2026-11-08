@@ -167,8 +167,9 @@ pas de réponse). La somme (1 au moins, pas plus que l'or porté, pas pendant un
 (op 1 du personnage, champ 8) et tombe à ses pieds en une pile d'or (TID 268) **sans propriétaire** (champ 4 absent),
 ramassable par tous (op 11, op 12) ; elle disparaît au bout de 45 s. **Op 28** (UPDATE_COOLDOWN, serveur : 3 TID, 4 CID,
 5 entier laissé à 0, 18 temps restant en ms) : recharge des objets d'un modèle ; envoyée à 0 par la commande MJ
-`/recast`. Op 8 (annuler le parchemin de retour) n'a aucun appelant dans le client ; op 29 (endurance du familier) :
-format non établi ; ni l'une ni l'autre ne sont gérées.
+`/recast`. Op 8 (annuler le parchemin de retour) n'a aucun appelant dans le client ; op 29 (endurance du familier : 2 IID,
+4 CID, mini Cash vide au champ 23) est décodée sans rien ranger : ni l'une ni l'autre ne sont gérées. Op 25 (pause : 2 IID,
+4 CID ; le client met « en cours d'utilisation » à 2, affiche « Toggled Off ») : aucune donnée ne dit quand, pas envoyée.
 
 ## Boutiques des PNJ (type 0x32, AgcmEventNPCTrade)
 
@@ -581,6 +582,28 @@ Min/Max` et de sockets `Socket Inchant Min/Max` de l'objet produit) ; `Combine U
   colonnes `Keep Reinforcement Level`, `Keep Item Socket Count`, `Keep Socketed Items`, `Keep Item Options`.
   L'issue « échec » (`MakeItem IsFail`) produit son objet comme les autres : le client ne lit pas la colonne.
 
+## Gacha (type 0x57, AgpmEventGacha)
+
+« Fortune Gate » de l'épisode 8 : socles des villes, objets du monde de fonction 38 (`gacha_object`), trois côte à côte
+(armes 9081, armures 5780, accessoires 5891) et ceux du charisme (13173). Le type de tirage vient des données de
+l'événement (`GachaStart`, `Type=N`, `GachaEnd`) ; `gachatypetemplate.ini` donne, par type, les contrôles (`RaceCheck`,
+`ClassCheck`, `LevelCheck`, `LevelLimit`) et la table par niveau (`gachadroptable*.txt` : objet demandé
+`Gacha_ItemTID` × `Gacha_Item_Number`, or `Gacha_Cost`, charisme `CharismaPoint`, poids `Rank1`-`Rank4` sur 10 000).
+
+- **Schéma** (drapeaux 2) : 0 op, 1 EVENT_BASE, 2 CID, 3 à 7 INT32, 8 bloc mémoire.
+- **op 0** (client) : clic sur le socle ; refusé sans réponse au-delà de 600 unités (portée du code partagé
+  d'Archonia), sur un autre objet ou un objet d'une autre fonction.
+- **op 1** (serveur) : 3 code, 4 TID et 5 nombre de l'objet demandé, 6 or, 7 charisme, 8 TID de la bande (u32 à la
+  suite, 200 au plus) que le client fait défiler. Codes 0 à 4 : `UI_Gacha` s'ouvre ; 5 et 6 : message seul.
+- **op 2** (client) : bouton « Start ».
+- **op 3** (serveur) : 3 TID tiré, 4 code. Codes (messages `sysstr` du client) : 0 réussite, 1 objets manquants (729),
+  2 or (730), 3 charisme (739), 4 inventaire plein (731), 5 erreur inconnue (732), 6 niveau hors table (733).
+- **Tirage** : rang par les seuils cumulés du niveau du joueur (`R4`, `R3+R4`, `R2+R3+R4`, le rang 1 en reste, comme
+  les lit Archonia), puis un objet au hasard parmi ceux du type et du rang (`Gacha_Type_Numer`, `GachaRank`) dont
+  `GachaMinLv`-`GachaMaxLv` comprend le niveau et qui conviennent à la race et à la classe ; rang vide : le rang
+  inférieur, puis le supérieur (choix d'ArchCore). Coût pris au tirage (objets de l'inventaire ou de l'inventaire Cash :
+  le Fortune Gate Pass est un objet Cash), objet rangé d'abord : sac plein, rien de pris.
+
 ## Production (types 0x17 et 0x3A, AgpmProduct et AgpmEventProduct)
 
 Récolte sur cadavre (Collection Skill, TID 663, outil 654 Gathering Knife), cuisine (Cooking 203, outil 655 Cooking
@@ -743,6 +766,20 @@ signature de 16 octets au plus (sans `"`, `#`, `\`), AGPMCHARACTER op 1 **champ 
 (`characters.signature`), puis dans l'op 0 du personnage ; `/nick` seul l'efface. Chaque fois : objet consommé, op 4
 (recharge), message « Objet … utilisé » (texte `JumpItemUsed`).
 
+**Boîtes de loterie** (usage 17, table `itemlotterybox.txt` de l'épisode 8 : 123 boîtes, 3 121 lignes). AGPMITEM **op 3** sur
+la boîte : un objet tiré selon `Rate`, quantité entre `MinStack` et `MaxStack`, rangé (op 0), boîte et clé consommées, message
+système **0** (« You have acquired %d %s by opening %s. » : champ 2 quantité, 4 boîte, 5 objet). Boîte à `SubType` (1 or, 2
+argent, 4 platine ; Bronze Treasure Chest : 3) sans la clé (usage 18) de même `SubType` : message **2**, **3**, **28** ou **23**,
+rien de consommé (choix `Rules.LotteryKeys`, seuls les messages existent dans le client). Clé utilisée seule : message **1**. Sac
+plein : op 5, rien de consommé. Objet d'usage 17 sans ligne dans la table : sans effet.
+
+**Costumes** (usage 31, table `avatarset.ini` de l'épisode 8 : 2 163 ensembles ; `tid0` l'objet, `tid1…` les pièces, parties 16
+à 21). AGPMITEM **op 3** sur l'objet de l'inventaire Cash : sa compétence et sa vie, puis chaque pièce par **op 0** (statut 3,
+équipé ; identifiants à partir de 0x7E000000), au joueur et à ceux qui le voient, et avec l'équipement de sa vue ensuite. Sans
+effet sur les facteurs, ni en base, pour la session. Refus (op 5) : autre costume, partie occupée. L'objet réutilisé, **op 23** ou
+sa fin de vie : pièces retirées (**op 1**), effets retirés, op 26 ; refusé sous métamorphose, comme le client
+(`CannotUnEquipAvatarOnTransform`). `avatarsetsummoner.ini` (15 ensembles dont les objets n'existent pas dans l'épisode 8) : pas lu.
+
 **Feux d'artifice** (usage 22 : Small firecracker, Middle Fireworks Shine 1-3, Unique Fireworks Heart, Bead of Love) :
 un exemplaire consommé, AGPMITEM op 4 (3 TID, 4 CID, 18 recharge) au joueur et à ceux qui le voient ; recharge
 « Use Interval » (op 5 sinon). Les autres objets de l'usage 22 (paquets de la boutique Chantra) restent sans effet.
@@ -785,9 +822,30 @@ de chaque compétence dont il s'était lui-même donné l'effet est remise à z�
 (MODIFIED_SKILL_LEVEL : 1 bonus, moins de 31, 2 base) : niveaux en plus de toutes les compétences apprises, somme des
 colonnes `skill_levelup` des options portées (« Learned skills upgraded by n ranks »), envoyé à l'entrée en jeu et à
 chaque changement ; le serveur lance les compétences à ce niveau (dernier niveau de la compétence au plus, pas les
-compétences de production). L'op 16 (niveau d'une seule compétence) n'est pas envoyée : aucune option des données n'en
-donne (`Skill_id`, `Skill_level` vides) ; l'op 10 (effet secondaire) non plus, faute de savoir quand l'envoyer ; l'op 17
-est un ajout d'Archonia.
+compétences de production). L'op 17 est un ajout d'Archonia.
+
+**Op 16** (serveur : 1 identifiant de la compétence, 2 propriétaire, 4 bonus) : bonus de niveau d'une seule compétence,
+effets `skill_levelup` 2 et 4 ; le client l'ajoute au niveau de ses lancements, à chaque changement.
+
+**Op 10** (serveur : 1 type, 2 lanceur, 4 CID de la cible) : le client joue l'effet commun (`ee_common_char.txt`) du type.
+
+| Type | Effet commun | Envoyé |
+|---|---|---|
+| 1 | TIMEATTACK | fin de l'effet de Time Attack (les dégâts tombent alors) |
+| 2 | TELEPORT | déplacement forcé (`move_pos`, recul), attaque par téléportation (Shadow Chaser, Ambush) |
+| 3 | ABSORBMANA | jamais : aucune colonne des tables ne l'absorbe |
+| 4 | ABSORBLIFE | PV absorbés (`convert_type` 4, 6) |
+| 5 | aucun | jamais : le client n'en fait rien |
+| 6 | MENTALCIRCUIT | coup reçu changé en PV |
+| 7 | aucun : chaque client lâche sa cible et son attaque si elles visent ce personnage | invisibilité posée |
+| 8 | LENS_STONE | effet d'un seul coup consommé |
+| 9 | DETECT_SCROLL | effet de détection posé |
+| 10 | CURE | effet retiré par une compétence amie |
+
+**Visée au sol** (`range` de SKILL_SPEC : 701 ennemis, 702 guilde du lanceur, sphère de rayon `area_r`). Le client envoie
+AGPMSKILL **op 7** avec, dans le mini SKILL_ACTION : 0 action 0, 1 base de la cible (nulle, ou le lanceur), 3 **position
+visée**, 4 attaque forcée. ArchCore lit le champ 3 (sans position : refus, action 7), approche le joueur à portée, renvoie
+l'op 7 avec le lanceur pour cible et la position (le client garde alors la position du paquet), puis frappe la zone.
 
 **Maître des compétences.** Les PNJ « Instructeur » portent la fonction 25, avec la race et la classe
 enseignées (`SkillRaceType`, `SkillClassType`), envoyées dans leur vue (mini INT8, INT8).
@@ -1142,8 +1200,8 @@ deuxième pour 22 et 23), sont hors combat (24, 25), le chef adverse est en lign
 combats de guilde (option 0x04 : code 43). Le chef adverse reçoit l'op 15, le demandeur le code 28 et le
 statut 1 ; sans réponse en 60 secondes, la demande tombe. Refus (op 17) : code 30. Acceptation (op 16) :
 statut 2 et GUILD_BATTLE aux deux guildes ; le combat commence `Guild.BattleReadySeconds` plus tard (op 21,
-statut 3), puis l'horloge (op 22) part chaque seconde ; au début aussi, **op 46** (manche : 1, au premier des huit
-nombres du champ 4 et au champ 14 du combat ; ArchCore n'a pas de combat en plusieurs manches) et **op 27** (listes
+statut 3), puis l'horloge (op 22) part chaque seconde ; au début aussi, **op 46** (manche : 1, au champ 14 du combat, le
+seul que le client lit, guilde au champ 2 ; ArchCore n'a pas de combat en plusieurs manches) et **op 27** (listes
 des combattants des deux camps : mini du champ 20 {U32 n1, bloc de n1 enregistrements de 0x48 octets de la guilde du
 champ 2, U32 n2, bloc de la guilde adverse} ; enregistrement (`FUN_1404dee40`) : nom zéro-terminé dans 0x38 octets,
 points, adversaires tués, morts (U32), puis un entier de sens inconnu, -1 = inchangé). À chaque adversaire tué,
@@ -2100,7 +2158,7 @@ client n'en joue aucune, il n'en montre que les entrées et les sorties.
 | 0x31 | Portails de téléportation | 0x15 | Guildes |
 | 0x39 | Gestionnaire de guilde | 0x16 | Conversion des objets |
 | 0x38 | Forgeron (conversion) | 0x4B | Raffinage |
-| 0x3F | Sphère d'alchimie (raffinage) | | |
+| 0x3F | Sphère d'alchimie (raffinage) | 0x57 | Gacha (AgpmEventGacha) |
 | 0x07 | Échange entre joueurs | 0x3E | Quêtes des PNJ |
 | 0x17 | Production | 0x3A | PNJ de production |
 | 0x2B | Amis et ignorés | 0x2D | Courrier |
@@ -2116,3 +2174,9 @@ client n'en joue aucune, il n'en montre que les entrées et les sorties.
 | 0x53 | Taxes des régions (AgpmTax) | | |
 
 Les schémas complets des 86 modules sont dans `data/re/packet-schemas.json`.
+
+
+Inventaire (retour en jeu n° 2) : AGPMITEM garde ses trois coordonnées `[sac, ligne, colonne]`, chacune de 0 à 4 inclus. Cinq sacs de 5 × 5 cases ; aucune migration des coordonnées existantes. La corbeille du client demande confirmation avant AGPMITEM op 21 (destruction).
+
+
+Sertissage (AGPMITEMCONVERT op 3) : la rune peut provenir du sac normal ou Cash (statuts 2 ou 51), hors objet allumé ; mêmes validations et consommation avec le statut source. Les runes ailes/capes EP8 restent des runes à insérer dans un collier, distinctes des consommables On/Off.

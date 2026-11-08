@@ -55,11 +55,14 @@ pub mod customize;
 pub mod effects;
 pub mod equipment;
 pub mod evolution;
+pub mod gacha;
 pub mod gm;
 pub mod guild;
 pub mod heroic;
 pub mod items;
+pub mod avatar;
 pub mod lifetime;
+pub mod lottery;
 pub mod itemset;
 pub mod lang;
 pub mod loot;
@@ -156,6 +159,8 @@ pub struct WorldCtx {
     pub options: options::OptionCatalog,
     /// Recettes de raffinage (refineryrecipetable.txt).
     pub recipes: refinery::Recipes,
+    /// Gacha : types de tirage, tables par niveau, objets tirables et socles (gachatypetemplate.ini, gacha_object).
+    pub gacha: gacha::GachaCatalog,
     /// Production : récolte, recettes de cuisine et d'alchimie, niveaux (tables Product*.txt).
     pub product: product::ProductCatalog,
     /// Coiffures et visages proposés (charactercustomizelist.txt).
@@ -341,6 +346,8 @@ pub struct WorldState {
     pub ground: loot::Ground,
     /// Dernier identifiant de compétence attribué.
     pub next_skill_id: u32,
+    /// Dernier numéro des pièces de costume (`avatar.rs`).
+    pub next_avatar_iid: u32,
     /// Groupes de joueurs.
     pub parties: party::Parties,
     /// Guildes et leurs membres.
@@ -423,6 +430,7 @@ impl Service for WorldService {
                 | ptype::EVENT_ITEM_CONVERT
                 | ptype::REFINERY
                 | ptype::EVENT_REFINERY
+                | ptype::EVENT_GACHA
                 | ptype::EVENT_TELEPORT
                 | ptype::GUILD
                 | ptype::EVENT_GUILD
@@ -571,6 +579,7 @@ impl Connection for WorldConn {
             ptype::EVENT_ITEM_CONVERT => convert::on_event(ctx, &st, self.sid, &p),
             ptype::REFINERY => refinery::on_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::EVENT_REFINERY => refinery::on_event(ctx, &st, self.sid, &p),
+            ptype::EVENT_GACHA => gacha::on_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::EVENT_TELEPORT => portal::on_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::GUILD => guild::on_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::EVENT_GUILD => guild::on_event(ctx, &mut st, self.sid, &p),

@@ -463,6 +463,7 @@ ARCHCORE_CONF_DIR=config/test archcore sim counter [user] [pass] [character]
 ARCHCORE_CONF_DIR=config/test archcore sim mobskill [user] [pass] [character]
 ARCHCORE_CONF_DIR=config/test archcore sim convert [user] [pass] [character]
 ARCHCORE_CONF_DIR=config/test archcore sim refinery [user] [pass] [character]
+ARCHCORE_CONF_DIR=config/test archcore sim gacha [user] [pass] [character]
 ```
 
 `sim mastery` (GmTest, level 60) forgets Capacitate and Marching Song in the database, is refused Capacitate
@@ -480,7 +481,11 @@ sets the stone (op 7, result 0) then an attack prayer stone (rune, op 8, result 
 (+2, sockets, stone and rune) from the items received on entry, then destroys the sword. `sim refinery` (GmTest, GM account) opens an alchemy sphere, is refused a lone potion
 (result 2), gets the quote then refines 100 Breath Elemental Stones into 10 Gale Elemental Stones (recipe 4013,
 5000 gold), refines the recipe again by its id (op 6), is refused without ingredients (result 1), then refines a
-White Wing Dagger and its stones (recipe 183) into a dagger with one option.
+White Wing Dagger and its stones (recipe 183) into a dagger with one option. `sim gacha` (GmTest, level 25) gets
+nothing from a pedestal 3000 units away nor from an alchemy sphere, opens Anchorville's weapon pedestal (op 1:
+code 1, 1 Fortune Gate Pass required, non-empty strip), is refused without a pass (op 3, code 1), draws an item of
+the strip with three passes, is refused with a full bag (swords, code 4), then draws at the charisma pedestal for
+100 points.
 
 ```bash
 ARCHCORE_CONF_DIR=config/test archcore sim heroic [user] [pass] [character]

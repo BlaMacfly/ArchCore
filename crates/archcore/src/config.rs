@@ -272,6 +272,11 @@ pub struct RulesConfig {
     pub item_lifetime: bool,
     /// Death Strike (`world/skill_extra.rs`) : mort instantanée d'un monstre ordinaire (`Rules.DeathStrike`, 1).
     pub death_strike: bool,
+    /// Clé exigée par une boîte de loterie (`world/lottery.rs`, `Rules.LotteryKeys`).
+    pub lottery_keys: bool,
+    /// Écart de niveaux (dans les deux sens) au-delà duquel un monstre ne donne qu'une pièce d'or et aucun objet,
+    /// règle d'origine (`Rules.LootLevelGap`, 11) ; 0 la coupe.
+    pub loot_level_gap: i64,
     /// Déplacements forcés des compétences (`move_pos`, recul de Body Check : `Rules.ForcedMove`, 1) ; unités du jeu
     /// par point de `move_distance` (`Rules.KnockbackUnit`, 100 : la table l'exprime sans doute en mètres).
     pub forced_move: bool,
@@ -298,6 +303,8 @@ impl Default for RulesConfig {
             weapon_requirement: true,
             item_lifetime: true,
             death_strike: true,
+            lottery_keys: true,
+            loot_level_gap: 11,
             forced_move: true,
             knockback_unit: 100.0,
             shrink_percent: 30.0,
@@ -736,6 +743,8 @@ fn read_world(s: &Settings, cfg: &mut Config) {
         weapon_requirement: s.flag("Rules.WeaponRequirement", rd.weapon_requirement),
         item_lifetime: s.flag("Rules.ItemLifetime", rd.item_lifetime),
         death_strike: s.flag("Rules.DeathStrike", rd.death_strike),
+        lottery_keys: s.flag("Rules.LotteryKeys", rd.lottery_keys),
+        loot_level_gap: s.parse("Rules.LootLevelGap", rd.loot_level_gap).max(0),
         forced_move: s.flag("Rules.ForcedMove", rd.forced_move),
         knockback_unit: s.parse("Rules.KnockbackUnit", rd.knockback_unit).clamp(0.0, 1000.0),
         shrink_percent: s.parse("Rules.ShrinkPercent", rd.shrink_percent).clamp(0.0, 90.0),
@@ -1018,6 +1027,8 @@ pub fn to_values(cfg: &Config, which: Which) -> Vec<(String, String)> {
             put("Rules.WeaponRequirement", (r.weapon_requirement as i64).to_string());
             put("Rules.ItemLifetime", (r.item_lifetime as i64).to_string());
             put("Rules.DeathStrike", (r.death_strike as i64).to_string());
+            put("Rules.LotteryKeys", (r.lottery_keys as i64).to_string());
+            put("Rules.LootLevelGap", r.loot_level_gap.to_string());
             put("Rules.ForcedMove", (r.forced_move as i64).to_string());
             put("Rules.KnockbackUnit", fmt_num(r.knockback_unit));
             put("Rules.ShrinkPercent", fmt_num(r.shrink_percent));

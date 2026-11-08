@@ -418,7 +418,7 @@ pub fn request_cast(ctx: &WorldCtx, st: &mut WorldState, sid: u32, owned: Owned,
         return;
     }
     let p = st.players.get_mut(&sid).unwrap();
-    p.skills.cast = Some(Cast { skill_id: owned.id, target, stage: Stage::Approach { check_at: now }, forced: false });
+    p.skills.cast = Some(Cast { skill_id: owned.id, target, stage: Stage::Approach { check_at: now }, forced: false, ground: None });
     debug!("[production] {} prépare la récolte de {target:#x}", p.ch.name);
 }
 
