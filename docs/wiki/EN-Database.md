@@ -64,8 +64,8 @@ same name (`characterdatatable.txt`, `skillconst.txt`, `levelupexp.ini`…) prov
 | `item_data` | `itemdatatable.txt` | Item stats: level, part, kind, type, NPC prices (gold `npc_price`, resale `pc_price`, charisma `npc_charisma_price` and Shrine Coins `npc_shrine_coin` of the Shrine shop), stack, every column as JSON (`raw`) |
 | `skill_template` | `SKILLTEMPLATE.ini` | Skills (TID, name) |
 | `skill_spec` | `SKILL_SPEC.txt` | Each skill's nature (non-empty columns, as JSON) |
-| `quest_template` | `questtemplate.ini` (Webzen's `fr/questtemplate.ini` with `--webzen`: 3,082 quests) | Quests (non-empty columns, as JSON; English texts when Webzen has them) |
-| `quest_group` | `questgroup.ini` (Webzen's `fr/questgroup.ini`) | NPC groups: name, quests offered and handed in |
+| `quest_template` | `questtemplate.ini` (Webzen's `fr/questtemplate.ini` with `--webzen`: 3,235 quests) | Quests (non-empty columns, as JSON; English texts when Webzen has them) |
+| `quest_group` | `questgroup.ini` (Webzen's `fr/questgroup.ini`) | NPC and world object groups: name, quests offered and handed in, picking up on the world object (`gather`, [[TID, rank], …], for the export) |
 | `skill_level` | `SKILL_CONST.txt`, `Skill_Const2.txt` | Values of each level of each skill (non-empty columns, as JSON; `point.`, `percent.`, `magnify.` groups; those of `Skill_Const2.txt`, suffixed with "2", under `point2.`, `percent2.`…) |
 | `skill_mastery` | `SkillMastery_High.txt`, `SkillMastery_Heroic.txt` | Mastery trees: key (template TID, 10000 + race for "10004;4"), skill, tree (1 high, 2 heroic), required skills `[[TID, level]…]` (ConditionA, B), levels in a template's class `class_points` `[[template TID, levels]…]` (ConditionC), total (ConditionD: levels in total, or heroic points) |
 | `product_category`, `product_compose`, `product_exp`, `product_gather`, `product_result_item` | `productcategory.txt`, `productcompose.txt`, `productexp.txt`, `productgather.txt`, `productresultitem.txt` | Production: skill of each category, 95 recipes (materials `[[TID, count]…]`, price, level, chance), levels 1 to 15, 760 monsters that can be gathered, items gathered per set and level (skill names resolved through `SKILLTEMPLATE.ini`) |
@@ -90,6 +90,7 @@ same name (`characterdatatable.txt`, `skillconst.txt`, `levelupexp.ini`…) prov
 | `teleport_object` | `obj*.ini` (event 8) | 291 portals: object, point carried, position |
 | `refinery_object` | `obj*.ini` (event 26) | 20 alchemy spheres: object, position (refining within 1600 units) |
 | `gacha_object` | `obj*.ini` (event 38) | 60 gacha pedestals: object, draw type (`Type=` of the `GachaStart` data), position (window within 600 units) |
+| `quest_object` | `obj*.ini` (event 27) | 780 world objects with quests: object, quest group (`QuestGroupID`, usually the object's own number), position (quests taken and handed in within 1600 units) |
 | `teleport_fee` | `TeleportFee.txt` | 227 trip fees (departure, arrival) |
 | `bank_slot_price` | `bankslotprice.txt` | Price of extra bank pages (-1: cannot be bought with gold) |
 | `item_transform` | `itemtransformtable.txt` | 89 metamorphosis potions: item TID, form, level and Korean name (for reference), bonuses added to the transformed player's factors (run speed, attack speed, max HP and MP, defense, min and max damage; may be negative) |

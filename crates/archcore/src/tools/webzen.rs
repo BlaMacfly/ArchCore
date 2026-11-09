@@ -7,12 +7,12 @@
 //!   Quêtes : fr/questtemplate.ini (3 270 quêtes, TID 2 à 4584 ; trois lignes d'en-tête, la troisième nomme les
 //!        colonnes) pour les valeurs ; textes anglais de questtemplate.ini (2 969 quêtes) quand il a la quête, sinon
 //!        ceux du dossier fr/ (souvent restés en coréen) ; textes de fr/, de/, esp/ et portu/ par langue.
-//!        Groupes : fr/questgroup.ini (listes), noms de questgroup.ini quand il a le groupe. PNJ : événements de quête
-//!        (fonction 27) de npc.ini, sur les PNJ gardés par la fusion EP8.
-//!        Écartées : quête qui cite un monstre, un objet ou une compétence hors EP8 ; quête qu'aucun PNJ gardé ne
-//!        donne ou ne reprend (sauf quête « personnelle », Self_Quest), dont celles d'un objet du monde (donneur
-//!        désigné par un numéro d'objet : le serveur ne gère les quêtes que sur les PNJ) ; quête qui suit une quête
-//!        écartée.
+//!        Groupes : fr/questgroup.ini (listes), noms de questgroup.ini quand il a le groupe. Donneurs : événements de
+//!        quête (fonction 27) de npc.ini, sur les PNJ gardés par la fusion EP8, et des obj*.ini des tables EP8 (objets
+//!        du monde : leur groupe porte leur numéro, que GiveNpcName / ConfirmNpcName écrivent en chiffres).
+//!        Écartées : quête qui cite un monstre, un objet ou une compétence hors EP8 ; quête qu'aucun PNJ gardé ni
+//!        aucun objet à quêtes ne donne ou ne reprend (sauf quête « personnelle », Self_Quest) ; quête qui suit une
+//!        quête écartée.
 //!   Expérience : levelupexp.txt, niveaux 1 à 121 (au-delà de 2³² dès le niveau 113 : entiers 64 bits).
 //!   Titres : titledatatable.txt (2 768) et titlestringtable.txt (catégories, textes) ; Title_Check_N y est le TID
 //!        du premier titre de la famille qui définit la condition (10001 récolte, 30001 monstres tués…), là où
@@ -183,9 +183,9 @@ pub struct QuestPlan {
     pub dropped: BTreeMap<u32, String>,
 }
 
-/// Quêtes gardées : celles dont les monstres, objets et compétences cités sont dans les tables EP8, qu'un PNJ gardé
-/// donne (`offered`) et reprend (`returned`) — une quête « personnelle » (Self_Quest) n'en a pas besoin —, et dont la
-/// quête précédente est gardée.
+/// Quêtes gardées : celles dont les monstres, objets et compétences cités sont dans les tables EP8, qu'un PNJ gardé ou
+/// un objet du monde à quêtes donne (`offered`) et reprend (`returned`) — une quête « personnelle » (Self_Quest) n'en a
+/// pas besoin —, et dont la quête précédente est gardée.
 pub fn plan_quests(t: &Table, sets: &Ep8Sets, offered: &HashSet<u32>, returned: &HashSet<u32>) -> QuestPlan {
     let mut plan = QuestPlan::default();
     let refs: Vec<(usize, &str, &HashSet<u32>)> =
@@ -201,9 +201,9 @@ pub fn plan_quests(t: &Table, sets: &Ep8Sets, offered: &HashSet<u32>, returned: 
             "" => String::new(),
             n => format!(" ({n})"),
         };
-        // Donneur ou receveur numéro d'objet du monde (obj*.ini, fonction 27 sur un objet) : le serveur ne gère les
-        // événements de quête que sur les PNJ.
-        let object = |col: &str| is_object(t.get(*tid, col)).then(|| format!("objet du monde {} ({col}) : quêtes des objets non gérées", t.get(*tid, col)));
+        // Donneur ou receveur numéro d'objet du monde dont aucun objet à quêtes (obj*.ini EP8, fonction 27) ne porte le
+        // groupe qui la cite.
+        let object = |col: &str| is_object(t.get(*tid, col)).then(|| format!("objet du monde {} ({col}) : aucun objet à quêtes EP8 ne la cite", t.get(*tid, col)));
         let why = bad
             .or_else(|| (!personal && !offered.contains(tid)).then(|| object("GiveNpcName").unwrap_or_else(|| format!("aucun PNJ gardé ne la donne{}", npc("GiveNpcName")))))
             .or_else(|| (!personal && !returned.contains(tid)).then(|| object("ConfirmNpcName").unwrap_or_else(|| format!("aucun PNJ gardé ne la reprend{}", npc("ConfirmNpcName")))));
@@ -263,6 +263,24 @@ pub fn quest_groups(lists: &[u8], names: Option<&[u8]>) -> Vec<(u32, String, Vec
             (id, name, list(c.get(2)), list(c.get(3)))
         })
         .collect()
+}
+
+/// 5ᵉ colonne de questgroup.ini (« TID-rang: ») : quêtes dont un objet se ramasse sur l'objet du monde du groupe,
+/// avec le rang de la colonne (`ObjectA` = 0 … `ObjectE` = 4), pour les quêtes `kept` ; groupe → liste.
+pub fn gather_lists(lists: &[u8], kept: &BTreeSet<u32>) -> BTreeMap<u32, Vec<(u32, u32)>> {
+    let mut out = BTreeMap::new();
+    for cells in byte_lines(lists).map(|l| decode_cells(l, true)) {
+        let Some(id) = cells.first().and_then(|c| c.trim().parse::<u32>().ok()) else { continue };
+        let list: Vec<(u32, u32)> = cells
+            .get(4)
+            .map(|c| c.split(':').filter_map(|e| e.trim().split_once('-')).filter_map(|(t, r)| Some((t.trim().parse().ok()?, r.trim().parse().ok()?))).collect())
+            .unwrap_or_default();
+        let list: Vec<(u32, u32)> = list.into_iter().filter(|(t, _)| kept.contains(t)).collect();
+        if !list.is_empty() {
+            out.insert(id, list);
+        }
+    }
+    out
 }
 
 /// Groupes de quêtes sans les quêtes écartées ; un groupe vidé par elles est retiré (un groupe déjà vide reste).
@@ -414,13 +432,18 @@ mod tests {
         assert_eq!(plan.dropped[&6], "aucun PNJ gardé ne la donne (Personne)");
         let mut objects = t.clone();
         objects.rows.get_mut(&6).unwrap()[2] = "165609488".into();
-        assert_eq!(plan_quests(&objects, &sets, &offered, &offered).dropped[&6], "objet du monde 165609488 (GiveNpcName) : quêtes des objets non gérées");
+        assert_eq!(plan_quests(&objects, &sets, &offered, &offered).dropped[&6], "objet du monde 165609488 (GiveNpcName) : aucun objet à quêtes EP8 ne la cite");
+        // Groupe d'un objet du monde à quêtes : la quête est donnée et reprise comme chez un PNJ.
+        let with_object: HashSet<u32> = [2, 3, 4, 6].into();
+        assert!(plan_quests(&objects, &sets, &with_object, &with_object).kept.contains(&6));
         assert_eq!((reason_key(&plan.dropped[&3]), reason_key(&plan.dropped[&6])), ("objet hors EP8 (Gift_ItemA_Tid)".into(), "aucun PNJ gardé ne la donne".into()));
         let returned: HashSet<u32> = [3].into();
         assert_eq!(plan_quests(&t, &sets, &offered, &returned).dropped[&2], "aucun PNJ gardé ne la reprend");
         let groups = quest_groups(b"1\t\xb8\xb6\xc0\xbb\t2:3:\t2:\t\r\n9\tx\t4:\t\t\r\n10\tvide\t\t\t\r\n", Some(b"1\t<Village Chief> Rembrandt\t2:\t2:\r\n"));
         assert_eq!(groups[0], (1, "<Village Chief> Rembrandt".into(), vec![2, 3], vec![2]));
         assert_eq!(groups[1].1, "x");
+        let gathers = gather_lists(b"126091413\t126091413\t\t\t14-0:2-1:\r\n7\tx\t\t\t\r\n", &[2, 5].into());
+        assert_eq!(gathers.into_iter().collect::<Vec<_>>(), vec![(126_091_413, vec![(2, 1)])], "quête 14 écartée, groupe sans ramassage absent");
         let (kept, gone) = keep_groups(groups, &plan.kept);
         assert_eq!((kept.iter().map(|g| (g.0, g.2.clone())).collect::<Vec<_>>(), gone), (vec![(1, vec![2]), (10, vec![])], 1));
     }

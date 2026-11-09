@@ -369,6 +369,16 @@
 
 ## Prochaines étapes
 
+000. Quêtes des objets du monde (8 novembre 2026) : relevé dans Archonia et dans le client de Webzen (événement 27
+   d'un objet des `obj*.ini`, EVENT_BASE de type 1, rayon de l'objet + 50 au champ 3 d'AGPMEVENTQUEST, fenêtre
+   `QuestAccept_UI`, repère de minicarte) ; table `quest_object` (780 objets, migration `202611082200`), fenêtre,
+   prise et rendu par un objet à 1600 unités au plus ; l'import Webzen garde 3 235 quêtes sur 3 270 (les 72 quêtes
+   d'objet et les 81 qui les suivaient ; restent 3296, 4372 et 4373, qu'aucun PNJ ni groupe ne porte dans les données
+   d'origine, et les 32 qui suivent 4373) ; scénario `questobject`. Ramassage d'un objet de quête sur un objet
+   (AGPMQUEST op 11, barre de 5 s du client, 588 quêtes) : relevé, objet remis et objectif suivi par le serveur,
+   colonne `gather` de `quest_group` (migration `202611090900`) exportée en 5ᵉ colonne de `questgroup.ini`, barre et
+   op 11 dans ArchRust ; scénario `questgather`. Restent les essais en jeu.
+
 00. Source Webzen (8 novembre 2026) : `archcore import … --webzen <dossier ini>` importe du client officiel de
    Webzen les quêtes (3 082 sur 3 270 : 72 données ou reprises par un objet du monde, que le serveur ne gère pas,
    3 sans PNJ gardé, 113 à leur suite ; les 14 quêtes d'Archonia retirées), leurs groupes, leurs PNJ et leurs textes
@@ -377,7 +387,7 @@
    supérieures et héroïques d'origine (second arbre du Berserker, mode berserk d'Archonia, retiré) ; journal des
    lignes écartées (`data/import-webzen.log`), export pour ArchRust (quêtes, groupes, titres, maîtrises),
    `migrate-ep8` étendu aux quêtes et titres disparus ; scénarios `quest`, `title` et `exp` adaptés ou ajoutés.
-   Restent : les quêtes données par les objets du monde (événement de quête sur un objet), les essais en jeu.
+   Restent : les quêtes données par les objets du monde (faites, point 000), les essais en jeu.
 
 0. Valeurs de l'épisode 8 (2 novembre 2026) : import (valeurs des tables du serveur d'origine, noms du client,
    résumé par table), export des tables pour ArchRust (`archcore export-client-tables`, empreinte annoncée par

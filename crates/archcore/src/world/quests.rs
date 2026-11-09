@@ -22,10 +22,17 @@
 //!       TID % 16 384 du bloc TID / 16 384, octet bit / 8, bit de poids faible d'abord), puis op 4 (mini
 //!       QUEST_INFO) pour chaque quête en cours ; son 5ᵉ entier est le drapeau du suivi (le 4ᵉ est ignoré par l'op 4)
 //! ```
-//! Les ops 11 (objet de quête ramassé : colonnes `ObjectItem*` de questtemplate.ini, vides dans les données), 12 et 13
-//! (aucun abonné dans le client) ne sont pas gérées.
+//!     client → op 11 ramassage sur un objet du monde (champ 1 CID, champ 2 EVENT_BASE de l'objet, champ 4 TID,
+//!            champ 5 rang 0 à 4 = colonnes `ObjectA` à `ObjectE`), envoyé par le client au bout d'une barre de 5 s
+//!            (sysstr 331) ; voir `gather`
+//! Les ops 12 et 13 (aucun abonné dans le client) ne sont pas gérées.
 //! Une quête se prend auprès d'un PNJ dont le groupe (`QuestGroupID` de npc.ini → questgroup.ini) la
 //! propose, ou depuis le journal si elle est « personnelle » (`Self_Quest`) ; elle se rend de même.
+//! Un objet du monde peut aussi porter l'événement de quête (fonction 27 de son obj*.ini, table `quest_object`) :
+//! le client le désigne par un EVENT_BASE { type 1, numéro de l'objet, -, 27 } dans AGPMEVENTQUEST op 0 (champ 3 :
+//! rayon de l'objet + 50, relevé dans les deux clients) puis dans les ops 0 et 2 d'AGPMQUEST ; son groupe (le
+//! `QuestGroupID` de l'événement, d'ordinaire le numéro de l'objet) donne et reprend les quêtes comme celui d'un PNJ,
+//! à 1600 unités au plus de l'objet (min(champ 3, 1600) pour la fenêtre, comme le code partagé d'Archonia).
 
 use super::items::{item_add, item_count, item_remove, item_status};
 use super::npc_events::{in_range, range, resolve};
@@ -61,8 +68,21 @@ pub mod op {
     pub const ACCEPT_INVENTORY_FULL: i64 = 9;
     pub const PROGRESS: i64 = 10;
     /// Suivi à l'écran (client → serveur).
+    /// Ramassage sur un objet du monde (client → serveur).
+    pub const GATHER: i64 = 11;
     pub const JOURNAL: i64 = 14;
     pub const COMPLETE_SELECT: i64 = 15;
+}
+
+/// Code d'AgpmSystemMessage « NotEnoughInventory » (systemmsgformat.xml du client).
+pub const MSG_NOT_ENOUGH_INVENTORY: i64 = 41;
+
+/// Objet à ramasser sur un objet du monde (`Object<rang>_ID`, `ObjectItem<rang>_TID`, `ObjectItem<rang>_Count`).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Gather {
+    pub object: u32,
+    pub item: u32,
+    pub count: i64,
 }
 
 /// Monstres à tuer.
@@ -98,6 +118,8 @@ pub struct QuestTemplate {
     pub item: Option<(u32, i64)>,
     pub hunts: [Option<Hunt>; 2],
     pub drops: Vec<QuestDrop>,
+    /// Objets à ramasser sur des objets du monde, par rang (A à E).
+    pub gathers: [Option<Gather>; 5],
     pub gifts: Vec<(u32, i64)>,
     /// Récompenses au choix.
     pub choices: Vec<(u32, i64)>,
@@ -152,6 +174,10 @@ impl QuestTemplate {
             item: pair("Complete_ItemTid", "Complete_ItemCount"),
             hunts: [hunt("A"), hunt("B")],
             drops,
+            gathers: ["A", "B", "C", "D", "E"].map(|k| {
+                let (object, item) = (int(d, &format!("Object{k}_ID")), int(d, &format!("ObjectItem{k}_TID")));
+                (object > 0 && item > 0).then(|| Gather { object: object as u32, item: item as u32, count: int(d, &format!("ObjectItem{k}_Count")).max(1) })
+            }),
             gifts: ["A", "B", "C", "D"].iter().filter_map(|k| pair(&format!("Gift_Item{k}_Tid"), &format!("Gift_Item{k}_Count"))).collect(),
             choices: (1..=8).filter_map(|i| pair(&format!("SelectItem{i}_Tid"), &format!("SelectItem{i}_Count"))).collect(),
             gift_money: int(d, "Gift_Money"),
@@ -182,10 +208,25 @@ impl QuestTemplate {
         None
     }
 
-    /// Objectifs remplis : monstres tués et objets réunis (`held` = nombre de l'objet demandé).
-    pub fn objectives_met(&self, a: &ActiveQuest, held: i64) -> bool {
+    /// Objectifs remplis : monstres tués, objets réunis et objets ramassés sur les objets du monde (`held` : nombre
+    /// d'exemplaires détenus d'un TID).
+    pub fn objectives_met(&self, a: &ActiveQuest, held: impl Fn(u32) -> i64) -> bool {
         let killed = [a.count_a, a.count_b];
-        self.hunts.iter().zip(killed).all(|(h, k)| h.is_none_or(|h| k >= h.count)) && self.item.is_none_or(|(_, n)| held >= n)
+        self.hunts.iter().zip(killed).all(|(h, k)| h.is_none_or(|h| k >= h.count))
+            && self.item.is_none_or(|(item, n)| held(item) >= n)
+            && self.gathers.iter().flatten().all(|g| held(g.item) >= g.count)
+    }
+
+    /// Objets repris à la fin : `Complete_ItemTid` et objets ramassés, par TID (le plus grand nombre demandé).
+    pub fn taken_items(&self) -> Vec<(u32, i64)> {
+        let mut out: Vec<(u32, i64)> = Vec::new();
+        for (item, n) in self.item.into_iter().chain(self.gathers.iter().flatten().map(|g| (g.item, g.count))) {
+            match out.iter_mut().find(|(t, _)| *t == item) {
+                Some(e) => e.1 = e.1.max(n),
+                None => out.push((item, n)),
+            }
+        }
+        out
     }
 }
 
@@ -195,6 +236,8 @@ pub struct QuestCatalog {
     quests: HashMap<u32, QuestTemplate>,
     /// Groupe → (quêtes proposées, quêtes terminées auprès de lui).
     groups: HashMap<u32, (Vec<u32>, Vec<u32>)>,
+    /// Objets du monde à quêtes : numéro de l'objet → (groupe, position).
+    objects: HashMap<u32, (u32, archcore_net::Vec3)>,
 }
 
 impl QuestCatalog {
@@ -216,8 +259,19 @@ impl QuestCatalog {
             let parse = |k: &str| serde_json::from_str::<Vec<u32>>(&col::<String>(&r, k)).unwrap_or_default();
             groups.insert(col::<u32>(&r, "id"), (parse("give"), parse("confirm")));
         }
-        info!("quêtes : {} ({} groupe(s) de PNJ)", quests.len(), groups.len());
-        Ok(QuestCatalog { quests, groups })
+        // Table absente (base non migrée) : aucun objet à quêtes.
+        let mut objects = HashMap::new();
+        for r in db.world.rows("SELECT object_id, quest_group, pos_x, pos_y, pos_z FROM quest_object", ()).await.unwrap_or_default() {
+            let at = archcore_net::Vec3::new(col::<f64>(&r, "pos_x") as f32, col::<f64>(&r, "pos_y") as f32, col::<f64>(&r, "pos_z") as f32);
+            objects.insert(col::<u32>(&r, "object_id"), (col::<u32>(&r, "quest_group"), at));
+        }
+        info!("quêtes : {} ({} groupe(s) de PNJ et d'objets, {} objet(s) du monde à quêtes)", quests.len(), groups.len(), objects.len());
+        Ok(QuestCatalog { quests, groups, objects })
+    }
+
+    /// Objet du monde à quêtes : (groupe, position).
+    pub fn object(&self, id: u32) -> Option<(u32, archcore_net::Vec3)> {
+        self.objects.get(&id).copied()
     }
 
     pub fn get(&self, tid: u32) -> Option<&QuestTemplate> {
@@ -327,23 +381,39 @@ fn held(p: &super::Player, tid: u32) -> i64 {
 // Fenêtre auprès d'un PNJ
 // ---------------------------------------------------------------------------------------------
 
-/// Groupe de quêtes du PNJ désigné par un mini EVENT_BASE, s'il est à portée.
-fn npc_group(ctx: &WorldCtx, st: &WorldState, sid: u32, event: Option<&[u8]>) -> Option<u32> {
+/// Portée de la fenêtre d'un objet : champ 3 d'AGPMEVENTQUEST (rayon de l'objet + 50 chez le client), borné à 1600 ;
+/// 1600 sans valeur positive (FUN_1402a5460 d'Archonia).
+pub fn object_range(asked: Option<i64>) -> f64 {
+    match asked {
+        Some(r) if r > 0 => (r as f64).min(range::QUEST),
+        _ => range::QUEST,
+    }
+}
+
+/// Groupe de quêtes de la source désignée par un mini EVENT_BASE (PNJ, ou objet du monde de type 1, à `object_reach`
+/// au plus), si elle est à portée.
+fn source_group(ctx: &WorldCtx, st: &WorldState, sid: u32, event: Option<&[u8]>, object_reach: f64) -> Option<u32> {
     let base = decode_mini(&mini::EVENT_BASE, event?).ok()?;
+    let p = st.players.get(&sid)?;
+    if base.int(0) == Some(super::npcs::BASE_TYPE_OBJECT) {
+        base.int(3).is_none_or(|f| f == event_function::QUEST).then_some(())?;
+        let (group, at) = ctx.quests.object(base.int(1)? as u32)?;
+        let me = super::presence::position_now(p, std::time::Instant::now());
+        return (super::combat::dist2d(me, at) <= object_reach + super::npc_events::RANGE_TOLERANCE).then_some(group);
+    }
     let (npc, _) = resolve(&ctx.npcs, &base)?;
     let ev = npc.events.iter().find(|e| e.function == event_function::QUEST)?;
-    let p = st.players.get(&sid)?;
     in_range(npc, p, range::QUEST).then_some(())?;
     ev.param("QuestGroupID").and_then(|g| g.trim().parse::<u32>().ok())
 }
 
-/// AGPMEVENTQUEST reçu : fenêtre des quêtes d'un PNJ.
+/// AGPMEVENTQUEST reçu : fenêtre des quêtes d'un PNJ ou d'un objet du monde.
 pub fn on_event(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) {
     if p.int(0) != Some(0) {
         return;
     }
-    let Some(group) = npc_group(ctx, st, sid, p.bytes(1)) else {
-        warn!("[quête] #{sid} fenêtre de quêtes refusée (PNJ inconnu, sans quêtes ou trop loin)");
+    let Some(group) = source_group(ctx, st, sid, p.bytes(1), object_range(p.int(3))) else {
+        warn!("[quête] #{sid} fenêtre de quêtes refusée (PNJ ou objet inconnu, sans quêtes ou trop loin)");
         return;
     };
     let player = &st.players[&sid];
@@ -367,14 +437,16 @@ pub async fn on_packet(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet
         op::COMPLETE | op::COMPLETE_SELECT => complete(ctx, st, sid, tid, p.bytes(2), p.int(7).unwrap_or(-1)).await?,
         op::CANCEL => cancel(ctx, st, sid, tid).await?,
         op::JOURNAL => journal(ctx, st, sid, tid, p).await?,
+        op::GATHER => gather(ctx, st, sid, tid, p.bytes(2), p.int(5).unwrap_or(-1)).await?,
         other => warn!("[quête] #{sid} op {other} non géré"),
     }
     Ok(())
 }
 
-/// Le PNJ (ou le journal, pour une quête personnelle) permet de prendre (`give`) ou de rendre la quête.
+/// Le PNJ ou l'objet du monde (ou le journal, pour une quête personnelle) permet de prendre (`give`) ou de rendre la
+/// quête.
 fn place_allows(ctx: &WorldCtx, st: &WorldState, sid: u32, q: &QuestTemplate, event: Option<&[u8]>, give: bool) -> bool {
-    match npc_group(ctx, st, sid, event).and_then(|g| ctx.quests.group(g)) {
+    match source_group(ctx, st, sid, event, range::QUEST).and_then(|g| ctx.quests.group(g)) {
         Some((offered, confirmed)) => (if give { offered } else { confirmed }).contains(&q.tid) || q.self_quest,
         None => q.self_quest,
     }
@@ -408,7 +480,7 @@ async fn accept(ctx: &WorldCtx, st: &mut WorldState, sid: u32, tid: u32, event: 
         return Ok(());
     };
     let p = &st.players[&sid];
-    let why = q.refusal(p.ch.level, p.factors.ftype[0] as i64, p.factors.ftype[2] as i64, &p.quests).or_else(|| (!place_allows(ctx, st, sid, q, event, true)).then_some("ce PNJ ne la propose pas"));
+    let why = q.refusal(p.ch.level, p.factors.ftype[0] as i64, p.factors.ftype[2] as i64, &p.quests).or_else(|| (!place_allows(ctx, st, sid, q, event, true)).then_some("ce PNJ ou cet objet ne la propose pas"));
     if let Some(why) = why {
         info!("[quête] {} ne peut pas prendre « {} » : {why}", p.ch.name, q.name);
         send_system(st, sid, &format!("Quête « {} » impossible : {why}.", q.name));
@@ -491,17 +563,16 @@ async fn complete(ctx: &WorldCtx, st: &mut WorldState, sid: u32, tid: u32, event
         reply(st, sid, op::COMPLETE_RESULT, tid, false);
         return Ok(());
     };
-    let have = q.item.map(|(item, _)| held(p, item)).unwrap_or(0);
     let chosen = reward_choice(&q.choices, choice);
     let rewards: Vec<(u32, i64)> = q.gifts.iter().copied().chain(chosen.ok().flatten()).collect();
     let why = if chosen.is_err() {
         Some("choix de récompense invalide")
-    } else if !q.objectives_met(&a, have) {
+    } else if !q.objectives_met(&a, |t| held(p, t)) {
         Some("objectifs non remplis")
     } else if q.complete_level > 0 && p.ch.level < q.complete_level {
         Some("niveau")
     } else if !place_allows(ctx, st, sid, q, event, false) {
-        Some("rendez-la au bon PNJ")
+        Some("rendez-la au bon PNJ ou au bon objet")
     } else {
         None
     };
@@ -518,8 +589,8 @@ async fn complete(ctx: &WorldCtx, st: &mut WorldState, sid: u32, tid: u32, event
         return Ok(());
     }
     let (cid, name, money) = (p.ch.id, p.ch.name.clone(), p.ch.money as i64);
-    // Objets rapportés, pris dans l'inventaire.
-    if let Some((item, mut need)) = q.item {
+    // Objets rapportés et objets ramassés sur les objets du monde, pris dans l'inventaire.
+    for (item, mut need) in q.taken_items() {
         let stacks: Vec<u32> = st.players[&sid].inventory.items.values().filter(|i| i.tid == item).map(|i| i.iid).collect();
         for iid in stacks {
             if need <= 0 {
@@ -573,8 +644,61 @@ async fn complete(ctx: &WorldCtx, st: &mut WorldState, sid: u32, tid: u32, event
 fn send_progress(ctx: &WorldCtx, st: &WorldState, sid: u32, tid: u32) {
     let p = &st.players[&sid];
     let (Some(q), Some(a)) = (ctx.quests.get(tid), p.quests.active(tid)) else { return };
-    let have = q.item.map(|(item, _)| held(p, item)).unwrap_or(0);
-    p.send(&schema::QUEST, quest(op::PROGRESS, p.ch.id).with(3, info_mini(a, q.objectives_met(a, have))).with(4, tid));
+    p.send(&schema::QUEST, quest(op::PROGRESS, p.ch.id).with(3, info_mini(a, q.objectives_met(a, |t| held(p, t)))).with(4, tid));
+}
+
+/// Op 11 : ramassage sur un objet du monde, au bout de la barre de 5 s du client. Accepté (choix d'ArchCore, le
+/// serveur d'origine ne se voit pas) si la quête est en cours, que son `Object<rang>_ID` est l'objet désigné, à 1600
+/// unités au plus, et que l'objet n'est pas déjà détenu au nombre demandé : un exemplaire est remis, puis la
+/// progression (op 10). Refus sans réponse, comme le client qui ne traite pas d'op 11 ; inventaire plein :
+/// AgpmSystemMessage `NotEnoughInventory`. L'objet du monde reste disponible pour tous.
+async fn gather(ctx: &WorldCtx, st: &mut WorldState, sid: u32, tid: u32, event: Option<&[u8]>, rank: i64) -> anyhow::Result<()> {
+    let p = &st.players[&sid];
+    let name = p.ch.name.clone();
+    let Some(q) = ctx.quests.get(tid) else {
+        warn!("[quête] {name} : ramassage pour une quête inconnue ({tid})");
+        return Ok(());
+    };
+    let g = usize::try_from(rank).ok().and_then(|r| q.gathers.get(r).copied().flatten());
+    let base = event.and_then(|b| decode_mini(&mini::EVENT_BASE, b).ok());
+    let object = base.as_ref().filter(|b| b.int(0) == Some(super::npcs::BASE_TYPE_OBJECT)).and_then(|b| b.int(1)).map(|o| o as u32);
+    let near = |g: &Gather| {
+        ctx.quests.object(g.object).is_some_and(|(_, at)| {
+            super::combat::dist2d(super::presence::position_now(p, std::time::Instant::now()), at) <= range::QUEST + super::npc_events::RANGE_TOLERANCE
+        })
+    };
+    let why = match g {
+        _ if p.quests.active(tid).is_none() => Some("quête non en cours"),
+        None => Some("rang sans objet à ramasser"),
+        Some(g) if object != Some(g.object) => Some("pas l'objet de la quête"),
+        Some(g) if !near(&g) => Some("trop loin de l'objet"),
+        Some(g) if held(p, g.item) >= g.count => Some("objet déjà détenu"),
+        Some(_) => None,
+    };
+    let (Some(g), None) = (g, why) else {
+        info!("[quête] {name} ne ramasse rien pour « {} » (rang {rank}) : {}", q.name, why.unwrap_or(""));
+        return Ok(());
+    };
+    let stack = ctx.catalog.get(g.item).map(|d| d.stack).unwrap_or(1);
+    if !fits(p, g.item, 1, stack) {
+        info!("[quête] {name} ne ramasse rien pour « {} » : inventaire plein", q.name);
+        let s = &schema::SYSTEM_MESSAGE;
+        p.send(s, Fields::new(s).with(0, 0).with(1, MSG_NOT_ENOUGH_INVENTORY));
+        return Ok(());
+    }
+    let cid = p.ch.id;
+    let p = st.players.get_mut(&sid).unwrap();
+    match p.inventory.add(&ctx.db, g.item, 1, stack, None).await? {
+        Some((it, true)) => p.send_raw(item_add(it.iid, it.tid, Some(cid), it.count, item_status::INVENTORY, Some(it.grid))),
+        Some((it, false)) => p.send_raw(item_count(&it, cid)),
+        None => {
+            warn!("[quête] {name} : objet ramassé {} non remis", g.item);
+            return Ok(());
+        }
+    }
+    info!("[quête] {name} ramasse l'objet {} sur l'objet du monde {} (« {} », rang {rank})", g.item, g.object, q.name);
+    send_progress(ctx, st, sid, tid);
+    Ok(())
 }
 
 /// Un monstre tué par `sid` : compteurs des quêtes, objets de quête.
@@ -666,13 +790,13 @@ mod tests {
         assert_eq!(q.refusal(120, 1, 1, &j), None);
         j.active.push(ActiveQuest { tid: 4632, ..Default::default() });
         assert_eq!(q.refusal(120, 1, 1, &j), Some("quête déjà en cours"));
-        assert!(!q.objectives_met(&j.active[0], 49) && q.objectives_met(&j.active[0], 50));
+        assert!(!q.objectives_met(&j.active[0], |_| 49) && q.objectives_met(&j.active[0], |_| 50));
         let mut hunt = QuestTemplate { tid: 1, hunts: [Some(Hunt { monster: 7, count: 3 }), None], previous: Some(4632), ..Default::default() };
         assert_eq!(hunt.refusal(1, 1, 1, &j), Some("quête précédente non terminée"));
         j.done.insert(4632);
         assert_eq!(hunt.refusal(1, 1, 1, &j), None);
-        assert!(!hunt.objectives_met(&ActiveQuest { tid: 1, count_a: 2, ..Default::default() }, 0));
-        assert!(hunt.objectives_met(&ActiveQuest { tid: 1, count_a: 3, ..Default::default() }, 0));
+        assert!(!hunt.objectives_met(&ActiveQuest { tid: 1, count_a: 2, ..Default::default() }, |_| 0));
+        assert!(hunt.objectives_met(&ActiveQuest { tid: 1, count_a: 3, ..Default::default() }, |_| 0));
         hunt.races = vec![2];
         assert_eq!(hunt.refusal(1, 1, 1, &j), Some("race ou classe"));
     }
@@ -714,6 +838,31 @@ mod tests {
         let p = archcore_net::decode_packet(&schema::QUEST, &raw).unwrap();
         let back = decode_mini(&mini::QUEST_INFO, p.bytes(3).unwrap()).unwrap();
         assert_eq!((p.int(0), p.int(4), back.int(0), back.int(4)), (Some(14), Some(4611), Some(4611), Some(1)));
+    }
+
+    #[test]
+    fn ramassage_sur_les_objets_du_monde() {
+        // « Permission » (2830) : quatre certificats, un par objet du monde (rangs A à D).
+        let d = serde_json::json!({ "ObjectA_ID": "178520252", "ObjectItemA_TID": "4830", "ObjectItemA_Count": "1",
+            "ObjectB_ID": "178520255", "ObjectItemB_TID": "4831", "ObjectItemB_Count": "1", "ObjectD_ID": "178520253", "ObjectItemD_TID": "4833",
+            "ObjectE_ID": "1", "ObjectItemE_TID": "" });
+        let q = QuestTemplate::from_data(2830, "Permission", &d);
+        assert_eq!(q.gathers[0], Some(Gather { object: 178_520_252, item: 4830, count: 1 }));
+        assert_eq!((q.gathers[2], q.gathers[3].map(|g| g.count), q.gathers[4]), (None, Some(1), None), "nombre absent : 1 ; objet sans TID : rien");
+        let a = ActiveQuest { tid: 2830, ..Default::default() };
+        let held = |have: &'static [u32]| move |t: u32| have.iter().filter(|x| **x == t).count() as i64;
+        assert!(!q.objectives_met(&a, held(&[4830, 4831])));
+        assert!(q.objectives_met(&a, held(&[4830, 4831, 4833])));
+        assert_eq!(q.taken_items(), vec![(4830, 1), (4831, 1), (4833, 1)]);
+        let mixed = QuestTemplate::from_data(9, "x", &serde_json::json!({ "Complete_ItemTid": "4830", "Complete_ItemCount": "3", "ObjectA_ID": "5", "ObjectItemA_TID": "4830" }));
+        assert_eq!(mixed.taken_items(), vec![(4830, 3)], "même objet : le plus grand nombre");
+    }
+
+    #[test]
+    fn portee_d_un_objet() {
+        assert_eq!(object_range(Some(250)), 250.0, "rayon de l'objet + 50");
+        assert_eq!(object_range(Some(5000)), 1600.0, "borné à 1600");
+        assert_eq!((object_range(Some(0)), object_range(None)), (1600.0, 1600.0));
     }
 
     #[test]

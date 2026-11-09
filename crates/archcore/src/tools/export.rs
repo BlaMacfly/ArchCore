@@ -11,7 +11,8 @@
 //!        diffère de celle de ini/) est gardé ; une cellule dont la valeur ne change pas garde ses octets.
 //!   Lignes : celles de la base (lignes d'Archonia absentes). Quêtes (questtemplate.ini) : lignes de la base sous
 //!        l'en-tête du client, textes d'un dossier de langue repris des textes de Webzen de la langue
-//!        (`questtemplate.ini@<langue>` de client_table, import `--webzen`) ; groupes (questgroup.ini) : ceux de la base.
+//!        (`questtemplate.ini@<langue>` de client_table, import `--webzen`) ; groupes (questgroup.ini) : ceux de la base,
+//!        avec la colonne du ramassage sur les objets du monde.
 //!        Titres (titledatatable.txt, titlestringtable.txt) et maîtrises (SkillMastery_High.txt,
 //!        SkillMastery_Heroic.txt) : fichiers rangés par l'import dans client_table (Webzen), sinon lignes du client
 //!        gardées par l'import ; fenêtre des boss : lignes du client gardées.
@@ -380,7 +381,7 @@ pub struct Data {
     npcs: Vec<(u32, Vec<(String, String)>)>,
     fees: Vec<(String, String, i64)>,
     quests: BTreeMap<u32, serde_json::Map<String, Json>>,
-    groups: BTreeMap<u32, (String, Vec<u32>, Vec<u32>)>,
+    groups: BTreeMap<u32, (String, Vec<u32>, Vec<u32>, Vec<(u32, u32)>)>,
     titles: std::collections::HashSet<u32>,
     bosses: std::collections::HashSet<u32>,
 }
@@ -430,9 +431,10 @@ impl Data {
         for r in w.rows("SELECT tid, data FROM quest_template", ()).await? {
             d.quests.insert(col(&r, "tid"), object(&col::<String>(&r, "data")));
         }
-        for r in w.rows("SELECT id, name, give, confirm FROM quest_group", ()).await? {
+        for r in w.rows("SELECT id, name, give, confirm, gather FROM quest_group", ()).await? {
             let list = |k: &str| serde_json::from_str::<Vec<u32>>(&col::<String>(&r, k)).unwrap_or_default();
-            d.groups.insert(col(&r, "id"), (col(&r, "name"), list("give"), list("confirm")));
+            let gather = serde_json::from_str::<Vec<(u32, u32)>>(&col::<String>(&r, "gather")).unwrap_or_default();
+            d.groups.insert(col(&r, "id"), (col(&r, "name"), list("give"), list("confirm"), gather));
         }
         d.titles = w.rows("SELECT tid FROM title_template", ()).await?.iter().map(|r| col(r, "tid")).collect();
         d.bosses = w.rows("SELECT tid FROM boss_window", ()).await?.iter().map(|r| col(r, "tid")).collect();
@@ -689,11 +691,13 @@ pub fn build_folder(d: &Data, folder: &str, ini: &HashMap<String, (String, Vec<u
         out.push((name, b));
     }
     if let Some((name, _, _)) = pick("questgroup.ini") {
-        // Groupes de la base (numéro, nom, quêtes proposées et reprises « a:b: »), dans l'ordre des numéros.
+        // Groupes de la base (numéro, nom, quêtes proposées et reprises « a:b: », ramassage sur l'objet du monde
+        // « TID-rang: »), dans l'ordre des numéros.
         let mut b = Vec::new();
         let list = |l: &[u32]| l.iter().map(|t| format!("{t}:")).collect::<String>();
-        for (id, (group, give, confirm)) in &d.groups {
-            b.extend(encode(&format!("{id}\t{group}\t{}\t{}\t", list(give), list(confirm)), e));
+        for (id, (group, give, confirm, gather)) in &d.groups {
+            let gather: String = gather.iter().map(|(t, r)| format!("{t}-{r}:")).collect();
+            b.extend(encode(&format!("{id}\t{group}\t{}\t{}\t{gather}", list(give), list(confirm)), e));
             b.extend_from_slice(b"\r\n");
         }
         out.push((name, b));

@@ -433,6 +433,31 @@ taken, reward read from the database received); is refused taking 3195 again and
 level 15 to 17); takes Learning Skill (3196) and tracks it on screen (op 14); after reconnecting, 3195 and 3188 are
 among the completed quests and 3196 is tracked; he untracks it and abandons it.
 
+## World object quests test
+
+```bash
+ARCHCORE_CONF_DIR=config/test archcore sim questobject [user] [pass] [character]
+```
+
+Quests of a world object (`quest_object` table, `--webzen` import). The GM account (`gmtest`, human knight) is set to
+level 58, with "Permission" (2830) completed in the database. Ancient Voice of Deribelle (object 178520354, its own
+group): window asked for at 3000 units (nothing), "The Heir" (2831) refused from afar, window at 300 units (granted,
+EVENT_BASE {1, 178520354, -, 27} sent back); 2831 taken at the object, handed in without killing Harn (refused), then
+with it (counted in the database between two logins); "Power of Certificates" (2832) taken at the object, refused when
+handed in to the object (the blacksmith Torune takes it back), then abandoned.
+
+## World object pick-up test
+
+```bash
+ARCHCORE_CONF_DIR=config/test archcore sim questgather [user] [pass] [character]
+```
+
+AGPMQUEST op 11 (`--webzen` import). The GM account (`gmtest`) is set to level 58, with "Silent Protector" (2829)
+completed in the database. "Permission" (2830, given and taken back by the Ancient Voice of Deribelle) asks for four
+certificates, one per world object (columns `ObjectA` to `ObjectD`): pick-up refused outside the quest, then at 3000
+units; accepted within 300 units of each object (certificate given, op 10, objectives met with the fourth); refused for
+a certificate already held and for an object other than the rank's; quest handed in to the Voice, certificates taken.
+
 ## Experience beyond 2³² test
 
 ```bash
@@ -589,8 +614,8 @@ client, only names, visuals and purely client tables (`tools/ep8.rs`):
 Summary of the last import (copy databases): 16,973 items kept (3,848 dropped), 2,028 templates (428),
 1,825 skills (923), 10,910 skill levels (2,042), 5,025 options (1,097), 532 runes (606), 4,541 recipes
 (1,190), 300 regions (31), 301 teleport points (5), 557 NPCs (2 from the client, 8 with an Archonia template;
-56 of the EP8 table not imported), 144 shops (39), 12 bosses (13); with `--webzen`: 3,082 quests (188), 993 quest
-groups (53), 2,768 titles (0), 287 masteries (0), 121 experience levels.
+56 of the EP8 table not imported), 144 shops (39), 12 bosses (13); with `--webzen`: 3,235 quests (35), 1,044 quest
+groups (2), 780 world objects with quests, 2,768 titles (0), 287 masteries (0), 121 experience levels.
 
 ## Webzen source
 
@@ -601,7 +626,7 @@ Nothing is copied into the repository: the import reads the files on disk.
 
 | Table | Webzen files | Rule |
 |---|---|---|
-| Quests (`quest_template`) | `fr/questtemplate.ini` (3,270 quests, three header lines), `questtemplate.ini` | Values from the `fr/` folder; English texts from the root when it has the quest, otherwise those of `fr/` (often left in Korean). Dropped: a quest citing a non-EP8 monster, item or skill (none), a quest no kept NPC gives or takes back (except personal quests, `Self_Quest`), including those of a world object (giver given as an object number: the server only handles quests on NPCs), a quest following a dropped quest. Archonia's 14 quests (TID ≥ 4585, origin not proven) are gone |
+| Quests (`quest_template`) | `fr/questtemplate.ini` (3,270 quests, three header lines), `questtemplate.ini` | Values from the `fr/` folder; English texts from the root when it has the quest, otherwise those of `fr/` (often left in Korean). Dropped: a quest citing a non-EP8 monster, item or skill (none), a quest no kept NPC gives or takes back (except personal quests, `Self_Quest`), a quest following a dropped quest. A world object quest (`GiveNpcName` or `ConfirmNpcName` in digits: the object number) is given and taken back by the object's group (event 27 of the EP8 tables' `obj*.ini`, `quest_object` table). Archonia's 14 quests (TID ≥ 4585, origin not proven) are gone |
 | Groups (`quest_group`) | `fr/questgroup.ini`, `questgroup.ini` | Lists from `fr/`, names from the root; a group emptied by dropped quests is removed |
 | NPCs (`npc_spawn`) | `npc.ini` | Webzen quest events (function 27) on the NPCs kept by the EP8 merge, when the Webzen NPC has the same name or template |
 | Texts (`localized_text`, `client_table`) | `fr/`, `de/`, `esp/`, `portu/` | Name (`quest_name`) and starting dialog (`quest_desc`) in fr, de, es, pt-BR (source `webzen`); each language's texts stored in `client_table` (`questtemplate.ini@<language>`) for the export; a cell left in Korean is not a translation |
@@ -628,8 +653,9 @@ Effects beyond Archonia's, always on the equipped title: 1 and 2 quest reward ex
 spirit stone Value_1 insertion success + Value_2 points, 8 experience from creature Value_1 + Value_2 %.
 
 Every dropped row and its reason is written to `data/import-webzen.log`; the import prints the count per reason. Last
-import (copy databases): 3,082 quests out of 3,270 (72 given or taken back by a world object, 3 without a kept NPC,
-113 following a dropped quest), 993 groups (53 emptied), 2,768 titles, 287 masteries.
+import (copy databases): 3,235 quests out of 3,270 (3 without a kept NPC: 3296, whose group 391 no NPC carries, 4372
+and 4373, which no group cites; 32 following them), 1,044 groups (2 emptied), 780 world objects with quests, 2,768
+titles, 287 masteries.
 
 ## Export for the client
 

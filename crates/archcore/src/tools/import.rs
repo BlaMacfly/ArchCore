@@ -875,6 +875,39 @@ pub fn parse_gacha_objects(text: &str) -> Vec<(u32, u32, [f64; 3])> {
     out
 }
 
+/// Objets d'un fichier obj*.ini qui portent l'événement de quête (fonction 27) : (objet, `QuestGroupID` de
+/// l'événement, position de l'objet). Le groupe vaut d'ordinaire le numéro de l'objet ; un groupe 0 (aucun) est écarté.
+pub fn parse_quest_objects(text: &str) -> Vec<(u32, u32, [f64; 3])> {
+    let mut out = Vec::new();
+    for s in parse_ini(text).iter().filter(|s| is_uint(&s.id)) {
+        let Some(p) = s.first("Position") else { continue };
+        let (mut quest, mut group) = (false, None);
+        for (k, val) in &s.order {
+            match k.as_str() {
+                "Function" => quest = val.trim() == "27",
+                "QuestGroupID" if quest => group = val.trim().parse::<u32>().ok().filter(|g| *g > 0),
+                _ => {}
+            }
+        }
+        let Some(group) = group else { continue };
+        let p: Vec<f64> = p.split(',').map(|x| js_number(x, 0.0)).collect();
+        out.push((s.id.parse().unwrap(), group, [p.first().copied().unwrap_or(0.0), p.get(1).copied().unwrap_or(0.0), p.get(2).copied().unwrap_or(0.0)]));
+    }
+    out
+}
+
+/// Fichiers obj*.ini du dossier `objects/` des tables EP8, triés.
+fn object_files(server: &Source) -> anyhow::Result<Vec<PathBuf>> {
+    let dir = server.0.join("objects");
+    let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)
+        .map_err(|e| anyhow::anyhow!("{} : {e}", dir.display()))?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("obj") && n.ends_with(".ini")))
+        .collect();
+    files.sort();
+    Ok(files)
+}
+
 /// Prix des trajets de TeleportFee.txt : (départ, arrivée, prix) ; un couple répété garde sa dernière ligne.
 pub fn parse_teleport_fees(text: &str) -> Vec<(String, String, i64)> {
     let (h, rows) = parse_tsv(text);
@@ -1822,6 +1855,19 @@ async fn import_all(db: &Databases, src: &Source, server: &Source, webzen: Optio
         None => None,
     };
 
+    // ---------------------------------------------------------------- objects/obj*.ini (EP8) : objets à quêtes
+    // Objets du monde qui portent l'événement de quête (fonction 27) : leur groupe donne et reprend des quêtes comme
+    // celui d'un PNJ (`world::quests`).
+    let mut quest_objects: std::collections::BTreeMap<u32, (u32, [f64; 3])> = Default::default();
+    for f in object_files(server)? {
+        let text = Source(server.0.join("objects")).read(f.file_name().unwrap().to_str().unwrap())?;
+        quest_objects.extend(parse_quest_objects(&text).into_iter().map(|(id, group, pos)| (id, (group, pos))));
+    }
+    let out: Vec<Vec<Value>> = quest_objects.iter().map(|(id, (group, pos))| vec![v(*id), v(*group), v(pos[0]), v(pos[1]), v(pos[2])]).collect();
+    let n = replace(db, "quest_object", "INSERT INTO quest_object (object_id,quest_group,pos_x,pos_y,pos_z) VALUES (?,?,?,?,?)", out).await?;
+    println!("✓ quest_object : {n} objet(s) du monde à quêtes");
+    let object_groups: std::collections::HashSet<u32> = quest_objects.values().map(|(g, _)| *g).collect();
+
     // ---------------------------------------------------------------- questtemplate.ini (tabulé), questgroup.ini
     // Quêtes du client (pas de table EP8), sans celles qui citent un monstre ou un objet hors EP8 ; avec `--webzen`,
     // celles de Webzen (voir `webzen.rs`).
@@ -1830,13 +1876,14 @@ async fn import_all(db: &Databases, src: &Source, server: &Source, webzen: Optio
         let values = webzen::Table::parse(&w.bytes("fr/questtemplate.ini")?, "Tid", true);
         let english = webzen::Table::parse(&w.bytes("questtemplate.ini")?, "Tid", false);
         let groups = webzen::quest_groups(&w.bytes("fr/questgroup.ini")?, w.bytes("questgroup.ini").ok().as_deref());
-        // PNJ gardés par la fusion EP8, avec leurs groupes de Webzen : qui donne et qui reprend chaque quête.
+        // PNJ gardés par la fusion EP8, avec leurs groupes de Webzen, et objets à quêtes des tables EP8 : qui donne et
+        // qui reprend chaque quête.
         let all_groups: std::collections::HashSet<u32> = groups.iter().map(|g| g.0).collect();
         let rules = ep8::NpcRules { models: &sets.models, shops: &shops, quest_groups: &all_groups, on_terrain: &on_terrain, quest_events: webzen_npcs.as_ref() };
         let (npc_text, _) = ep8::merge_npcs(&server.read("npc.ini")?, &src.read("npc.ini")?, &rules);
         let on_npcs: std::collections::HashSet<u32> = parse_ini(&npc_text).iter().flat_map(|s| s.all("QuestGroupID")).filter_map(|g| g.trim().parse().ok()).collect();
         let (mut offered, mut returned) = (std::collections::HashSet::new(), std::collections::HashSet::new());
-        for (_, _, give, confirm) in groups.iter().filter(|g| on_npcs.contains(&g.0)) {
+        for (_, _, give, confirm) in groups.iter().filter(|g| on_npcs.contains(&g.0) || object_groups.contains(&g.0)) {
             offered.extend(give.iter().copied());
             returned.extend(confirm.iter().copied());
         }
@@ -1857,11 +1904,19 @@ async fn import_all(db: &Databases, src: &Source, server: &Source, webzen: Optio
             bilan.details.push(format!("quête {tid} « {} » : {why}", webzen::quest_data(&values, &english, *tid).0));
         }
         println!("✓ quest_template : {n} quête(s) de Webzen sur {} ({} écartée(s) : {reasons:?})", values.rows.len(), plan.dropped.len());
-        bilan.add("quest_template", n, plan.dropped.len(), "Webzen, PNJ, monstres, objets et récompenses EP8");
+        bilan.add("quest_template", n, plan.dropped.len(), "Webzen, PNJ et objets du monde à quêtes, monstres, objets et récompenses EP8");
         let (groups, gone) = webzen::keep_groups(groups, &plan.kept);
         quest_groups = groups.iter().map(|g| g.0).collect();
-        let out: Vec<Vec<Value>> = groups.into_iter().map(|(id, name, give, confirm)| vec![v(id), v(name), v(json!(give).to_string()), v(json!(confirm).to_string())]).collect();
-        let n = replace(db, "quest_group", "INSERT INTO quest_group (id,name,give,confirm) VALUES (?,?,?,?)", out).await?;
+        // Ramassage sur les objets du monde (5ᵉ colonne) : [[TID, rang], …], pour l'export du client.
+        let gathers = webzen::gather_lists(&w.bytes("fr/questgroup.ini")?, &plan.kept);
+        let out: Vec<Vec<Value>> = groups
+            .into_iter()
+            .map(|(id, name, give, confirm)| {
+                let gather = gathers.get(&id).map(|l| l.iter().map(|(t, r)| [*t, *r]).collect::<Vec<_>>()).unwrap_or_default();
+                vec![v(id), v(name), v(json!(give).to_string()), v(json!(confirm).to_string()), v(json!(gather).to_string())]
+            })
+            .collect();
+        let n = replace(db, "quest_group", "INSERT INTO quest_group (id,name,give,confirm,gather) VALUES (?,?,?,?,?)", out).await?;
         println!("✓ quest_group : {n} ({gone} groupe(s) vidé(s) retiré(s))");
         bilan.add("quest_group", n, gone, "Webzen, groupes sans quête retirés");
         // Textes des langues de Webzen : client_table (export-client-tables) et localized_text (noms, dialogue de départ).
@@ -1950,12 +2005,7 @@ async fn import_all(db: &Databases, src: &Source, server: &Source, webzen: Optio
         let mut points = Vec::new();
         let mut siege_points = Vec::new();
         let objects = Source(server.0.join("objects"));
-        let mut files: Vec<PathBuf> = std::fs::read_dir(&objects.0)
-            .map_err(|e| anyhow::anyhow!("{} : {e}", objects.0.display()))?
-            .filter_map(|e| e.ok().map(|e| e.path()))
-            .filter(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("obj") && n.ends_with(".ini")))
-            .collect();
-        files.sort();
+        let files = object_files(server)?;
         let client_files = std::fs::read_dir(&src.0)?.filter_map(|e| e.ok()?.file_name().into_string().ok()).filter(|n| n.starts_with("obj") && n.ends_with(".ini") && n != "objecttemplate.ini").count();
         let mut portals: std::collections::BTreeMap<u32, (String, [f64; 3])> = std::collections::BTreeMap::new();
         let mut spheres: std::collections::BTreeMap<u32, [f64; 3]> = std::collections::BTreeMap::new();
@@ -2440,6 +2490,9 @@ mod tests {
         // Socle de gacha : le `Type` des données de la fonction 38, pas l'`ObjectType` de l'objet.
         let gachas = "[126159030]\nTID=9081\nObjectType=257\nPosition=-587393.375,7935.329102,22147.894531\nFunction=38\nEventID=1073741863\nCondStart=0\nCondEnd=0\nGachaStart=0\nType=1\nGachaEnd=0\n[126159031]\nPosition=1,2,3\nFunction=26\nEventID=7\n[126159032]\nPosition=4,5,6\nFunction=38\nGachaStart=0\nType=5\nGachaEnd=0\n";
         assert_eq!(parse_gacha_objects(gachas), vec![(126_159_030, 1, [-587393.375, 7935.329102, 22147.894531]), (126_159_032, 5, [4.0, 5.0, 6.0])]);
+        // Objet à quêtes : le `QuestGroupID` de la fonction 27 ; un groupe 0 ou celui d'une autre fonction ne compte pas.
+        let quests = "[165609488]\nModuleData1=ApmObject\nTID=1125\nPosition=18941.630859,2445.284424,254030.984375\nModuleData5=ApmEventManager\nFunction=27\nEventID=1073742004\nCondStart=0\nCondEnd=0\nQuestGroupID=165609488\nQuestEnd=0\n[112722604]\nPosition=1,2,3\nFunction=27\nQuestGroupID=0\n[7]\nPosition=1,2,3\nFunction=26\nQuestGroupID=9\n";
+        assert_eq!(parse_quest_objects(quests), vec![(165_609_488, 165_609_488, [18941.630859, 2445.284424, 254030.984375])]);
         let fees = parse_teleport_fees("start_portal\tfinish_portal\tcost\r\nA\tB\t500 \r\nA\tB\t700\r\nB\tA\t\r\n");
         assert_eq!(fees, vec![("A".to_string(), "B".to_string(), 700)]);
         let transform = parse_item_transform("ItemTid	Tid	level	Name	Movement Run	ATK Speed	Max_HP	Max_MP	Defence	Min_Damage	Max_Damage

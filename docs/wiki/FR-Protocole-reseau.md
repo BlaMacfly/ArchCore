@@ -1406,11 +1406,30 @@ résultat, récompense choisie, trois blocs de drapeaux.
 AGPMEVENTQUEST (0x3E, drapeaux 1 : op, événement, CID, entier) : le client demande la fenêtre des quêtes d'un
 PNJ (fonction 27) par l'op 0 ; le serveur la lui ouvre en renvoyant l'op 0.
 
+**Objets du monde.** Un objet des `obj*.ini` peut porter le même événement (`Function=27`, `QuestGroupID` = d'ordinaire
+le numéro de l'objet ; table `quest_object`). Le client le désigne par un EVENT_BASE { type 1, numéro de l'objet, -,
+fonction 27 } (sans identifiant d'événement : celui des objets a le bit 30 levé) et met au champ 3 de l'op 0 le plus
+grand rayon des sphères englobantes de l'objet + 50 ; il renvoie le même EVENT_BASE au champ 2 des ops 0 (prendre) et
+2 (rendre) d'AGPMQUEST. Le serveur ouvre la fenêtre à min(champ 3, 1600) unités au plus de l'objet (1600 sans valeur),
+laisse prendre et rendre à 1600 unités au plus les quêtes de son groupe, comme chez un PNJ : `GiveNpcName` et
+`ConfirmNpcName` de la quête, qui écrivent alors le numéro de l'objet, ne sont qu'un texte. Relevé dans Archonia et
+dans le client de Webzen.
+
+**Ramassage sur un objet (op 11, client → serveur : champ 1 CID, 2 EVENT_BASE de l'objet, 4 TID, 5 rang 0 à 4 =
+colonnes `ObjectA` à `ObjectE`).** À l'accord de la fenêtre d'un objet, le client cherche d'abord dans la 5ᵉ colonne
+de `questgroup.ini` (« TID-rang: ») la première quête en cours : si l'objet `ObjectItem<rang>_TID` n'est pas détenu au
+nombre `ObjectItem<rang>_Count`, il arrête le personnage, lance une barre de 5 s (sysstr 331) qui ne s'annule pas et
+envoie l'op 11 à son terme ; sinon sysstr 444. Le client ne traite aucune op 11 du serveur : ArchCore remet un
+exemplaire de l'objet (AGPMITEM) puis la progression (op 10, objectifs remplis quand chaque `ObjectItem` est détenu
+au nombre voulu), si la quête est en cours, que son `Object<rang>_ID` est l'objet désigné, à 1600 unités au plus, et
+que l'objet n'est pas déjà détenu ; sinon rien (inventaire plein : AgpmSystemMessage code 41 `NotEnoughInventory`).
+Ces objets sont repris à la fin de la quête ; l'objet du monde reste disponible pour tous (choix d'ArchCore).
+
 **Règles.** Une quête se prend auprès d'un PNJ dont le groupe la propose, ou depuis le journal si elle est
 personnelle ; elle se refuse si elle est déjà en cours ou terminée, si le journal est plein (60), hors des
 niveaux, de la race ou de la classe, ou sans la quête précédente. Chaque monstre tué fait avancer les quêtes
 qui le comptent et peut laisser l'objet de la quête (selon son pour cent, jusqu'au nombre demandé). La quête
-se termine (auprès d'un PNJ qui la reçoit, ou depuis le journal) quand les monstres sont tués et les objets
+se termine (auprès d'un PNJ ou d'un objet du monde qui la reçoit, ou depuis le journal) quand les monstres sont tués et les objets
 réunis : les objets demandés sont repris, les récompenses données (objets, argent, expérience). En base,
 `character_quests` garde les quêtes en cours (compteurs) et terminées.
 

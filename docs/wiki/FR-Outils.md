@@ -439,6 +439,31 @@ Knight's Armor (3188) avec une Halfsteel Armor reçue (`/create`), inventaire re
 Cauldron (3208, niveau 15 à 17) ; prend Learning Skill (3196), la suit à l'écran (op 14) ; à la reconnexion, 3195 et
 3188 figurent parmi les quêtes terminées et 3196 est suivie ; il la retire du suivi et l'abandonne.
 
+## Test des quêtes des objets du monde
+
+```bash
+ARCHCORE_CONF_DIR=config/test archcore sim questobject [compte] [mdp] [personnage]
+```
+
+Quêtes d'un objet du monde (table `quest_object`, import `--webzen`). Le compte MJ (`gmtest`, chevalier humain) passe
+au niveau 58, « Permission » (2830) terminée en base. Voix antique de Deribelle (objet 178520354, son propre groupe) :
+fenêtre demandée à 3000 unités (rien), « Héritage » (2831) refusée de loin, fenêtre à 300 unités (accord, EVENT_BASE
+{1, 178520354, -, 27} renvoyé) ; 2831 prise auprès de l'objet, rendue sans avoir tué Harn (refus), puis avec (compté en
+base entre deux connexions) ; « La puissance des certificats » (2832) prise auprès de l'objet, refusée au rendu à
+l'objet (le forgeron Torune la reprend), puis abandonnée.
+
+## Test du ramassage sur les objets du monde
+
+```bash
+ARCHCORE_CONF_DIR=config/test archcore sim questgather [compte] [mdp] [personnage]
+```
+
+Op 11 d'AGPMQUEST (import `--webzen`). Le compte MJ (`gmtest`) passe au niveau 58, « Protection silencieuse » (2829)
+terminée en base. « Permission » (2830, donnée et reprise par la Voix antique de Deribelle) demande quatre certificats,
+un par objet du monde (colonnes `ObjectA` à `ObjectD`) : ramassage refusé hors quête puis à 3000 unités ; accepté à
+300 unités de chaque objet (certificat remis, op 10, objectifs remplis au quatrième) ; refusé pour un certificat déjà
+détenu et pour un autre objet que celui du rang ; quête rendue à la Voix, certificats repris.
+
 ## Test de l'expérience au-delà de 2³²
 
 ```bash
@@ -596,8 +621,8 @@ client d'Archonia seulement les noms, les visuels et les tables purement cliente
 Résumé du dernier import (bases de copie) : 16 973 objets gardés (3 848 écartés), 2 028 modèles (428),
 1 825 compétences (923), 10 910 niveaux de compétence (2 042), 5 025 options (1 097), 532 runes (606),
 4 541 recettes (1 190), 300 régions (31), 301 points de téléportation (5), 557 PNJ (2 du client, 8 au modèle
-d'Archonia ; 56 de la table EP8 non importés), 144 boutiques (39), 12 boss (13) ; avec `--webzen` : 3 082 quêtes
-(188), 993 groupes de quêtes (53), 2 768 titres (0), 287 maîtrises (0), 121 niveaux d'expérience.
+d'Archonia ; 56 de la table EP8 non importés), 144 boutiques (39), 12 boss (13) ; avec `--webzen` : 3 235 quêtes
+(35), 1 044 groupes de quêtes (2), 780 objets du monde à quêtes, 2 768 titres (0), 287 maîtrises (0), 121 niveaux d'expérience.
 
 ## Source Webzen
 
@@ -608,8 +633,8 @@ tables EP8 importées. Rien n'est copié dans le dépôt : l'import lit les fich
 
 | Table | Fichiers de Webzen | Règle |
 |---|---|---|
-| Quêtes (`quest_template`) | `fr/questtemplate.ini` (3 270 quêtes, trois lignes d'en-tête), `questtemplate.ini` | Valeurs du dossier `fr/` ; textes anglais de la racine quand elle a la quête, sinon ceux de `fr/` (souvent restés en coréen). Écartées : quête qui cite un monstre, un objet ou une compétence hors EP8 (aucune), quête qu'aucun PNJ gardé ne donne ou ne reprend (sauf quête personnelle, `Self_Quest`), dont celles d'un objet du monde (donneur désigné par un numéro d'objet : le serveur ne gère les quêtes que sur les PNJ), quête qui suit une quête écartée. Les 14 quêtes d'Archonia (TID ≥ 4585, origine non prouvée) disparaissent |
-| Groupes (`quest_group`) | `fr/questgroup.ini`, `questgroup.ini` | Listes de `fr/`, noms de la racine ; un groupe vidé par les quêtes écartées est retiré |
+| Quêtes (`quest_template`) | `fr/questtemplate.ini` (3 270 quêtes, trois lignes d'en-tête), `questtemplate.ini` | Valeurs du dossier `fr/` ; textes anglais de la racine quand elle a la quête, sinon ceux de `fr/` (souvent restés en coréen). Écartées : quête qui cite un monstre, un objet ou une compétence hors EP8 (aucune), quête qu'aucun PNJ gardé ni aucun objet du monde à quêtes ne donne ou ne reprend (sauf quête personnelle, `Self_Quest`), quête qui suit une quête écartée. Une quête d'objet (`GiveNpcName` ou `ConfirmNpcName` en chiffres : numéro de l'objet) est donnée et reprise par le groupe de l'objet (événement 27 des `obj*.ini` des tables EP8, table `quest_object`). Les 14 quêtes d'Archonia (TID ≥ 4585, origine non prouvée) disparaissent |
+| Groupes (`quest_group`) | `fr/questgroup.ini`, `questgroup.ini` | Listes de `fr/` (groupes des PNJ et des objets du monde), noms de la racine ; un groupe vidé par les quêtes écartées est retiré |
 | PNJ (`npc_spawn`) | `npc.ini` | Événements de quête (fonction 27) de Webzen sur les PNJ gardés par la fusion EP8, quand le PNJ de Webzen a le même nom ou le même modèle |
 | Textes (`localized_text`, `client_table`) | `fr/`, `de/`, `esp/`, `portu/` | Nom (`quest_name`) et dialogue de départ (`quest_desc`) en fr, de, es, pt-BR (source `webzen`) ; textes de chaque langue rangés dans `client_table` (`questtemplate.ini@<langue>`) pour l'export ; une cellule restée en coréen n'est pas une traduction |
 | Expérience (`level_exp`) | `levelupexp.txt` | Niveaux 1 à 121, à la place de la table EP8 et du client ; au-delà de 2³² dès le niveau 113 (entiers 64 bits partout : base, serveur, paquets, ArchRust) |
@@ -636,8 +661,9 @@ Effets en plus de ceux d'Archonia, toujours sur le titre équipé : 1 et 2 expé
 + Value_2 %.
 
 Chaque ligne écartée et sa raison sont écrites dans `data/import-webzen.log` ; l'import affiche le nombre par raison.
-Dernier import (bases de copie) : 3 082 quêtes sur 3 270 (72 données ou reprises par un objet du monde, 3 sans PNJ
-gardé, 113 à la suite d'une quête écartée), 993 groupes (53 vidés), 2 768 titres, 287 maîtrises.
+Dernier import (bases de copie) : 3 235 quêtes sur 3 270 (3 sans PNJ gardé : 3296, dont le groupe 391 n'est porté
+par aucun PNJ, 4372 et 4373, qu'aucun groupe ne cite ; 32 à leur suite), 1 044 groupes (2 vidés), 780 objets du monde
+à quêtes, 2 768 titres, 287 maîtrises.
 
 ## Export pour le client
 

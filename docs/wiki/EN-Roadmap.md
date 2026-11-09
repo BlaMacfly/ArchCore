@@ -354,6 +354,16 @@
 
 ## Next steps
 
+000. World object quests (8 November 2026): traced in Archonia and in Webzen's client (event 27 of an `obj*.ini`
+   object, type 1 EVENT_BASE, object radius + 50 in field 3 of AGPMEVENTQUEST, `QuestAccept_UI` window, minimap
+   marker); `quest_object` table (780 objects, migration `202611082200`), window, taking and handing in at an object
+   within 1600 units; the Webzen import keeps 3,235 quests of 3,270 (the 72 object quests and the 81 that followed
+   them; 3296, 4372 and 4373 remain, which no NPC or group carries in the original data, and the 32 following 4373);
+   `questobject` scenario. Picking up a quest item on an object (AGPMQUEST op 11, the client's 5 s bar, 588 quests):
+   traced, item given and objective tracked by the server, `gather` column of `quest_group` (migration
+   `202611090900`) exported as the 5th column of `questgroup.ini`, bar and op 11 in ArchRust; `questgather` scenario.
+   Remaining: in-game tests.
+
 00. Webzen source (8 November 2026): `archcore import … --webzen <ini folder>` imports from the official Webzen
    client the quests (3,082 of 3,270: 72 given or taken back by a world object, which the server does not handle, 3
    without a kept NPC, 113 following them; Archonia's 14 quests removed), their groups, NPCs and texts in four
@@ -361,8 +371,8 @@
    Collector, Killer and Storyteller added, conditions in Webzen's sense) and the original high and heroic masteries
    (the Berserker's second tree, Archonia's berserk mode, removed); log of dropped rows (`data/import-webzen.log`),
    export for ArchRust (quests, groups, titles, masteries), `migrate-ep8` extended to missing quests and titles;
-   `quest`, `title` and `exp` scenarios adapted or added. Remaining: quests given by world objects (quest event on
-   an object), in-game tests.
+   `quest`, `title` and `exp` scenarios adapted or added. Remaining: quests given by world objects (done, item 000),
+   in-game tests.
 
 0. Episode 8 values (2 November 2026): import (original server table values, client names, per-table
    summary), table export for ArchRust (`archcore export-client-tables`, fingerprint announced through the

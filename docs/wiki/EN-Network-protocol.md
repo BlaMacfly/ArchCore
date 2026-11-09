@@ -1352,6 +1352,24 @@ three flag blocks.
 AGPMEVENTQUEST (0x3E, 1 flag byte: op, event, CID, integer): the client asks for an NPC's quest window
 (function 27) with op 0; the server opens it by sending op 0 back.
 
+**World objects.** An object of the `obj*.ini` files can carry the same event (`Function=27`, `QuestGroupID` = usually
+the object's own number; `quest_object` table). The client designates it with an EVENT_BASE { type 1, object number,
+-, function 27 } (no event id: an object's one has bit 30 set) and puts the object's largest bounding-sphere radius +
+50 in field 3 of op 0; it sends the same EVENT_BASE back in field 2 of AGPMQUEST ops 0 (take) and 2 (hand in). The
+server opens the window within min(field 3, 1600) units of the object (1600 without a value) and lets the player take
+and hand in the quests of its group within 1600 units, as with an NPC: the quest's `GiveNpcName` and `ConfirmNpcName`,
+which then hold the object number, are only text. Traced in Archonia and in Webzen's client.
+
+**Picking up on an object (op 11, client → server: field 1 CID, 2 the object's EVENT_BASE, 4 TID, 5 rank 0 to 4 =
+columns `ObjectA` to `ObjectE`).** When an object's window is granted, the client first looks in the 5th column of
+`questgroup.ini` ("TID-rank:") for the first quest in progress: if the `ObjectItem<rank>_TID` item is not held
+`ObjectItem<rank>_Count` times, it stops the character, runs a 5 s bar (sysstr 331) that cannot be cancelled and sends
+op 11 at its end; otherwise sysstr 444. The client handles no op 11 from the server: ArchCore gives one copy of the
+item (AGPMITEM) then the progress (op 10, objectives met when each `ObjectItem` is held the required number of times),
+if the quest is in progress, its `Object<rank>_ID` is the designated object, within 1600 units, and the item is not
+already held; otherwise nothing (inventory full: AgpmSystemMessage code 41 `NotEnoughInventory`). These items are
+taken back when the quest is completed; the world object stays available to everyone (ArchCore's choice).
+
 **Rules.** A quest is taken from an NPC whose group offers it, or from the journal if it is a self quest; it is
 refused if already in progress or completed, if the journal is full (60), outside the levels, race or class,
 or without the previous quest. Each monster killed advances the quests that count it and may drop the quest

@@ -66,8 +66,8 @@ les valeurs.
 | `item_data` | `itemdatatable.txt` | Caractéristiques des objets : niveau, partie, genre, type, prix chez un PNJ (or `npc_price`, revente `pc_price`, charisme `npc_charisma_price` et Shrine Coins `npc_shrine_coin` de la boutique des Shrines), pile, toutes les colonnes en JSON (`raw`) |
 | `skill_template` | `SKILLTEMPLATE.ini` | Compétences (TID, nom) |
 | `skill_spec` | `SKILL_SPEC.txt` | Nature de chaque compétence (colonnes non vides, en JSON) |
-| `quest_template` | `questtemplate.ini` (`fr/questtemplate.ini` de Webzen avec `--webzen` : 3 082 quêtes) | Quêtes (colonnes non vides, en JSON ; textes anglais quand Webzen les a) |
-| `quest_group` | `questgroup.ini` (`fr/questgroup.ini` de Webzen) | Groupes de PNJ : nom, quêtes proposées et rendues |
+| `quest_template` | `questtemplate.ini` (`fr/questtemplate.ini` de Webzen avec `--webzen` : 3 235 quêtes) | Quêtes (colonnes non vides, en JSON ; textes anglais quand Webzen les a) |
+| `quest_group` | `questgroup.ini` (`fr/questgroup.ini` de Webzen) | Groupes de PNJ et d'objets du monde : nom, quêtes proposées et rendues, ramassage sur l'objet du monde (`gather`, [[TID, rang], …], pour l'export) |
 | `skill_level` | `SKILL_CONST.txt`, `Skill_Const2.txt` | Valeurs de chaque niveau de chaque compétence (colonnes non vides, en JSON ; groupes `point.`, `percent.`, `magnify.` ; celles de `Skill_Const2.txt`, suffixées de « 2 », sous `point2.`, `percent2.`…) |
 | `skill_mastery` | `SkillMastery_High.txt`, `SkillMastery_Heroic.txt` | Arbres de maîtrise : clé (TID du modèle, 10000 + race pour « 10004;4 »), compétence, arbre (1 supérieur, 2 héroïque), compétences exigées `[[TID, niveau]…]` (ConditionA, B), niveaux dans la classe d'un modèle `class_points` `[[TID du modèle, niveaux]…]` (ConditionC), total (ConditionD : niveaux cumulés, ou points héroïques) |
 | `product_category`, `product_compose`, `product_exp`, `product_gather`, `product_result_item` | `productcategory.txt`, `productcompose.txt`, `productexp.txt`, `productgather.txt`, `productresultitem.txt` | Production : compétence de chaque catégorie, 95 recettes (matériaux `[[TID, quantité]…]`, prix, niveau, chance), niveaux 1 à 15, 760 monstres récoltables, objets récoltés par ensemble et niveau (noms de compétence résolus par `SKILLTEMPLATE.ini`) |
@@ -92,6 +92,7 @@ les valeurs.
 | `teleport_object` | `obj*.ini` (événement 8) | 291 portails : objet, point porté, position |
 | `refinery_object` | `obj*.ini` (événement 26) | 20 sphères d'alchimie : objet, position (raffinage à 1600 unités au plus) |
 | `gacha_object` | `obj*.ini` (événement 38) | 60 socles de gacha : objet, type de tirage (`Type=` des données `GachaStart`), position (fenêtre à 600 unités au plus) |
+| `quest_object` | `obj*.ini` (événement 27) | 780 objets du monde à quêtes : objet, groupe de quêtes (`QuestGroupID`, d'ordinaire le numéro de l'objet), position (quêtes prises et rendues à 1600 unités au plus) |
 | `teleport_fee` | `TeleportFee.txt` | 227 prix de trajet (départ, arrivée) |
 | `bank_slot_price` | `bankslotprice.txt` | Prix des pages de banque en plus (-1 : pas en vente contre de l'or) |
 | `item_transform` | `itemtransformtable.txt` | 89 potions de métamorphose : TID de l'objet, forme, niveau et nom coréen (pour mémoire), bonus ajoutés aux facteurs du joueur transformé (course, vitesse d'attaque, PV et PM max, défense, dégâts min et max ; négatifs possibles) |
