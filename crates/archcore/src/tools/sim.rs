@@ -34,7 +34,7 @@
 //!   archcore sim guildbattle [A… B…]                        combats de guildes : défi, refus, acceptation, annulation, début (ops 46, 27), coups, score (op 26), abandon, mort du chef,
 //!                                                             survie individuelle avec combattants choisis (op 14), bilan
 //!   archcore sim guildmark [A… B…]                          emblèmes : achat (refus, fond, or), annonce, même emblème (code 59, op 33), relecture
-//!   archcore sim guildrelation [A… B…]                      alliances et hostilités : demande, refus, accord, départ, trêve, relecture, dissolution
+//!   archcore sim guildrelation [A… B…]                      alliances et hostilités : demande, refus, accord, départ, trêve, refus par option (code 94), relecture, dissolution
 //!   archcore sim guildwarehouse [A… B…]                     entrepôt de guilde : gardien (fonction 35), effectif, dépôt, droits, dissolution refusée, retrait
 //!   archcore sim guildstage setup|present|chef|dissoudre|guerre-prep|guerre-defi|guerre-refus|relation-prep|relation-repond|relation-demande|entrepot-prep [s]  mise en scène des guildes pour les captures d'ArchRust (sim/guilds.rs)
 //!   archcore sim buddy [A… B…]                                amis et ignorés GmTest + SimA : refus, demande acceptée, état en ligne, blocages, fichier local (buddy.rs)

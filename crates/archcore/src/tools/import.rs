@@ -1,4 +1,4 @@
-//! `archcore import [dossier] [--server dossier] [--webzen dossier]` : importe dans `archcore_world` les tables de valeurs de l'épisode 8
+//! `archcore import [dossier] [--server dossier] [--webzen dossier [--traductions dossier]]` : importe dans `archcore_world` les tables de valeurs de l'épisode 8
 //! (tables du serveur d'origine, `--server`, par défaut `data/server-ini` : elles sont exigées) et les noms, visuels et
 //! tables purement clientes du client déchiffré (`data/client-ini`), selon les règles de `ep8.rs` : une ligne de
 //! valeurs n'existe que si elle existe dans les tables EP8, avec leurs valeurs. Les fichiers sont en CP949 (coréen) ;
@@ -10,6 +10,9 @@
 //! `--webzen` : dossier `ini` du client officiel de Webzen (voir `webzen.rs`) ; quêtes, courbe d'expérience (1 à 121),
 //! titres et maîtrises supérieures et héroïques en viennent à la place des tables du client d'Archonia, sans les lignes
 //! qui citent un TID hors EP8. Ce qui est écarté, et pourquoi, est écrit dans `data/import-webzen.log`.
+//!
+//! `--traductions <dossier>` (avec `--webzen`) : traductions d'ArchCore des textes de Webzen qu'une langue n'a pas
+//! (voir `traductions.rs`), rangées à côté de ceux de Webzen sans jamais les remplacer.
 
 use crate::db::Databases;
 use mysql_async::prelude::Queryable;
@@ -281,12 +284,15 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
     let mut positional = Vec::new();
     let mut server_dir = None;
     let mut webzen_dir = None;
+    let mut traductions_dir: Option<PathBuf> = None;
     let mut it = args.iter();
     while let Some(a) = it.next() {
         if a == "--server" {
             server_dir = Some(PathBuf::from(it.next().ok_or_else(|| anyhow::anyhow!("--server : dossier attendu"))?));
         } else if a == "--webzen" {
             webzen_dir = Some(PathBuf::from(it.next().ok_or_else(|| anyhow::anyhow!("--webzen : dossier ini du client de Webzen attendu"))?));
+        } else if a == "--traductions" {
+            traductions_dir = Some(PathBuf::from(it.next().ok_or_else(|| anyhow::anyhow!("--traductions : dossier des traductions d'ArchCore attendu"))?));
         } else {
             positional.push(a);
         }
@@ -299,6 +305,19 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
     let src = Source(dir.clone());
     let server = Source(d.clone());
     let webzen = webzen_dir.map(super::webzen::Webzen::new).transpose()?;
+    // Traductions d'ArchCore : elles complètent les textes de Webzen, d'où l'exigence de --webzen.
+    anyhow::ensure!(traductions_dir.is_none() || webzen.is_some(), "--traductions complète les textes de Webzen : --webzen <dossier ini> est exigé");
+    let traductions = match &traductions_dir {
+        Some(d) => {
+            let (t, errors) = super::traductions::load_dir(d)?;
+            for e in &errors {
+                println!("  ! {e}");
+            }
+            println!("· traductions d'ArchCore : {}", t.iter().map(|(l, r)| format!("{l} {}", r.len())).collect::<Vec<_>>().join(", "));
+            Some(t)
+        }
+        None => None,
+    };
     let sets = super::ep8::Ep8Sets::from_texts(&server.read("itemdatatable.txt")?, &server.read("characterdatatable.txt")?, &server.read("skilltemplate.ini")?, &server.read("itemoptiontable.txt")?);
     println!(
         "· tables EP8 : {} objet(s), {} modèle(s), {} compétence(s), {} option(s)",
@@ -328,8 +347,18 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         }
         None => None,
     };
-    import_all(&db, &src, &server, webzen.as_ref(), &sets, &mut bilan).await?;
+    let traductions_run = match &traductions_dir {
+        Some(d) => {
+            let (n, sum) = fingerprint(d, |f| f.to_ascii_lowercase().ends_with(".tsv"));
+            Some(begin_run(&db, "traductions", d, n, &sum).await?)
+        }
+        None => None,
+    };
+    import_all(&db, &src, &server, webzen.as_ref(), traductions.as_ref(), &sets, &mut bilan).await?;
     if let Some(run) = webzen_run {
+        finish_run(&db, run).await?;
+    }
+    if let Some(run) = traductions_run {
         finish_run(&db, run).await?;
     }
     import_region_glossary(&db, &src, &game).await?;
@@ -1535,7 +1564,15 @@ async fn import_spawns(db: &Databases, client: &Source, server: &Source, bilan: 
 
 /// Tables du client (`src`) et tables EP8 (`server`) : valeurs EP8, noms et visuels du client, lignes hors EP8 écartées
 /// (voir `ep8.rs`). Chaque table note dans `bilan` ses lignes gardées et écartées.
-async fn import_all(db: &Databases, src: &Source, server: &Source, webzen: Option<&super::webzen::Webzen>, sets: &super::ep8::Ep8Sets, bilan: &mut super::ep8::Bilan) -> anyhow::Result<()> {
+async fn import_all(
+    db: &Databases,
+    src: &Source,
+    server: &Source,
+    webzen: Option<&super::webzen::Webzen>,
+    traductions: Option<&std::collections::BTreeMap<String, Vec<super::traductions::Row>>>,
+    sets: &super::ep8::Ep8Sets,
+    bilan: &mut super::ep8::Bilan,
+) -> anyhow::Result<()> {
     use super::ep8;
     use super::webzen;
     // ---------------------------------------------------------------- charactertemplate.ini
@@ -1873,6 +1910,8 @@ async fn import_all(db: &Databases, src: &Source, server: &Source, webzen: Optio
     // celles de Webzen (voir `webzen.rs`).
     let mut quest_groups: std::collections::HashSet<u32> = Default::default();
     if let Some(w) = webzen {
+        // Traductions d'ArchCore de l'import précédent : réécrites plus bas (quêtes, groupes, titres) si `--traductions`.
+        db.world.exec("DELETE FROM client_table WHERE name LIKE 'traduction/%'", ()).await?;
         let values = webzen::Table::parse(&w.bytes("fr/questtemplate.ini")?, "Tid", true);
         let english = webzen::Table::parse(&w.bytes("questtemplate.ini")?, "Tid", false);
         let groups = webzen::quest_groups(&w.bytes("fr/questgroup.ini")?, w.bytes("questgroup.ini").ok().as_deref());
@@ -1907,6 +1946,17 @@ async fn import_all(db: &Databases, src: &Source, server: &Source, webzen: Optio
         bilan.add("quest_template", n, plan.dropped.len(), "Webzen, PNJ et objets du monde à quêtes, monstres, objets et récompenses EP8");
         let (groups, gone) = webzen::keep_groups(groups, &plan.kept);
         quest_groups = groups.iter().map(|g| g.0).collect();
+        // Noms de groupes restés en coréen (nom du PNJ) : traductions d'ArchCore, pour le questgroup.ini exporté.
+        for (code, rows) in traductions.into_iter().flatten() {
+            let names: HashMap<u32, &str> = groups.iter().map(|g| (g.0, g.1.as_str())).collect();
+            let o = super::traductions::overlay(rows, super::traductions::Kind::Group, |id, _| names.get(&id).map(|n| n.to_string()), |id, _| names.get(&id).is_some_and(|n| !webzen::has_hangul(n)));
+            for s in &o.stale {
+                bilan.details.push(format!("traduction {code} périmée : {s}"));
+            }
+            if !o.texts.is_empty() {
+                store_text(db, &super::traductions::table_name("questgroup.ini", code), &serde_json::to_string(&o.texts)?).await?;
+            }
+        }
         // Ramassage sur les objets du monde (5ᵉ colonne) : [[TID, rang], …], pour l'export du client.
         let gathers = webzen::gather_lists(&w.bytes("fr/questgroup.ini")?, &plan.kept);
         let out: Vec<Vec<Value>> = groups
@@ -1920,30 +1970,67 @@ async fn import_all(db: &Databases, src: &Source, server: &Source, webzen: Optio
         println!("✓ quest_group : {n} ({gone} groupe(s) vidé(s) retiré(s))");
         bilan.add("quest_group", n, gone, "Webzen, groupes sans quête retirés");
         // Textes des langues de Webzen : client_table (export-client-tables) et localized_text (noms, dialogue de départ).
+        let localized = |lang: &std::collections::BTreeMap<u32, std::collections::BTreeMap<String, String>>, code: &str| -> Vec<(String, u32, String, String)> {
+            let mut out = Vec::new();
+            for (tid, cols) in lang {
+                for (kind, col) in [(crate::locale::kind::QUEST_NAME, "QuestName"), (crate::locale::kind::QUEST_DESC, "Dialogue_Start")] {
+                    if let Some(t) = cols.get(col) {
+                        out.push((kind.to_string(), *tid, code.to_string(), t.chars().take(2048).collect()));
+                    }
+                }
+            }
+            out
+        };
         let mut texts: Vec<(String, u32, String, String)> = Vec::new();
+        let mut webzen_texts: HashMap<&str, std::collections::BTreeMap<u32, std::collections::BTreeMap<String, String>>> = HashMap::new();
         for (folder, code, _) in webzen::LANGUAGES {
             let file = format!("{folder}/questtemplate.ini");
             if !w.exists(&file) {
                 continue;
             }
             let lang = webzen::language_texts(&webzen::Table::parse(&w.bytes(&file)?, "Tid", true), &base);
-            for (tid, cols) in &lang {
-                for (kind, col) in [(crate::locale::kind::QUEST_NAME, "QuestName"), (crate::locale::kind::QUEST_DESC, "Dialogue_Start")] {
-                    if let Some(t) = cols.get(col) {
-                        texts.push((kind.to_string(), *tid, code.to_string(), t.chars().take(2048).collect()));
-                    }
-                }
-            }
+            texts.extend(localized(&lang, code));
             store_text(db, &format!("questtemplate.ini@{code}"), &serde_json::to_string(&lang)?).await?;
             println!("  · {code} : {} quête(s) traduite(s)", lang.len());
+            webzen_texts.insert(code, lang);
+        }
+        // Traductions d'ArchCore (`--traductions`) : cellules que la langue n'a pas, texte d'origine inchangé. Anglais :
+        // cellules que le client anglais de Webzen n'a pas (quêtes restées en coréen ou venues du dossier fr/).
+        let mut translated: Vec<(String, u32, String, String)> = Vec::new();
+        for (code, rows) in traductions.into_iter().flatten() {
+            use super::traductions::{overlay, table_name, Kind};
+            let current = |tid: u32, col: &str| base.get(&tid).and_then(|d| d.get(col)).and_then(|v| v.as_str()).map(str::to_string);
+            let own = |tid: u32, col: &str| match webzen_texts.get(code.as_str()) {
+                Some(lang) => lang.get(&tid).is_some_and(|c| c.contains_key(col)),
+                None => code == crate::locale::ORIGINAL_LANGUAGE && !english.get(tid, col).is_empty() && !webzen::has_hangul(english.get(tid, col)),
+            };
+            let o = overlay(rows, Kind::Quest, current, own);
+            for s in &o.stale {
+                bilan.details.push(format!("traduction {code} périmée : {s}"));
+            }
+            if !o.texts.is_empty() {
+                store_text(db, &table_name("questtemplate.ini", code), &serde_json::to_string(&o.texts)?).await?;
+            }
+            translated.extend(localized(&o.texts, code));
+            let cells: usize = o.texts.values().map(|c| c.len()).sum();
+            println!("  · traductions d'ArchCore {code} : {cells} texte(s) de {} quête(s) ({} périmé(s), {} déjà dans la langue)", o.texts.len(), o.stale.len(), o.kept_original);
+            bilan.add(&format!("traductions {code} (quêtes)"), cells, o.stale.len() + o.kept_original, "ArchCore, textes que la langue n'a pas");
         }
         let mut tx = db.world.begin().await?;
-        tx.query_drop("DELETE FROM localized_text WHERE source = 'webzen'").await?;
+        tx.query_drop(format!("DELETE FROM localized_text WHERE source IN ('webzen', '{}')", super::traductions::SOURCE)).await?;
         for chunk in texts.chunks(500) {
             tx.exec_batch("INSERT INTO localized_text (kind,ref_id,lang,text,source) VALUES (?,?,?,?,'webzen') ON DUPLICATE KEY UPDATE kind = kind", chunk.to_vec()).await?;
         }
+        // Après Webzen, et sans remplacer une ligne existante (saisie à la main, `i18n db`, Webzen).
+        for chunk in translated.chunks(500) {
+            let rows: Vec<Vec<Value>> = chunk.iter().map(|(k, t, l, x)| vec![v(k.as_str()), v(*t), v(l.as_str()), v(x.as_str()), v(super::traductions::SOURCE)]).collect();
+            tx.exec_batch("INSERT INTO localized_text (kind,ref_id,lang,text,source) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE kind = kind", rows).await?;
+        }
         tx.commit().await?;
         bilan.add("localized_text (quêtes)", texts.len(), 0, "Webzen : fr, de, es, pt-BR (textes restés en coréen écartés)");
+        if traductions.is_some() {
+            bilan.add("localized_text (traductions)", translated.len(), 0, "ArchCore : noms et dialogues de départ que la langue n'a pas");
+        }
     } else if src.exists("questtemplate.ini") {
         let (text, removed) = ep8::filter_quests(&src.read("questtemplate.ini")?, sets);
         let quests = parse_quests(&text);
@@ -2174,7 +2261,25 @@ async fn import_all(db: &Databases, src: &Source, server: &Source, webzen: Optio
             let kept: std::collections::HashSet<u32> = titles.iter().map(|t| t.tid).collect();
             store_text(db, "titledatatable.txt", &webzen::filter_rows(&data_text, &kept)).await?;
             if let Some(t) = &strings_text {
-                store_text(db, "titlestringtable.txt", &webzen::title_strings(t, &kept)).await?;
+                let stored = webzen::title_strings(t, &kept);
+                store_text(db, "titlestringtable.txt", &stored).await?;
+                // Traductions d'ArchCore des textes des titres (cellule d'origine inchangée) ; l'export garde la
+                // ligne du dossier de langue du client quand il a le titre. Anglais : cellules restées en coréen.
+                let cells = super::traductions::title_cells(&stored);
+                for (code, rows) in traductions.into_iter().flatten() {
+                    let current = |tid: u32, col: &str| cells.get(&tid)?.get(col).cloned();
+                    let own = |tid: u32, col: &str| code == crate::locale::ORIGINAL_LANGUAGE && current(tid, col).is_some_and(|c| !webzen::has_hangul(&c));
+                    let o = super::traductions::overlay(rows, super::traductions::Kind::Title, current, own);
+                    for s in &o.stale {
+                        bilan.details.push(format!("traduction {code} périmée : {s}"));
+                    }
+                    if !o.texts.is_empty() {
+                        store_text(db, &super::traductions::table_name("titlestringtable.txt", code), &serde_json::to_string(&o.texts)?).await?;
+                    }
+                    let n: usize = o.texts.values().map(|c| c.len()).sum();
+                    println!("  · traductions d'ArchCore {code} : {n} texte(s) de {} titre(s) ({} périmé(s))", o.texts.len(), o.stale.len());
+                    bilan.add(&format!("traductions {code} (titres)"), n, o.stale.len() + o.kept_original, "ArchCore, textes que la langue n'a pas");
+                }
             }
         } else {
             db.world.exec("DELETE FROM client_table WHERE name IN ('titledatatable.txt', 'titlestringtable.txt')", ()).await?;

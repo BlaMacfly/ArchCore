@@ -22,6 +22,23 @@ against the real client.
   (u16 in the 32-bit client).
 - Type 3 (`AgcmCharacter`) uses **4-byte** field flags.
 
+## Webzen's client and Archonia
+
+ArchCore speaks Archonia's protocol (the one of the ArchRust client). Compared with Webzen's official client
+(2017, episode 8 code), module by module (schemas declared by each constructor, jump tables of the receivers):
+- **same schemas** for most modules; Archonia widens money and durations to 64 bits (AgpmCharacter fields 25, 26
+  and 29, trade, NPC shop, guild, siege, summons, taxes, auction; AgpmItem fields 18 and 22 and the Cash mini
+  packet, AgpmSkill active effects). The character's money (fields 8 to 10) is already `INT64` in Webzen's client.
+  ArchCore follows Archonia;
+- **Archonia additions** kept: AgpmItem fields 25-26 and ops 0x21 to 0x33, AgpmSkill op 0x11, AgpmParty field 11
+  and op 7, AgpmUIStatus 5th layer (50 slots), AgpmRefinery 20 items and ops 5 to 7 (recipe), AgpmAuction gold +
+  CC, AgpmTimer Unix time, AgpmTitle op 11, types 0x63 and above;
+- **numbering**: Webzen's auction house has one more op (4); its ops 5 to 8 (sell, cancel, confirm, buy) are
+  Archonia's 4 to 7, its search 13 is 12;
+- **guild messages**: same table (0-96), plus code 97 in Webzen's client (see Guilds);
+- not taken over: AgpmItem op 31 (item used on a target, sent by Webzen's client, meaning not established),
+  AgpmSkill op 9 (the client's "real hit": the server times the hit).
+
 ## Encrypted frames
 
 After the handshake, every packet is wrapped:
@@ -1111,7 +1128,12 @@ member, 6 guild full, 7 cannot join, 8 cannot leave (master), 9 master only, 10 
 enlarge, 45 not enough skulls, 46 disbanding too early (guild younger than `Guild.DestroyDelayHours`,
 "Guild_DestroyFailTooEarly" box), 47 searched guild not found, 48 join request, 50 leave request, 56 to 59 guild
 mark (skulls, gold or cash, missing background, same mark as another guild: only 59 has a message in
-Archonia, which then offers op 33).
+Archonia, which then offers op 33), 94 relations refused by option (below), 95 warehouse reserved to guilds of 10
+members, 96 disbanding with a non-empty warehouse, 97 leaving or kicking in a siege zone at war. The message table
+is the same in Webzen's client (0-97) and in Archonia's (0-96): code 97 ("CannotLeveGuildInSiegewarArea") only
+exists in Webzen's client, Archonia only keeps the text in `uimessage.txt`. ArchCore thus refuses leaving (op 4,
+except withdrawing a join request) and kicking (op 5, author or kicked member in a region of a castle at war); the
+rule is deduced from the text, the clients check nothing.
 
 **Guild list** (Archonia's FUN_140203630). Guilds are taken in creation order, 19 per page; an empty page gets
 no answer. Entry: name, master, sub-master, level, ranking, members, size, (unknown), mark (TID, colour),
@@ -1190,8 +1212,9 @@ newcomer's name to the other allies), 0x47 left, 0x48 and the leaving guild's na
 dissolved (a single guild left); 0x4b hostility impossible (ally, target guild at 5 hostilities), 0x4c already
 hostile, 0x4e target master offline, 0x51 waiting, 0x54 hostility declared, 0x55 truce impossible, 0x56
 waiting, 0x59 truce made. A request without an answer lapses after a minute. A master who refuses guild
-relations (option 0x40: the client then does not show the question) is not asked: 0x3c or 0x4b to the
-requester. On entering the world, the member gets op 36 for each ally, op 40 for each hostile guild and their
+relations (option 0x40: the client then does not show the question) is not asked: code 94 to the
+requester (`sysstr` 712 "The guild is blocking Ally/Hostile apply.", same number in Webzen's and Archonia's
+clients). On entering the world, the member gets op 36 for each ally, op 40 for each hostile guild and their
 details (44, 45). Disbanding a guild removes it from its alliance and ends its hostilities. What hostility allows
 in combat is not established by the client: ArchCore does nothing with it for now. Alliance chat ("[Union]"):
 not done yet.
@@ -1381,16 +1404,24 @@ and completed.
 ## Option refusals (type 0x02, op 0x11)
 
 The options' "Function" tab sets refusals that the client sends in AGPMCHARACTER **op 0x11** (field 1: CID,
-field 22: `INT32` flags), on world entry and on each checkbox: 0x01 trades, 0x02 party invitations, 0x10 guild
-invitations, 0x80 friend requests (0x04 guild battle, 0x08 battle, 0x40 alliance or hostility wait for their system). The
-server keeps the value (`characters.option_flag`), sends it back in the same op and stops at the source what
-targets a player who refuses; the author gets Archonia's message:
+field 22: `INT32` flags), on world entry and on each checkbox: 0x01 trades (`REF_TRADE`), 0x02 party invitations
+(`REF_PIN`), 0x04 guild battles (`REF_GBAT`), 0x08 battle (`REF_BAT`, no checkbox in Archonia: kept, no effect), 0x10
+guild invitations (`REF_GIN`), 0x40 alliances and hostilities (`REF_GR`), 0x80 friend requests (`REF_BUDDY`). The
+server keeps the value (`characters.option_flag`), sends it back in the same op and in the character's field 22 on
+world entry, and stops at the source what targets a player who refuses; the author gets the original clients'
+message (same packets and numbers in Webzen's and Archonia's clients):
 
-| Request | Reply to the author | Sentence (`uimessage.txt`) |
+| Request | Reply to the author | Sentence |
 |---|---|---|
 | Party invitation | AGPMPARTYMANAGEMENT op 14 (field 2: invitee, field 3: their name) | `Option_Party_Off_User` |
 | Guild invitation | AGPMGUILD op 10, system message 42 | `Option_Guild_Off_User` |
+| Guild battle challenge | AGPMGUILD op 10, system message 43 | `Option_GBattle_Off_User` |
+| Alliance, hostility | AGPMGUILD op 10, system message 94 (to the requesting master) | `sysstr` 712 |
 | Trade request | AGPMPRIVATETRADE op 25 (field 1: targeted CID) | `Option_Trade_Off_User` |
+| Friend request | AGPMBUDDY op 3 (refusal) | — |
+
+In Webzen's client: party op 14 → callback 14 (0x6c38f0, which checks that the targeted CID is its own), trade
+op 25 → callback 16, guild messages 42, 43 and 94 in table 0x6b9900.
 
 ## GM level (type 0x12, AgpmAdmin)
 

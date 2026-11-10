@@ -10,7 +10,7 @@ named by `ARCHCORE_CONF_DIR` (see [[Configuration|EN-Configuration]]).
 | `archcore db-init [--account name pass [gm]]` | Creates the databases, replays the baseline and applies the missing migrations; with `--account`, creates or updates an account |
 | `archcore db-check` | Read-only consistency check: schema versions, references between databases, identifier ranges; exits with an error on a serious anomaly (see [[Database\|EN-Database]]) |
 | `archcore decrypt [source] [destination]` | Decrypts `Game/ini` (RC4, MD5("1111")) into `data/client-ini` |
-| `archcore import [folder] [--server folder] [--webzen folder]` | Imports into `archcore_world` the episode 8 values (original server tables, `--server` or `data/server-ini`, required) with the names, visuals and purely client tables of `data/client-ini` (CP949 → UTF-8, see "Episode 8 values" below), the ground height from the Game folder's `world/b*x.ma2` (`map_height`, a few minutes), monster spawns, drops and the server map; with `--webzen`, quests, experience curve, titles and masteries of the official Webzen client (see "Webzen source"); finally applies the `content/*.sql` content layer, records each source in `import_run` and prints the summary of rows kept and dropped per table |
+| `archcore import [folder] [--server folder] [--webzen folder [--traductions folder]]` | Imports into `archcore_world` the episode 8 values (original server tables, `--server` or `data/server-ini`, required) with the names, visuals and purely client tables of `data/client-ini` (CP949 → UTF-8, see "Episode 8 values" below), the ground height from the Game folder's `world/b*x.ma2` (`map_height`, a few minutes), monster spawns, drops and the server map; with `--webzen`, quests, experience curve, titles and masteries of the official Webzen client (see "Webzen source"); with `--traductions`, ArchCore's translations of the Webzen texts a language lacks (see "ArchCore translations"); finally applies the `content/*.sql` content layer, records each source in `import_run` and prints the summary of rows kept and dropped per table |
 | `archcore export-client-tables <folder> [--game folder]` | Writes the value tables from the world database in the client format, for ArchRust (see "Export for the client") |
 | `archcore migrate-ep8 [--apply \| --restore n]` | Report, then migration of existing characters to the episode 8 values (see "Character migration") |
 | `archcore content` | Applies the `content/*.sql` content layer to the world database again, without reimporting (see [[Database\|EN-Database]]) |
@@ -195,7 +195,8 @@ read again on reconnecting and battles refused by option (code 43). `sim guildre
 refused (op 34 → 35, 0x44) then accepted (op 36 on both sides, roles 2 and 1, details op 44), already allied
 (0x3e), hostility towards an ally (0x4b), leaving (op 37: 0x47, and 0x49 for the other one as the alliance is
 dissolved), hostility refused (op 38 → 39, 0x52) then accepted (op 40, details op 45), already hostile (0x4c),
-truce refused (op 41 → 39, 0x57) then accepted (op 43, 0x59), hostility read again on reconnecting and removed by
+truce refused (op 41 → 39, 0x57) then accepted (op 43, 0x59), relations refused by option (0x40: code 94
+for the alliance and the hostility), hostility read again on reconnecting and removed by
 disbanding. `sim guildwarehouse` (GmTest master, SimA, 8 helper accounts) checks the guild warehouse at Holly:
 keeper grant (function 35, op 3), refusal under 10 members (0x5f), opening (op 0, op 1 result 2), depositing a stack
 (op 5 → status 53, cell in field 7) and 1000 coins (op 3), a member's rights (no withdrawal), a member's money
@@ -656,6 +657,25 @@ Every dropped row and its reason is written to `data/import-webzen.log`; the imp
 import (copy databases): 3,235 quests out of 3,270 (3 without a kept NPC: 3296, whose group 391 no NPC carries, 4372
 and 4373, which no group cites; 32 following them), 1,044 groups (2 emptied), 780 world objects with quests, 2,768
 titles, 287 masteries.
+
+### ArchCore translations
+
+`archcore import … --webzen <ini folder> --traductions <folder>` adds the Webzen texts a language lacks, translated for
+ArchCore (`tools/traductions.rs`): one `<language>.tsv` file per code of the `language` table (`en.tsv`, `fr.tsv`,
+`pt-BR.tsv`…), UTF-8, one line per text: kind (`quest`, `title`, `group`), TID, field (column of `questtemplate.ini` or
+`titlestringtable.txt`, `name` for a group), original text as imported, translation; `#` comments a line, `\t`, `\n`
+and `\\` are escaped. The folder holds game data: it stays outside any repository (`../data/traductions` next to
+ArchCore-core). `--traductions` requires `--webzen`.
+
+| Rule | Effect |
+|---|---|
+| Original text | A line only applies if the imported cell still holds its original text; otherwise it is "stale" and written to `data/import-webzen.log` |
+| Never instead of an original | A cell the language already has (Webzen text of the language, Webzen English client text for `en`, title from the client's language folder at export, `localized_text` row from another source) stays as is |
+| Storage | `client_table`: `traduction/questtemplate.ini@<language>`, `traduction/titlestringtable.txt@<language>`, `traduction/questgroup.ini@<language>`; `localized_text`: quest names and starting dialogs, source `archcore-traduction` (column widened by migration `202611101000`) |
+| Export | `export-client-tables`: Webzen texts of the language, else the language's translation, else the English translation (except `ini_ko`, which keeps Korean); titles: the client's language folder row, else the translated row |
+| Next import | All translations are rewritten on each `--webzen` import; without `--traductions`, they leave the database |
+
+The import summary gives, per language, the translated quest and title texts and the stale lines.
 
 ## Export for the client
 

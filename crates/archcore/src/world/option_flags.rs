@@ -1,9 +1,19 @@
 //! Drapeaux d'options du personnage (AgpmCharacter op 0x11, champ 22) : refus d'échange, d'invitation de
 //! groupe, de guilde… cochés dans l'onglet « Fonction » des options. Le client les envoie à l'entrée en jeu
 //! et à chaque case ; le serveur les garde (`characters.option_flag`), les renvoie par la même op, et arrête
-//! à la source ce qui vise un joueur qui refuse. L'auteur reçoit le message d'Archonia : invitation de groupe,
-//! op 14 de gestion (« Option_Party_Off_User ») ; invitation de guilde, message système 42
-//! (« Option_Guild_Off_User ») ; demande d'échange, op 25 (« Option_Trade_Off_User »).
+//! à la source ce qui vise un joueur qui refuse. L'auteur reçoit le message des clients d'origine (mêmes
+//! numéros chez Webzen et chez Archonia) :
+//!
+//! | Bit | Case (`COption.ini`) | Arrêté | Message à l'auteur |
+//! |---|---|---|---|
+//! | 0x01 | `REF_TRADE` | demande d'échange (trade.rs) | AgcmPrivateTrade op 25 « Option_Trade_Off_User » |
+//! | 0x02 | `REF_PIN` | invitation de groupe (party.rs) | gestion du groupe op 14 « Option_Party_Off_User » |
+//! | 0x04 | `REF_GBAT` | défi de combat de guildes (guild/battle.rs) | message de guilde 43 « Option_GBattle_Off_User » |
+//! | 0x10 | `REF_GIN` | invitation de guilde (guild/mod.rs) | message de guilde 42 « Option_Guild_Off_User » |
+//! | 0x40 | `REF_GR` | alliance, hostilité (guild/relation.rs) | message de guilde 94 (`sysstr` 712) |
+//! | 0x80 | `REF_BUDDY` | demande d'ami (buddy.rs) | AGPMBUDDY op 3 (refus) |
+//!
+//! 0x08 (`REF_BAT`, « combat ») n'a pas de case dans les fenêtres d'Archonia : gardé, sans effet.
 
 use super::WorldState;
 use crate::info;
@@ -12,11 +22,12 @@ use archcore_net::{schema, Fields, Packet};
 /// Opération AgpmCharacter « drapeaux d'options ».
 pub const UPDATE_OPTION_FLAG: i64 = 0x11;
 
-/// Bits du champ 22 appliqués par le serveur. Les autres attendent leur système : 0x04 combat de guilde,
-/// 0x08 combat, 0x40 alliance ou hostilité de guilde.
+/// Bits du champ 22 (0x08, `REF_BAT`, n'a pas de case : voir plus haut).
 pub const REFUSE_TRADE: u32 = 0x01;
 pub const REFUSE_PARTY_IN: u32 = 0x02;
+pub const REFUSE_GUILD_BATTLE: u32 = 0x04;
 pub const REFUSE_GUILD_IN: u32 = 0x10;
+pub const REFUSE_RELATION: u32 = 0x40;
 /// Demandes d'ami (« OP_RefuseBuddy ») : non relayées, le demandeur reçoit un refus (AGPMBUDDY op 3, buddy.rs).
 pub const REFUSE_BUDDY: u32 = 0x80;
 
@@ -47,4 +58,21 @@ pub async fn on_packet(ctx: &super::WorldCtx, st: &mut WorldState, sid: u32, p: 
         ctx.db.characters.exec("UPDATE characters SET option_flag = ? WHERE id = ?", (flags, cid)).await?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use archcore_net::{build_packet, decode_packet};
+
+    #[test]
+    fn op_0x11_aller_retour() {
+        let all = REFUSE_TRADE | REFUSE_PARTY_IN | REFUSE_GUILD_BATTLE | REFUSE_GUILD_IN | REFUSE_RELATION | REFUSE_BUDDY;
+        assert_eq!(all, 0xd7);
+        let raw = build_packet(&schema::CHARACTER, &flags_fields(42, all));
+        let p = decode_packet(&schema::CHARACTER, &raw).unwrap();
+        assert_eq!((p.int(0), p.int(1), p.int(22)), (Some(UPDATE_OPTION_FLAG), Some(42), Some(0xd7)));
+        // Seuls l'op, le CID et les drapeaux partent.
+        assert_eq!(p.int(2), None);
+    }
 }

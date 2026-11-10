@@ -112,7 +112,7 @@ filled by `archcore import`.
 | Table | Content |
 |---|---|
 | `language` | Languages offered to clients: BCP 47 code, names, tier (1 official version, 2 Webzen 2010 client, 3 community), client text folder, `enabled`, order; 11 rows inserted by `db-init` |
-| `localized_text` | Localized texts: `kind` (`npc_name`, `monster_name`, `item_name`, `item_desc`, `quest_name`, `quest_desc`, `skill_name`, `region_name`, `npc_dialog`), `ref_id` (identifier in the source table), `lang`, `text`, `source`; filled by `archcore i18n db <language>` (source `import`, the only rows it replaces), by `archcore import --webzen` (source `webzen`: quest names and starting dialogs in fr, de, es, pt-BR, replaced on each import) and by hand (source `manual` by default, kept by `i18n db`) |
+| `localized_text` | Localized texts: `kind` (`npc_name`, `monster_name`, `item_name`, `item_desc`, `quest_name`, `quest_desc`, `skill_name`, `region_name`, `npc_dialog`), `ref_id` (identifier in the source table), `lang`, `text`, `source`; filled by `archcore i18n db <language>` (source `import`, the only rows it replaces), by `archcore import --webzen` (source `webzen`: quest names and starting dialogs in fr, de, es, pt-BR, replaced on each import), by `archcore import --webzen … --traductions` (source `archcore-traduction`: ArchCore's translations of the names and starting dialogs a language lacks, never replacing an existing row) and by hand (source `manual` by default, kept by `i18n db`) |
 
 See [[Translation|EN-Translation]] for the fallback and [[ArchRust extensions|EN-ArchRust-extensions]] for the protocol.
 

@@ -897,8 +897,9 @@ fn relation_op(n: i64, other: &'static str) -> impl Fn(&Recv) -> bool {
 /// 0x46, détails op 44) ; déjà alliées (0x3e) ; hostilité envers une alliée (0x4b) ; B quitte l'alliance
 /// (op 37, 0x47 ; dissoute pour A : 0x49) ; hostilité (op 38, 0x51) refusée (op 39, 0x52), puis acceptée
 /// (op 40 des deux côtés, 0x54, détails op 45) ; déjà hostiles (0x4c) ; trêve (op 41, 0x56) refusée (op 39 →
-/// op 42), puis acceptée (op 43 des deux côtés, 0x59) ; hostilité relue à la reconnexion de A ; la dissolution
-/// de SimRelA y met fin pour B (op 43).
+/// op 42), puis acceptée (op 43 des deux côtés, 0x59) ; B refuse les relations (option 0x40) : code 94 à A pour
+/// l'alliance et l'hostilité ; hostilité relue à la reconnexion de A ; la dissolution de SimRelA y met fin pour B
+/// (op 43).
 pub async fn guild_relation(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> anyhow::Result<()> {
     const GA: &str = "SimRelA";
     const GB: &str = "SimRelB";
@@ -1003,6 +1004,20 @@ pub async fn guild_relation(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb
     a.world.expect_where(gsys(0x59), 3000, "trêve (0x59)").await?;
     b.world.expect_where(relation_op(43, GA), 3000, "trêve vue de B").await?;
     println!("  ✓ op 41 → 39 (op 42), 41 → 43 (0x59)");
+
+    step(&format!("{cb} refuse les relations de guilde (option 0x40) : alliance et hostilité arrêtées (code 94)"));
+    let c = &schema::CHARACTER;
+    b.world.send(c, Fields::new(c).with(0, 0x11).with(1, b.cid).with(22, 0x40)).await?;
+    b.world.expect_where(|q| q.is(c, Some(0x11)) && q.int(22) == Some(0x40), 3000, "drapeaux renvoyés").await?;
+    a.world.send(gd, relation_fields(&a, 34, GA, ca, GB)).await?;
+    a.world.expect_where(gsys(94), 3000, "alliance refusée par option (94)").await?;
+    a.world.send(gd, relation_fields(&a, 38, GA, ca, GB)).await?;
+    a.world.expect_where(gsys(94), 3000, "hostilité refusée par option (94)").await?;
+    let asked = b.world.expect_where(|q| relation_op(34, GA)(q) || relation_op(38, GA)(q), 1500, "demande relayée").await;
+    anyhow::ensure!(asked.is_err(), "demande relayée malgré l'option");
+    b.world.send(c, Fields::new(c).with(0, 0x11).with(1, b.cid).with(22, 0)).await?;
+    b.world.expect_where(|q| q.is(c, Some(0x11)) && q.int(22) == Some(0), 3000, "drapeaux levés").await?;
+    println!("  ✓ code 94 deux fois, rien chez {cb} ; option levée");
 
     step(&format!("hostilité relue à la reconnexion de {ca} ; dissolution"));
     a.world.send(gd, relation_fields(&a, 38, GA, ca, GB)).await?;

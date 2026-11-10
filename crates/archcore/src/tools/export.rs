@@ -50,6 +50,17 @@ pub fn folder_encoding(folder: &str) -> &'static Encoding {
     }
 }
 
+/// Langue (code de la table `language`) d'un dossier de tables du client : `ini` est l'anglais, `ini_pt` le portugais du
+/// Brésil, `ini_zh` le chinois simplifié ; un autre `ini_xx` donne « xx ».
+pub fn folder_language(folder: &str) -> &str {
+    match folder.to_ascii_lowercase().as_str() {
+        "ini" => "en",
+        "ini_pt" => "pt-BR",
+        "ini_zh" => "zh-CN",
+        _ => folder.get(4..).filter(|_| folder.len() > 4).unwrap_or("en"),
+    }
+}
+
 /// Texte → octets de la page de code ; un caractère qu'elle n'a pas devient « ? ».
 pub fn encode(s: &str, e: &'static Encoding) -> Vec<u8> {
     let (b, _, bad) = e.encode(s);
@@ -581,11 +592,22 @@ pub fn build_folder(d: &Data, folder: &str, ini: &HashMap<String, (String, Vec<u
     if let Some((name, i, l)) = pick("RegionTemplate.ini") {
         out.push((name, write_ini_values(i, l, text("RegionTemplate.ini"), e)));
     }
+    // Traductions d'ArchCore rangées par l'import (`--traductions`) pour la langue du dossier, puis pour l'anglais
+    // (dossier sans traduction propre : l'anglais remplace un texte resté en coréen, sauf dans ini_ko).
+    let code = folder_language(folder);
+    let translated = |file: &str| -> Vec<HashMap<u32, HashMap<String, String>>> {
+        let mut v = Vec::new();
+        if code != "ko" && code != "en" {
+            v.push(super::traductions::table_name(file, "en"));
+        }
+        v.push(super::traductions::table_name(file, code));
+        v.iter().filter_map(|n| d.texts.get(n)).filter_map(|t| serde_json::from_str(t).ok()).collect()
+    };
     if let Some((name, i, l)) = pick("questtemplate.ini") {
-        // Quêtes de la base sous l'en-tête du client ; dans un dossier de langue, textes de Webzen de cette langue.
-        let code = super::webzen::LANGUAGES.iter().find(|x| x.2.eq_ignore_ascii_case(folder)).map(|x| x.1);
-        let lang_texts: HashMap<u32, HashMap<String, String>> =
-            code.and_then(|c| d.texts.get(&format!("questtemplate.ini@{c}"))).and_then(|t| serde_json::from_str(t).ok()).unwrap_or_default();
+        // Quêtes de la base sous l'en-tête du client ; textes traduits par ArchCore, puis (dans un dossier de langue)
+        // textes de Webzen de cette langue, qui l'emportent.
+        let lang_texts: HashMap<u32, HashMap<String, String>> = d.texts.get(&format!("questtemplate.ini@{code}")).and_then(|t| serde_json::from_str(t).ok()).unwrap_or_default();
+        let ours = translated("questtemplate.ini");
         let header = lines(i).first().map(|h| header_names(h, false)).unwrap_or_default();
         let key = header.first().cloned().unwrap_or_else(|| "Tid".into());
         let rows: Vec<Row> = d
@@ -593,7 +615,7 @@ pub fn build_folder(d: &Data, folder: &str, ini: &HashMap<String, (String, Vec<u
             .iter()
             .map(|(tid, data)| {
                 let mut c = strings(data);
-                if let Some(t) = lang_texts.get(tid) {
+                for t in ours.iter().chain(std::iter::once(&lang_texts)).filter_map(|m| m.get(tid)) {
                     c.extend(t.iter().map(|(k, v)| (k.clone(), v.clone())));
                 }
                 tid_row(*tid, c)
@@ -602,15 +624,23 @@ pub fn build_folder(d: &Data, folder: &str, ini: &HashMap<String, (String, Vec<u
         out.push((name, write_keyed(i, l, &key, &rows, e)));
     }
     // Titres et leurs textes rangés par l'import (Webzen) : tels quels ; dans un dossier de langue, textes du client
-    // pour les titres qu'il traduit.
+    // pour les titres qu'il traduit, sinon traductions d'ArchCore.
     if let (Some((name, _, l)), Some(stored)) = (pick("titlestringtable.txt"), d.texts.get("titlestringtable.txt")) {
         let lang_rows: HashMap<Vec<u8>, &[u8]> = l.map(|l| lines(l).into_iter().skip(1).filter_map(|x| Some((trim(cells(x).first()?).to_vec(), x))).collect()).unwrap_or_default();
+        let ours = translated("titlestringtable.txt");
+        let header: Vec<String> = super::import::parse_tsv(stored).0;
         let mut bytes = Vec::new();
         for (n, line) in super::lines(stored).filter(|x| !x.is_empty()).enumerate() {
-            let tid = line.split('\t').next().unwrap_or("").trim().as_bytes().to_vec();
-            match lang_rows.get(&tid).filter(|_| n > 0) {
+            let tid = line.split('\t').next().unwrap_or("").trim();
+            match lang_rows.get(tid.as_bytes()).filter(|_| n > 0) {
                 Some(own) => bytes.extend_from_slice(own),
-                None => bytes.extend(encode(line, e)),
+                None => {
+                    let mut cells: BTreeMap<String, String> = BTreeMap::new();
+                    for t in ours.iter().filter_map(|m| m.get(&tid.parse::<u32>().unwrap_or(0))).filter(|_| n > 0) {
+                        cells.extend(t.iter().map(|(k, v)| (k.clone(), v.clone())));
+                    }
+                    bytes.extend(encode(&super::traductions::translate_line(&header, line, &cells), e));
+                }
             }
             bytes.extend_from_slice(b"\r\n");
         }
@@ -692,10 +722,13 @@ pub fn build_folder(d: &Data, folder: &str, ini: &HashMap<String, (String, Vec<u
     }
     if let Some((name, _, _)) = pick("questgroup.ini") {
         // Groupes de la base (numéro, nom, quêtes proposées et reprises « a:b: », ramassage sur l'objet du monde
-        // « TID-rang: »), dans l'ordre des numéros.
+        // « TID-rang: »), dans l'ordre des numéros ; nom resté en coréen : traduction anglaise d'ArchCore s'il y en a.
+        let names: HashMap<u32, HashMap<String, String>> =
+            d.texts.get(&super::traductions::table_name("questgroup.ini", "en")).and_then(|t| serde_json::from_str(t).ok()).unwrap_or_default();
         let mut b = Vec::new();
         let list = |l: &[u32]| l.iter().map(|t| format!("{t}:")).collect::<String>();
         for (id, (group, give, confirm, gather)) in &d.groups {
+            let group = names.get(id).and_then(|n| n.get("name")).unwrap_or(group);
             let gather: String = gather.iter().map(|(t, r)| format!("{t}-{r}:")).collect();
             b.extend(encode(&format!("{id}\t{group}\t{}\t{}\t{gather}", list(give), list(confirm)), e));
             b.extend_from_slice(b"\r\n");
@@ -869,5 +902,37 @@ mod tests {
         std::fs::write(dir.join(MANIFEST_FILE), "fingerprint = \"avec espace\"\n").unwrap();
         assert_eq!(read_fingerprint(&dir), None, "espace refusée");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn traductions_d_archcore_par_dossier() {
+        assert_eq!(["ini", "ini_fr", "ini_pt", "ini_zh", "ini_ko"].map(folder_language), ["en", "fr", "pt-BR", "zh-CN", "ko"]);
+        let mut d = Data::default();
+        d.quests.insert(4232, object(r#"{"QuestName":"엘로르를 향해서","Dialogue_Start":"서신"}"#));
+        let titles = "TID\tFirstCategory\tTitle_Class\tSecondCategory\tTitle_Name\tNecessary_Condition_Desc\tTitle_Effect_Desc\r\n\
+                      30001\t401\tNatural Enemy (1-10)\t1\tBlack Spider's Natural Enemy\tKill 6\tBonus XP\r\n";
+        for (k, v) in [
+            ("titlestringtable.txt", titles),
+            ("traduction/questtemplate.ini@en", r#"{"4232":{"QuestName":"Toward Ellore","Dialogue_Start":"Letter"}}"#),
+            ("traduction/questtemplate.ini@fr", r#"{"4232":{"QuestName":"Vers Ellore","Dialogue_Start":"Lettre"}}"#),
+            ("questtemplate.ini@fr", r#"{"4232":{"Dialogue_Start":"Lettre de Webzen"}}"#),
+            ("traduction/titlestringtable.txt@fr", r#"{"30001":{"Title_Effect_Desc":"Bonus d'expérience"}}"#),
+        ] {
+            d.texts.insert(k.into(), v.into());
+        }
+        let file = |name: &str, b: &[u8]| (name.to_ascii_lowercase(), (name.to_string(), b.to_vec()));
+        let ini: HashMap<String, (String, Vec<u8>)> = [file("questtemplate.ini", b"Tid\tQuestName\tDialogue_Start\r\n"), file("titlestringtable.txt", b"TID\r\n")].into();
+        let lang = ini.clone();
+        let get = |out: &[(String, Vec<u8>)], n: &str, e: &'static Encoding| decode(&out.iter().find(|(f, _)| f == n).unwrap().1, e);
+        let en = build_folder(&d, "ini", &ini, None);
+        assert!(get(&en, "questtemplate.ini", encoding_rs::EUC_KR).contains("4232\tToward Ellore\tLetter"));
+        let fr = build_folder(&d, "ini_fr", &ini, Some(&lang));
+        assert!(get(&fr, "questtemplate.ini", encoding_rs::WINDOWS_1252).contains("4232\tVers Ellore\tLettre de Webzen"), "texte de Webzen de la langue gardé");
+        assert!(get(&fr, "titlestringtable.txt", encoding_rs::WINDOWS_1252).contains("Kill 6\tBonus d'expérience"));
+        assert!(get(&en, "titlestringtable.txt", encoding_rs::EUC_KR).contains("Kill 6\tBonus XP"));
+        let ja = build_folder(&d, "ini_ja", &ini, Some(&lang));
+        assert!(get(&ja, "questtemplate.ini", encoding_rs::SHIFT_JIS).contains("4232\tToward Ellore"), "anglais faute de traduction japonaise");
+        let ko = build_folder(&d, "ini_ko", &ini, Some(&lang));
+        assert!(get(&ko, "questtemplate.ini", encoding_rs::EUC_KR).contains("4232\t엘로르를 향해서\t서신"), "coréen d'origine dans ini_ko");
     }
 }

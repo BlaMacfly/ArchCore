@@ -252,6 +252,16 @@ pub async fn run(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> 
     anyhow::ensure!(seen.iter().any(|m| m.tid == 1269), "porte extérieure pas montrée : {:?}", seen.iter().map(|m| m.tid).collect::<Vec<_>>());
     println!("  ✓ statut 3, code 1, WarInfo étape 1, op 0xE [{GA}], op 0x1D ; {} objet(s) en vue", seen.len());
 
+    step("départ et exclusion de guilde refusés dans la zone en guerre (code 97)");
+    let sys97 = |q: &Recv| q.is(gd, Some(10)) && q.int(1) == Some(crate::world::guild::code::SIEGE_AREA);
+    b.world.send(gd, Fields::new(gd).with(0, 4).with(1, b.cid).with(2, GB)).await?;
+    b.world.expect_where(sys97, 3000, "départ refusé (97)").await?;
+    let m = &mini::GUILD_MEMBER;
+    let member = build_mini(m, &Fields::new(m).with(0, cb));
+    a.world.send(gd, Fields::new(gd).with(0, 5).with(1, a.cid).with(2, GA).with(16, member)).await?;
+    a.world.expect_where(sys97, 3000, "exclusion refusée (97)").await?;
+    println!("  ✓ code 97 à {cb} (op 4) et à {ca} (op 5)");
+
     step(&format!("{ca} tue {cb} sans Ctrl ; résurrection au point intérieur des défenseurs (op 0x13)"));
     let act = &schema::OPT_CHAR_ACTION;
     a.world.send(act, Fields::new(act).with(0, acid).with(1, bcid).with(6, 0)).await?;

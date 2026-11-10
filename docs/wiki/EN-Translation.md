@@ -111,6 +111,32 @@ INSERT INTO localized_text (kind, ref_id, lang, text) VALUES ('quest_name', 5007
 The server reads the tables at startup. Check without the game: `archcore sim lang` ([[Tools|EN-Tools]]
 page).
 
+### Webzen texts a language lacks
+
+The Webzen client (`--webzen` import, [[Tools|EN-Tools]] page) did not translate everything: 275 quests of the Dragon
+Scion chain (TIDs 4232 to 4584) only exist in Korean (or partly in French in the `fr/` folder), English dialogs were
+left as is in the Spanish and Portuguese folders, and 2,094 of the 2,768 titles only have an English description
+(Archonia's client only translates the 674 titles it shares with Webzen, and none in Portuguese). ArchCore keeps a
+translation of them **outside the repository** (game data), one file per language, loaded by the import:
+
+```bash
+archcore import ../ArchCore/data/client-ini --server <EP8 tables> --webzen <Webzen client>/app/ini --traductions ../data/traductions
+```
+
+Format (`<language>.tsv`, UTF-8): `kind TID field original translation`, tab-separated (tab escaped as `\t`, line
+break as `\n`). The kind is `quest` (`questtemplate.ini` column), `title` (`titlestringtable.txt` column) or `group`
+(quest group name). The original text is the one the import stores: a translation whose original changed is ignored
+and reported in `data/import-webzen.log`. A translation never replaces a text the language already has; in
+`localized_text` it carries the `archcore-traduction` source, so it can be told apart from Webzen texts (`webzen`) and
+hand-written ones (`manual`), and replaced.
+
+Conventions: NPC, monster, item, place and race names in English in every language (like Webzen and the client
+tables); title names and categories in English (like the 674 titles Archonia translated), only conditions and effects
+are translated; color tags (`<HFFFA7272>`), line breaks (`</n>`) and numbers untouched; English in ASCII (`ini` folder,
+CP949), accents kept in French, German, Spanish and Portuguese (Windows-1252); formal "vous" in French, "Ihr" in
+German, "tú" in Spanish, "você" in Portuguese. On export (`export-client-tables`), a folder without its own
+translation (`ini_ja`, `ini_zh`) takes the English translation of a quest left in Korean; `ini_ko` keeps Korean.
+
 ## Rules
 
 - Keep accents: the game displays them correctly in Windows-1252.

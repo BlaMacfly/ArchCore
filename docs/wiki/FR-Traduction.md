@@ -112,6 +112,33 @@ INSERT INTO localized_text (kind, ref_id, lang, text) VALUES ('quest_name', 5007
 Le serveur relit les tables au démarrage. Vérification sans le jeu : `archcore sim lang` (page
 [[Outils|FR-Outils]]).
 
+### Textes de Webzen qu'une langue n'a pas
+
+Le client de Webzen (import `--webzen`, page [[Outils|FR-Outils]]) n'a pas tout traduit : 275 quêtes de la chaîne
+Dragon Scion (TID 4232 à 4584) n'existent qu'en coréen (ou en partie en français dans le dossier `fr/`), des dialogues
+anglais sont restés tels quels dans les dossiers espagnol et portugais, et 2 094 des 2 768 titres n'ont de description
+qu'en anglais (le client d'Archonia ne traduit que les 674 titres qu'il partage avec Webzen, et aucun en portugais).
+ArchCore en garde une traduction **hors du dépôt** (données de jeu), un fichier par langue, chargée par l'import :
+
+```bash
+archcore import ../ArchCore/data/client-ini --server <tables EP8> --webzen <client Webzen>/app/ini --traductions ../data/traductions
+```
+
+Format (`<langue>.tsv`, UTF-8) : `sorte TID champ origine traduction`, séparés par des tabulations (tabulation échappée
+en `\t`, saut de ligne en `\n`). La sorte est `quest` (colonne de `questtemplate.ini`), `title` (colonne de
+`titlestringtable.txt`) ou `group` (nom d'un groupe de quêtes). Le texte d'origine est celui que l'import range :
+une traduction dont l'origine a changé est ignorée et signalée dans `data/import-webzen.log`. Une traduction ne
+remplace jamais un texte que la langue a déjà ; dans `localized_text`, elle porte la source `archcore-traduction`,
+pour pouvoir la distinguer des textes de Webzen (`webzen`) et des saisies à la main (`manual`), et la remplacer.
+
+Conventions suivies : noms de PNJ, de monstres, d'objets, de lieux et de races en anglais dans toutes les langues
+(comme Webzen et les tables du client) ; noms et catégories de titres en anglais (comme les 674 titres traduits par
+Archonia), seules les conditions et les effets sont traduits ; balises de couleur (`<HFFFA7272>`), sauts de ligne
+(`</n>`) et nombres intacts ; anglais en ASCII (dossier `ini`, CP949), accents gardés en français, allemand, espagnol
+et portugais (Windows-1252) ; vouvoiement en français, « Ihr » en allemand, tutoiement en espagnol, « você » en
+portugais. À l'export (`export-client-tables`), un dossier sans traduction propre (`ini_ja`, `ini_zh`) prend la
+traduction anglaise d'une quête restée en coréen ; `ini_ko` garde le coréen.
+
 ## Règles
 
 - Garder les accents : le jeu les affiche correctement en Windows-1252.

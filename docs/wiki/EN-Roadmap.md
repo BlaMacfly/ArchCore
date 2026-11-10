@@ -354,6 +354,22 @@
 
 ## Next steps
 
+00000. ArchCore translations (10 November 2026): Webzen texts a language lacks, translated outside the repository
+   (`../data/traductions/<language>.tsv`) and read by `archcore import … --webzen … --traductions <folder>` (source
+   `archcore-traduction`, migration `202611101000`, never instead of an existing text): 275 Dragon Scion quests left
+   in Korean (en, fr, de, es, pt-BR), English dialogs of Webzen's fr/de/es/pt folders left in Korean or garbled,
+   descriptions of the 2,094 untranslated titles (fr, de, es, ja, zh-CN; pt-BR for all 2,768); export for ArchRust.
+   Remaining: the English texts Webzen left as is in its language folders (about 1,300 dialogs in fr
+   and de, 3,100 dialogs and 2,800 summaries in es and pt-BR), quests in
+   Japanese and Chinese, an `ini_pt` folder for ArchRust.
+
+0000. Webzen protocol (9 November 2026): schemas and ops compared module by module between Webzen's official
+   client, Archonia, ArchCore and ArchRust (AgpmItem and AgpmSkill traced; differences in
+   [[Network protocol|EN-Network-protocol]], "Webzen's client and Archonia"). No misread field; fixed: alliance
+   and hostility refused by option 0x40 → code 94 (instead of 0x3c and 0x4b), leaving and kicking from a guild
+   refused in a siege zone at war (code 97 of Webzen's client); `guildrelation` and `siege` scenarios extended.
+   Left: AgpmItem op 31 (item on a target) and guild renaming (codes 51 to 54), not done.
+
 000. World object quests (8 November 2026): traced in Archonia and in Webzen's client (event 27 of an `obj*.ini`
    object, type 1 EVENT_BASE, object radius + 50 in field 3 of AGPMEVENTQUEST, `QuestAccept_UI` window, minimap
    marker); `quest_object` table (780 objects, migration `202611082200`), window, taking and handing in at an object

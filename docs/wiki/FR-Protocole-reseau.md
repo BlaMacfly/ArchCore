@@ -22,6 +22,23 @@ l'exécutable du client et vérifié avec le vrai client.
   (u16 dans le client 32 bits).
 - Le type 3 (`AgcmCharacter`) utilise des drapeaux de champs sur **4 octets**.
 
+## Client de Webzen et Archonia
+
+ArchCore parle le protocole d'Archonia (celui du client ArchRust). Comparé au client officiel de Webzen (2017,
+code de l'épisode 8), module par module (schémas déclarés par chaque constructeur, tables de saut des récepteurs) :
+- **mêmes schémas** pour la plupart des modules ; Archonia élargit l'argent et les durées en 64 bits (AgpmCharacter
+  champs 25, 26 et 29, échange, PNJ marchand, guilde, siège, invocations, taxes, ventes ; AgpmItem champs 18 et 22
+  et mini-paquet Cash, effets actifs d'AgpmSkill). L'argent du personnage (champs 8 à 10) est déjà en `INT64` chez
+  Webzen. ArchCore suit Archonia ;
+- **ajouts d'Archonia** gardés : AgpmItem champs 25-26 et ops 0x21 à 0x33, AgpmSkill op 0x11, AgpmParty champ 11
+  et op 7, AgpmUIStatus 5e couche (50 cases), AgpmRefinery 20 objets et ops 5 à 7 (recette), AgpmAuction or + CC,
+  AgpmTimer heure Unix, AgpmTitle op 11, types 0x63 et suivants ;
+- **numérotation** : la maison des ventes de Webzen a une op de plus (4) ; ses ops 5 à 8 (vente, annulation,
+  confirmation, achat) sont les 4 à 7 d'Archonia, sa recherche 13 est la 12 ;
+- **messages de guilde** : même table (0-96), plus le code 97 chez Webzen (voir Guildes) ;
+- non repris : AgpmItem op 31 (objet utilisé sur une cible, envoyé par le client de Webzen, sens non établi),
+  AgpmSkill op 9 (« coup réel » du client : le serveur règle le moment du coup).
+
 ## Trames chiffrées
 
 Après la poignée de main, chaque paquet est encapsulé :
@@ -1157,7 +1174,13 @@ membre, 6 guilde pleine, 7 adhésion impossible, 8 départ impossible (le chef),
 10 mauvais mot de passe, 11 création, 12 dissolution, 13 adhésion, 14 refus, 15 départ, 16 exclusion,
 17 joueur déjà dans une guilde, 44 or insuffisant pour agrandir, 45 crânes insuffisants, 46 dissolution trop tôt
 (guilde de moins de `Guild.DestroyDelayHours`, boîte « Guild_DestroyFailTooEarly »), 47 guilde cherchée introuvable, 48 demande d'adhésion, 50 demande de départ, 56 à 59 emblème (crânes, or ou argent liquide, fond
-manquant, même emblème qu'une autre guilde : seul 59 a un message dans Archonia, qui propose alors l'op 33).
+manquant, même emblème qu'une autre guilde : seul 59 a un message dans Archonia, qui propose alors l'op 33),
+94 relations refusées par option (ci-dessous), 95 entrepôt réservé aux guildes de 10 membres, 96 dissolution avec
+un entrepôt non vide, 97 départ ou exclusion dans une zone de siège en guerre. La table des messages est la même
+chez Webzen (0-97) et chez Archonia (0-96) : le code 97 (« CannotLeveGuildInSiegewarArea ») n'existe que dans le
+client de Webzen, Archonia garde seulement le texte dans `uimessage.txt`. ArchCore refuse ainsi le départ (op 4,
+sauf retrait d'une demande d'adhésion) et l'exclusion (op 5, auteur ou exclu dans une région d'un château en
+guerre) ; la règle est déduite du texte, les clients n'en vérifient rien.
 
 **Liste des guildes** (FUN_140203630 d'Archonia). Les guildes sont prises dans l'ordre de leur création,
 19 par page ; une page vide n'a pas de réponse. Entrée : nom, chef, second, niveau, classement, membres,
@@ -1241,7 +1264,8 @@ partante aux autres, 0x49 alliance dissoute (une seule guilde restante) ; 0x4b h
 guilde visée à 5 hostilités), 0x4c déjà hostiles, 0x4e chef visé hors ligne, 0x51 en attente, 0x54 hostilité
 déclarée, 0x55 trêve impossible, 0x56 en attente, 0x59 trêve faite. Une demande sans réponse tombe au bout
 d'une minute. Le chef qui refuse les relations de guilde (option 0x40 : le client n'affiche alors pas la
-question) n'est pas sollicité : 0x3c ou 0x4b au demandeur. À l'entrée en jeu, le membre reçoit l'op 36 de
+question) n'est pas sollicité : code 94 au demandeur (`sysstr` 712 « The guild is blocking Ally/Hostile apply. »,
+même numéro chez Webzen et chez Archonia). À l'entrée en jeu, le membre reçoit l'op 36 de
 chaque alliée, l'op 40 de chaque hostile et leurs détails (44, 45). La dissolution d'une guilde la retire de
 son alliance et met fin à ses hostilités. Ce que l'hostilité permet en combat n'est pas établi par le client :
 ArchCore n'en tire rien pour l'instant. Discussion d'alliance (« [Union] ») : pas encore faite.
@@ -1436,16 +1460,24 @@ réunis : les objets demandés sont repris, les récompenses données (objets, a
 ## Refus des options (type 0x02, op 0x11)
 
 L'onglet « Fonction » des options règle des refus que le client envoie par AGPMCHARACTER **op 0x11** (champ 1 :
-CID, champ 22 : drapeaux `INT32`), à l'entrée en jeu et à chaque case : 0x01 échanges, 0x02 invitations de
-groupe, 0x10 invitations de guilde, 0x80 demandes d'ami (0x04 combat de guilde, 0x08 combat, 0x40 alliance ou hostilité
-attendent leur système). Le serveur garde la valeur (`characters.option_flag`), la renvoie par la même op et
-arrête à la source ce qui vise un joueur qui refuse ; l'auteur reçoit le message d'Archonia :
+CID, champ 22 : drapeaux `INT32`), à l'entrée en jeu et à chaque case : 0x01 échanges (`REF_TRADE`), 0x02
+invitations de groupe (`REF_PIN`), 0x04 combats de guildes (`REF_GBAT`), 0x08 combat (`REF_BAT`, sans case dans
+Archonia : gardé sans effet), 0x10 invitations de guilde (`REF_GIN`), 0x40 alliances et hostilités (`REF_GR`), 0x80
+demandes d'ami (`REF_BUDDY`). Le serveur garde la valeur (`characters.option_flag`), la renvoie par la même op et
+au champ 22 du personnage à l'entrée en jeu, et arrête à la source ce qui vise un joueur qui refuse ; l'auteur
+reçoit le message des clients d'origine (mêmes paquets et numéros chez Webzen et chez Archonia) :
 
-| Demande | Réponse à l'auteur | Phrase (`uimessage.txt`) |
+| Demande | Réponse à l'auteur | Phrase |
 |---|---|---|
 | Invitation de groupe | AGPMPARTYMANAGEMENT op 14 (champ 2 : invité, champ 3 : son nom) | `Option_Party_Off_User` |
 | Invitation de guilde | AGPMGUILD op 10, message système 42 | `Option_Guild_Off_User` |
+| Défi de combat de guildes | AGPMGUILD op 10, message système 43 | `Option_GBattle_Off_User` |
+| Alliance, hostilité | AGPMGUILD op 10, message système 94 (au chef demandeur) | `sysstr` 712 |
 | Demande d'échange | AGPMPRIVATETRADE op 25 (champ 1 : CID visé) | `Option_Trade_Off_User` |
+| Demande d'ami | AGPMBUDDY op 3 (refus) | — |
+
+Dans le client de Webzen : op 14 du groupe → rappel 14 (0x6c38f0, qui vérifie que le CID visé est le sien), op 25 de
+l'échange → rappel 16, messages de guilde 42, 43 et 94 dans la table 0x6b9900.
 
 ## Niveau MJ (type 0x12, AgpmAdmin)
 

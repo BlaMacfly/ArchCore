@@ -114,7 +114,7 @@ points de résurrection est remplie par `archcore import`.
 | Table | Contenu |
 |---|---|
 | `language` | Langues proposées aux clients : code BCP 47, noms, niveau (1 version officielle, 2 client Webzen 2010, 3 communauté), dossier de textes du client, `enabled`, ordre ; 11 lignes insérées par `db-init` |
-| `localized_text` | Textes localisés : `kind` (`npc_name`, `monster_name`, `item_name`, `item_desc`, `quest_name`, `quest_desc`, `skill_name`, `region_name`, `npc_dialog`), `ref_id` (identifiant de la table d'origine), `lang`, `text`, `source` ; remplie par `archcore i18n db <langue>` (source `import`, seules lignes qu'il remplace), par `archcore import --webzen` (source `webzen` : noms et dialogues de départ des quêtes en fr, de, es, pt-BR, remplacés à chaque import) et à la main (source `manual` par défaut, gardée par `i18n db`) |
+| `localized_text` | Textes localisés : `kind` (`npc_name`, `monster_name`, `item_name`, `item_desc`, `quest_name`, `quest_desc`, `skill_name`, `region_name`, `npc_dialog`), `ref_id` (identifiant de la table d'origine), `lang`, `text`, `source` ; remplie par `archcore i18n db <langue>` (source `import`, seules lignes qu'il remplace), par `archcore import --webzen` (source `webzen` : noms et dialogues de départ des quêtes en fr, de, es, pt-BR, remplacés à chaque import), par `archcore import --webzen … --traductions` (source `archcore-traduction` : traductions d'ArchCore des noms et dialogues de départ que la langue n'a pas, sans remplacer une ligne existante) et à la main (source `manual` par défaut, gardée par `i18n db`) |
 
 Voir [[Traduction|FR-Traduction]] pour le repli et [[Extensions ArchRust|FR-Extensions-ArchRust]] pour le protocole.
 

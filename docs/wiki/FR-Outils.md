@@ -10,7 +10,7 @@ dossier désigné par `ARCHCORE_CONF_DIR` (voir [[Configuration|FR-Configuration
 | `archcore db-init [--account nom mdp [mj]]` | Crée les bases, rejoue la base de référence et applique les migrations manquantes ; avec `--account`, crée ou met à jour un compte |
 | `archcore db-check` | Contrôle de cohérence, en lecture seule : versions du schéma, références entre bases, plages d'identifiants ; se termine en erreur sur une anomalie grave (voir [[Base de données\|FR-Base-de-donnees]]) |
 | `archcore decrypt [source] [destination]` | Déchiffre `Game/ini` (RC4, MD5(« 1111 »)) vers `data/client-ini` |
-| `archcore import [dossier] [--server dossier] [--webzen dossier]` | Importe dans `archcore_world` les valeurs de l'épisode 8 (tables du serveur d'origine, `--server` ou `data/server-ini`, exigées) avec les noms, visuels et tables purement clientes de `data/client-ini` (CP949 → UTF-8, voir « Valeurs de l'épisode 8 » plus bas), la hauteur du sol depuis `world/b*x.ma2` du dossier Game (`map_height`, quelques minutes), les apparitions de monstres, le butin et la carte serveur ; avec `--webzen`, quêtes, courbe d'expérience, titres et maîtrises du client officiel de Webzen (voir « Source Webzen ») ; applique enfin la couche de contenu `content/*.sql`, note chaque source dans `import_run` et affiche le résumé des lignes gardées et écartées par table |
+| `archcore import [dossier] [--server dossier] [--webzen dossier [--traductions dossier]]` | Importe dans `archcore_world` les valeurs de l'épisode 8 (tables du serveur d'origine, `--server` ou `data/server-ini`, exigées) avec les noms, visuels et tables purement clientes de `data/client-ini` (CP949 → UTF-8, voir « Valeurs de l'épisode 8 » plus bas), la hauteur du sol depuis `world/b*x.ma2` du dossier Game (`map_height`, quelques minutes), les apparitions de monstres, le butin et la carte serveur ; avec `--webzen`, quêtes, courbe d'expérience, titres et maîtrises du client officiel de Webzen (voir « Source Webzen ») ; avec `--traductions`, les traductions d'ArchCore des textes de Webzen qu'une langue n'a pas (voir « Traductions d'ArchCore ») ; applique enfin la couche de contenu `content/*.sql`, note chaque source dans `import_run` et affiche le résumé des lignes gardées et écartées par table |
 | `archcore export-client-tables <dossier> [--game dossier]` | Écrit depuis la base monde les tables de valeurs au format du client, pour ArchRust (voir « Export pour le client ») |
 | `archcore migrate-ep8 [--apply \| --restore n]` | Rapport, puis migration des personnages existants vers les valeurs de l'épisode 8 (voir « Migration des personnages ») |
 | `archcore content` | Réapplique la couche de contenu `content/*.sql` à la base monde, sans réimporter (voir [[Base de données\|FR-Base-de-donnees]]) |
@@ -199,7 +199,8 @@ d'appoint) vérifie les alliances et les hostilités : guilde inconnue (0x3c), e
 demande refusée (op 34 → 35, 0x44) puis acceptée (op 36 des deux côtés, rôles 2 et 1, détails op 44), déjà
 alliées (0x3e), hostilité envers une alliée (0x4b), départ (op 37 : 0x47, et 0x49 pour l'autre, l'alliance
 étant dissoute), hostilité refusée (op 38 → 39, 0x52) puis acceptée (op 40, détails op 45), déjà hostiles (0x4c),
-trêve refusée (op 41 → 39, 0x57) puis acceptée (op 43, 0x59), hostilité relue à la reconnexion et retirée par
+trêve refusée (op 41 → 39, 0x57) puis acceptée (op 43, 0x59), relations refusées par option (0x40 : code 94
+pour l'alliance et l'hostilité), hostilité relue à la reconnexion et retirée par
 la dissolution. `sim guildwarehouse` (GmTest chef, SimA, 8 comptes d'appoint) vérifie l'entrepôt de guilde chez
 Holly : accord du gardien (fonction 35, op 3), refus sous 10 membres (0x5f), ouverture (op 0, op 1 résultat 2),
 dépôt d'une pile (op 5 → statut 53, case au champ 7) et de 1000 pièces (op 3), droits d'un membre (pas de
@@ -664,6 +665,25 @@ Chaque ligne écartée et sa raison sont écrites dans `data/import-webzen.log` 
 Dernier import (bases de copie) : 3 235 quêtes sur 3 270 (3 sans PNJ gardé : 3296, dont le groupe 391 n'est porté
 par aucun PNJ, 4372 et 4373, qu'aucun groupe ne cite ; 32 à leur suite), 1 044 groupes (2 vidés), 780 objets du monde
 à quêtes, 2 768 titres, 287 maîtrises.
+
+### Traductions d'ArchCore
+
+`archcore import … --webzen <dossier ini> --traductions <dossier>` ajoute les textes de Webzen qu'une langue n'a pas,
+traduits pour ArchCore (`tools/traductions.rs`) : un fichier `<langue>.tsv` par code de la table `language`
+(`en.tsv`, `fr.tsv`, `pt-BR.tsv`…), UTF-8, une ligne par texte : sorte (`quest`, `title`, `group`), TID, champ (colonne
+de `questtemplate.ini` ou de `titlestringtable.txt`, `name` pour un groupe), texte d'origine tel qu'importé,
+traduction ; `#` commente une ligne, `\t`, `\n` et `\\` s'échappent. Le dossier contient des données de jeu : il reste
+hors de tout dépôt (`../data/traductions` à côté d'ArchCore-core). `--traductions` exige `--webzen`.
+
+| Règle | Effet |
+|---|---|
+| Texte d'origine | La ligne ne s'applique que si la cellule importée vaut encore son texte d'origine ; sinon elle est « périmée » et notée dans `data/import-webzen.log` |
+| Jamais à la place d'un original | Une cellule que la langue a déjà (texte de Webzen de la langue, texte du client anglais de Webzen pour `en`, titre du dossier de langue du client à l'export, ligne de `localized_text` d'une autre source) reste telle quelle |
+| Rangement | `client_table` : `traduction/questtemplate.ini@<langue>`, `traduction/titlestringtable.txt@<langue>`, `traduction/questgroup.ini@<langue>` ; `localized_text` : nom et dialogue de départ des quêtes, source `archcore-traduction` (colonne élargie par la migration `202611101000`) |
+| Export | `export-client-tables` : textes de Webzen de la langue, sinon traduction de la langue, sinon traduction anglaise (sauf `ini_ko`, qui garde le coréen) ; titres : ligne du dossier de langue du client, sinon ligne traduite |
+| Import suivant | Toutes les traductions sont réécrites à chaque import `--webzen` ; sans `--traductions`, elles disparaissent de la base |
+
+Le résumé de l'import donne, par langue, les textes de quêtes et de titres traduits et les lignes périmées.
 
 ## Export pour le client
 

@@ -22,7 +22,8 @@
 //! rôle 1) et 3 autres guildes au plus (FUN_1401ff510) ; 20 membres exigés de part et d'autre (code 0x41,
 //! nombre écrit par Archonia), 10 pour une hostilité (0x4f) ; 5 hostilités au plus. Une demande sans
 //! réponse tombe au bout d'une minute. Le chef qui refuse les relations de guilde (option 0x40, que le
-//! client vérifie avant d'afficher la question) n'est pas sollicité : code « impossible » au demandeur.
+//! client vérifie avant d'afficher la question) n'est pas sollicité : code 94 au demandeur (`sysstr` 712 « The
+//! guild is blocking Ally/Hostile apply. », même code dans les clients de Webzen et d'Archonia).
 
 use super::{rank, send_to, send_to_guild, system_packet, Guild};
 use crate::world::{WorldCtx, WorldState};
@@ -85,7 +86,7 @@ pub const HOSTILE_MIN_MEMBERS: usize = 10;
 pub const ROLE_LEADER: i64 = 2;
 pub const ROLE_MEMBER: i64 = 1;
 /// Option du chef : refuser les relations de guilde (drapeaux du personnage, FUN_1408cc440).
-pub const REFUSE_RELATION: u32 = 0x40;
+pub const REFUSE_RELATION: u32 = crate::world::option_flags::REFUSE_RELATION;
 /// Une demande sans réponse tombe au bout de ce temps (s).
 const OFFER_SECS: i64 = 60;
 
@@ -331,7 +332,7 @@ fn joint_request(st: &mut WorldState, sid: u32, gid: u32, other: Option<u32>) {
         return refuse(st, code::JOINT_MASTER_OFFLINE, None);
     }
     if refuses(st, e) {
-        return refuse(st, code::JOINT_DISABLE, None);
+        return refuse(st, super::code::REFUSE_RELATION, None);
     }
     offer(st, sid, Kind::Joint, gid, to, op::JOINT_REQUEST, code::JOINT_WAIT);
 }
@@ -444,7 +445,7 @@ fn hostile_request(st: &mut WorldState, sid: u32, gid: u32, other: Option<u32>) 
         return refuse(st, code::HOSTILE_MASTER_OFFLINE, None);
     }
     if refuses(st, e) {
-        return refuse(st, code::HOSTILE_DISABLE, None);
+        return refuse(st, super::code::REFUSE_RELATION, None);
     }
     offer(st, sid, Kind::Hostile, gid, to, op::HOSTILE_REQUEST, code::HOSTILE_WAIT);
 }

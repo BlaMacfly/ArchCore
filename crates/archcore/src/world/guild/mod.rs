@@ -11,6 +11,7 @@
 //!   op 4  départ : un membre le demande (rang 3, message 50) ; un demandeur d'adhésion part aussitôt.
 //!   op 29 départ accepté par le chef ou le second (membre 16) ; sans réponse, il se fait au bout d'un jour.
 //!   op 5  exclusion par le chef ou le second (membre 16).
+//!         Départ et exclusion sont refusés dans une zone de siège en guerre (message 97, client de Webzen).
 //!   op 6  dissolution par le chef, avec le mot de passe donné à la création.
 //!   op 7  agrandissement par le chef (20 membres au moins) : taille suivante (champ 7), payée selon
 //!         guildmaxmember.txt ; ← op 7 à toute la guilde, code 44 si l'or manque.
@@ -107,6 +108,12 @@ pub mod code {
     pub const BUY_GUILDMARK_DUPLICATE: i64 = 59;
     pub const JOIN_REQUEST_SELF: i64 = 48;
     pub const LEAVE_REQUEST: i64 = 50;
+    /// Le chef de la guilde visée refuse les relations de guilde (option 0x40) : `sysstr` 712 « The guild is
+    /// blocking Ally/Hostile apply. » (même table chez Archonia, FUN_1406a44e0, et chez Webzen, 0x6b9900).
+    pub const REFUSE_RELATION: i64 = 94;
+    /// Départ ou exclusion dans une zone de siège en guerre : « CannotLeveGuildInSiegewarArea ». Code du client de
+    /// Webzen (table 0-97) ; Archonia s'arrête à 96 et n'a pas le texte en dur, mais le garde dans uimessage.txt.
+    pub const SIEGE_AREA: i64 = 97;
 }
 
 /// AgpmEventGuild : opérations.
@@ -765,6 +772,11 @@ async fn remove_member(ctx: &WorldCtx, st: &mut WorldState, gid: u32, cid: u32, 
 /// Op 4 : un membre demande à partir ; un demandeur d'adhésion retire sa demande.
 async fn leave(ctx: &WorldCtx, st: &mut WorldState, sid: u32) -> anyhow::Result<()> {
     let Some((cid, gid, my_rank)) = mine(st, sid) else { return Ok(()) };
+    // Zone de siège en guerre (code 97) ; un demandeur d'adhésion peut toujours retirer sa demande.
+    if my_rank != rank::JOIN_REQUEST && in_siege_area(ctx, st, sid) {
+        send_to(st, sid, system_packet(code::SIEGE_AREA, None, None));
+        return Ok(());
+    }
     match my_rank {
         rank::MASTER => send_to(st, sid, system_packet(code::LEAVE_FAIL, None, None)),
         rank::JOIN_REQUEST => remove_member(ctx, st, gid, cid, op::LEAVE, code::LEAVE).await?,
@@ -804,12 +816,27 @@ async fn kick(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> anyh
         send_to(st, sid, system_packet(code::NOT_MASTER, None, None));
         return Ok(());
     }
+    // Zone de siège en guerre : ni l'auteur ni l'exclu ne doivent s'y trouver (code 97).
+    if in_siege_area(ctx, st, sid) {
+        send_to(st, sid, system_packet(code::SIEGE_AREA, None, None));
+        return Ok(());
+    }
     let Some(name) = member_name(p) else { return Ok(()) };
     let Some(target) = st.guilds.by_id[&gid].member_named(&name).cloned() else { return Ok(()) };
     if target.cid == me || target.rank == rank::MASTER || (target.rank == rank::SUBMASTER && my_rank != rank::MASTER) {
         return Ok(());
     }
+    if st.by_cid.get(&target.cid).is_some_and(|t| in_siege_area(ctx, st, *t)) {
+        send_to(st, sid, system_packet(code::SIEGE_AREA, None, None));
+        return Ok(());
+    }
     remove_member(ctx, st, gid, target.cid, op::FORCED_LEAVE, code::FORCED_LEAVE).await
+}
+
+/// Le joueur est-il dans une région d'un château en guerre ? Départ et exclusion y sont refusés (code 97 du client de
+/// Webzen ; règle déduite du texte « You cannot kick Guild member in Siege Warfare area. » et du nom de la clé).
+fn in_siege_area(ctx: &WorldCtx, st: &WorldState, sid: u32) -> bool {
+    super::siege::war::war_zone(ctx, st, sid).is_some()
 }
 
 /// Op 6 : dissolution par le chef, avec le mot de passe de la guilde.
@@ -986,5 +1013,17 @@ mod tests {
         assert!(!too_early_to_destroy(0, 5, 24), "date de création inconnue");
         let sys = archcore_net::decode_packet(&schema::GUILD, &system_packet(code::DESTROY_FAIL_TOO_EARLY, None, None)).unwrap();
         assert_eq!((sys.int(0), sys.int(1)), (Some(op::SYSTEM_MESSAGE), Some(46)));
+    }
+
+    #[test]
+    fn codes_du_client_de_webzen() {
+        // Table des messages de guilde (Webzen 0x6b9900 : 0-97 ; Archonia FUN_1406a44e0 : 0-96).
+        assert_eq!((code::JOIN_REFUSE, super::battle::bcode::REFUSE), (42, 43));
+        assert_eq!((code::REFUSE_RELATION, code::SIEGE_AREA), (94, 97));
+        assert_eq!((super::warehouse::STORE_MEMBER_FAIL, super::warehouse::DESTROY_KEEP_FAIL), (95, 96));
+        for c in [code::REFUSE_RELATION, code::SIEGE_AREA] {
+            let sys = archcore_net::decode_packet(&schema::GUILD, &system_packet(c, None, None)).unwrap();
+            assert_eq!((sys.int(0), sys.int(1)), (Some(op::SYSTEM_MESSAGE), Some(c)));
+        }
     }
 }

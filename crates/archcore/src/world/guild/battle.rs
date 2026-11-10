@@ -124,7 +124,7 @@ pub const CANCEL_ENABLE_SECS: i64 = 60;
 /// Une demande sans réponse tombe au bout de ce temps.
 const OFFER_SECS: i64 = 60;
 /// Option du joueur : refuser les combats de guilde (AgpmCharacter op 0x11, champ 22).
-pub const REFUSE_GUILD_BATTLE: u32 = 0x04;
+pub const REFUSE_GUILD_BATTLE: u32 = crate::world::option_flags::REFUSE_GUILD_BATTLE;
 /// Marge de portée d'un coup (comme pour les monstres).
 const REACH_TOLERANCE: f64 = 50.0;
 /// Fréquence de l'horloge envoyée (op 22).
