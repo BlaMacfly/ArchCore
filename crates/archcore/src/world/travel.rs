@@ -9,6 +9,10 @@
 //!
 //! L'aller-retour mémorise l'endroit quitté et l'annonce au client par AGPMITEM op 9 ; le client demande à
 //! y revenir par op 6, refusé en combat ; le serveur répond op 10 (retour désactivé) et y ramène le joueur.
+//! Un retour refusé est signalé par l'op 7 (champ 4 = CID) : ni Archonia ni le client de Webzen n'en montrent rien
+//! (seul abonné, AgcmUIItem, ne fait rien : Archonia 0x1400f62d0, Webzen 0x67ac90) ; le texte reste celui
+//! d'ArchCore. Le client renonce au retour par op 8 (AgcmItem FUN_1406480c0, seulement si le retour est possible) :
+//! le point est oublié et l'op 10 masque le bouton, comme après un retour.
 
 use super::items::{item_remove, InventoryItem};
 use super::recovery::used_packet;
@@ -20,6 +24,8 @@ use std::time::{Duration, Instant};
 
 /// Opérations AGPMITEM du retour par parchemin.
 pub const USE_RETURN_SCROLL: i64 = 6;
+pub const USE_RETURN_SCROLL_FAILED: i64 = 7;
+pub const CANCEL_RETURN_SCROLL: i64 = 8;
 pub const ENABLE_RETURN_SCROLL: i64 = 9;
 pub const DISABLE_RETURN_SCROLL: i64 = 10;
 
@@ -122,6 +128,7 @@ pub async fn use_return(ctx: &WorldCtx, st: &mut WorldState, sid: u32, now: Inst
     }
     let Some(back) = p.return_point else { return Ok(()) };
     if now < p.timers.combat_until {
+        p.send_raw(return_packet(USE_RETURN_SCROLL_FAILED, p.ch.id));
         send_system(st, sid, "Impossible de revenir pendant un combat.");
         return Ok(());
     }
@@ -131,6 +138,15 @@ pub async fn use_return(ctx: &WorldCtx, st: &mut WorldState, sid: u32, now: Inst
     info!("[parchemin] {name} revient en {:.0}, {:.0}", back.x, back.z);
     super::teleport(ctx, st, sid, back.x as f64, Some(back.y as f64), back.z as f64).await?;
     Ok(())
+}
+
+/// AGPMITEM op 8 : renoncer au retour d'un aller-retour.
+pub fn cancel_return(st: &mut WorldState, sid: u32) {
+    let Some(p) = st.players.get_mut(&sid) else { return };
+    if p.return_point.take().is_some() {
+        p.send_raw(return_packet(DISABLE_RETURN_SCROLL, p.ch.id));
+        info!("[parchemin] {} renonce au retour", p.ch.name);
+    }
 }
 
 #[cfg(test)]
@@ -147,5 +163,15 @@ mod tests {
         assert_eq!(Scroll::from_raw(&p("4", "3", "")).unwrap().kind, ScrollKind::GoTownNow);
         assert!(Scroll::from_raw(&p("4", "2", "abc")).is_none(), "destination illisible");
         assert!(Scroll::from_raw(&p("0", "0", "")).is_none(), "pas un parchemin");
+    }
+
+    #[test]
+    fn retour_refuse_ou_abandonne() {
+        let s = &schema::ITEM;
+        let p = archcore_net::decode_packet(s, &return_packet(USE_RETURN_SCROLL_FAILED, 42)).unwrap();
+        assert_eq!((p.int(0), p.int(4), p.int(2)), (Some(7), Some(42), None));
+        let p = archcore_net::decode_packet(s, &return_packet(DISABLE_RETURN_SCROLL, 42)).unwrap();
+        assert_eq!((p.int(0), p.int(4)), (Some(10), Some(42)));
+        assert_eq!((USE_RETURN_SCROLL_FAILED, CANCEL_RETURN_SCROLL), (7, 8));
     }
 }

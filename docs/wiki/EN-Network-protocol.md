@@ -33,11 +33,15 @@ ArchCore speaks Archonia's protocol (the one of the ArchRust client). Compared w
 - **Archonia additions** kept: AgpmItem fields 25-26 and ops 0x21 to 0x33, AgpmSkill op 0x11, AgpmParty field 11
   and op 7, AgpmUIStatus 5th layer (50 slots), AgpmRefinery 20 items and ops 5 to 7 (recipe), AgpmAuction gold +
   CC, AgpmTimer Unix time, AgpmTitle op 11, types 0x63 and above;
-- **numbering**: Webzen's auction house has one more op (4); its ops 5 to 8 (sell, cancel, confirm, buy) are
+- **numbering**: Webzen's auction house has one more op (4, the old select: never sent by its client, ignored on
+  receipt); its ops 5 to 8 (sell, cancel, confirm, buy) are
   Archonia's 4 to 7, its search 13 is 12;
 - **guild messages**: same table (0-96), plus code 97 in Webzen's client (see Guilds);
-- not taken over: AgpmItem op 31 (item used on a target, sent by Webzen's client, meaning not established),
-  AgpmSkill op 9 (the client's "real hit": the server times the hit).
+- AgpmItem **op 31** (item information request, from both clients): see "Item information"; AgpmItem field 26 =
+  the item's 64-bit identifier (kept by the client at `+0x58`); field 25 = text `a,b;c,d;…;[x,y,…]` (integer,
+  64-bit integer pairs; a list in brackets) stored in the item's conversion state (exact meaning not established,
+  ArchCore does not send it);
+- not taken over: AgpmSkill op 9 (the client's "real hit": the server times the hit).
 
 ## Encrypted frames
 
@@ -694,7 +698,22 @@ AGPMITEM op 3 like a potion (one unit consumed, op 4 confirmation), then the ser
 resurrection.
 Going back to town (0 and 1) is refused in combat. The round trip remembers the place left and announces
 it with AGPMITEM **op 9** (field 4 = CID); the client asks to go back with **op 6**, refused in combat; the
-server answers **op 10** (return disabled) and takes the player back.
+server answers **op 10** (return disabled) and takes the player back. A refused return is signalled by **op 7**
+(field 4 = CID), which neither Archonia nor Webzen's client shows (their only subscriber, the item window, does
+nothing): the message stays ArchCore's; before sending op 3, the client itself refuses a scroll when dead,
+transformed, in combat (`Item_TryUseTelScrollOnCombat`) or in a PvP zone. The client gives up the return with
+**op 8** (field 4 = CID, only while a return is possible): the server forgets the point and answers op 10.
+
+## Item information (type 0x04, AgpmItem ops 31 and 32)
+
+Tooltip of an item the client does not hold. **Op 31** (client → server): 2 IID, 3 TID, 4 requester CID, 12 kind —
+**8** for an item link clicked in the chat (IID only, already in Webzen's client), **4** for an item button of an
+Archonia window (TID only, IID 0). The client does not ask again for an item it already received. **Op 32**
+(server → client, to the requester only): op 0's fields without place, status or owner (2 IID, 3 TID, 5 count,
+10 worn durability, 20 options) and the kind in field 12; for a TID request, the TID and kind only (the client takes
+the rest from its template). The client keeps the tooltip (AgpmItem callback 106). An op 31 sent back would do
+nothing (no subscriber in either client). Unknown item: no answer. Sockets and set stones are not included
+(ArchCore sends them through AGPMITEMCONVERT). Simulator: `sim scroll`.
 
 ## Skill consumables, item resurrection, skill reset (types 0x04, 0x02, 0x05, 0x3B)
 

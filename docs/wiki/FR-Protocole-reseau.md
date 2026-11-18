@@ -33,11 +33,15 @@ code de l'épisode 8), module par module (schémas déclarés par chaque constru
 - **ajouts d'Archonia** gardés : AgpmItem champs 25-26 et ops 0x21 à 0x33, AgpmSkill op 0x11, AgpmParty champ 11
   et op 7, AgpmUIStatus 5e couche (50 cases), AgpmRefinery 20 objets et ops 5 à 7 (recette), AgpmAuction or + CC,
   AgpmTimer heure Unix, AgpmTitle op 11, types 0x63 et suivants ;
-- **numérotation** : la maison des ventes de Webzen a une op de plus (4) ; ses ops 5 à 8 (vente, annulation,
-  confirmation, achat) sont les 4 à 7 d'Archonia, sa recherche 13 est la 12 ;
+- **numérotation** : la maison des ventes de Webzen a une op de plus (4, ancienne sélection : jamais envoyée par son
+  client, ignorée à la réception) ; ses ops 5 à 8 (vente, annulation, confirmation, achat) sont les 4 à 7
+  d'Archonia, sa recherche 13 est la 12 ;
 - **messages de guilde** : même table (0-96), plus le code 97 chez Webzen (voir Guildes) ;
-- non repris : AgpmItem op 31 (objet utilisé sur une cible, envoyé par le client de Webzen, sens non établi),
-  AgpmSkill op 9 (« coup réel » du client : le serveur règle le moment du coup).
+- AgpmItem **op 31** (demande de renseignements sur un objet, des deux clients) : voir « Renseignements sur un objet » ;
+  champ 26 d'AgpmItem = identifiant 64 bits de l'objet (gardé par le client en `+0x58`) ; champ 25 = texte
+  `a,b;c,d;…;[x,y,…]` (couples entier, entier 64 bits ; liste entre crochets) rangé dans l'état de conversion de
+  l'objet (sens exact non établi, ArchCore ne l'envoie pas) ;
+- non repris : AgpmSkill op 9 (« coup réel » du client : le serveur règle le moment du coup).
 
 ## Trames chiffrées
 
@@ -718,7 +722,23 @@ s'utilise par AGPMITEM op 3 comme une potion (un exemplaire consommé, confirmat
 téléporte le joueur (AGPMOPTIMIZEDCHARMOVE et AGPMCHARACTER). Le « village » est le point de résurrection de
 la région de rattachement, comme pour la résurrection. Le retour au village (0 et 1) est refusé en combat. L'aller-retour mémorise
 l'endroit quitté et l'annonce par AGPMITEM **op 9** (champ 4 = CID) ; le client demande à y revenir par
-**op 6**, refusé en combat ; le serveur répond **op 10** (retour désactivé) et y ramène le joueur.
+**op 6**, refusé en combat ; le serveur répond **op 10** (retour désactivé) et y ramène le joueur. Un retour refusé
+est signalé par l'**op 7** (champ 4 = CID), que ni Archonia ni le client de Webzen ne montrent (leur seul abonné, la
+fenêtre des objets, ne fait rien) : le message reste celui d'ArchCore ; avant d'envoyer l'op 3, le client refuse
+lui-même un parchemin au mort, transformé, en combat (`Item_TryUseTelScrollOnCombat`) ou en zone de PvP. Le client
+renonce au retour par l'**op 8** (champ 4 = CID, seulement si le retour est possible) : le serveur oublie le point
+et répond l'op 10.
+
+## Renseignements sur un objet (type 0x04, AgpmItem ops 31 et 32)
+
+Infobulle d'un objet que le client ne détient pas. **Op 31** (client → serveur) : 2 IID, 3 TID, 4 CID du demandeur,
+12 genre — **8** pour un lien d'objet cliqué dans la discussion (IID seul, déjà chez Webzen), **4** pour un bouton
+d'objet d'une fenêtre d'Archonia (TID seul, IID 0). Le client ne redemande pas un objet déjà reçu. **Op 32**
+(serveur → client, au seul demandeur) : les champs de l'op 0 sans place, statut ni propriétaire (2 IID, 3 TID,
+5 quantité, 10 durabilité entamée, 20 options) et le genre au champ 12 ; pour une demande par TID, le TID et le genre
+seuls (le client prend le reste dans son modèle). Le client en garde l'infobulle (rappel 106 d'AgpmItem). Une op 31
+renvoyée n'aurait aucun effet (aucun abonné dans les deux clients). Objet introuvable : pas de réponse. Les sockets et
+pierres serties ne suivent pas (ArchCore les envoie par AGPMITEMCONVERT). Simulateur : `sim scroll`.
 
 ## Consommables à compétence, résurrection par objet, oubli des compétences (types 0x04, 0x02, 0x05, 0x3B)
 

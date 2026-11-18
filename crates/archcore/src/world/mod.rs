@@ -60,6 +60,7 @@ pub mod gm;
 pub mod guild;
 pub mod heroic;
 pub mod items;
+pub mod item_info;
 pub mod avatar;
 pub mod lifetime;
 pub mod lottery;

@@ -1378,12 +1378,29 @@ async fn scroll(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
     let say = |cid: u32, text: &str| Fields::new(ch).with(0, 0).with(1, cid).with(2, chat_type::NORMAL).with(6, crate::tools::to_cp1252(text));
     let mut iids = std::collections::HashMap::new();
     for tid in [GO_TOWN, ROUNDTRIP, TULLAN] {
-        w.world.send(ch, say(w.cid, &format!("/create \"{char_name}\" {tid} 1"))).await?;
+        // Deux aller-retour : le second pour renoncer au retour (op 8).
+        let n = if tid == ROUNDTRIP { 2 } else { 1 };
+        w.world.send(ch, say(w.cid, &format!("/create \"{char_name}\" {tid} {n}"))).await?;
         // Tullan Passport : objet Cash, dans l'inventaire Cash (51).
         let p = w.world.expect_where(|q| q.is(it, None) && q.int(3) == Some(tid) && matches!(q.int(1), Some(2 | 51)), 3000, "parchemin créé").await?;
         iids.insert(tid, p.int(2).unwrap_or(0));
     }
     println!("  ✓ trois parchemins dans l'inventaire");
+
+    step("renseignements sur un objet (op 31 → op 32)");
+    w.world.send(it, Fields::new(it).with(0, 31).with(2, iids[&GO_TOWN]).with(3, 0).with(4, w.cid).with(12, 8)).await?;
+    let info = w.world.expect_where(|q| q.is(it, Some(32)), 3000, "renseignements sur l'objet").await?;
+    anyhow::ensure!(
+        (info.int(2), info.int(3), info.int(12)) == (Some(iids[&GO_TOWN]), Some(GO_TOWN), Some(8)),
+        "op 32 : IID {}, TID {}, genre {}",
+        o(info.int(2)),
+        o(info.int(3)),
+        o(info.int(12))
+    );
+    w.world.send(it, Fields::new(it).with(0, 31).with(2, 0).with(3, ROUNDTRIP).with(4, w.cid).with(12, 4)).await?;
+    let info = w.world.expect_where(|q| q.is(it, Some(32)), 3000, "renseignements sur un modèle").await?;
+    anyhow::ensure!((info.int(2), info.int(3), info.int(12)) == (None, Some(ROUNDTRIP), Some(4)), "op 32 du modèle");
+    println!("  ✓ op 32 : l'objet du lien (genre 8), le modèle seul (genre 4)");
     // Utilise un objet et rend la destination de la téléportation qui suit.
     async fn use_and_land(w: &mut InWorld, iid: i64, tid: i64) -> anyhow::Result<Vec3> {
         let (it, mv, me) = (&schema::ITEM, &schema::OPT_CHAR_MOVE, w.cid as i64);
@@ -1411,6 +1428,17 @@ async fn scroll(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
     let back = w.world.expect_where(|q| q.is(mv, None) && q.int(0) == Some(me), 3000, "retour").await?.fields().vec3(2).unwrap_or_default();
     anyhow::ensure!(near(back, tullan), "retour en {back:?}");
     println!("  ✓ retour : de nouveau à Tullan");
+
+    step("aller-retour abandonné (op 8)");
+    let at = use_and_land(&mut w, iids[&ROUNDTRIP], ROUNDTRIP).await?;
+    anyhow::ensure!(town(at), "aller : {at:?}");
+    w.world.expect_where(|q| q.is(it, Some(9)) && q.int(4) == Some(me), 3000, "retour possible").await.ok();
+    w.world.send(it, Fields::new(it).with(0, 8).with(4, w.cid)).await?;
+    w.world.expect_where(|q| q.is(it, Some(10)) && q.int(4) == Some(me), 3000, "retour désactivé (abandon)").await?;
+    w.world.send(it, Fields::new(it).with(0, 6).with(4, w.cid)).await?;
+    let moved = w.world.expect_where(|q| q.is(mv, None) && q.int(0) == Some(me), 1500, "retour après abandon").await;
+    anyhow::ensure!(moved.is_err(), "le retour abandonné a encore ramené le joueur");
+    println!("  ✓ abandon : op 10, puis l'op 6 ne ramène plus");
 
     step("passeport (retour au village)");
     let at = use_and_land(&mut w, iids[&GO_TOWN], GO_TOWN).await?;

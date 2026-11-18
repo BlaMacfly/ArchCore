@@ -369,6 +369,16 @@
 
 ## Prochaines étapes
 
+000000. Détails du protocole (16 novembre 2026) : ops envoyées par le client relevées dans Archonia et chez Webzen.
+   **AgpmItem op 31 → op 32** (renseignements sur un objet : lien d'objet de la discussion, genre 8 ; bouton
+   d'objet d'une fenêtre d'Archonia par TID, genre 4) ; **op 8** (renoncer au retour d'un aller-retour : point
+   oublié, op 10) ; **op 7** au retour refusé en combat (sans effet visible dans les deux clients). Simulateur :
+   `sim scroll`. Restent : liens d'objet dans la discussion d'ArchRust, sockets dans l'op 32 (champ 25 d'Archonia,
+   texte de l'état de conversion), ops d'Archonia que le serveur ignore (AgpmItem 34 à 51 : verrou, tri des sacs,
+   transmogrification, relances d'options ; AgpmCharacter 1 et 38), types que le client de Webzen envoie déjà et
+   qu'ArchCore refuse à la réception (AgcmRecruit 0x0A, AgpmCashMall 0x2E, AgpmCasper 0x19, AgpmScript 0x45,
+   AgpmAdmin 0x12 ; voir [[Protocole réseau|FR-Protocole-reseau]]).
+
 00000. Traductions d'ArchCore (10 novembre 2026) : textes de Webzen qu'une langue n'a pas, traduits hors du dépôt
    (`../data/traductions/<langue>.tsv`) et lus par `archcore import … --webzen … --traductions <dossier>` (source
    `archcore-traduction`, migration `202611101000`, jamais à la place d'un texte existant) : 275 quêtes Dragon Scion
