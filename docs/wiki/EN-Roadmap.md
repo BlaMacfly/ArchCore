@@ -370,8 +370,8 @@
 000000. Protocol details (16 November 2026): ops sent by the client surveyed in Archonia and in Webzen's client.
    **AgpmItem op 31 → op 32** (item information: chat item link, kind 8; item button of an Archonia window by TID,
    kind 4); **op 8** (give up a round trip's return: point forgotten, op 10); **op 7** when a return is refused in
-   combat (no visible effect in either client). Simulator: `sim scroll`. Remaining: chat item links in ArchRust,
-   sockets in op 32 (Archonia's field 25, text of the conversion state), Archonia ops the server ignores (AgpmItem
+   combat (no visible effect in either client). Simulator: `sim scroll`. Chat item links done in ArchRust on 19 November 2026 (Ctrl + click,
+   Archonia's `<ITEM::IID::name>` tag). Remaining: sockets in op 32 (Archonia's field 25, text of the conversion state), Archonia ops the server ignores (AgpmItem
    34 to 51: lock, bag sorting, transmogrification, option rerolls; AgpmCharacter 1 and 38), types Webzen's client
    already sends and ArchCore refuses on receipt (AgcmRecruit 0x0A, AgpmCashMall 0x2E, AgpmCasper 0x19, AgpmScript
    0x45, AgpmAdmin 0x12; see [[Network protocol|EN-Network-protocol]]).
