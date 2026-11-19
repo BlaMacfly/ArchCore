@@ -324,6 +324,19 @@
   scenario (new); to be confirmed in game. **Guild** (same day, last messages surveyed in Archonia): disbanding is
   refused during the 24 hours after creation (code 46, "Guild_DestroyFailTooEarly", the client's original text),
   set by `Guild.DestroyDelayHours`; `guilddestroy` scenario (new).
+- Survey of 18 November 2026 (EP8 types still refused): **Cash shop** (AgpmCashMall 0x2E, `cashmall.rs`): ops 1 to 7
+  of the Webzen and Archonia clients (7 open → 2 tabs, 1 tab → 3 products, 4 buy → 5 result, 6 balance); `cashmall.txt`
+  from the server tables (`archcore import`, `client_table`); the character's Cash (`characters.cash`, field 10) is
+  debited, with no real payment at all; items go to the Cash inventory (Cash item) or the inventory, with the gacha's
+  room checks; GM command `/cash`. Original windows `UI_CashMall` / `UI_CashMallBuy` in ArchRust. Op 8 (Archonia's
+  daily deal) not handled. **Recruitment** (AgcmRecruit 0x0A): dead in both clients (AcUIRecruit windows never
+  opened); accepted and logged, no answer. Unit tests; `cashmall` scenario (new).
+- Same survey, Webzen tools: **GM tool** (AgpmAdmin 0x12, `admin.rs`): the ops the `AlefAdminDLL` DLL sends (2, 3,
+  10, 11, 12, 14, 19) routed to the chat commands (search → op 4 and `/search`, sheet → `/level`, `/exp`, `/money`,
+  disconnect → `/disconnect`, item creation → `/create`), same GM levels; guilds, titles, other item operations and
+  sanctions not supported. New commands `/search` and `/disconnect`. **Developer console**: AgpmScript 0x45 (line read as a
+  GM command, answer op 2) and AgpmCasper 0x19 (KillGameServer → `/announce_restart 0 10`). No original Archonia
+  window: nothing in ArchRust. Unit tests; `admin` scenario (new).
 - Missing protocol ops (Archonia survey of 2 November 2026): quests (op 14 on-screen tracking, 10 at most, stored in
   `character_quests.journal` and sent back as the 5th integer of op 4; ops 8 and 9 inventory full); party (op 2: effect
   area and party bonus, configurable `Party.*` rules; management ops 9, 12 and 13, refusal of an invitee at least 10

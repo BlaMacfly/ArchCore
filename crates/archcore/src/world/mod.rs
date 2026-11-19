@@ -30,11 +30,14 @@
 //!   AGPMCHARACTER op 16 : actions sociales (social.rs) ; AgpmUIStatus (0x14) : barre de raccourcis (ui_status.rs)
 //!   AgpmReturnToLogin (0x2F) op 1 : retour à la sélection des personnages (return_login.rs)
 //!   AgpmTitle (0x60, brut) : titres, objectifs, PNJ « <Title Manager> » (titles.rs)
+//!   AGPMADMIN (0x12) ops 2 à 19 : outil MJ de Webzen (admin.rs) ; AgpmScript (0x45), AgpmCasper (0x19) : sa console de
+//!       développement (script.rs, casper.rs) ; tous branchés sur les commandes de gm.rs
 //! ```
 //! L'état du monde est partagé derrière un verrou : les paquets de tous les joueurs sont traités un à
 //! un, comme dans la boucle unique du serveur Node.
 
 pub mod addon;
+pub mod admin;
 pub mod ai;
 pub mod ai_kin;
 pub mod ammo;
@@ -45,6 +48,8 @@ pub mod bank;
 pub mod battlesquare;
 pub mod boss;
 pub mod buddy;
+pub mod casper;
+pub mod cashmall;
 pub mod channel;
 pub mod chat;
 pub mod combat;
@@ -89,11 +94,13 @@ pub mod return_login;
 pub mod refinery;
 pub mod reconnect;
 pub mod recovery;
+pub mod recruit;
 pub mod regions;
 pub mod remission;
 pub mod repair;
 pub mod requirement;
 pub mod ride;
+pub mod script;
 pub mod sector;
 pub mod shrine;
 pub mod skill_extra;
@@ -162,6 +169,8 @@ pub struct WorldCtx {
     pub recipes: refinery::Recipes,
     /// Gacha : types de tirage, tables par niveau, objets tirables et socles (gachatypetemplate.ini, gacha_object).
     pub gacha: gacha::GachaCatalog,
+    /// Boutique Cash : onglets et produits (cashmall.txt).
+    pub cash_mall: cashmall::CashMall,
     /// Production : récolte, recettes de cuisine et d'alchimie, niveaux (tables Product*.txt).
     pub product: product::ProductCatalog,
     /// Coiffures et visages proposés (charactercustomizelist.txt).
@@ -432,6 +441,11 @@ impl Service for WorldService {
                 | ptype::REFINERY
                 | ptype::EVENT_REFINERY
                 | ptype::EVENT_GACHA
+                | ptype::RECRUIT
+                | ptype::CASH_MALL
+                | ptype::ADMIN
+                | ptype::CASPER
+                | ptype::SCRIPT
                 | ptype::EVENT_TELEPORT
                 | ptype::GUILD
                 | ptype::EVENT_GUILD
@@ -581,6 +595,12 @@ impl Connection for WorldConn {
             ptype::REFINERY => refinery::on_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::EVENT_REFINERY => refinery::on_event(ctx, &st, self.sid, &p),
             ptype::EVENT_GACHA => gacha::on_packet(ctx, &mut st, self.sid, &p).await?,
+            ptype::RECRUIT => recruit::on_packet(&mut st, self.sid, &p).await?,
+            ptype::CASH_MALL => cashmall::on_packet(ctx, &mut st, self.sid, &p).await?,
+            // Outil MJ de Webzen (AlefAdminDLL) et sa console de développement : commandes de gm.rs.
+            ptype::ADMIN => admin::on_packet(&world, &mut st, self.sid, &p).await?,
+            ptype::CASPER => casper::on_packet(&world, &mut st, self.sid, &p).await?,
+            ptype::SCRIPT => script::on_packet(&world, &mut st, self.sid, &p).await?,
             ptype::EVENT_TELEPORT => portal::on_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::GUILD => guild::on_packet(ctx, &mut st, self.sid, &p).await?,
             ptype::EVENT_GUILD => guild::on_event(ctx, &mut st, self.sid, &p),

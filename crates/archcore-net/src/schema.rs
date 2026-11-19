@@ -96,6 +96,15 @@ pub mod ptype {
     pub const ARCHLORD: u8 = 0x55;
     /// AgpmEventGacha (0x57) : socles de tirage des villes (« Fortune Gate », fonction d'objet 38).
     pub const EVENT_GACHA: u8 = 0x57;
+    /// AgcmRecruit (0x0A) : annonces de recherche de groupe ou de membres ; fenêtre jamais ouverte par les clients
+    /// (`world/recruit.rs`).
+    pub const RECRUIT: u8 = 0x0a;
+    /// AgpmCashMall (0x2E) : boutique Cash (`UI_CashMall`, `world/cashmall.rs`).
+    pub const CASH_MALL: u8 = 0x2e;
+    /// AgpmCasper (0x19) : arrêt du serveur demandé par la console de développement de Webzen (`world/casper.rs`).
+    pub const CASPER: u8 = 0x19;
+    /// AgpmScript (0x45, Webzen seulement) : lignes de la console de développement (`world/script.rs`).
+    pub const SCRIPT: u8 = 0x45;
     /// Extensions ArchRust ↔ ArchCore. Hors de la plage 0x01-0x77 acceptée par le répartiteur du
     /// client d'origine, qui l'ignore donc sans erreur.
     pub const ARCHCORE_EXT: u8 = 0xac;
@@ -982,6 +991,49 @@ pub static EVENT_GACHA: Schema = Schema {
     ],
 };
 
+/// AgcmRecruit (0x0A) — drapeaux 2 (constructeurs W 0x6ea6c0, A 0x14067f160, identiques) : ops `recruit_op`
+/// (`world/recruit.rs`). Sous-paquets : `mini::RECRUIT_MEMBER` (champ 3), `RECRUIT_PARTY` (4), `RECRUIT_SEARCH` (5).
+pub static RECRUIT: Schema = Schema {
+    name: "AGCMRECRUIT",
+    id: ptype::RECRUIT,
+    flag_len: 2,
+    fields: &[
+        f(I8),     // 0 opération
+        f(I32),    // 1 CID de l'envoyeur
+        f(I32),    // 2 CID visé (ops 4, 5) ou rang demandé (ops 3, 6)
+        f(Packet), // 3 joueur qui cherche un groupe (`RECRUIT_MEMBER`)
+        f(Packet), // 4 groupe qui cherche des membres (`RECRUIT_PARTY`)
+        f(Packet), // 5 recherche (`RECRUIT_SEARCH`)
+        f(I32),    // 6 résultat (op 8 : 9 « aucun résultat »)
+    ],
+};
+
+/// AgpmCashMall (0x2E) — drapeaux 2 (constructeur W 0x5573c0 ; A, réception 0x140285e90) : ops `cash_mall_op`
+/// (`world/cashmall.rs`). Champs 6 et 7 : textes ASCII (voir `world/cashmall.rs`).
+pub static CASH_MALL: Schema = Schema {
+    name: "AGPMCASHMALL",
+    id: ptype::CASH_MALL,
+    flag_len: 2,
+    fields: &[
+        f(I8),       // 0 opération
+        f(I8),       // 1 op 5 : résultat de l'achat (`cash_mall_result`)
+        f(U8),       // 2 version de la liste (ops 2, 3, 4, 7)
+        f(I32),      // 3 CID
+        f(I32),      // 4 onglet (ops 1, 3)
+        f(I32),      // 5 produit (op 4 ; op 8 d'Archonia)
+        f(MemBlock), // 6 op 2 : onglets « nom;produit,produit,:… »
+        f(MemBlock), // 7 op 3 : produits « produit,TID,nombre,prix,genre,description:… »
+        f(I32),      // 8 op 4 : 0, ou 2 (Archonia, sens inconnu) ; op 8 d'Archonia
+    ],
+};
+
+/// AgpmCasper (0x19) — drapeaux 1 (constructeurs W 0x56a1c0, A 0x14027c8b0) : op 0 à 3, CID (op 1 seulement).
+pub static CASPER: Schema = Schema { name: "AGPMCASPER", id: ptype::CASPER, flag_len: 1, fields: &[f(I8), f(I32)] };
+
+/// AgpmScript (0x45) — drapeaux 1 (constructeur W 0x588160) : op (0 ligne de la console vers le serveur, 2 réponse,
+/// lignes séparées par « ; »), CID, texte.
+pub static SCRIPT: Schema = Schema { name: "AGPMSCRIPT", id: ptype::SCRIPT, flag_len: 1, fields: &[f(I8), f(I32), f(MemBlock)] };
+
 /// Tous les schémas principaux, pour l'aiguillage par type.
 pub static MAIN: &[&Schema] = &[
     &CONFIG, &CHARACTER, &CHAR_MANAGER, &LOGIN, &TIMER, &WORLD, &CHATTING, &ADMIN, &ITEM, &EVENT_NPC_TRADE,
@@ -990,6 +1042,8 @@ pub static MAIN: &[&Schema] = &[
     &EVENT_ITEM_REPAIR, &RIDE, &AUCTION, &EVENT_NATURE, &NATURE_EFFECT, &ITEM_SET, &SUMMONS, &CHANNEL, &AREA_CHATTING,
     &EVENT_CHAR_CUSTOMIZE, &WANTED_CRIMINAL, &TITLE, &SHRINE_BATTLE, &BOSS, &SIEGE_WAR, &EVENT_SIEGE_WAR_NPC, &WAR_INFO, &ARCHLORD, &TAX,
     &EVENT_GACHA,
+    &RECRUIT, &CASH_MALL,
+    &CASPER, &SCRIPT,
 ];
 
 pub fn main_by_id(id: u8) -> Option<&'static Schema> {
@@ -1088,6 +1142,38 @@ pub mod mini {
         flag_len: 1,
         fields: &[f(I8), f(I32), fs(Char, 49), f(I16), f(I8), fs(Char, 49)],
     };
+
+    /// Recherche de personnage (AgpmAdmin champ 3, W `+0x25df0`) — drapeaux 1 : genre, critère (0 nom, 1 compte),
+    /// entier, texte cherché, résultat (`ADMIN_SEARCH_RESULT`, op 4).
+    pub static ADMIN_SEARCH: Schema =
+        Schema { name: "AGPMADMIN_SEARCH", id: 210, flag_len: 1, fields: &[f(I8), f(I8), f(I32), fs(Char, 49), f(Packet)] };
+
+    /// Personnage trouvé (W `+0x38704`) — drapeaux 2 : 0-1 INT16 (non relevés), 2 nom, 3 CID, 4 compte, 5 6ᵉ colonne de
+    /// l'outil MJ, 6 TID (race et classe), 7 niveau, 8-10 CHAR[16] (adresses IP), 11 en ligne (1).
+    pub static ADMIN_SEARCH_RESULT: Schema = Schema {
+        name: "AGPMADMIN_SEARCH_RESULT",
+        id: 211,
+        flag_len: 2,
+        fields: &[
+            f(I16), f(I16), fs(Char, 49), f(I32), fs(Char, 49), fs(Char, 49), f(I32), f(I32),
+            fs(Char, 16), fs(Char, 16), fs(Char, 16), f(I32),
+        ],
+    };
+
+    /// Sanction (AgpmAdmin champ 10, W `+0xccfa4`) — drapeaux 2 : nom, compte, déconnexion (1), puis trois paires
+    /// drapeau / durée (discussion, personnage, compte) et un octet ; l'outil MJ ne remplit que la déconnexion.
+    pub static ADMIN_SANCTION: Schema = Schema {
+        name: "AGPMADMIN_SANCTION",
+        id: 212,
+        flag_len: 2,
+        fields: &[fs(Char, 49), fs(Char, 49), f(I8), f(I8), f(I32), f(I8), f(I32), f(I8), f(I32), f(I8)],
+    };
+
+    /// Deux blocs (AgpmAdmin champ 5, W `+0xba690`) : fiche du personnage (0x152 octets) et données jointes.
+    pub static ADMIN_BLOCK2: Schema = Schema { name: "AGPMADMIN_BLOCK2", id: 213, flag_len: 1, fields: &[f(MemBlock), f(MemBlock)] };
+
+    /// Un bloc (AgpmAdmin champs 12 et 14, W `+0xdf8b8`, `+0x104ae0`) : opération sur un objet (0x21c octets), titres.
+    pub static ADMIN_BLOCK: Schema = Schema { name: "AGPMADMIN_BLOCK", id: 214, flag_len: 1, fields: &[f(MemBlock)] };
 
     /// Case dans une grille (inventaire, boutique, banque) — drapeaux 1.
     pub static ITEM_GRID: Schema = Schema { name: "AGPMITEM_GRID", id: 123, flag_len: 1, fields: &rep::<3>(I16) };
@@ -1342,6 +1428,24 @@ pub mod mini {
     /// déjà connue).
     pub static GUILD_BATTLE_MEMBER_LIST: Schema =
         Schema { name: "AGPMGUILD_BATTLE_MEMBER_LIST", id: 186, flag_len: 1, fields: &[f(U32), f(MemBlock), f(U32), f(MemBlock)] };
+
+    /// Joueur qui cherche un groupe (AGCMRECRUIT champ 3, W `+0x134cc`) — drapeaux 1 : nombre total, rang dans la page
+    /// (0 à 4), valeur de la 3e colonne, valeur de la 2e colonne, nom, entier non lu.
+    pub static RECRUIT_MEMBER: Schema =
+        Schema { name: "AGCMRECRUIT_MEMBER", id: 195, flag_len: 1, fields: &[f(I32), f(I32), f(I32), f(I32), fs(Char, 49), f(I32)] };
+
+    /// Groupe qui cherche des membres (AGCMRECRUIT champ 4, W `+0x25de0`) — drapeaux 2 : nombre total, rang, texte,
+    /// valeur de la 2e colonne, niveaux mini et maxi, entier, classes voulues (bits 1, 2, 4, 8), nom du chef, CID.
+    pub static RECRUIT_PARTY: Schema = Schema {
+        name: "AGCMRECRUIT_PARTY",
+        id: 196,
+        flag_len: 2,
+        fields: &[f(I32), f(I32), fs(Char, 20), f(I32), f(I32), f(I32), f(I32), f(I32), fs(Char, 49), f(I32)],
+    };
+
+    /// Recherche (AGCMRECRUIT champ 5, W `+0x386f4`) — drapeaux 1 : 1 « ma classe seulement », classe du joueur (si 1),
+    /// page, classes cherchées (bits).
+    pub static RECRUIT_SEARCH: Schema = Schema { name: "AGCMRECRUIT_SEARCH", id: 197, flag_len: 1, fields: &[f(I8), f(I32), f(I32), f(I32)] };
 
     /// Détail d'un objet de boutique (AgcmEventNPCTrade) — drapeaux 2 : TID, prix, quantité, statut,
     /// sac, ligne, colonne, puis trois entiers.
@@ -1804,6 +1908,57 @@ pub mod gacha_result {
     pub const UNKNOWN: i64 = 5;
     /// sysstr 733 « Fortune Gate Level Limit ».
     pub const LEVEL_LIMIT: i64 = 6;
+}
+
+/// Opérations d'AgcmRecruit (champ 0) ; « C » : du client, « S » : du serveur. Constructeurs des deux clients, jamais
+/// appelés (fenêtres AcUIRecruit jamais ouvertes : `world/recruit.rs`).
+pub mod recruit_op {
+    /// C : chercher des joueurs sans groupe (champ 5) ; S : une ligne de la liste (champ 3).
+    pub const SEARCH_MEMBER: i64 = 3;
+    /// C : inscrire son groupe (champ 4 : texte, niveaux, classes, nom du chef).
+    pub const REGISTER_PARTY: i64 = 4;
+    /// C : retirer son groupe (champ 4 : nom du chef).
+    pub const REMOVE_PARTY: i64 = 5;
+    /// C : chercher des groupes (champ 5) ; S : une ligne de la liste (champ 4).
+    pub const SEARCH_PARTY: i64 = 6;
+    /// S : résultat (champ 6 ; 9 : « aucun résultat »).
+    pub const RESULT: i64 = 8;
+}
+
+/// Opérations d'AgpmCashMall (champ 0) ; « C » : du client, « S » : du serveur.
+pub mod cash_mall_op {
+    /// C : produits d'un onglet (champ 4).
+    pub const REQUEST_PRODUCTS: i64 = 1;
+    /// S : onglets (champ 6) et version (champ 2).
+    pub const MALL_LIST: i64 = 2;
+    /// S : produits de l'onglet (champs 4 et 7) et version.
+    pub const PRODUCT_LIST: i64 = 3;
+    /// C : acheter le produit du champ 5 (version au champ 2).
+    pub const BUY: i64 = 4;
+    /// S : résultat de l'achat (champ 1, `cash_mall_result`).
+    pub const BUY_RESULT: i64 = 5;
+    /// C : revoir le solde (au plus une fois par seconde) ; S : solde revu.
+    pub const REFRESH_CASH: i64 = 6;
+    /// C : ouverture de la fenêtre, version connue au champ 2.
+    pub const CHECK_VERSION: i64 = 7;
+    /// S (Archonia) : offre du jour (champs 3, 5 et 8) ; jamais envoyée par ArchCore.
+    pub const DAILY_DEAL: i64 = 8;
+}
+
+/// Résultats d'un achat (op 5 champ 1) : événements `CashMallBuyResult*` des deux clients.
+pub mod cash_mall_result {
+    /// « Item purchase is complete. »
+    pub const SUCCESS: i64 = 1;
+    /// « Insufficient Credits »
+    pub const NOT_ENOUGH_CASH: i64 = 2;
+    /// « Insufficient inventory slots. »
+    pub const INVENTORY_FULL: i64 = 3;
+    /// « The item list is old. Please try again. » : le client redemande les produits de l'onglet.
+    pub const NEED_NEW_ITEM_LIST: i64 = 4;
+    /// Salle de jeu (PC Bang) seulement.
+    pub const PC_BANG_ONLY: i64 = 5;
+    /// « You cannot purchase any more. »
+    pub const LIMITED_COUNT: i64 = 6;
 }
 
 /// Opérations d'AgpmWantedCriminal (champ 0) ; « C » : du client, « S » : du serveur.

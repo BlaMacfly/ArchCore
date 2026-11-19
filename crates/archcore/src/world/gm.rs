@@ -280,9 +280,12 @@ pub static COMMANDS: &[CommandDef] = &[
     CommandDef { name: "exp", level: 3, args: Some(&["int", "name?"]), usage: "/exp <points> \"nom\"" },
     CommandDef { name: "money", level: 3, args: Some(&["int", "name?"]), usage: "/money <montant> \"nom\"" },
     CommandDef { name: "charisma", level: 3, args: Some(&["int", "name?"]), usage: "/charisma <points> \"nom\"" },
+    CommandDef { name: "cash", level: 3, args: Some(&["int", "name?"]), usage: "/cash <montant> \"nom\"" },
     CommandDef { name: "announce_restart", level: 3, args: Some(&["int", "int?"]), usage: "/announce_restart <minutes> <secondes>" },
     CommandDef { name: "move", level: 1, args: None, usage: "/move x,z [\"nom\"]" },
     CommandDef { name: "anomalies", level: 1, args: Some(&["name"]), usage: "/anomalies \"nom\"" },
+    CommandDef { name: "search", level: 1, args: Some(&["name", "word?"]), usage: "/search \"nom\" [account]" },
+    CommandDef { name: "disconnect", level: 2, args: Some(&["name"]), usage: "/disconnect \"nom\"" },
     CommandDef { name: "title", level: 1, args: Some(&["name?"]), usage: "/title [\"nom\"]" },
     CommandDef { name: "shrine", level: 3, args: Some(&["word?", "int?"]), usage: "/shrine [open|close <n>]" },
     CommandDef { name: "siege", level: 3, args: Some(&["word?", "word?", "word?"]), usage: "/siege [start <château> | end <château> | owner <château> <guilde ou -> | hp <château> <PV>]" },
@@ -331,32 +334,36 @@ pub fn level_for(world: &World, name: &str) -> i64 {
 /// Exécute un texte commençant par « / ». Rend `false` si ce n'est pas une commande. Les erreurs de
 /// commande sont rapportées au MJ.
 pub async fn execute(world: &Arc<World>, st: &mut WorldState, sid: u32, text: &str) -> anyhow::Result<bool> {
-    let Some(parsed) = parse_command(text) else { return Ok(false) };
+    let Some(reply) = execute_quiet(world, st, sid, text).await? else { return Ok(false) };
+    if let Some(reply) = reply {
+        send_system(st, sid, &reply);
+    }
+    Ok(true)
+}
+
+/// Comme `execute`, sans envoyer la réponse : `None` si le texte n'est pas une commande, `Some(None)` si elle est
+/// ignorée sans réponse (joueur sans droits), sinon la réponse destinée au MJ. Mêmes contrôles de niveau et même
+/// journal : l'outil MJ de Webzen (AgpmAdmin, `admin.rs`), sa console de développement (`script.rs`, `casper.rs`)
+/// passent par là et répondent à leur façon.
+pub async fn execute_quiet(world: &Arc<World>, st: &mut WorldState, sid: u32, text: &str) -> anyhow::Result<Option<Option<String>>> {
+    let Some(parsed) = parse_command(text) else { return Ok(None) };
     let gm_level = st.players.get(&sid).map(|p| p.gm_level).unwrap_or(0);
     let (name, tokens) = match parsed {
         Ok(v) => v,
-        Err(e) => {
-            if gm_level > 0 {
-                send_system(st, sid, &format!("Commande invalide : {}", e.0));
-            }
-            return Ok(true);
-        }
+        Err(e) => return Ok(Some((gm_level > 0).then(|| format!("Commande invalide : {}", e.0)))),
     };
     let cmd = command(&name);
     // Un joueur sans droits ne voit pas la liste des commandes MJ : sa commande inconnue est ignorée sans réponse
     // (les préfixes de discussion d'Archonia sont lus avant, dans chat.rs).
     let Some(cmd) = cmd.filter(|_| gm_level > 0) else {
-        if gm_level > 0 {
-            send_system(st, sid, &format!("Commande inconnue : /{name}"));
-        } else {
+        if gm_level == 0 {
             crate::debug!("[mj] /{name} d'un joueur sans droits : ignorée");
         }
-        return Ok(true);
+        return Ok(Some((gm_level > 0).then(|| format!("Commande inconnue : /{name}"))));
     };
     let required = level_for(world, &name);
     if gm_level < required {
-        send_system(st, sid, &format!("Niveau MJ {required} requis pour /{name} (le vôtre : {gm_level})."));
-        return Ok(true);
+        return Ok(Some(Some(format!("Niveau MJ {required} requis pour /{name} (le vôtre : {gm_level})."))));
     }
     let args = match cmd.args {
         Some(spec) => parse_args(spec, &tokens),
@@ -374,11 +381,10 @@ pub async fn execute(world: &Arc<World>, st: &mut WorldState, sid: u32, text: &s
         };
         crate::journal::gm(&world.ctx.db, p.account.id, (p.ch.id, &p.ch.name), gm_level, &name, &tokens.join(" "), ok, &reply);
     }
-    match result {
-        Ok(reply) => send_system(st, sid, &reply),
-        Err(e) => send_system(st, sid, &format!("/{name} : {}. Syntaxe : {}", e.0, cmd.usage)),
-    }
-    Ok(true)
+    Ok(Some(Some(match result {
+        Ok(reply) => reply,
+        Err(e) => format!("/{name} : {}. Syntaxe : {}", e.0, cmd.usage),
+    })))
 }
 
 /// Commandes qui agissent sur le personnage du MJ qui les tape : refusées à la console (SOAP, `world/console.rs`),
@@ -387,7 +393,7 @@ pub fn needs_character(name: &str, tokens: &[String]) -> bool {
     match name {
         "invincible" | "additem" | "speed" | "durability" | "questreset" | "recast" | "last_refine" => true,
         "kill" => tokens.is_empty(),
-        "level" | "exp" | "money" | "charisma" => tokens.len() < 2,
+        "level" | "exp" | "money" | "charisma" | "cash" => tokens.len() < 2,
         "move" => split_move_target(tokens).1.is_none(),
         _ => false,
     }
@@ -533,6 +539,21 @@ pub(super) async fn run(world: &Arc<World>, st: &mut WorldState, sid: u32, gm_le
             set_money(ctx, st, target, amount).await?;
             Ok(format!("{} a maintenant {amount} pièce(s) d'or.", st.players[&target].ch.name))
         }
+        // Cash de la boutique (`characters.cash`) : pas de service de paiement, le MJ le fixe.
+        "cash" => {
+            let amount = a[0].int().unwrap_or(-1);
+            let target = match a[1].name() {
+                Some(n) => st.by_name(n),
+                None => Some(sid),
+            };
+            let Some(target) = target else { return Ok(err(format!("personnage absent du monde : {}", a[1].name().unwrap_or("")))) };
+            if !(0..=1_000_000_000).contains(&amount) {
+                return Ok(err("montant entre 0 et 1 000 000 000"));
+            }
+            super::cashmall::set_cash(ctx, st, target, amount).await?;
+            info!("[mj] {} fixe le Cash de {} à {amount}", caller_name(st, sid), st.players[&target].ch.name);
+            Ok(format!("{} a maintenant {amount} Cash.", st.players[&target].ch.name))
+        }
         "charisma" => {
             let points = a[0].int().unwrap_or(-1);
             let target = match a[1].name() {
@@ -660,6 +681,26 @@ pub(super) async fn run(world: &Arc<World>, st: &mut WorldState, sid: u32, gm_le
                 None => err(format!("personnage introuvable : {name}")),
                 Some((cid, exact)) => Ok(super::anticheat::describe(ctx, st, cid, &exact).await?),
             }
+        }
+        "search" => {
+            // Personnages par nom exact, ou par compte (« account ») : en jeu puis en base ; aussi l'op 3 de l'outil MJ
+            // de Webzen (admin.rs).
+            let text = a[0].name().unwrap_or("");
+            let by_account = match a[1].name() {
+                None => false,
+                Some(w) if w.eq_ignore_ascii_case("account") => true,
+                Some(other) => return Ok(err(format!("critère inconnu : {other} (account)"))),
+            };
+            let found = super::admin::search(world, st, text, by_account).await?;
+            Ok(super::admin::describe(&found, text))
+        }
+        "disconnect" => {
+            // Déconnexion sans attente de reconnexion, comme la console ; aussi l'op 11 de l'outil MJ (admin.rs).
+            let name = a[0].name().unwrap_or("");
+            let Some(target) = st.by_name(name) else { return Ok(err(format!("personnage absent du monde : {name}"))) };
+            let (exact, by) = (st.players[&target].ch.name.clone(), caller_name(st, sid));
+            super::console::disconnect(st, target, &format!("/disconnect de {by}"));
+            Ok(format!("{exact} a été déconnecté."))
         }
         "title" => {
             // Titres d'un joueur en jeu (soi-même sans nom) : actif, possédés, objectifs, rang de charisme (titles.rs).

@@ -94,9 +94,12 @@ la discussion comme messages système.
 | `/exp <points> ["nom"]` | 3 | Donne de l'expérience au personnage connecté comme un monstre tué (64 bits, montées de niveau comprises) ; sans nom, sur soi. Commande propre à ArchCore |
 | `/money <montant> ["nom"]` | 3 | Fixe l'or du personnage connecté (de 0 à 1 000 000 000) ; sans nom, sur soi. Commande propre à ArchCore |
 | `/charisma <points> ["nom"]` | 3 | Donne des points de charisme au personnage connecté (1 à 1 000 000, multipliés par le taux `Rate.Charisma` et les bonus de charisme de ses effets, sauf celui des boss) ; sans nom, à soi. Commande propre à ArchCore (Archonia n'en a pas), en attendant le combat entre joueurs |
+| `/cash <montant> ["nom"]` | 3 | Fixe le Cash de la boutique (`characters.cash`, 0 à 1 000 000 000) du personnage connecté ; sans nom, le sien. Commande propre à ArchCore : pas de service de paiement |
 | `/announce_restart <minutes> <secondes>` | 3 | Annonce à tous les joueurs, rappel chaque minute, compte à rebours sur les dernières secondes. `0 0` annule |
 | `/move x,z ["nom"]` | 1 | Téléporte le MJ en (x, z) et envoie les PNJ du nouvel endroit ; avec un nom (niveau 2), un autre joueur en jeu : c'est ainsi qu'on pose ailleurs un joueur, le serveur refusant qu'un client se téléporte lui-même (anti-triche) |
 | `/anomalies "nom"` | 1 | Anomalies relevées par l'anti-triche pour ce personnage : nombre en base et dans la fenêtre en cours, dix dernières (voir la section 5). Commande propre à ArchCore |
+| `/search "nom" [account]` | 1 | Personnages de ce nom exact, ou du compte de ce nom avec `account` : en jeu puis en base (compte, CID, niveau, en ligne). Aussi la recherche de l'outil MJ de Webzen (AgpmAdmin op 3). Commande propre à ArchCore |
+| `/disconnect "nom"` | 2 | Déconnecte le personnage en jeu, sans attente de reconnexion. Aussi la déconnexion de l'outil MJ de Webzen (AgpmAdmin op 11). Commande propre à ArchCore |
 
 Le niveau requis se change commande par commande dans `config/world.conf` (voir
 [[Configuration|FR-Configuration]]) :

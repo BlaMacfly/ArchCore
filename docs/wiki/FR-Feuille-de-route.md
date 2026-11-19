@@ -334,6 +334,21 @@
   Tests unitaires ; scénario `gacha` (nouveau) ; à confirmer en jeu. **Guilde** (même jour, derniers messages relevés
   dans Archonia) : dissolution refusée pendant les 24 heures qui suivent la création (code 46, « Guild_DestroyFailTooEarly »,
   texte d'origine du client), réglable par `Guild.DestroyDelayHours` ; scénario `guilddestroy` (nouveau).
+- Relevé du 18 novembre 2026 (types EP8 encore refusés) : **boutique Cash** (AgpmCashMall 0x2E, `cashmall.rs`) :
+  ops 1 à 7 du client de Webzen et d'Archonia (7 ouverture → 2 onglets, 1 onglet → 3 produits, 4 achat → 5 résultat,
+  6 solde) ; table `cashmall.txt` des tables du serveur (`archcore import`, `client_table`) ; le Cash du personnage
+  (`characters.cash`, champ 10) est débité, sans aucun paiement réel ; objets dans l'inventaire Cash (objet Cash) ou
+  l'inventaire, contrôles de place du gacha ; commande MJ `/cash`. Fenêtres d'origine `UI_CashMall` / `UI_CashMallBuy`
+  dans ArchRust. Op 8 (offre du jour d'Archonia) non gérée. **Recrutement** (AgcmRecruit 0x0A) : mort dans les deux
+  clients (fenêtres AcUIRecruit jamais ouvertes) ; accepté et noté, sans réponse. Tests unitaires ; scénario `cashmall`
+  (nouveau).
+- Même relevé, outils de Webzen : **outil MJ** (AgpmAdmin 0x12, `admin.rs`) : ops que la DLL `AlefAdminDLL` envoie
+  (2, 3, 10, 11, 12, 14, 19) branchées sur les commandes de discussion (recherche → op 4 et `/search`, fiche → `/level`,
+  `/exp`, `/money`, déconnexion → `/disconnect`, création d'objet → `/create`), mêmes niveaux MJ ; guildes, titres, autres
+  opérations sur les objets et sanctions non pris en charge. Nouvelles commandes `/search` et `/disconnect`. **Console de
+  développement** : AgpmScript 0x45 (ligne lue comme une commande MJ, réponse op 2) et AgpmCasper 0x19
+  (KillGameServer → `/announce_restart 0 10`). Aucune fenêtre d'origine d'Archonia : rien dans ArchRust. Tests
+  unitaires ; scénario `admin` (nouveau).
 - Ops de protocole manquantes (relevé d'Archonia du 2 novembre 2026) : quêtes (op 14 suivi à l'écran, 10 au plus,
   enregistré dans `character_quests.journal` et renvoyé au 5ᵉ entier de l'op 4 ; ops 8 et 9 inventaire plein) ;
   groupe (op 2 : zone d'effet et bonus du groupe, règles réglables `Party.*` ; gestion ops 9, 12 et 13, refus d'un invité

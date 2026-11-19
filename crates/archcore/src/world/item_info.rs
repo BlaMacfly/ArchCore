@@ -73,6 +73,12 @@ pub fn on_request(st: &WorldState, sid: u32, p: &Packet) {
         return;
     }
     let (iid, tid, kind) = (p.int(2).unwrap_or(0).max(0) as u32, p.int(3).unwrap_or(0).max(0) as u32, p.int(12).unwrap_or(0));
+    let source = match kind {
+        kind::CHAT_LINK => "lien de la discussion",
+        kind::TEMPLATE => "bouton d'une fenêtre",
+        _ => "genre inconnu",
+    };
+    debug!("[objets] #{sid} renseignements demandés (IID {iid}, TID {tid}, {source})");
     let packet = if iid != 0 {
         match find_item(st, iid) {
             Some(item) => info_packet(Some(&item), item.tid, kind),

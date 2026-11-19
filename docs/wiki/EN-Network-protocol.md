@@ -607,6 +607,29 @@ gold `Gacha_Cost`, charisma `CharismaPoint`, weights `Rank1`-`Rank4` out of 10,0
   then the higher (ArchCore's choice). Cost taken on the draw (items from the inventory or the Cash inventory: the
   Fortune Gate Pass is a Cash item), item stored first: bag full, nothing taken.
 
+## Cash shop (type 0x2E, AgpmCashMall)
+
+Episode 8 shop (`UI_CashMall`, `UI_CashMallBuy`), same ops in the Webzen client and in Archonia. Table: `cashmall.txt`
+from the server tables, kept by `archcore import` in `client_table`: a `Category_Name` line opens a tab (10 at most), the
+following ones are its products (`CashItem_TID`, `CashItem_Stack` items given, `CashItem_Price` in Cash,
+`CashItem_Type` displayed kind, `CashItem_Description`), numbered in file order. Currency: the character's Cash
+(`characters.cash`, AGPMCHARACTER field 10); no payment service, the `/cash` GM command sets it.
+
+- Op 7 (open, known version in field 2) → op 2: field 6 "`name;id,id,…,:`" per tab, version in field 2.
+- Op 1 (tab, field 4) → op 3: field 7 "`id,TID,count,price,kind,description:`" per product (read as
+  `%d,%d,%d,%I64d,%d,`; the description, without comma or colon, runs from the last comma to the colon).
+- Op 4 (product in field 5, version in field 2) → op 5 field 1: 1 success, 2 not enough Cash, 3 inventory full, 4 stale
+  list (version or unknown product: the client asks for the tab again). The Cash is taken, then the item stored in
+  stacks of its maximum size: Cash inventory for a Cash item, inventory otherwise (room checked first).
+- Op 6 (refresh the balance): AGPMCHARACTER field 10 sent back. Op 8 (Archonia's daily deal): never sent.
+
+## Recruitment (type 0x0A, AgcmRecruit)
+
+"Looking for party" / "looking for members" ads: ops 3 and 6 (search, field 5 sub-packet), 4 and 5 (registering and
+removing a party, field 4 sub-packet: text, levels, classes, leader), answers op 3 / op 6 (one list row) and op 8 (field
+6 = 9: no result). The AcUIRecruit windows of both clients are never opened: the system is dead. ArchCore accepts the
+type and logs the requests, without answering.
+
 ## Production (types 0x17 and 0x3A, AgpmProduct and AgpmEventProduct)
 
 Gathering from corpses (Collection Skill, TID 663, tool 654 Gathering Knife), cooking (Cooking 203, tool 655 Cooking
@@ -1448,6 +1471,27 @@ op 25 → callback 16, guild messages 42, 43 and 94 in table 0x6b9900.
 op 1 (CID, name, GM level as INT16, account name) records the character's level. The CID must be a
 character the client already knows: ArchCore sends it right after the world-entry character packet.
 
+**Webzen's GM tool** (`AlefAdminDLL.dll`, MFC windows loaded for a GM account) builds its own packets: op 2 when it
+opens (the server sends op 0 back, GM level), **op 3** search (field 3, mini `AGPMADMIN_SEARCH`: kind, criterion
+0 name / 1 account, text) → one **op 4** per character found (result `AGPMADMIN_SEARCH_RESULT` inside the search
+sub-packet: name, CID, account, TID, level, online), **op 10** character sheet (field 5, 0x152-byte block: +4 name,
++0x35 code, +0x38 / +0x40 value, +0x14a experience delta), **op 11** sanction (field 10: the DLL only fills the
+disconnect flag), **op 12** items (field 12, 0x21c-byte block: +0 name, +0x62 sub-op, +0x70 TID, +0x75 count), op 14
+guilds, op 19 title quests. ArchCore routes them through the chat commands (`world/admin.rs` → `gm::execute_quiet`,
+same levels and same log): search → `/search`, sheet → `/level` (code 3), `/exp` (4, increase), `/money` (5),
+sanction → `/disconnect`, item (sub-op 0) → `/create`; the rest gets a "not supported" message. Player without rights:
+ignored. Archonia has no such tool (its "Admin Commands" panel types chat commands); it only sends op 15
+(compensation at character selection), which ArchCore never offers.
+
+## Webzen's developer console (types 0x45 AgpmScript and 0x19 AgpmCasper)
+
+Webzen client only (Lua console AgcmUIConsole, "-- send command to server" mode). **AgpmScript** (1-byte flags: op,
+CID, text): op 0 = line sent to the server, op 2 = answer, lines separated by ";". ArchCore has no Lua interpreter: a
+GM account's line is read as a GM command ("/" optional) and the answer sent back as op 2. **AgpmCasper** (1-byte
+flags: op, CID): only op 3 is sent, by the script function `KillGameServer1()`; no subscriber on the client side.
+ArchCore treats it as `/announce_restart 0 10` for a GM account. Archonia has no AgpmScript and no longer sends
+AgpmCasper.
+
 ## ArchRust extensions (type 0xAC)
 
 A type of ArchCore's own. The original client only dispatches types 0x01 to 0x77 and ignores the rest;
@@ -2163,6 +2207,9 @@ none of them, it only shows their inputs and outputs.
 | 0x49 | Siege wars (AgpmSiegeWar) | 0x50 | Siege commanders (AgpmEventSiegeWarNPC) |
 | 0x61 | War information (AgpmWarInfo) | 0x55 | ArchLord title (AgpmArchlord) |
 | 0x53 | Region taxes (AgpmTax) | | |
+| 0x2E | Cash shop (AgpmCashMall) | 0x0A | Recruitment (AgcmRecruit, no effect) |
+| 0x12 | GM tool (AgpmAdmin, Webzen client) | 0x45 | Developer console (AgpmScript, Webzen) |
+| 0x19 | KillGameServer (AgpmCasper, Webzen) | | |
 
 Full schemas for the 86 modules are in `data/re/packet-schemas.json`.
 

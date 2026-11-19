@@ -1870,6 +1870,13 @@ async fn import_all(
             gacha_tables += 1;
         }
         bilan.add("gacha (tables de tirage)", gacha_tables, 0, "tables EP8 ; GachaDropTableWeapon.txt du client écartée");
+        // Boutique Cash (world/cashmall.rs) : onglets et produits ; le client n'en a pas de table.
+        if server.exists("cashmall.txt") {
+            store_text(db, "cashmall.txt", &server.read("cashmall.txt")?).await?;
+            bilan.add("cashmall (boutique Cash)", 1, 0, "table du serveur");
+        } else {
+            println!("· cashmall.txt absent des tables du serveur : boutique Cash vide");
+        }
         bilan.add("ItemConvertTable", 1, 0, "table EP8 (lue par position)");
         let recipes = server.read("refineryrecipetable.txt")?;
         let ids = |text: &str| -> std::collections::HashSet<u32> { parse_tsv(text).1.iter().filter_map(|r| r.first()?.trim().parse().ok()).collect() };

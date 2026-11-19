@@ -626,6 +626,30 @@ l'événement (`GachaStart`, `Type=N`, `GachaEnd`) ; `gachatypetemplate.ini` don
   inférieur, puis le supérieur (choix d'ArchCore). Coût pris au tirage (objets de l'inventaire ou de l'inventaire Cash :
   le Fortune Gate Pass est un objet Cash), objet rangé d'abord : sac plein, rien de pris.
 
+## Boutique Cash (type 0x2E, AgpmCashMall)
+
+Boutique de l'épisode 8 (`UI_CashMall`, `UI_CashMallBuy`), mêmes ops dans le client de Webzen et dans Archonia. Table :
+`cashmall.txt` des tables du serveur, gardée par `archcore import` dans `client_table` : une ligne `Category_Name` ouvre
+un onglet (10 au plus), les suivantes sont ses produits (`CashItem_TID`, `CashItem_Stack` objets donnés,
+`CashItem_Price` en Cash, `CashItem_Type` genre affiché, `CashItem_Description`), numérotés dans l'ordre du fichier.
+Monnaie : le Cash du personnage (`characters.cash`, champ 10 d'AGPMCHARACTER) ; aucun service de paiement, la commande MJ
+`/cash` le fixe.
+
+- Op 7 (ouverture, version connue au champ 2) → op 2 : champ 6 « `nom;id,id,…,:` » par onglet, version au champ 2.
+- Op 1 (onglet, champ 4) → op 3 : champ 7 « `id,TID,nombre,prix,genre,description:` » par produit (lu
+  `%d,%d,%d,%I64d,%d,` ; la description, sans virgule ni deux-points, va de la dernière virgule aux deux-points).
+- Op 4 (produit au champ 5, version au champ 2) → op 5 champ 1 : 1 réussite, 2 Cash insuffisant, 3 inventaire plein,
+  4 liste périmée (version ou produit inconnus : le client redemande l'onglet). Le Cash est pris, puis l'objet rangé en
+  piles de sa taille maximale : inventaire Cash pour un objet Cash, inventaire sinon (place vérifiée avant).
+- Op 6 (revoir le solde) : champ 10 d'AGPMCHARACTER renvoyé. Op 8 (offre du jour d'Archonia) : jamais envoyée.
+
+## Recrutement (type 0x0A, AgcmRecruit)
+
+Annonces « cherche un groupe » / « cherche des membres » : ops 3 et 6 (recherche, sous-paquet du champ 5), 4 et 5
+(inscription et retrait d'un groupe, sous-paquet du champ 4 : texte, niveaux, classes, chef), réponses op 3 / op 6 (une
+ligne de liste) et op 8 (champ 6 = 9 : aucun résultat). Les fenêtres AcUIRecruit des deux clients ne sont jamais ouvertes :
+le système est mort. ArchCore accepte le type et note les demandes, sans répondre.
+
 ## Production (types 0x17 et 0x3A, AgpmProduct et AgpmEventProduct)
 
 Récolte sur cadavre (Collection Skill, TID 663, outil 654 Gathering Knife), cuisine (Cooking 203, outil 655 Cooking
@@ -1506,6 +1530,28 @@ mini-paquet « données MJ » d'op 1 (CID, nom, niveau MJ en INT16, nom du compt
 du personnage. Le CID doit être celui d'un personnage déjà connu du client : ArchCore l'envoie juste
 après le paquet personnage de l'entrée en jeu.
 
+L'**outil MJ du client de Webzen** (`AlefAdminDLL.dll`, fenêtres MFC chargées pour un compte MJ) construit ses propres
+paquets : op 2 à l'ouverture (le serveur renvoie l'op 0, niveau MJ), **op 3** recherche (champ 3, mini
+`AGPMADMIN_SEARCH` : genre, critère 0 nom / 1 compte, texte) → une **op 4** par personnage trouvé (résultat
+`AGPMADMIN_SEARCH_RESULT` dans le sous-paquet de la recherche : nom, CID, compte, TID, niveau, en ligne), **op 10**
+fiche (champ 5, bloc de 0x152 octets : +4 nom, +0x35 code, +0x38 / +0x40 valeur, +0x14a écart d'expérience),
+**op 11** sanction (champ 10 : la DLL ne remplit que la déconnexion), **op 12** objets (champ 12, bloc de 0x21c
+octets : +0 nom, +0x62 sous-op, +0x70 TID, +0x75 nombre), op 14 guildes, op 19 quêtes de titre. ArchCore les fait
+passer par les commandes de discussion (`world/admin.rs` → `gm::execute_quiet`, mêmes niveaux et même journal) :
+recherche → `/search`, fiche → `/level` (code 3), `/exp` (4, hausse), `/money` (5), sanction → `/disconnect`, objet
+(sous-op 0) → `/create` ; le reste reçoit un message « non pris en charge ». Joueur sans droits : ignoré. Archonia n'a
+pas cet outil (son panneau « Admin Commands » tape des commandes de discussion) ; il n'envoie que l'op 15
+(compensation à la sélection des personnages), qu'ArchCore ne propose jamais.
+
+## Console de développement de Webzen (types 0x45 AgpmScript et 0x19 AgpmCasper)
+
+Propres au client de Webzen (console Lua AgcmUIConsole, mode « -- send command to server »). **AgpmScript** (drapeaux
+1 : op, CID, texte) : op 0 = ligne envoyée au serveur, op 2 = réponse, lignes séparées par « ; ». ArchCore n'a pas
+d'interpréteur Lua : la ligne d'un compte MJ est lue comme une commande MJ (« / » facultatif) et la réponse renvoyée en
+op 2. **AgpmCasper** (drapeaux 1 : op, CID) : seule l'op 3 est envoyée, par la fonction de script `KillGameServer1()` ;
+aucun abonné côté client. ArchCore la traite comme `/announce_restart 0 10` pour un compte MJ. Archonia n'a pas
+AgpmScript et n'envoie plus AgpmCasper.
+
 ## Extensions ArchRust (type 0xAC)
 
 Type propre à ArchCore. Le client d'origine n'aiguille que les types 0x01 à 0x77 et ignore les autres ;
@@ -2247,6 +2293,9 @@ client n'en joue aucune, il n'en montre que les entrées et les sorties.
 | 0x49 | Guerres de siège (AgpmSiegeWar) | 0x50 | Commandants de siège (AgpmEventSiegeWarNPC) |
 | 0x61 | Information des guerres (AgpmWarInfo) | 0x55 | Titre d'ArchLord (AgpmArchlord) |
 | 0x53 | Taxes des régions (AgpmTax) | | |
+| 0x2E | Boutique Cash (AgpmCashMall) | 0x0A | Recrutement (AgcmRecruit, sans effet) |
+| 0x12 | Outil MJ (AgpmAdmin, client de Webzen) | 0x45 | Console de développement (AgpmScript, Webzen) |
+| 0x19 | KillGameServer (AgpmCasper, Webzen) | | |
 
 Les schémas complets des 86 modules sont dans `data/re/packet-schemas.json`.
 

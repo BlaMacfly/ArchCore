@@ -515,6 +515,8 @@ ARCHCORE_CONF_DIR=config/test archcore sim mobskill [compte] [mdp] [personnage]
 ARCHCORE_CONF_DIR=config/test archcore sim convert [compte] [mdp] [personnage]
 ARCHCORE_CONF_DIR=config/test archcore sim refinery [compte] [mdp] [personnage]
 ARCHCORE_CONF_DIR=config/test archcore sim gacha [compte] [mdp] [personnage]
+ARCHCORE_CONF_DIR=config/test archcore sim cashmall [compte] [mdp] [personnage]
+ARCHCORE_CONF_DIR=config/test archcore sim admin [compteA mdpA persoA compteB mdpB persoB]
 ```
 
 `sim mastery` (GmTest, niveau 60) oublie en base Capacitate et Marching Song, se voit refuser Capacitate chez
@@ -536,7 +538,16 @@ potion seule (résultat 2), obtient le devis puis raffine 100 Breath Elemental S
 (GmTest, niveau 25) n'obtient rien d'un socle à 3000 unités ni d'une sphère d'alchimie, ouvre le socle des armes
 d'Anchorville (op 1 : code 1, 1 Fortune Gate Pass demandé, bande non vide), est refusé sans pass (op 3, code 1), tire
 un objet de la bande avec trois pass, est refusé sac plein (épées, code 4), puis tire au socle du charisme contre
-100 points.
+100 points. `sim cashmall` (GmTest) ouvre la boutique Cash (op 7 et op 1 : onglets, produits de l'onglet 0), est
+refusé avec une version périmée (code 4) et sans assez de Cash (code 2), achète le produit le moins cher après
+`/cash` (objet reçu, 10 Cash restants au champ 10, code 1), revoit son solde (op 6), puis envoie les ops 4 et 6
+d'AgcmRecruit (aucune réponse, session ouverte).
+`sim admin` (GmTest, compte MJ, et SimA, sans droits) : les paquets de l'outil MJ et de la console de développement
+de Webzen envoyés par SimA restent sans réponse ; GmTest ouvre l'outil (op 2 → op 0), cherche SimA par nom puis par
+compte (op 3 → op 4 : nom, compte, en ligne), un nom inconnu (message), change son or par la fiche (op 10, code 5 →
+`/money`) et voit refuser le code HP, crée deux potions (op 12, sous-op 0 → `/create`), tape « GetExp » dans la
+console (AgpmScript op 0 → op 2) puis une ligne inconnue, envoie KillGameServer (AgpmCasper op 3 → redémarrage
+annoncé, annulé par `/announce_restart 0`) et déconnecte SimA (op 11 → `/disconnect`).
 
 ```bash
 ARCHCORE_CONF_DIR=config/test archcore sim heroic [compte] [mdp] [personnage]

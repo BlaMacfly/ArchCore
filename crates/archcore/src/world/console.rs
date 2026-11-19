@@ -154,7 +154,7 @@ fn password_hash(password: &str) -> Result<String, String> {
 }
 
 /// Déconnecte un joueur (sans attente de reconnexion), comme la sanction de l'anti-triche.
-fn disconnect(st: &mut WorldState, sid: u32, why: &str) {
+pub(super) fn disconnect(st: &mut WorldState, sid: u32, why: &str) {
     let Some(p) = st.players.get_mut(&sid) else { return };
     if p.kicked {
         return;

@@ -507,6 +507,8 @@ ARCHCORE_CONF_DIR=config/test archcore sim mobskill [user] [pass] [character]
 ARCHCORE_CONF_DIR=config/test archcore sim convert [user] [pass] [character]
 ARCHCORE_CONF_DIR=config/test archcore sim refinery [user] [pass] [character]
 ARCHCORE_CONF_DIR=config/test archcore sim gacha [user] [pass] [character]
+ARCHCORE_CONF_DIR=config/test archcore sim cashmall [user] [pass] [character]
+ARCHCORE_CONF_DIR=config/test archcore sim admin [userA passA charA userB passB charB]
 ```
 
 `sim mastery` (GmTest, level 60) forgets Capacitate and Marching Song in the database, is refused Capacitate
@@ -528,7 +530,16 @@ White Wing Dagger and its stones (recipe 183) into a dagger with one option. `si
 nothing from a pedestal 3000 units away nor from an alchemy sphere, opens Anchorville's weapon pedestal (op 1:
 code 1, 1 Fortune Gate Pass required, non-empty strip), is refused without a pass (op 3, code 1), draws an item of
 the strip with three passes, is refused with a full bag (swords, code 4), then draws at the charisma pedestal for
-100 points.
+100 points. `sim cashmall` (GmTest) opens the Cash shop (op 7 and op 1: tabs, products of tab 0), is refused with a
+stale version (code 4) and without enough Cash (code 2), buys the cheapest product after `/cash` (item received, 10
+Cash left in field 10, code 1), refreshes its balance (op 6), then sends AgcmRecruit ops 4 and 6 (no answer, session
+still open).
+`sim admin` (GmTest, GM account, and SimA, no rights): the GM tool and developer console packets of Webzen's client
+sent by SimA get no answer; GmTest opens the tool (op 2 → op 0), searches SimA by name then by account (op 3 →
+op 4: name, account, online), an unknown name (message), changes its gold through the sheet (op 10, code 5 →
+`/money`) and is refused the HP code, creates two potions (op 12, sub-op 0 → `/create`), types "GetExp" in the
+console (AgpmScript op 0 → op 2) then an unknown line, sends KillGameServer (AgpmCasper op 3 → restart announced,
+cancelled by `/announce_restart 0`) and disconnects SimA (op 11 → `/disconnect`).
 
 ```bash
 ARCHCORE_CONF_DIR=config/test archcore sim heroic [user] [pass] [character]

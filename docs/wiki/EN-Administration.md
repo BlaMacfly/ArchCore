@@ -92,9 +92,12 @@ messages. ArchCore's replies are in French.
 | `/exp <points> ["name"]` | 3 | Gives the online character experience like a killed monster (64 bits, level-ups included); without a name, on yourself. ArchCore-specific command |
 | `/money <amount> ["name"]` | 3 | Sets the online character's gold (0 to 1,000,000,000); without a name, on yourself. ArchCore-specific command |
 | `/charisma <points> ["name"]` | 3 | Gives charisma points to the online character (1 to 1,000,000, multiplied by the `Rate.Charisma` rate and the charisma bonuses of its effects, except the boss one); without a name, to yourself. ArchCore-specific command (Archonia has none), until player-versus-player fights exist |
+| `/cash <amount> ["name"]` | 3 | Sets the shop Cash (`characters.cash`, 0 to 1,000,000,000) of the online character; without a name, your own. ArchCore-specific command: no payment service |
 | `/announce_restart <minutes> <seconds>` | 3 | Announces to every player, reminds every minute, counts down the last seconds. `0 0` cancels |
 | `/move x,z ["name"]` | 1 | Teleports the GM to (x, z) and sends the NPCs of the new spot; with a name (level 2), another online player: this is how a player is placed elsewhere, since the server refuses that a client teleports itself (anti-cheat) |
 | `/anomalies "name"` | 1 | Anomalies found by the anti-cheat for this character: count in the database and in the current window, last ten (see section 5). ArchCore command |
+| `/search "name" [account]` | 1 | Characters with this exact name, or of the account of that name with `account`: in game then in the database (account, CID, level, online). Also the search of Webzen's GM tool (AgpmAdmin op 3). ArchCore command |
+| `/disconnect "name"` | 2 | Disconnects the character in game, without waiting for a reconnection. Also the disconnect of Webzen's GM tool (AgpmAdmin op 11). ArchCore command |
 
 The required level can be changed per command in `config/world.conf` (see
 [[Configuration|EN-Configuration]]):

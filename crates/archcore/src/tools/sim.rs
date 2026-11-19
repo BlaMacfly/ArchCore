@@ -90,6 +90,9 @@
 //!   archcore sim effects [compte] [mdp] [perso]               passive (défense), renforcement (vitesse d'attaque), zone, affaiblissement d'un Ver vert ; compte MJ, personnage GmEffets
 //!   archcore sim refinery [compte] [mdp] [perso]              sphère d'alchimie : refus (trop loin, objet inconnu, pas de recette), devis et raffinage de la grille, raffinage d'une recette ; compte MJ
 //!   archcore sim gacha [compte] [mdp] [perso]                 socles de tirage (Fortune Gate) : refus (trop loin, autre objet, sans pass, sac plein), tirage contre un pass, socle du charisme ; compte MJ (gacha.rs)
+//!   archcore sim cashmall [compte] [mdp] [perso]              boutique Cash : onglets, produits, achats refusés (version, Cash) et réussi, solde ; AgcmRecruit accepté sans réponse ; compte MJ (cashmall.rs)
+//!   archcore sim admin [A… B…]                                outil MJ de Webzen (AgpmAdmin : recherche, fiche, objet, déconnexion), console de développement
+//!                                                             (AgpmScript), KillGameServer (AgpmCasper) ; A compte MJ, B sans droits (sim/admin.rs)
 //!   archcore sim convert [compte] [mdp] [perso]               forgeron Halo : socket, pierre d'eau, renforcement +2, état relu à la reconnexion ; compte MJ
 //!   archcore sim heroic|divide|dispel|chain|ignore|rune|trigger      compétences et objets (voir `sim/competences.rs`) ; compte MJ
 //!   archcore sim ammo|lifetime|deathstrike                     munitions et arme exigée (SimArcher), objets à durée, Death Strike (voir `sim/rules.rs`) ; compte MJ
@@ -108,8 +111,10 @@ use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
+mod admin;
 mod buddy;
 mod bug2;
+mod cashmall;
 mod channel;
 mod cheat;
 mod chat;
@@ -243,6 +248,8 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         Some("convert") => Box::pin(convert(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("refinery") => Box::pin(refinery(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("gacha") => Box::pin(gacha::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
+        Some("cashmall") => Box::pin(cashmall::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
+        Some("admin") => Box::pin(admin::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("heroic") => Box::pin(competences::heroic(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("divide") => Box::pin(competences::divide(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("dispel") => Box::pin(competences::dispel(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
@@ -253,7 +260,7 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         Some("ammo") => Box::pin(rules::ammo(&a(1, "simarcher"), &a(2, "simarcher"), &a(3, "SimArcher"))).await,
         Some("lifetime") => Box::pin(rules::lifetime(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("deathstrike") => Box::pin(rules::death_strike(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
-        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol|bag|skill|effects|status|bank|portal|pvp|reconnect|lastrefine|product|gacha|guild|guildlead|guilddestroy|guildbattle|guildrelation|guildwarehouse|guildmark|guildstage|gm|buddy|mail|repair|ride|morph|evolution|auction|itemset|nature|summons|petbag|consumables|usables|chat|gold|channel|customize|wanted|shrine|battlesquare|boss|siege|archlord|tax|title|cheat|recall|social|quickbelt|returnlogin|trade|party|quest|questobject|questgather|mobskill|counter|partyskill|mastery [arguments]"),
+        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol|bag|skill|effects|status|bank|portal|pvp|reconnect|lastrefine|product|gacha|cashmall|admin|guild|guildlead|guilddestroy|guildbattle|guildrelation|guildwarehouse|guildmark|guildstage|gm|buddy|mail|repair|ride|morph|evolution|auction|itemset|nature|summons|petbag|consumables|usables|chat|gold|channel|customize|wanted|shrine|battlesquare|boss|siege|archlord|tax|title|cheat|recall|social|quickbelt|returnlogin|trade|party|quest|questobject|questgather|mobskill|counter|partyskill|mastery [arguments]"),
     }
 }
 
