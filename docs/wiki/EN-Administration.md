@@ -116,6 +116,13 @@ World.ExitOnRestart = 0
 - `World.ExitOnRestart`: with `1`, the server stops at the end of the `/announce_restart` countdown so
   that a supervisor can restart it. By default it only announces.
 
+Server shutdown (Ctrl+C, which the ArchHome launcher sends; closing the Windows console; end of an announced
+restart with `World.ExitOnRestart = 1`): no more world entries, "Arrêt du serveur." is announced, then every
+player leaves the world as on a disconnection (trade cancelled, party, guild, chat rooms, friends, summons,
+position saved), players waiting for a reconnection included; pending castle taxes and logs still being written
+are saved before the databases are closed. A second Ctrl+C during the shutdown exits at once. With no player,
+the shutdown takes less than a second.
+
 Current limits:
 
 - Experience, gold and loot rates apply; unique loot, charisma, prestige and the chat bonus are kept

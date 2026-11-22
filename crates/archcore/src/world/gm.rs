@@ -790,11 +790,9 @@ pub fn schedule_restart(world: &Arc<World>, st: &mut WorldState, total: i64, las
             if left <= 0 {
                 st.restart = None;
                 broadcast_notice(&st, "Redémarrage du serveur.");
+                // Arrêt propre, comme un Ctrl+C (shutdown.rs) : joueurs sortis du monde et enregistrés.
                 if exit {
-                    tokio::spawn(async {
-                        tokio::time::sleep(Duration::from_secs(2)).await;
-                        std::process::exit(0);
-                    });
+                    super::shutdown::request();
                 }
                 return;
             }

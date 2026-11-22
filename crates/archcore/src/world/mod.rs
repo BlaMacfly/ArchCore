@@ -103,6 +103,7 @@ pub mod ride;
 pub mod script;
 pub mod sector;
 pub mod shrine;
+pub mod shutdown;
 pub mod skill_extra;
 pub mod skills;
 pub mod social;
@@ -397,6 +398,8 @@ pub struct WorldState {
     pub tax: tax::Taxes,
     /// Anomalies relevées par l'anti-triche, par personnage (anticheat.rs).
     pub anomalies: anticheat::Ledger,
+    /// Arrêt du serveur en cours (shutdown.rs) : plus aucune entrée en jeu.
+    pub closing: bool,
 }
 
 impl WorldState {
@@ -696,6 +699,11 @@ pub(super) async fn remove_player(ctx: &WorldCtx, st: &mut WorldState, sid: u32)
 }
 
 async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &Packet) -> anyhow::Result<()> {
+    if st.closing {
+        info!("[world] #{} entrée en jeu refusée : arrêt du serveur en cours", s.id());
+        s.close();
+        return Ok(());
+    }
     let raw_name = p.text(3).unwrap_or_default();
     let name = raw_name.split('#').next().unwrap_or("").trim().to_string();
     let auth_key = p.int(6).unwrap_or(0);

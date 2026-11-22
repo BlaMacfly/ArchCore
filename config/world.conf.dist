@@ -586,7 +586,8 @@ World.WeatherSnowChance = 10
 
 #    World.ExitOnRestart
 #        1 = arrêter le serveur à la fin du compte à rebours de /announce_restart
-#        (pour qu'un superviseur le relance), 0 = annoncer seulement.
+#        (pour qu'un superviseur le relance), 0 = annoncer seulement. L'arrêt est
+#        propre, comme un Ctrl+C : joueurs sortis du monde, positions enregistrées.
 #        Défaut : 0
 
 World.ExitOnRestart = 0

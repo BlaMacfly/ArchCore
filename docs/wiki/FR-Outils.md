@@ -426,6 +426,18 @@ GmTest), seconde refusée, tableau chez Rembrandt (op 4 puis fin de page), SimA 
 (op 8 genre 4), op 8 genre 5 et op 7 drapeau 0 chez GmTest ; niveaux rétablis. Les avis (`wanted_criminal`,
 `wanted_bounty`) restent en base : à vider entre deux passes.
 
+## Test de l'arrêt du serveur
+
+```bash
+ARCHCORE_CONF_DIR=<config avec World.ExitOnRestart = 1> archcore sim shutdown [compteA mdpA persoA compteB mdpB persoB]
+```
+
+**Le serveur s'arrête** : à lancer contre une instance de test dont `World.ExitOnRestart` vaut 1 (copie de
+`config/test`). GmTest (MJ) pose SimA au nord d'Anchorville (`/move` enregistre ce départ) ; SimA court jusqu'à un
+point tiré au hasard, position encore absente de la base. `/announce_restart 0 2` : « Redémarrage du serveur. » puis
+« Arrêt du serveur. » chez les deux, connexions fermées, nouvelle position de SimA en base, plus aucune connexion
+possible.
+
 ## Test des quêtes
 
 ```bash

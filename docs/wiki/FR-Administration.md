@@ -118,6 +118,13 @@ World.ExitOnRestart = 0
 - `World.ExitOnRestart` : avec `1`, le serveur s'arrête à la fin du compte à rebours de
   `/announce_restart`, pour qu'un superviseur le relance. Par défaut, il se contente d'annoncer.
 
+Arrêt du serveur (Ctrl+C, que le lanceur ArchHome envoie ; fermeture de la console Windows ; fin d'un
+redémarrage annoncé avec `World.ExitOnRestart = 1`) : plus aucune entrée en jeu, annonce « Arrêt du serveur. »,
+puis chaque joueur quitte le monde comme à une déconnexion (échange annulé, groupe, guilde, salons, amis,
+invocations, position enregistrée), joueurs en attente de reconnexion compris ; les taxes des châteaux en attente
+et les journaux encore en cours d'écriture sont enregistrés avant la fermeture des bases. Un second Ctrl+C
+pendant l'arrêt quitte aussitôt. Sans joueur, l'arrêt prend moins d'une seconde.
+
 Limites actuelles :
 
 - Les taux d'expérience, d'or et de butin s'appliquent ; ceux du butin unique, du charisme, du

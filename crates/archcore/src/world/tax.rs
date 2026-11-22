@@ -220,6 +220,14 @@ async fn save_region(ctx: &WorldCtx, rid: u16, r: &RegionTax) -> anyhow::Result<
     Ok(())
 }
 
+/// Enregistre tout de suite les châteaux en attente (arrêt du serveur, `shutdown.rs`).
+pub async fn flush(ctx: &WorldCtx, st: &mut WorldState) -> anyhow::Result<()> {
+    for id in std::mem::take(&mut st.tax.dirty) {
+        save_castle(ctx, st, id).await?;
+    }
+    Ok(())
+}
+
 /// Enregistre les comptes d'un château et ses régions.
 async fn save_castle(ctx: &WorldCtx, st: &WorldState, id: u8) -> anyhow::Result<()> {
     let Some(c) = st.tax.castles.get(&id).cloned() else { return Ok(()) };

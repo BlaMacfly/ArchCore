@@ -134,6 +134,7 @@ mod auction;
 mod battlesquare;
 mod boss;
 mod shrine;
+mod shutdown;
 mod siege;
 mod itemset;
 mod morph;
@@ -208,6 +209,7 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         Some("morph") => Box::pin(morph::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("evolution") => Box::pin(evolution::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "test"), &a(5, "test"), &a(6, "SimScion"))).await,
         Some("ride") => Box::pin(ride::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "SimDepart"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
+        Some("shutdown") => Box::pin(shutdown::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("gold") => Box::pin(gold::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("chat") => Box::pin(chat::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
         Some("channel") => Box::pin(channel::run(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"), &a(4, "sima"), &a(5, "sima"), &a(6, "SimA"))).await,
@@ -260,7 +262,7 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         Some("ammo") => Box::pin(rules::ammo(&a(1, "simarcher"), &a(2, "simarcher"), &a(3, "SimArcher"))).await,
         Some("lifetime") => Box::pin(rules::lifetime(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
         Some("deathstrike") => Box::pin(rules::death_strike(&a(1, "gmtest"), &a(2, "gmtest"), &a(3, "GmTest"))).await,
-        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol|bag|skill|effects|status|bank|portal|pvp|reconnect|lastrefine|product|gacha|cashmall|admin|guild|guildlead|guilddestroy|guildbattle|guildrelation|guildwarehouse|guildmark|guildstage|gm|buddy|mail|repair|ride|morph|evolution|auction|itemset|nature|summons|petbag|consumables|usables|chat|gold|channel|customize|wanted|shrine|battlesquare|boss|siege|archlord|tax|title|cheat|recall|social|quickbelt|returnlogin|trade|party|quest|questobject|questgather|mobskill|counter|partyskill|mastery [arguments]"),
+        _ => anyhow::bail!("usage : archcore sim client|move|shop|addon|combat|equip|potion|scroll|patrol|bag|skill|effects|status|bank|portal|pvp|reconnect|lastrefine|product|gacha|cashmall|admin|guild|guildlead|guilddestroy|guildbattle|guildrelation|guildwarehouse|guildmark|guildstage|gm|buddy|mail|repair|ride|morph|evolution|auction|itemset|nature|summons|petbag|consumables|usables|chat|gold|channel|customize|wanted|shrine|battlesquare|boss|siege|archlord|tax|title|cheat|recall|social|quickbelt|returnlogin|trade|party|quest|questobject|questgather|mobskill|counter|partyskill|mastery|shutdown [arguments]"),
     }
 }
 

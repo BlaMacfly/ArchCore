@@ -420,6 +420,17 @@ Rembrandt's (op 4 then end of page), SimA at level 60 kills GmTest: bounty paid 
 flag 0 for GmTest; levels restored. Posters (`wanted_criminal`, `wanted_bounty`) stay in the database: empty them
 between two runs.
 
+## Server shutdown test
+
+```bash
+ARCHCORE_CONF_DIR=<config with World.ExitOnRestart = 1> archcore sim shutdown [accountA passA charA accountB passB charB]
+```
+
+**The server stops**: run it against a test instance whose `World.ExitOnRestart` is 1 (a copy of `config/test`).
+GmTest (GM) puts SimA north of Anchorville (`/move` saves that start); SimA runs to a random point, a position not
+yet in the database. `/announce_restart 0 2`: "Redémarrage du serveur." then "Arrêt du serveur." for both,
+connections closed, SimA's new position in the database, no connection possible any more.
+
 ## Quests test
 
 ```bash

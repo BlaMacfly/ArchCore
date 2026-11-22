@@ -7,13 +7,32 @@
 
 use crate::db::{Databases, Pool};
 use mysql_async::Params;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
+
+/// Écritures de journal encore en vol (attendues à l'arrêt du serveur, voir `drain`).
+static IN_FLIGHT: AtomicUsize = AtomicUsize::new(0);
+
+/// Attend la fin des écritures en vol, `wait` au plus ; faux si certaines ne sont pas finies.
+pub async fn drain(wait: Duration) -> bool {
+    let end = tokio::time::Instant::now() + wait;
+    while IN_FLIGHT.load(Ordering::SeqCst) > 0 {
+        if tokio::time::Instant::now() >= end {
+            return false;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    true
+}
 
 fn write(pool: &Pool, what: &'static str, sql: &'static str, params: Params) {
     let pool = pool.clone();
+    IN_FLIGHT.fetch_add(1, Ordering::SeqCst);
     tokio::spawn(async move {
         if let Err(e) = pool.exec(sql, params).await {
             crate::warn!("journal {what} non écrit : {e:#}");
         }
+        IN_FLIGHT.fetch_sub(1, Ordering::SeqCst);
     });
 }
 

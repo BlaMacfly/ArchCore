@@ -56,6 +56,8 @@ pub async fn run(mode: &str) -> anyhow::Result<()> {
         });
     }
 
+    // Monde lancé : sa sortie propre à l'arrêt (world/shutdown.rs).
+    let mut world: Option<Arc<crate::world::World>> = None;
     if mode == "world" || mode == "all" {
         let translator = crate::world::npcs::Translator::load(&config.root, &config.world.language);
         let npcs = crate::world::npcs::NpcRegistry::load(&db, &translator).await?;
@@ -112,6 +114,7 @@ pub async fn run(mode: &str) -> anyhow::Result<()> {
         let listen = crate::config::Listen { port: config.world.port, bind: config.world.bind.clone() };
         crate::net::serve("world", &listen, Arc::new(crate::world::WorldService(w.clone()))).await?;
         crate::world::console::mark_started();
+        world = Some(w.clone());
         // Interface SOAP d'administration (SOAP.Enabled), compatible AzerothCore / TrinityCore.
         if config.world.soap.enabled {
             crate::soap::serve(&config.world.soap, Arc::new(crate::world::console::SoapBackend(w.clone()))).await?;
@@ -120,10 +123,47 @@ pub async fn run(mode: &str) -> anyhow::Result<()> {
 
     // Serveur prêt : la mesure des requêtes lentes commence (le chargement du monde n'est pas compté).
     crate::db::set_slow_query_ms(config.database.slow_query_ms);
-    tokio::signal::ctrl_c().await?;
+    stop_signal().await;
     info!("arrêt…");
+    // Un second Ctrl+C pendant l'arrêt quitte aussitôt.
+    tokio::spawn(async {
+        if tokio::signal::ctrl_c().await.is_ok() {
+            warn!("arrêt forcé");
+            std::process::exit(1);
+        }
+    });
+    if let Some(w) = &world {
+        crate::world::shutdown::run(w).await;
+    }
     db.close().await;
+    info!("arrêt terminé");
     Ok(())
+}
+
+/// Ctrl+C (le lanceur ArchHome l'envoie), fermeture de la console Windows, ou fin d'un redémarrage annoncé
+/// (`World.ExitOnRestart`).
+async fn stop_signal() {
+    #[cfg(windows)]
+    let close = async {
+        match tokio::signal::windows::ctrl_close() {
+            Ok(mut c) => {
+                c.recv().await;
+            }
+            Err(_) => std::future::pending::<()>().await,
+        }
+    };
+    #[cfg(not(windows))]
+    let close = std::future::pending::<()>();
+    tokio::select! {
+        r = tokio::signal::ctrl_c() => {
+            if let Err(e) = r {
+                warn!("Ctrl+C : {e}");
+                std::future::pending::<()>().await;
+            }
+        }
+        _ = close => {}
+        _ = crate::world::shutdown::requested() => {}
+    }
 }
 
 /// Inscrit ce monde dans la liste du serveur de connexion d'après la configuration :
