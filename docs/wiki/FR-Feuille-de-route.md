@@ -389,8 +389,8 @@
    d'objet d'une fenêtre d'Archonia par TID, genre 4) ; **op 8** (renoncer au retour d'un aller-retour : point
    oublié, op 10) ; **op 7** au retour refusé en combat (sans effet visible dans les deux clients). Simulateur :
    `sim scroll`. Liens d'objet de la discussion faits dans ArchRust le 19 novembre 2026 (Ctrl + clic, balise
-   `<ITEM::IID::nom>` d'Archonia). Restent : sockets dans l'op 32 (champ 25 d'Archonia,
-   texte de l'état de conversion), ops d'Archonia que le serveur ignore (AgpmItem 34 à 51 : verrou, tri des sacs,
+   `<ITEM::IID::nom>` d'Archonia). Renforcement, sockets et pierres d'un objet d'autrui : AGPMITEMCONVERT op 0
+   après l'op 32 (22 novembre 2026). Restent : ops d'Archonia que le serveur ignore (AgpmItem 34 à 51 : verrou, tri des sacs,
    transmogrification, relances d'options ; AgpmCharacter 1 et 38), types que le client de Webzen envoie déjà et
    qu'ArchCore refuse à la réception (AgcmRecruit 0x0A, AgpmCashMall 0x2E, AgpmCasper 0x19, AgpmScript 0x45,
    AgpmAdmin 0x12 ; voir [[Protocole réseau|FR-Protocole-reseau]]).

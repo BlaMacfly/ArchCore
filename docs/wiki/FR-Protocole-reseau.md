@@ -39,8 +39,10 @@ code de l'épisode 8), module par module (schémas déclarés par chaque constru
 - **messages de guilde** : même table (0-96), plus le code 97 chez Webzen (voir Guildes) ;
 - AgpmItem **op 31** (demande de renseignements sur un objet, des deux clients) : voir « Renseignements sur un objet » ;
   champ 26 d'AgpmItem = identifiant 64 bits de l'objet (gardé par le client en `+0x58`) ; champ 25 = texte
-  `a,b;c,d;…;[x,y,…]` (couples entier, entier 64 bits ; liste entre crochets) rangé dans l'état de conversion de
-  l'objet (sens exact non établi, ArchCore ne l'envoie pas) ;
+  `%d,%llu;` × 10 puis `;[liste]` (FUN_1401a7fd0 l'écrit, FUN_1401a81c0 le lit) : un couple rangé à
+  `AgpdItem+0x534/0x538`, neuf dans deux tableaux de l'état de conversion, la liste à `+0x540`. C'est un ajout
+  d'Archonia, distinct des sockets d'EP8 (sens exact non établi, ArchCore ne l'envoie pas). Renforcement, sockets et
+  pierres d'un objet d'autrui suivent l'op 32 par un AGPMITEMCONVERT op 0 ;
 - non repris : AgpmSkill op 9 (« coup réel » du client : le serveur règle le moment du coup).
 
 ## Trames chiffrées

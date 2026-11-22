@@ -13,10 +13,13 @@
 //! lus par le client (FUN_1401b0e10, cas 32) : 2 IID, 3 TID, 5 quantité, 10 facteurs, 11 facteurs %, 12 genre
 //! (renvoyé tel quel), 14 restrictions, 17, 19 drapeaux, 20 options, 21, 23 Cash, 24, 25 : les champs d'un AGPMITEM
 //! op 0 sans sa place (6 à 8), sans statut ni propriétaire. Choix d'ArchCore : les champs qu'il envoie déjà à l'op 0
-//! (quantité, durabilité entamée, options) ; les sockets et pierres serties ne suivent pas (ArchCore les envoie par
-//! AGPMITEMCONVERT, que l'infobulle d'un objet d'autrui n'a pas). Demande par TID seul : TID et genre, le client
-//! prenant le reste dans son modèle. Objet introuvable (joueur parti, objet vendu) : pas de réponse, comme pour un
-//! lien périmé.
+//! (quantité, durabilité entamée, options). Le champ 25 est un ajout d'Archonia (texte `%d,%llu;` × 10 puis
+//! `[liste]`, FUN_1401a7fd0 / FUN_1401a81c0, rangé à `AgpdItem+0x534…0x540` et dans deux tableaux de l'état de
+//! conversion), pas les sockets d'EP8 : ArchCore ne l'envoie pas. Renforcement, sockets et pierres serties suivent
+//! l'op 32 par un AGPMITEMCONVERT op 0, comme après l'op 0 d'un objet : l'op 32 a mis l'objet dans la liste du client
+//! (FUN_1401aeba0, FUN_1401af0a0), l'état de conversion s'y rattache par son IID. Demande par TID seul : TID et genre,
+//! le client prenant le reste dans son modèle. Objet introuvable (joueur parti, objet vendu) : pas de réponse, comme
+//! pour un lien périmé.
 
 use super::items::{durability_factors, InventoryItem};
 use super::WorldState;
@@ -37,8 +40,9 @@ pub mod kind {
     pub const TEMPLATE: i64 = 4;
 }
 
-/// Objet `iid` d'un joueur en jeu : inventaire, équipement, inventaire Cash, sac du familier ou costume.
-fn find_item(st: &WorldState, iid: u32) -> Option<InventoryItem> {
+/// Objet `iid` d'un joueur en jeu (inventaire, équipement, inventaire Cash, sac du familier ou costume) et CID de ce
+/// joueur.
+fn find_item(st: &WorldState, iid: u32) -> Option<(InventoryItem, u32)> {
     st.players.values().filter(|p| p.in_game).find_map(|p| {
         let inv = &p.inventory;
         inv.items
@@ -47,7 +51,7 @@ fn find_item(st: &WorldState, iid: u32) -> Option<InventoryItem> {
             .or_else(|| inv.sub.get(&iid))
             .or_else(|| inv.equipment.values().find(|i| i.iid == iid))
             .or_else(|| inv.avatar.iter().find(|i| i.iid == iid))
-            .cloned()
+            .map(|i| (i.clone(), p.ch.id))
     })
 }
 
@@ -79,20 +83,23 @@ pub fn on_request(st: &WorldState, sid: u32, p: &Packet) {
         _ => "genre inconnu",
     };
     debug!("[objets] #{sid} renseignements demandés (IID {iid}, TID {tid}, {source})");
-    let packet = if iid != 0 {
-        match find_item(st, iid) {
-            Some(item) => info_packet(Some(&item), item.tid, kind),
-            None => {
-                debug!("[objets] #{sid} renseignements sur l'objet {iid} introuvable : pas de réponse");
-                return;
-            }
+    if iid != 0 {
+        let Some((item, owner)) = find_item(st, iid) else {
+            debug!("[objets] #{sid} renseignements sur l'objet {iid} introuvable : pas de réponse");
+            return;
+        };
+        player.send_raw(info_packet(Some(&item), item.tid, kind));
+        if let Some(conv) = convert_packet(&item, owner) {
+            player.send_raw(conv);
         }
     } else if tid != 0 {
-        info_packet(None, tid, kind)
-    } else {
-        return;
-    };
-    player.send_raw(packet);
+        player.send_raw(info_packet(None, tid, kind));
+    }
+}
+
+/// AGPMITEMCONVERT op 0 qui suit l'op 32 : renforcement, sockets et pierres serties, si l'objet en a.
+pub fn convert_packet(item: &InventoryItem, owner: u32) -> Option<Vec<u8>> {
+    (!item.conv.is_plain()).then(|| super::convert::state_packet(super::convert::op::ADD, owner, item.iid, &item.conv, None, None))
 }
 
 #[cfg(test)]
@@ -116,6 +123,16 @@ mod tests {
         pleine.options.clear();
         let p = decode_packet(&schema::ITEM, &info_packet(Some(&pleine), 1234, kind::CHAT_LINK)).unwrap();
         assert!(p.bytes(10).is_none() && p.bytes(20).is_none());
+    }
+
+    #[test]
+    fn etat_de_conversion_apres_l_op_32() {
+        assert!(convert_packet(&item(), 9).is_none(), "objet sans renforcement ni socket");
+        let mut forge = item();
+        forge.conv = super::super::convert::ItemConvert { level: 5, sockets: 3, filled: vec![4001, 4002] };
+        let p = decode_packet(&schema::ITEM_CONVERT, &convert_packet(&forge, 9).unwrap()).unwrap();
+        assert_eq!((p.int(0), p.int(1), p.int(2), p.int(5), p.int(6), p.int(7)), (Some(0), Some(9), Some(77), Some(5), Some(3), Some(2)));
+        assert!(p.bytes(9).is_some(), "TID sertis");
     }
 
     #[test]

@@ -38,9 +38,11 @@ ArchCore speaks Archonia's protocol (the one of the ArchRust client). Compared w
   Archonia's 4 to 7, its search 13 is 12;
 - **guild messages**: same table (0-96), plus code 97 in Webzen's client (see Guilds);
 - AgpmItem **op 31** (item information request, from both clients): see "Item information"; AgpmItem field 26 =
-  the item's 64-bit identifier (kept by the client at `+0x58`); field 25 = text `a,b;c,d;…;[x,y,…]` (integer,
-  64-bit integer pairs; a list in brackets) stored in the item's conversion state (exact meaning not established,
-  ArchCore does not send it);
+  the item's 64-bit identifier (kept by the client at `+0x58`); field 25 = text `%d,%llu;` × 10 then `;[list]`
+  (written by FUN_1401a7fd0, read by FUN_1401a81c0): one pair stored at `AgpdItem+0x534/0x538`, nine in two arrays
+  of the conversion state, the list at `+0x540`. It is an Archonia addition, separate from EP8's sockets (exact
+  meaning not established, ArchCore does not send it). Another player's item upgrade, sockets and stones follow op 32
+  as an AGPMITEMCONVERT op 0;
 - not taken over: AgpmSkill op 9 (the client's "real hit": the server times the hit).
 
 ## Encrypted frames
