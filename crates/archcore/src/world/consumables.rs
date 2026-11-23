@@ -932,9 +932,7 @@ pub async fn chat_command(ctx: &WorldCtx, st: &mut WorldState, sid: u32, text: &
     send_system(st, sid, &format!("Objet {label} utilisé."));
     match cmd {
         ItemCommand::Go => {
-            if st.players.get(&sid).is_some_and(|p| p.trade.is_some()) {
-                super::trade::cancel(st, sid);
-            }
+            super::trade::cancel_if_trading(st, sid);
             let to = dest.unwrap_or_default();
             info!("[objet] {name} rejoint {target} par {label}");
             super::teleport(ctx, st, sid, to.x as f64, Some(to.y as f64), to.z as f64).await?;

@@ -673,8 +673,9 @@ impl Connection for WorldConn {
 
 /// Retire un joueur du monde : échange annulé, groupe quitté, position enregistrée.
 pub(super) async fn remove_player(ctx: &WorldCtx, st: &mut WorldState, sid: u32) {
-    // Un échange en cours est annulé : les objets n'ont pas quitté les inventaires.
-    trade::cancel(st, sid);
+    // Un échange en cours est annulé : les objets n'ont pas quitté les inventaires. Sans échange, rien n'est envoyé
+    // (le client affichait « The trade has been cancelled » à chaque sortie du monde).
+    trade::cancel_if_trading(st, sid);
     // Le groupe perd ce membre (et se dissout s'il ne reste qu'un joueur).
     if let Some(cid) = st.players.get(&sid).map(|p| p.ch.id) {
         party::on_leave_world(st, cid);

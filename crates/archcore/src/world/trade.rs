@@ -270,6 +270,14 @@ fn confirm(st: &mut WorldState, sid: u32) {
     info!("[échange] début entre {} et {}", st.players[&sid].ch.name, st.players.get(&peer).map(|p| p.ch.name.as_str()).unwrap_or("?"));
 }
 
+/// Annule l'échange en cours, s'il y en a un (sortie du monde, reconnexion, rappel de groupe) : sans échange, rien
+/// n'est envoyé. `cancel` répond l'op 5 même sans échange : c'est la réponse d'une demande refusée.
+pub fn cancel_if_trading(st: &mut WorldState, sid: u32) {
+    if st.players.get(&sid).is_some_and(|p| p.trade.is_some()) {
+        cancel(st, sid);
+    }
+}
+
 /// Annule l'échange des deux côtés : objets rendus à l'inventaire, op 5, statut d'action normal.
 pub fn cancel(st: &mut WorldState, sid: u32) {
     let peer = st.players.get(&sid).and_then(|p| p.trade.as_ref()).map(|t| t.peer);

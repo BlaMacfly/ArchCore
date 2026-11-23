@@ -46,6 +46,7 @@ unknown key (typo) is reported.
 | `World.Language` | `fr` | NPC title language (`data/i18n/npc-titles-<lang>.json`); `en` keeps them in English |
 | `World.ViewRadius` | `8000` | Range of normal chat and `SAY` AddOn messages. NPCs, monsters, players and ground items are seen by sector (see [[Network protocol|EN-Network-protocol]]) |
 | `World.MonsterDensity` | `1` | Multiplies the number of monsters at each spawn point (rounded, at least 1). The server tables are sparse in places: 2 or 3 come closer to the original game's density |
+| `World.CreatureSpeed` | `1` | Multiplies the walk and run speed of animals (`Type` 8: cows, dogs, sheep, roosters, horses…); monsters, guards and NPCs keep their values. 1: EP8 values (cow 1700, dog 525, player 6000 running, in tenths of a unit per second) |
 | `World.SlowPacketMs` | `100` | A packet handled for longer (ms) under the world lock is logged as a "slow packet" (`paquet lent`), with the lock wait time; `0`: never |
 | `Guild.BattleReadySeconds` | `180` | Delay (s) between accepting a guild battle and its start; the client announces it in minutes. Archonia's data do not give it |
 | `Guild.DestroyDelayHours` | `24` | Minimum age (h) of a guild before it can be disbanded, otherwise code 46 ("Guild_DestroyFailTooEarly": 24 hours in the client's text); 0: no delay |
@@ -160,6 +161,7 @@ upper case.
 | `LoginServer.Port` | `ARCHCORE_LOGIN_SERVER_PORT` |
 | `World.ViewRadius` | `ARCHCORE_WORLD_VIEW_RADIUS` |
 | `World.MonsterDensity` | `ARCHCORE_WORLD_MONSTER_DENSITY` |
+| `World.CreatureSpeed` | `ARCHCORE_WORLD_CREATURE_SPEED` |
 | `Database.Password` | `ARCHCORE_DATABASE_PASSWORD` |
 | `Rate.Exp` | `ARCHCORE_RATE_EXP` |
 | `SOAP.Enabled` | `ARCHCORE_SOAP_ENABLED` |

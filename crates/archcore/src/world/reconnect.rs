@@ -68,7 +68,7 @@ pub fn detach(st: &mut WorldState, sid: u32, now: Instant) -> bool {
     p.attack = None;
     p.portal = None;
     let (name, moving) = (p.ch.name.clone(), p.dest.is_some());
-    super::trade::cancel(st, sid);
+    super::trade::cancel_if_trading(st, sid);
     if moving {
         super::presence::stop(st, sid);
     }

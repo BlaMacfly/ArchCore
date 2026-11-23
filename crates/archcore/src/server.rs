@@ -89,7 +89,7 @@ pub async fn run(mode: &str) -> anyhow::Result<()> {
             }
             level_exp[level] = crate::db::col(&r, "exp");
         }
-        let monsters = crate::world::monsters::MonsterRegistry::load(&db, &translator, &map, config.world.monster_density).await?;
+        let monsters = crate::world::monsters::MonsterRegistry::load(&db, &translator, &map, config.world.monster_density, config.world.creature_speed).await?;
         let siege = crate::world::siege::Sieges::load(&db, &sieges, &map, &monsters).await;
         let state = crate::world::WorldState {
             view_radius: config.world.view_radius,

@@ -429,7 +429,7 @@ ARCHCORE_CONF_DIR=<config with World.ExitOnRestart = 1> archcore sim shutdown [a
 **The server stops**: run it against a test instance whose `World.ExitOnRestart` is 1 (a copy of `config/test`).
 GmTest (GM) puts SimA north of Anchorville (`/move` saves that start); SimA runs to a random point, a position not
 yet in the database. `/announce_restart 0 2`: "Redémarrage du serveur." then "Arrêt du serveur." for both,
-connections closed, SimA's new position in the database, no connection possible any more.
+no trade cancellation (none in progress), connections closed, SimA's new position in the database, no connection possible any more.
 
 ## Quests test
 

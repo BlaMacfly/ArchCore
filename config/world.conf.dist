@@ -151,6 +151,16 @@ World.ViewRadius = 8000
 
 World.MonsterDensity = 1
 
+#    World.CreatureSpeed
+#        Multiplie la marche et la course des animaux (Type 8 de
+#        CharacterDataTable : vaches, chiens, moutons, coqs, chevaux…) ;
+#        monstres, gardes et PNJ gardent leurs valeurs. 1 : valeurs EP8 de CharacterDataTable
+#        (vache 1700, chien 525, en dixièmes d'unité par seconde ; un joueur
+#        court à 6000).
+#        Défaut : 1
+
+World.CreatureSpeed = 1
+
 #    World.SlowPacketMs
 #        Un paquet traité plus longtemps (en ms) sous le verrou du monde est noté
 #        dans le journal du serveur (« paquet lent »). 0 : jamais.

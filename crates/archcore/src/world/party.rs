@@ -735,7 +735,7 @@ pub async fn accept_recall(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Pa
     };
     let target = st.players[&lsid].ch.pos();
     // Échange en cours annulé (le client l'annule aussi avant d'accepter), boutique refermée.
-    super::trade::cancel(st, sid);
+    super::trade::cancel_if_trading(st, sid);
     super::npc_trade::close(st, sid);
     // Départ vers une position libre (AGPMEVENTTELEPORT op 3, déplacement, op 8).
     let x = target.x as f64 + RECALL_OFFSET;

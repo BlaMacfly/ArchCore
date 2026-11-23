@@ -46,6 +46,7 @@ défaut, avec un avertissement dans le journal ; une clé inconnue (faute de fra
 | `World.Language` | `fr` | Langue des titres de PNJ (`data/i18n/npc-titles-<langue>.json`) ; `en` les laisse en anglais |
 | `World.ViewRadius` | `8000` | Portée de la discussion normale et des messages d'AddOn `SAY`. PNJ, monstres, joueurs et objets au sol se voient par secteurs (voir [[Protocole réseau|FR-Protocole-reseau]]) |
 | `World.MonsterDensity` | `1` | Multiplie le nombre de monstres de chaque point d'apparition (arrondi, au moins 1). Les tables du serveur sont peu peuplées par endroits : 2 ou 3 rapprochent de la densité du jeu d'origine |
+| `World.CreatureSpeed` | `1` | Multiplie la marche et la course des animaux (`Type` 8 : vaches, chiens, moutons, coqs, chevaux…) ; monstres, gardes et PNJ gardent leurs valeurs. 1 : valeurs EP8 (vache 1700, chien 525, joueur 6000 en course, en dixièmes d'unité par seconde) |
 | `World.SlowPacketMs` | `100` | Un paquet traité plus longtemps (ms) sous le verrou du monde est noté « paquet lent », avec le temps d'attente du verrou ; `0` : jamais |
 | `Guild.BattleReadySeconds` | `180` | Délai (s) entre l'acceptation d'un combat de guildes et son début ; le client l'annonce en minutes. Les données d'Archonia ne le donnent pas |
 | `Guild.DestroyDelayHours` | `24` | Âge minimal (h) d'une guilde avant sa dissolution, sinon code 46 (« Guild_DestroyFailTooEarly » : 24 heures dans le texte du client) ; 0 : sans délai |
@@ -160,6 +161,7 @@ intérieures deviennent des `_`, le tout en majuscules.
 | `LoginServer.Port` | `ARCHCORE_LOGIN_SERVER_PORT` |
 | `World.ViewRadius` | `ARCHCORE_WORLD_VIEW_RADIUS` |
 | `World.MonsterDensity` | `ARCHCORE_WORLD_MONSTER_DENSITY` |
+| `World.CreatureSpeed` | `ARCHCORE_WORLD_CREATURE_SPEED` |
 | `Database.Password` | `ARCHCORE_DATABASE_PASSWORD` |
 | `Rate.Exp` | `ARCHCORE_RATE_EXP` |
 | `SOAP.Enabled` | `ARCHCORE_SOAP_ENABLED` |

@@ -93,7 +93,23 @@ pub struct MonsterStats {
     pub heroic_def: i32,
 }
 
+/// Colonne `Type` (`char_type`) des animaux : 8, sans le bit monstre (0x4) ; vaches, chiens, moutons, coqs, chevaux…
+/// (64 modèles EP8). Gardes (196625), PNJ (2) et joueurs (196609) n'en sont pas.
+const TYPE_ANIMAL: i64 = 0x8;
+const TYPE_MONSTER_BIT: i64 = 0x4;
+
 impl MonsterStats {
+    /// Marche et course d'un animal multipliées par `World.CreatureSpeed` (arrondi, au moins 1) ; monstres, gardes et
+    /// PNJ gardent leurs valeurs.
+    pub fn with_creature_speed(mut self, rate: f64) -> Self {
+        if self.char_type & TYPE_ANIMAL != 0 && self.char_type & TYPE_MONSTER_BIT == 0 && rate > 0.0 && (rate - 1.0).abs() > f64::EPSILON {
+            let scale = |v: i32| if v > 0 { ((v as f64 * rate).round() as i32).max(1) } else { v };
+            self.walk = scale(self.walk);
+            self.run = scale(self.run);
+        }
+        self
+    }
+
     /// Lit une ligne de `character_data_table.data` (clés de l'en-tête de CharacterDataTable.txt).
     pub fn from_data(v: &serde_json::Value) -> Self {
         let n = |k: &str| -> i32 {
@@ -367,7 +383,7 @@ pub fn spawn_point(p: &SpawnPoint, first_cid: u32, blocked: &dyn Fn(f64, f64) ->
 
 impl MonsterRegistry {
     /// `density` multiplie le nombre de monstres de chaque point (arrondi, au moins 1).
-    pub async fn load(db: &Databases, translator: &Translator, map: &super::map::WorldMap, density: f64) -> anyhow::Result<Self> {
+    pub async fn load(db: &Databases, translator: &Translator, map: &super::map::WorldMap, density: f64, creature_speed: f64) -> anyhow::Result<Self> {
         // Toutes les créatures, y compris celles des guerres de siège ; la table peut manquer si l'import n'a
         // pas eu les tables du serveur.
         let rows = match db
@@ -388,7 +404,7 @@ impl MonsterRegistry {
                 if let Some(name) = v.get("Name").and_then(|n| n.as_str()) {
                     names.insert(col::<u32>(&r, "tid"), translator.translate(name));
                 }
-                stats.insert(col::<u32>(&r, "tid"), MonsterStats::from_data(&v));
+                stats.insert(col::<u32>(&r, "tid"), MonsterStats::from_data(&v).with_creature_speed(creature_speed));
             }
         }
         // Rayon du corps : dans charactertemplate.ini, quand le modèle y figure.
@@ -740,6 +756,20 @@ mod tests {
         assert!(!MonsterStats { char_type: 65_540, ..s }.is_attackable(), "attaquable mais pas ciblable");
         let f = monster_factors(1, &s, 100);
         assert_eq!((f.status[7], f.status[8], f.status[9], f.point[0], f.point_max[0]), (1, 450, 3850, 100, 136));
+    }
+
+    #[test]
+    fn vitesse_des_creatures() {
+        let dog = MonsterStats { char_type: 8, walk: 525, run: 525, ..Default::default() };
+        let s = dog.clone().with_creature_speed(3.0);
+        assert_eq!((s.walk, s.run), (1575, 1575), "chien : créature non hostile");
+        assert_eq!(dog.clone().with_creature_speed(1.0).walk, 525, "1 : valeurs EP8");
+        assert_eq!(dog.with_creature_speed(0.0).walk, 525, "0 ou moins : ignoré");
+        let deer = MonsterStats { char_type: 196_612, walk: 1500, run: 5000, ..Default::default() };
+        let s = deer.with_creature_speed(3.0);
+        assert_eq!((s.walk, s.run), (1500, 5000), "monstre : valeurs gardées");
+        let guard = MonsterStats { char_type: 196_625, walk: 2000, run: 7000, ..Default::default() };
+        assert_eq!(guard.with_creature_speed(3.0).run, 7000, "garde : valeurs gardées");
     }
 
     #[test]

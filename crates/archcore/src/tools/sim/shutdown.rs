@@ -3,7 +3,8 @@
 //!
 //! GmTest (MJ) et SimA au nord d'Anchorville (`/move` enregistre ce départ). SimA court jusqu'à un point tiré au
 //! hasard : sa position n'est pas encore en base (sauvegarde automatique toutes les 60 s). GmTest annonce un redémarrage dans 2 s : les deux
-//! reçoivent « Redémarrage du serveur. » puis « Arrêt du serveur. », leurs connexions sont fermées, et la base porte
+//! reçoivent « Redémarrage du serveur. » puis « Arrêt du serveur. », sans annulation d'échange (aucun en cours), leurs
+//! connexions sont fermées, et la base porte
 //! la nouvelle position de SimA. Une nouvelle connexion est ensuite refusée (serveur arrêté).
 
 use super::{enter_world, step, Recv};
@@ -48,6 +49,13 @@ pub async fn run(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> 
         w.world.expect_where(notice("Arrêt du serveur."), 4000, "annonce de l'arrêt").await?;
     }
     println!("  ✓ « Redémarrage du serveur. » puis « Arrêt du serveur. » chez les deux");
+    // Sans échange en cours, pas d'annulation (op 5 d'AGPMPRIVATETRADE) : le client afficherait « The trade has
+    // been cancelled ».
+    for (w, who) in [(&mut a, ca), (&mut b, cb)] {
+        let trade = w.world.expect_where(|q| q.is(&schema::PRIVATE_TRADE, Some(5)), 1500, "annulation d'échange").await;
+        anyhow::ensure!(trade.is_err(), "{who} reçoit une annulation d'échange sans échange en cours");
+    }
+    println!("  ✓ aucune annulation d'échange");
     for (w, who) in [(&mut a, ca), (&mut b, cb)] {
         anyhow::ensure!(w.world.closed_within(5000).await, "connexion de {who} restée ouverte");
     }

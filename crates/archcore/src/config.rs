@@ -48,6 +48,9 @@ pub struct WorldConfig {
     pub view_radius: f64,
     /// Multiplicateur du nombre de monstres par point d'apparition (1 : tables du serveur).
     pub monster_density: f64,
+    /// Multiplicateur de la marche et de la course des animaux (`Type` 8 : vaches, chiens, moutons…) ; 1 : valeurs
+    /// EP8 de `CharacterDataTable.txt`.
+    pub creature_speed: f64,
     pub language: String,
     pub rates: HashMap<String, f64>,
     pub gm_command_levels: HashMap<String, i64>,
@@ -438,6 +441,7 @@ impl Default for WorldConfig {
             start_positions: HashMap::new(),
             view_radius: 8000.0,
             monster_density: 1.0,
+            creature_speed: 1.0,
             language: "fr".into(),
             rates: HashMap::new(),
             gm_command_levels: HashMap::new(),
@@ -774,6 +778,7 @@ fn read_world(s: &Settings, cfg: &mut Config) {
         start_positions,
         view_radius: s.parse("World.ViewRadius", d.view_radius),
         monster_density: s.parse("World.MonsterDensity", d.monster_density),
+        creature_speed: s.parse("World.CreatureSpeed", d.creature_speed),
         slow_packet_ms: s.parse("World.SlowPacketMs", d.slow_packet_ms),
         guild_battle_ready_secs: s.parse("Guild.BattleReadySeconds", d.guild_battle_ready_secs),
         guild_destroy_delay_hours: s.parse("Guild.DestroyDelayHours", d.guild_destroy_delay_hours).max(0),
@@ -959,6 +964,7 @@ pub fn to_values(cfg: &Config, which: Which) -> Vec<(String, String)> {
             put("World.Language", w.language.clone());
             put("World.ViewRadius", fmt_num(w.view_radius));
             put("World.MonsterDensity", fmt_num(w.monster_density));
+            put("World.CreatureSpeed", fmt_num(w.creature_speed));
             put("World.SlowPacketMs", w.slow_packet_ms.to_string());
             put("Guild.BattleReadySeconds", w.guild_battle_ready_secs.to_string());
             put("Guild.DestroyDelayHours", w.guild_destroy_delay_hours.to_string());
