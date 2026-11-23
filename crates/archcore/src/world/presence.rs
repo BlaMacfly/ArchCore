@@ -12,7 +12,7 @@
 //! Une position fournie par le client (champ 1) n'est acceptée que dans la limite de la vitesse permise ; sinon le
 //! joueur est renvoyé à la position que le serveur suit (`anticheat.rs`).
 
-use super::{character_add_packet, character_remove_packet, sector, send_nearby_npcs, WorldCtx, WorldState};
+use super::{character_add_packet, character_remove_packet, sector, send_nearby_npcs, Player, WorldCtx, WorldState};
 use crate::{debug, info, warn};
 use archcore_net::schema;
 use archcore_net::{Fields, Packet, Vec3};
@@ -399,17 +399,30 @@ pub fn move_fields(st: &WorldState, sid: u32) -> Fields {
         .with(6, p.direction)
 }
 
+/// PV, PM, PE, mort et rattachement d'un joueur, comme `Player::saved_points`.
+pub fn points_key(p: &Player) -> (i32, i32, i32, bool, u16) {
+    let f = &p.factors.point;
+    (f[0], f[1], f[2], p.dead, p.bound_region)
+}
+
+/// Enregistre la position, les PV, PM et PE, l'état mort et la région de rattachement.
 pub async fn save(ctx: &WorldCtx, st: &mut WorldState, sid: u32) -> anyhow::Result<()> {
     let Some(p) = st.players.get_mut(&sid) else { return Ok(()) };
+    let key = points_key(p);
+    let (hp, mp, sp, dead, bound) = key;
     ctx.db
         .characters
-        .exec("UPDATE characters SET pos_x = ?, pos_y = ?, pos_z = ? WHERE id = ?", (p.ch.pos_x, p.ch.pos_y, p.ch.pos_z, p.ch.id))
+        .exec(
+            "UPDATE characters SET pos_x = ?, pos_y = ?, pos_z = ?, hp = ?, mp = ?, sp = ?, dead = ?, bound_region = ? WHERE id = ?",
+            (p.ch.pos_x, p.ch.pos_y, p.ch.pos_z, hp, mp, sp, dead as i64, bound as u32, p.ch.id),
+        )
         .await?;
     p.dirty = false;
+    p.saved_points = key;
     Ok(())
 }
 
-/// Sauvegarde périodique des positions des joueurs qui ont bougé.
+/// Sauvegarde périodique des joueurs qui ont bougé ou dont les PV, PM, l'état ou le rattachement ont changé.
 pub fn spawn_autosave(world: Arc<super::World>) {
     tokio::spawn(async move {
         let mut tick = tokio::time::interval(SAVE_INTERVAL);
@@ -418,7 +431,8 @@ pub fn spawn_autosave(world: Arc<super::World>) {
             tick.tick().await;
             let mut st = world.state.lock().await;
             for sid in st.sids() {
-                if st.players[&sid].dirty {
+                let p = &st.players[&sid];
+                if p.in_game && (p.dirty || points_key(p) != p.saved_points) {
                     if let Err(e) = save(&world.ctx, &mut st, sid).await {
                         warn!("[world] sauvegarde des positions : {e:#}");
                     }

@@ -33,12 +33,17 @@ pub const REGEN_INTERVAL: Duration = Duration::from_secs(10);
 /// Délai d'une potion sans « Use Interval ».
 const DEFAULT_POTION_DELAY: Duration = Duration::from_secs(2);
 const POINT_MP: usize = 1;
+/// « Type » d'un objet utilisable : potion.
+const USABLE_POTION: i64 = 0;
 
 /// Effet d'une potion.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Potion {
     pub hp: i32,
     pub mp: i32,
+    /// Potion en pour cent (colonne « SubType » renseignée sur une potion, Type 0) : HP et MP sont des pour cent du
+    /// maximum, tronqués.
+    pub percent: bool,
     pub delay: Duration,
 }
 
@@ -51,7 +56,9 @@ impl Potion {
             return None;
         }
         let ms = num("Use Interval") as u64;
-        Some(Potion { hp, mp, delay: if ms > 0 { Duration::from_millis(ms) } else { DEFAULT_POTION_DELAY } })
+        let sub_type = raw.get("SubType").and_then(|v| v.as_str()).is_some_and(|t| !t.trim().is_empty());
+        let percent = sub_type && num("Type") as i64 == USABLE_POTION;
+        Some(Potion { hp, mp, percent, delay: if ms > 0 { Duration::from_millis(ms) } else { DEFAULT_POTION_DELAY } })
     }
 }
 
@@ -95,6 +102,7 @@ pub fn drink(f: &mut Factors, potion: &Potion, t: &mut Timers, now: Instant) -> 
     if now < *ready {
         return Err(Refusal::Cooldown);
     }
+    let amount = if potion.percent { (max as f64 * amount as f64 / 100.0) as i32 } else { amount };
     f.point[point] = (f.point[point] + amount).min(max);
     *ready = now + potion.delay;
     Ok(())
@@ -315,8 +323,8 @@ mod tests {
 
     #[test]
     fn potions() {
-        let life = Potion { hp: 75, mp: 0, delay: Duration::from_secs(2) };
-        let mana = Potion { hp: 0, mp: 45, delay: Duration::from_secs(2) };
+        let life = Potion { hp: 75, mp: 0, percent: false, delay: Duration::from_secs(2) };
+        let mana = Potion { hp: 0, mp: 45, percent: false, delay: Duration::from_secs(2) };
         let now = Instant::now();
         let mut t = Timers { hp_potion: now, mp_potion: now, combat_until: now, regen_at: now };
         let mut f = hurt(10, 50);
@@ -330,12 +338,21 @@ mod tests {
         f.point[POINT_MP] = 0;
         assert_eq!(drink(&mut f, &mana, &mut t, now), Ok(()), "délai propre à la mana");
         assert_eq!(f.point[POINT_MP], 45);
+        // Potion en pour cent : 15 % de 90 PV max = 13,5, tronqué à 13.
+        let healing = Potion { hp: 15, mp: 0, percent: true, delay: Duration::from_secs(1) };
+        let mut f = hurt(10, 50);
+        let mut t = Timers { hp_potion: now, mp_potion: now, combat_until: now, regen_at: now };
+        assert_eq!(drink(&mut f, &healing, &mut t, now), Ok(()));
+        assert_eq!(f.point[POINT_HP], 23);
     }
 
     #[test]
     fn lecture_d_une_potion() {
         let raw = serde_json::json!({"ItemType":"1","HP":"75","Use Interval":"2000"});
-        assert_eq!(Potion::from_raw(&raw), Some(Potion { hp: 75, mp: 0, delay: Duration::from_millis(2000) }));
+        assert_eq!(Potion::from_raw(&raw), Some(Potion { hp: 75, mp: 0, percent: false, delay: Duration::from_millis(2000) }));
+        // Small Healing Potion : SubType 1 sur une potion (Type 0) → pour cent.
+        let healing = serde_json::json!({"ItemType":"1","Type":"0","SubType":"1","HP":"15","Use Interval":"1000"});
+        assert_eq!(Potion::from_raw(&healing), Some(Potion { hp: 15, mp: 0, percent: true, delay: Duration::from_millis(1000) }));
         assert!(Potion::from_raw(&serde_json::json!({"ItemType":"0","HP":"10"})).is_none(), "équipement avec PV");
         assert!(Potion::from_raw(&serde_json::json!({"ItemType":"1"})).is_none());
     }

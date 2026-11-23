@@ -324,7 +324,7 @@ fn hit_player(ctx: &WorldCtx, st: &mut WorldState, m: &Monster, t: &SkillTemplat
     let stats = st.monsters.stats_of(m.tid);
     let mods = st.monsters.mods(m.cid);
     let attacker = Attacker::of_monster(m.level as i32, &stats, &mods);
-    let defender = Defender::of_player(&p.factors);
+    let defender = attacker.pierce(&Defender::of_player(&p.factors));
     let spirit = effects::monster_spirit(&stats.spirit, &mods);
     let mut rng = rand::thread_rng();
     // Blocage des compétences du joueur : ni dégâts ni effet.
@@ -361,7 +361,7 @@ fn hit_player(ctx: &WorldCtx, st: &mut WorldState, m: &Monster, t: &SkillTemplat
 #[allow(clippy::too_many_arguments)]
 fn put_effect(ctx: &WorldCtx, st: &mut WorldState, sid: u32, m: &Monster, owned: &Owned, lv: &SkillLevel, state: u64, now: Instant) {
     let level = st.players.get(&sid).map(|p| p.factors.status[7]).unwrap_or(1);
-    let penalty = (5 * (level - m.level as i32).max(0)).min(80) as f64;
+    let penalty = super::combat::skill_level_penalty(false, m.level as i32, true, level);
     let dot = (!lv.dot.is_empty()).then(|| effects::Dot {
         damages: lv.dot.damages.iter().map(|(i, d)| (*i, ((d * (100.0 - penalty) / 100.0).round() as i32).max(1))).collect(),
         interval: Duration::from_millis(lv.dot.interval_ms),

@@ -270,7 +270,9 @@ pub struct EquipData {
     pub kind: i64,
     /// 2 = à deux mains.
     pub hand: i64,
+    /// Niveau requis et niveau plafond (colonne « Level » `min;max` ; 0 : sans plafond).
     pub level: i64,
+    pub max_level: i64,
     /// Races et classes admises (vide : toutes), sexe exigé (0 : les deux).
     pub races: Vec<i64>,
     pub classes: Vec<i64>,
@@ -344,6 +346,12 @@ impl EquipData {
 /// est l'orthographe du fichier).
 pub const SPIRIT_COLUMNS: [&str; 8] = ["Magic", "Water", "Fire", "Earth", "Air", "Poison", "Linghtning", "Ice"];
 
+/// Colonne « Level » d'itemdatatable.txt : `min` ou `min;max` (niveau requis, niveau plafond ; 0 : aucun).
+pub fn level_bounds(text: &str) -> (i64, i64) {
+    let mut it = text.split(';').map(|x| x.trim().parse::<f64>().map(|v| v as i64).unwrap_or(0));
+    (it.next().unwrap_or(0).max(0), it.next().unwrap_or(0).max(0))
+}
+
 impl EquipData {
     /// Lit les colonnes d'une ligne d'itemdatatable.txt ; `None` si l'objet ne se porte pas.
     pub fn from_raw(raw: &serde_json::Value) -> Option<Self> {
@@ -360,7 +368,8 @@ impl EquipData {
             part,
             kind,
             hand: num("Hand"),
-            level: num("Level"),
+            level: level_bounds(&text("Level")).0,
+            max_level: level_bounds(&text("Level")).1,
             races: list("Race"),
             classes: list("Class"),
             gender: num("Gender"),

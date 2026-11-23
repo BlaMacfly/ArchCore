@@ -235,6 +235,8 @@ pub struct Player {
     pub follow_target: i64,
     pub follow_distance: i64,
     pub dirty: bool,
+    /// PV, PM, PE, mort et rattachement tels qu'en base (sauvegarde périodique dès qu'ils changent, presence.rs).
+    pub saved_points: (i32, i32, i32, bool, u16),
     pub move_count: u32,
     pub inventory: Inventory,
     pub shop: Option<OpenShop>,
@@ -779,6 +781,17 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
         Some(t) => (t, Some(t.class as i64)),
         None => (tpl, None),
     };
+    let saved_points = (ch.hp, ch.mp, ch.sp, ch.dead, ch.bound_region);
+    // Mort à la déconnexion : revient au point de résurrection de sa région de rattachement, PV et PM pleins, comme une
+    // résurrection au village (perte d'expérience selon la configuration, plus bas).
+    let entered_dead = ch.dead;
+    if entered_dead {
+        let bound = if ch.bound_region != 0 { ch.bound_region } else { regions::default_region(tpl.race) };
+        let (x, y, z) = travel::village_point(ctx, bound, ch.pos(), tpl.race, tpl.class);
+        let y = y.or_else(|| ctx.map.height(x, z).map(f64::from)).unwrap_or(ch.pos_y);
+        info!("[world] {} : mort à la déconnexion, ressuscite en {x:.0}, {z:.0}", ch.name);
+        ch.set_pos(Vec3::new(x as f32, y as f32, z as f32));
+    }
     // Région sans entrée en jeu (DisableLogin, regions.rs) : au point de résurrection de la région, sinon au village de
     // la race.
     if ctx.regions.forbids(ctx.map.region(ch.pos_x, ch.pos_z), regions::disable::LOGIN) {
@@ -793,7 +806,9 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
         }
     }
     let section = equipment::item_section(ctx, ch.pos());
-    let mut factors = equipment::with_equipment(make_factors(tpl, Some(&ch)), &equipment::worn(&inventory, &ctx.catalog, &ctx.convert, form_class, section));
+    let base = make_factors(tpl, Some(&ch));
+    let base_status = base.status;
+    let mut factors = equipment::with_equipment(base, &equipment::worn(&inventory, &ctx.catalog, &ctx.convert, form_class, section));
     ctx.options.apply(&mut factors, &equipment::worn_options(&inventory, &ctx.catalog, &ctx.options, ch.level as i64, form_class, section));
     let gear = equipment::worn_gear(ctx, &inventory, ch.level as i64, form_class, section);
     skills::refresh_points(&ctx.skills, &skills, &mut factors);
@@ -801,11 +816,21 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
     skills.title_skills = titles.skills(&ctx.titles);
     skills::sync_passives(&ctx.skills, &mut skills, ch.template_id, skills::form_class(&factors));
     effects::apply(&mut factors, &effects::total(&skills.effects));
+    // Précision et esquive des options, puis PV, PM, AR et DR des caractéristiques (character.rs).
+    effects::add_guard(&mut factors, &gear.mods);
+    crate::character::derive_points(&mut factors, &base_status);
     // PV et PM enregistrés au-delà du maximum (maximum changé depuis) : ramenés au maximum.
     factors.point[crate::character::POINT_HP] = factors.point[crate::character::POINT_HP].min(factors.point_max[0]);
     factors.point[1] = factors.point[1].min(factors.point_max[1]);
-    // Rattachement : la région où il se trouve si elle est sûre, sinon celle de sa race.
-    let bound_region = ctx.map.region(ch.pos_x, ch.pos_z).filter(|r| ctx.regions.is_safe(*r)).unwrap_or_else(|| regions::default_region(factors.ftype[0]));
+    if entered_dead {
+        factors.point[crate::character::POINT_HP] = factors.point_max[0];
+        factors.point[1] = factors.point_max[1];
+    }
+    // Rattachement : celui enregistré, sinon la région où il se trouve si elle est sûre, sinon celle de sa race.
+    let bound_region = Some(ch.bound_region)
+        .filter(|&r| r != 0)
+        .or_else(|| ctx.map.region(ch.pos_x, ch.pos_z).filter(|r| ctx.regions.is_safe(*r)))
+        .unwrap_or_else(|| regions::default_region(factors.ftype[0]));
     // Langue : souhait du client ArchRust (HELLO), sinon dernier choix du compte, sinon World.Language.
     let wish = match s.language() {
         Some(l) => Some(l),
@@ -856,6 +881,7 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
             follow_target: 0,
             follow_distance: 0,
             dirty: false,
+            saved_points,
             move_count: 0,
             inventory,
             shop: None,
@@ -900,6 +926,13 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
         },
     );
     st.by_cid.insert(cid, s.id());
+    if entered_dead {
+        let sid = s.id();
+        st.players.get_mut(&sid).unwrap().dead = true;
+        let penalty = consumables::town_penalty(ctx, st, sid).await;
+        st.players.get_mut(&sid).unwrap().dead = false;
+        penalty?;
+    }
     Ok(())
 }
 

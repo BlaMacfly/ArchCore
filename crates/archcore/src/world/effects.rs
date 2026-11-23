@@ -380,7 +380,8 @@ impl Mods {
             defense: p("def_point_physical"),
             defense_pct: pc("def_point_physical"),
             hit: p("hit_rate"),
-            evade: p("evade_rate") + p("dodge_rate"),
+            evade: p("evade_rate"),
+            dodge: p("dodge_rate"),
             movement_pct: pc("movement"),
             atk_speed_pct: pc("atk_speed"),
             block: p("physical_block"),
@@ -531,6 +532,8 @@ pub struct Effect {
     pub caster_sid: u32,
     /// Purge répétée tant que dure l'effet (Cure).
     pub purge: Option<Purge>,
+    /// Famille et rang (`skill_classify_id`, `skill_classify_level` du niveau ; id 0 : aucune famille).
+    pub classify: (i32, i32),
 }
 
 /// Purge répétée : sortes d'effets retirés (bits de `dispel`), chance à chaque fois, période.
@@ -657,16 +660,18 @@ pub enum Guard {
     ToMp(i32),
 }
 
-pub fn guard(rng: &mut impl rand::Rng, m: &Mods, status: u64, damage: i32) -> Guard {
+/// `ranged` : l'assaillant frappe à distance (esquive à distance, sinon au corps à corps) ; `penalty` : pénalité de
+/// défense de l'écart de niveau (`combat::defense_penalty`), ôtée des chances d'esquive et de blocage (80 au plus).
+pub fn guard(rng: &mut impl rand::Rng, m: &Mods, status: u64, damage: i32, ranged: bool, penalty: f64) -> Guard {
     if status & status::NORMAL_ATK_INVINCIBLE != 0 {
         return Guard::Evade;
     }
     let mut roll = |rate: f64| rate > 0.0 && rng.gen_range(0.0..100.0) < rate.min(80.0);
-    if roll(m.dodge) {
-        return Guard::Evade;
-    }
-    if roll(m.block) {
+    if roll(m.block.min(80.0) - penalty) {
         return Guard::Block;
+    }
+    if roll((if ranged { m.dodge } else { m.evade }).min(80.0) - penalty) {
+        return Guard::Evade;
     }
     if roll(m.to_hp_rate) {
         return Guard::ToHp((damage as f64 * m.to_hp / 100.0) as i32);
@@ -688,14 +693,30 @@ pub fn status_packet(cid: u32, status: u64) -> Vec<u8> {
     build_packet(c, &Fields::new(c).with(0, 1).with(1, cid).with(17, for_client(status) as i64))
 }
 
-/// Ajoute un effet : remplace celui de la même compétence ; refusé si la liste est pleine.
-pub fn push(effects: &mut Vec<Effect>, e: Effect) -> Option<Effect> {
-    let replaced = effects.iter().position(|x| x.tid == e.tid).map(|i| effects.remove(i));
+/// Ajoute un effet ; rend les effets qu'il remplace, ou `None` s'il est refusé (rien n'est changé).
+///
+/// Règles du serveur d'origine pour un effet à durée :
+/// * refusé si la même compétence est déjà posée à un niveau plus haut, ou si un effet de la même famille
+///   (`classify`, id non nul) a un rang plus haut ;
+/// * sinon il remplace la même compétence (niveau inférieur ou égal) et les effets à durée de la même famille (rang
+///   inférieur ou égal) : deux renforcements d'une famille ne se cumulent pas.
+///
+/// Une passive (sans fin) remplace seulement la même compétence. Refusé aussi quand la liste reste pleine.
+pub fn push(effects: &mut Vec<Effect>, e: Effect) -> Option<Vec<Effect>> {
+    let family = |x: &Effect| e.classify.0 != 0 && x.classify.0 == e.classify.0;
+    let timed = e.ends_at.is_some();
+    if timed && effects.iter().any(|x| (x.tid == e.tid && x.level > e.level) || (family(x) && x.classify.1 > e.classify.1)) {
+        return None;
+    }
+    let (replaced, kept): (Vec<Effect>, Vec<Effect>) =
+        std::mem::take(effects).into_iter().partition(|x| x.tid == e.tid || (timed && x.ends_at.is_some() && family(x)));
+    *effects = kept;
     if effects.len() >= MAX_EFFECTS {
-        return replaced;
+        effects.extend(replaced);
+        return None;
     }
     effects.push(e);
-    replaced
+    Some(replaced)
 }
 
 /// Retire les effets échus ; les rend.
@@ -745,13 +766,22 @@ pub fn apply(f: &mut Factors, m: &Mods) {
     }
     f.attack[3] = (f.attack[3] as f64 + m.skill_cast) as i32;
     f.attack[4] = (f.attack[4] as f64 + m.skill_delay) as i32;
-    f.point_max[8] = (f.point_max[8] as f64 + m.hit).max(0.0) as i32;
-    f.point_max[9] = (f.point_max[9] as f64 + m.evade).max(0.0) as i32;
+    // Précision et esquive des effets : points de pour cent directs (facteurs d'attaque 5 à 7 : précision, esquive au
+    // corps à corps, esquive à distance), pas des points d'AR / DR.
+    add_guard(f, m);
     f.status[8] = pct(f.status[8] as f64, m.movement_pct).max(0.0) as i32;
     f.status[9] = pct(f.status[9] as f64, m.movement_pct).max(0.0) as i32;
     f.attack[2] = pct(f.attack[2] as f64, m.atk_speed_pct).max(1.0) as i32;
     f.point[POINT_HP] = f.point[POINT_HP].min(f.point_max[0]);
     f.point[1] = f.point[1].min(f.point_max[1]);
+}
+
+/// Ajoute précision (`hit`), esquive au corps à corps (`evade`) et à distance (`dodge`) de `m` aux facteurs d'attaque
+/// 5, 6 et 7 (ceux que montre la fenêtre du personnage).
+pub fn add_guard(f: &mut Factors, m: &Mods) {
+    f.attack[5] = (f.attack[5] as f64 + m.hit) as i32;
+    f.attack[6] = (f.attack[6] as f64 + m.evade) as i32;
+    f.attack[7] = (f.attack[7] as f64 + m.dodge) as i32;
 }
 
 /// Soin appliqué à des PV et PM courants (bornés par le maximum ; jamais en dessous de 1 PV).
@@ -908,7 +938,7 @@ mod tests {
     use rand::SeedableRng;
 
     fn effect(tid: u32, mods: Mods, ends_at: Option<Instant>) -> Effect {
-        Effect { skill_id: 1, tid, level: 1, caster_tid: 96, duration_ms: 1000, ends_at, mods, dot: None, status: 0, status_until: None, caster_sid: MONSTER_CASTER, purge: None }
+        Effect { skill_id: 1, tid, level: 1, caster_tid: 96, duration_ms: 1000, ends_at, mods, dot: None, status: 0, status_until: None, caster_sid: MONSTER_CASTER, purge: None, classify: (0, 0) }
     }
 
     #[test]
@@ -984,11 +1014,30 @@ mod tests {
     }
 
     #[test]
+    fn niveaux_et_familles() {
+        let later = Some(Instant::now() + Duration::from_secs(30));
+        let at = |tid: u32, level: u32, classify: (i32, i32)| Effect { level, classify, ..effect(tid, Mods::default(), later) };
+        let mut list = vec![at(5, 3, (0, 0))];
+        assert_eq!(push(&mut list, at(5, 2, (0, 0))), None, "même compétence, niveau plus bas : refusé");
+        assert_eq!(push(&mut list, at(5, 3, (0, 0))).map(|r| r.len()), Some(1), "même niveau : remplacé");
+        // Famille 17 : rang 2 posé ; un rang 1 est refusé, un rang 3 le remplace, une autre famille s'ajoute.
+        let mut list = vec![at(10, 1, (17, 2))];
+        assert_eq!(push(&mut list, at(11, 1, (17, 1))), None);
+        assert_eq!(push(&mut list, at(12, 1, (17, 3))).map(|r| r.iter().map(|e| e.tid).collect::<Vec<_>>()), Some(vec![10]));
+        assert_eq!(push(&mut list, at(13, 1, (18, 1))).map(|r| r.len()), Some(0));
+        assert_eq!(list.iter().map(|e| e.tid).collect::<Vec<_>>(), vec![12, 13]);
+        // Une passive plus faible de la même famille n'est ni remplacée ni un obstacle.
+        let mut list = vec![Effect { ends_at: None, ..at(20, 1, (17, 1)) }];
+        assert_eq!(push(&mut list, at(21, 1, (17, 2))).map(|r| r.len()), Some(0));
+        assert_eq!(list.len(), 2);
+    }
+
+    #[test]
     fn remplacement_et_expiration() {
         let now = Instant::now();
         let mut list = Vec::new();
-        assert!(push(&mut list, effect(5, Mods { defense: 1.0, ..Default::default() }, Some(now + Duration::from_secs(1)))).is_none());
-        assert!(push(&mut list, effect(5, Mods { defense: 2.0, ..Default::default() }, Some(now + Duration::from_secs(5)))).is_some());
+        assert_eq!(push(&mut list, effect(5, Mods { defense: 1.0, ..Default::default() }, Some(now + Duration::from_secs(1)))).map(|r| r.len()), Some(0));
+        assert_eq!(push(&mut list, effect(5, Mods { defense: 2.0, ..Default::default() }, Some(now + Duration::from_secs(5)))).map(|r| r.len()), Some(1));
         push(&mut list, effect(9, Mods { defense: 3.0, ..Default::default() }, None));
         assert_eq!((list.len(), total(&list).defense), (2, 5.0));
         let gone = expire(&mut list, now + Duration::from_secs(10));
@@ -1081,13 +1130,13 @@ mod tests {
     #[test]
     fn garde_d_un_joueur() {
         let mut rng = rand::rngs::StdRng::seed_from_u64(11);
-        assert_eq!(guard(&mut rng, &Mods::default(), status::NORMAL_ATK_INVINCIBLE, 30), Guard::Evade);
-        assert_eq!(guard(&mut rng, &Mods::default(), 0, 30), Guard::Hit);
+        assert_eq!(guard(&mut rng, &Mods::default(), status::NORMAL_ATK_INVINCIBLE, 30, true, 0.0), Guard::Evade);
+        assert_eq!(guard(&mut rng, &Mods::default(), 0, 30, true, 0.0), Guard::Hit);
         let wall = Mods { block: 100.0, ..Default::default() };
-        let n = (0..10_000).filter(|_| guard(&mut rng, &wall, 0, 30) == Guard::Block).count();
+        let n = (0..10_000).filter(|_| guard(&mut rng, &wall, 0, 30, true, 0.0) == Guard::Block).count();
         assert!((7600..8400).contains(&n), "blocage plafonné à 80 % : {n} sur 10 000");
         let mana = Mods { to_mp_rate: 100.0, to_mp: 25.0, ..Default::default() };
-        let got: Vec<Guard> = (0..50).map(|_| guard(&mut rng, &mana, 0, 40)).collect();
+        let got: Vec<Guard> = (0..50).map(|_| guard(&mut rng, &mana, 0, 40, true, 0.0)).collect();
         assert!(got.contains(&Guard::ToMp(10)) && got.contains(&Guard::Hit));
     }
 
@@ -1128,7 +1177,7 @@ mod tests {
     fn esquive_de_l_equipement() {
         let mut rng = rand::rngs::StdRng::seed_from_u64(5);
         let agile = Mods { dodge: 30.0, ..Default::default() };
-        let n = (0..10_000).filter(|_| guard(&mut rng, &agile, 0, 30) == Guard::Evade).count();
+        let n = (0..10_000).filter(|_| guard(&mut rng, &agile, 0, 30, true, 0.0) == Guard::Evade).count();
         assert!((2700..3300).contains(&n), "esquive de 30 % : {n} sur 10 000");
     }
 

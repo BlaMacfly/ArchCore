@@ -34,7 +34,7 @@
 //! `QuestGroupID` de l'événement, d'ordinaire le numéro de l'objet) donne et reprend les quêtes comme celui d'un PNJ,
 //! à 1600 unités au plus de l'objet (min(champ 3, 1600) pour la fenêtre, comme le code partagé d'Archonia).
 
-use super::items::{item_add, item_count, item_remove, item_status};
+use super::items::{item_count, item_remove, item_status};
 use super::npc_events::{in_range, range, resolve};
 use super::npcs::event_function;
 use super::{send_system, WorldCtx, WorldState};
@@ -506,7 +506,10 @@ async fn accept(ctx: &WorldCtx, st: &mut WorldState, sid: u32, tid: u32, event: 
         let stack = ctx.catalog.get(item).map(|d| d.stack).unwrap_or(1);
         let p = st.players.get_mut(&sid).unwrap();
         match p.inventory.add(&ctx.db, item, count, stack, None).await? {
-            Some((it, true)) => p.send_raw(item_add(it.iid, it.tid, Some(character_id), it.count, item_status::INVENTORY, Some(it.grid))),
+            Some((it, true)) => {
+                let it = super::options::with_fixed(ctx, &mut p.inventory, it).await?;
+                p.send_raw(super::items::item_add_of(&it, character_id, item_status::INVENTORY, Some(it.grid)))
+            }
             Some((it, false)) => p.send_raw(item_count(&it, character_id)),
             None => warn!("[quête] {} : objet de départ {item} non remis", p.ch.name),
         }
@@ -615,7 +618,10 @@ async fn complete(ctx: &WorldCtx, st: &mut WorldState, sid: u32, tid: u32, event
         let stack = ctx.catalog.get(item).map(|d| d.stack).unwrap_or(1);
         let p = st.players.get_mut(&sid).unwrap();
         match p.inventory.add(&ctx.db, item, count, stack, None).await? {
-            Some((it, true)) => p.send_raw(item_add(it.iid, it.tid, Some(cid), it.count, item_status::INVENTORY, Some(it.grid))),
+            Some((it, true)) => {
+                let it = super::options::with_fixed(ctx, &mut p.inventory, it).await?;
+                p.send_raw(super::items::item_add_of(&it, cid, item_status::INVENTORY, Some(it.grid)))
+            }
             Some((it, false)) => p.send_raw(item_count(&it, cid)),
             None => warn!("[quête] {name} : récompense {item} perdue (inventaire plein)"),
         }
@@ -689,7 +695,10 @@ async fn gather(ctx: &WorldCtx, st: &mut WorldState, sid: u32, tid: u32, event: 
     let cid = p.ch.id;
     let p = st.players.get_mut(&sid).unwrap();
     match p.inventory.add(&ctx.db, g.item, 1, stack, None).await? {
-        Some((it, true)) => p.send_raw(item_add(it.iid, it.tid, Some(cid), it.count, item_status::INVENTORY, Some(it.grid))),
+        Some((it, true)) => {
+                let it = super::options::with_fixed(ctx, &mut p.inventory, it).await?;
+                p.send_raw(super::items::item_add_of(&it, cid, item_status::INVENTORY, Some(it.grid)))
+            }
         Some((it, false)) => p.send_raw(item_count(&it, cid)),
         None => {
             warn!("[quête] {name} : objet ramassé {} non remis", g.item);
@@ -736,7 +745,10 @@ pub async fn on_kill(ctx: &WorldCtx, st: &mut WorldState, sid: u32, monster: u32
             }
             let stack = ctx.catalog.get(d.item).map(|x| x.stack).unwrap_or(1);
             match p.inventory.add(&ctx.db, d.item, 1, stack, None).await? {
-                Some((it, true)) => p.send_raw(item_add(it.iid, it.tid, Some(cid), it.count, item_status::INVENTORY, Some(it.grid))),
+                Some((it, true)) => {
+                let it = super::options::with_fixed(ctx, &mut p.inventory, it).await?;
+                p.send_raw(super::items::item_add_of(&it, cid, item_status::INVENTORY, Some(it.grid)))
+            }
                 Some((it, false)) => p.send_raw(item_count(&it, cid)),
                 None => send_system(st, sid, "Inventaire plein : objet de quête perdu."),
             }

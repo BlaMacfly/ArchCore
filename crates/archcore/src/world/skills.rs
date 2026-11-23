@@ -1063,14 +1063,14 @@ pub fn sync_passives(catalog: &SkillCatalog, skills: &mut PlayerSkills, caster_t
         }
         effects::push(
             &mut skills.effects,
-            Effect { skill_id: s.id, tid: s.tid, level: s.level, caster_tid, duration_ms: 0, ends_at: None, mods: lv.mods, dot: None, status: 0, status_until: None, caster_sid: effects::MONSTER_CASTER, purge: None },
+            Effect { skill_id: s.id, tid: s.tid, level: s.level, caster_tid, duration_ms: 0, ends_at: None, mods: lv.mods, dot: None, status: 0, status_until: None, caster_sid: effects::MONSTER_CASTER, purge: None, classify: lv.classify },
         );
     }
     for &tid in &skills.title_skills {
         let Some(lv) = catalog.get(tid).and_then(|t| t.level(1)).filter(|lv| !lv.mods.is_empty()) else { continue };
         effects::push(
             &mut skills.effects,
-            Effect { skill_id: 0, tid, level: 1, caster_tid, duration_ms: 0, ends_at: None, mods: lv.mods, dot: None, status: 0, status_until: None, caster_sid: effects::MONSTER_CASTER, purge: None },
+            Effect { skill_id: 0, tid, level: 1, caster_tid, duration_ms: 0, ends_at: None, mods: lv.mods, dot: None, status: 0, status_until: None, caster_sid: effects::MONSTER_CASTER, purge: None, classify: lv.classify },
         );
     }
     let after: Vec<(u32, u32)> = skills.effects.iter().filter(|e| e.ends_at.is_none()).map(|e| (e.tid, e.level)).collect();
@@ -1200,7 +1200,7 @@ pub fn skill_damage(rng: &mut impl Rng, a: &Attacker, spirit_ranges: &[(f64, f64
 /// Une part de dégâts d'une compétence : physique (bonus fixe, pour cent) et élémentaire. `physical_by_default` : une part
 /// sans aucun dégât indiqué frappe quand même au physique (premier coup).
 fn phase(rng: &mut impl Rng, a: &Attacker, spirit_ranges: &[(f64, f64); 8], d: &Defender, (flat, pct): (f64, f64), spirit: &[(f64, f64); 8], physical_by_default: bool) -> Vec<(usize, i32)> {
-    let penalty = (5 * (d.level - a.level).max(0)).min(80) as f64;
+    let penalty = combat::skill_level_penalty(a.player, a.level, d.player, d.level);
     let keep = (100.0 - penalty) / 100.0;
     let roll = |rng: &mut dyn rand::RngCore, (lo, hi): (f64, f64)| if hi > lo { rng.gen_range(lo..=hi) } else { lo };
     let mut out = Vec::new();
@@ -1762,7 +1762,7 @@ pub(super) async fn hit_monster(ctx: &WorldCtx, st: &mut WorldState, sid: u32, o
     }
     let status = roll_status(&mut rand::thread_rng(), lv, &Mods { stun_protect: effects::pierced(mods.stun_protect, gear.1), ..mods });
     if lv.leaves_effect(status) {
-        let penalty = (5 * (m.level as i32 - attacker.level).max(0)).min(80) as f64;
+        let penalty = combat::skill_level_penalty(true, attacker.level, false, m.level as i32);
         let dot = (!lv.dot.is_empty()).then(|| effects::Dot {
             damages: lv.dot.damages.iter().map(|(i, d)| (*i, ((d * (100.0 - penalty) / 100.0).round() as i32).max(1))).collect(),
             interval: Duration::from_millis(lv.dot.interval_ms),
@@ -1772,8 +1772,9 @@ pub(super) async fn hit_monster(ctx: &WorldCtx, st: &mut WorldState, sid: u32, o
         let mut e = Effect { caster_sid: sid, ..new_effect(owned, lv, caster_tid, status, dot, now) };
         effects::lengthen(&mut e, gear.0);
         let list = st.monsters.effects.entry(cid).or_default();
-        if let Some(old) = effects::push(list, e.clone()) {
-            combat::broadcast(st, &watchers, &effects::remove_packet(cid, &old));
+        let Some(gone) = effects::push(list, e.clone()) else { return Ok(()) };
+        for old in &gone {
+            combat::broadcast(st, &watchers, &effects::remove_packet(cid, old));
         }
         combat::broadcast(st, &watchers, &effects::add_packet(cid, &e));
         if status != 0 {
@@ -1890,6 +1891,7 @@ pub async fn gear_procs(ctx: &WorldCtx, st: &mut WorldState, sid: u32, cid: u32,
                     status_until: Some(until),
                     caster_sid: sid,
                     purge: None,
+                    classify: (0, 0),
                 });
             }
         }
@@ -1909,6 +1911,7 @@ pub async fn gear_procs(ctx: &WorldCtx, st: &mut WorldState, sid: u32, cid: u32,
                     status_until: None,
                     caster_sid: sid,
                     purge: None,
+                    classify: (0, 0),
                 });
             }
         }
@@ -1981,8 +1984,9 @@ async fn rune_skill(ctx: &WorldCtx, st: &mut WorldState, sid: u32, cid: u32, tid
         });
         let e = Effect { caster_sid: sid, ..new_effect(&owned, lv, caster_tid, status, dot, now) };
         let list = st.monsters.effects.entry(cid).or_default();
-        if let Some(old) = effects::push(list, e.clone()) {
-            combat::broadcast(st, &watchers, &effects::remove_packet(cid, &old));
+        let Some(gone) = effects::push(list, e.clone()) else { return Ok(()) };
+        for old in &gone {
+            combat::broadcast(st, &watchers, &effects::remove_packet(cid, old));
         }
         combat::broadcast(st, &watchers, &effects::add_packet(cid, &e));
         sync_monster_status(st, cid, now);
@@ -2066,6 +2070,7 @@ pub fn new_effect(owned: &Owned, lv: &SkillLevel, caster_tid: u32, status: u64, 
             interval: Duration::from_millis(every),
             next_at: now + Duration::from_millis(every),
         }),
+        classify: lv.classify,
     }
 }
 
@@ -2113,8 +2118,12 @@ pub fn sync_monster_status(st: &mut WorldState, cid: u32, now: Instant) {
 pub fn add_player_effect(ctx: &WorldCtx, st: &mut WorldState, sid: u32, e: Effect) {
     let Some(p) = st.players.get_mut(&sid) else { return };
     let cid = p.ch.id;
-    if let Some(old) = effects::push(&mut p.skills.effects, e.clone()) {
-        combat::send_around(st, sid, &effects::remove_packet(cid, &old));
+    let Some(gone) = effects::push(&mut p.skills.effects, e.clone()) else {
+        debug!("[compétence] effet {} niveau {} refusé sur {cid} : plus fort déjà posé ou liste pleine", e.tid, e.level);
+        return;
+    };
+    for old in &gone {
+        combat::send_around(st, sid, &effects::remove_packet(cid, old));
     }
     combat::send_around(st, sid, &effects::add_packet(cid, &e));
     // Détection (skill_extra.rs) : effet visuel du parchemin.
@@ -2746,7 +2755,7 @@ mod tests {
     #[test]
     fn degats_d_une_competence() {
         let mut rng = rand::rngs::StdRng::seed_from_u64(3);
-        let a = Attacker { level: 10, class: 1, str_: 30.0, min_damage: 10.0, max_damage: 10.0, ..Default::default() };
+        let a = Attacker { level: 10, class: 1, str_: 30.0, min_damage: 10.0, max_damage: 10.0, player: true, ..Default::default() };
         let lv = dual_slash().levels[0].clone();
         // Jet : 10 + 30/3 = 20 (fourchette 20..20,5) ; × 2,1 = 42 ; armure 2.
         let d = skill_damage(&mut rng, &a, &[(0.0, 0.0); 8], &Defender { level: 10, dr: 0, defense: 2.0, ..Default::default() }, &lv);

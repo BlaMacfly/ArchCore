@@ -958,17 +958,30 @@ lowered by the caster's `Ignore_StunDefenseRate`.
 **Episode 8 rules carried by the tables.** Formulas chosen by ArchCore: the tables give the values, no binary shows
 the computation (the client receives the results).
 
-- *Hit*: chance = level / (level + target level) × AR / (AR + DR) × 290 (10 to 95%), a monster's DR included
-  (CharacterDataTable `DR`, plus the `evade_rate` of its effects).
+- *Hit*: chance = level / (level + target level) × AR / (AR + DR) × 290, plus the attacker's accuracy (effects' and
+  options' `hit_rate`: direct percentage points, attack factor 5), 10 to 95% for a player, 30 to 95% for a monster; a
+  monster's DR: CharacterDataTable `DR`.
+- *A player's characteristics*: max HP = CON × 8, max MP = WIS × 5.38 (never less than the growth's wisdom), AR =
+  AGI × 0.6, DR = AGI × 0.4, plus flat bonuses (items, options, effects); HP and MP 50 at least. CON, WIS and AGI
+  include ring, option and enhancement bonuses (23 November 2026: the template's fixed AR and DR are no longer used).
+- *Defense penalty*: when the attacker has more levels than its target and one of them is a player, 2 (1 to 3 levels
+  apart), 4 (4-5), 6 (6-7), 8 (8-11), 12 (12-15), 16 (16-19) or 20 points are taken from the target's block, evasion,
+  physical, elemental and heroic resistances and critical resistance. Normal hits and skills.
+- *Skill level gap*: damage (and damage over time) × (100 − p) / 100, p = 1 per level of the target above the caster,
+  5 when a player hits a monster, 80 at most.
 - *Physical resistance*: physical damage after defense × (100 − r) / 100, at least 1; r = a player's defense factor 0
   (options' `PhysicalAttackResist`, effects' `point.physical_resistance`; 80 at most) or a monster's
   `Physical_Resistance` (100 at most), minus the attacker's `Ignore_PhysicalAttackResist`. Normal hits and skills.
 - *Skill block*: an offensive skill is blocked (no damage, no effect) with the target's chance (defense factor 10:
   `SkillBlockRate`, `point.skill_block`; a monster's `Skill_Block`), minus the caster's `Ignore_SkillBlockRate`, 80%
   at most.
-- *A player's evasion and block*: against a monster and between players, options' and effects' evasion, then block
-  (skills and options' `BlockRate`, defense factor 9), 80% at most each, minus the attacker's `Ignore_EvadeRate` /
-  `Ignore_DodgeRate` and `Ignore_BlockRate` (results 7 and 9).
+- *A player's block and evasion*: against a monster and between players, block (skills and options' `BlockRate`,
+  defense factor 9), then evasion: `dodge_rate` (attack factor 7) against a Ranger, a Dragon Scion or a Mage,
+  `evade_rate` (factor 6) otherwise; direct chances, 80% at most, minus the defense penalty and the attacker's
+  `Ignore_EvadeRate` / `Ignore_DodgeRate` and `Ignore_BlockRate` (results 7 and 9).
+- *Stacking effects*: a timed effect is refused if the same skill is applied at a higher level, or if an effect of the
+  same family (`skill_classify_id`, non-zero id) has a higher rank (`skill_classify_level`); otherwise it replaces the
+  same skill and the timed effects of its family. Two buffs of one family do not stack.
 - *Buffs*: `point.dmg_min_*` / `dmg_max_*` add to elemental damage, `point.atk_range` (metres, ×100) to the attack
   range (50 at least), `point.skill_cast` / `skill_delay` to attack factors 3 and 4.
 - *Casting and cooldown*: × (100 − s) / 100, s = attack factor 3 or 4 (−100 to 90); the cooldown reduction never

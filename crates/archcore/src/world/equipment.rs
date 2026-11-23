@@ -40,6 +40,15 @@ pub fn check(e: &EquipData, level: i64, race: i64, class: i64, gender: i64) -> R
     if level < e.level {
         return Err("niveau insuffisant");
     }
+    // Niveau plafond (« Level » `min;max`) : au-dessus, refusé.
+    if e.max_level > 0 && level > e.max_level {
+        return Err("niveau trop élevé");
+    }
+    check_kind(e, race, class, gender)
+}
+
+/// Race, classe et sexe seulement.
+pub fn check_kind(e: &EquipData, race: i64, class: i64, gender: i64) -> Result<(), &'static str> {
     if !e.races.is_empty() && !e.races.contains(&race) {
         return Err("race non admise");
     }
@@ -60,7 +69,7 @@ pub fn may_take_off(e: &EquipData, transformed: bool, race: i64, class: i64, gen
     if !transformed || e.kind == KIND_MOUNT {
         return Ok(());
     }
-    check(e, i64::MAX, race, class, gender)
+    check_kind(e, race, class, gender)
 }
 
 /// Partie où poser l'objet : la sienne, ou le second anneau si le premier est pris et l'autre libre.
@@ -208,7 +217,9 @@ pub fn recompute_factors(ctx: &WorldCtx, p: &mut Player) {
     } else {
         &p.inventory
     };
-    let mut f = with_equipment(make_factors(tpl, Some(&p.ch)), &worn(inv, &ctx.catalog, &ctx.convert, form, section));
+    let base = make_factors(tpl, Some(&p.ch));
+    let base_status = base.status;
+    let mut f = with_equipment(base, &worn(inv, &ctx.catalog, &ctx.convert, form, section));
     ctx.options.apply(&mut f, &worn_options(inv, &ctx.catalog, &ctx.options, p.ch.level as i64, form, section));
     p.gear = worn_gear(ctx, inv, p.ch.level as i64, form, section);
     // Armes tenues (requirement.rs) : les passives qui en exigent une sont revues quand elles changent.
@@ -235,6 +246,9 @@ pub fn recompute_factors(ctx: &WorldCtx, p: &mut Player) {
     // Bonus du groupe (membre dans la zone d'effet du chef, party.rs).
     p.party_bonus.apply(&mut f);
     super::effects::apply(&mut f, &super::effects::total(&p.skills.effects));
+    // Précision et esquive des options (effets de combat de l'équipement), puis PV, PM, AR et DR des caractéristiques.
+    super::effects::add_guard(&mut f, &p.gear.mods);
+    crate::character::derive_points(&mut f, &base_status);
     // Rétrécissement (état 25) : portée d'attaque et dégâts physiques réduits.
     super::status_rules::shrink_factors(&mut f, status);
     // À cheval : la vitesse de la monture (« Run_Buff ») remplace marche et course.
@@ -353,7 +367,13 @@ pub async fn equip(ctx: &WorldCtx, st: &mut WorldState, sid: u32, iid: u32, quie
     let (level, race, class, gender) = (f.status[7] as i64, f.ftype[0] as i64, f.ftype[2] as i64, f.ftype[1] as i64);
     if let Err(why) = check(&e, level, race, class, gender) {
         info!("[équipement] {} : {} refusé ({why})", p.ch.name, data.name);
-        let reason = if level < e.level { format!("niveau {} requis (votre niveau : {level})", e.level) } else { why.to_string() };
+        let reason = if level < e.level {
+            format!("niveau {} requis (votre niveau : {level})", e.level)
+        } else if e.max_level > 0 && level > e.max_level {
+            format!("niveau {} au plus (votre niveau : {level})", e.max_level)
+        } else {
+            why.to_string()
+        };
         refused(st, &format!("Vous ne pouvez pas porter {} : {reason}.", data.name));
         return Ok(false);
     }
@@ -552,6 +572,13 @@ mod tests {
         assert_eq!(check(&e, 3, 1, 4, 1), Err("classe non admise"));
         assert_eq!(check(&EquipData { gender: 2, ..e.clone() }, 3, 1, 1, 1), Err("réservé à l'autre sexe"));
         assert_eq!(check(&e, 3, 2, 1, 2), Ok(()));
+        // Niveau plafond (« Level » 21;31).
+        let capped = EquipData { level: 21, max_level: 31, ..e.clone() };
+        assert_eq!(check(&capped, 31, 1, 1, 1), Ok(()));
+        assert_eq!(check(&capped, 32, 1, 1, 1), Err("niveau trop élevé"));
+        assert_eq!(crate::world::items::level_bounds("21;31"), (21, 31));
+        assert_eq!(crate::world::items::level_bounds("5"), (5, 0));
+        assert_eq!(crate::world::items::level_bounds(""), (0, 0));
     }
 
     #[test]

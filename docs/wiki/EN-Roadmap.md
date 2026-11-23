@@ -22,6 +22,11 @@
 
 ## Verified with the simulator, to confirm in game
 
+- Episode 8 rules reviewed (23 November 2026): HP, MP, AR and DR derived from CON, WIS and AGI; accuracy and evasion
+  as direct chances, ranged and melee evasion; defense penalty from the level gap; skill level gap (×5 only from a
+  player on a monster); effects of one family no longer stack; percentage potions ("SubType"); fixed equipment options
+  ("OptionTID"); item level cap ("Level" `min;max`); HP, MP, dead state and bind region saved (migration
+  `202611231000_points_et_mort`: a character who logged out dead comes back at the bind village).
 - Creatures: 36,960 monsters placed from the original server tables, off blocked ground, with their stats
   (level, speeds, HP). Seen and targeted in game during a first test; sending their HP, added since,
   remains to be checked. Levels from the template in the episode 8 tables and boss respawn from its boss window;

@@ -22,6 +22,12 @@
 
 ## Validé avec le simulateur, à confirmer en jeu
 
+- Règles de l'épisode 8 revues (23 novembre 2026) : PV, PM, AR et DR tirés de CON, SAG et AGI ; précision et
+  esquive en chances directes, esquive à distance et au corps à corps ; pénalité de défense selon l'écart de niveau ;
+  écart de niveau des compétences (×5 seulement d'un joueur sur un monstre) ; effets d'une même famille qui ne se
+  cumulent plus ; potions en pour cent (« SubType ») ; options fixes des équipements (« OptionTID ») ; niveau plafond
+  des objets (« Level » `min;max`) ; PV, PM, état mort et région de rattachement enregistrés (migration
+  `202611231000_points_et_mort` : un personnage déconnecté mort revient au village de rattachement).
 - Créatures : 36 960 monstres placés d'après les tables du serveur d'origine, hors du sol infranchissable,
   avec leurs caractéristiques (niveau, vitesses, PV). Vus et ciblés en jeu lors d'un premier essai ;
   l'envoi des PV, ajouté depuis, reste à vérifier. Niveaux du modèle dans les tables de l'épisode 8 et réapparition des

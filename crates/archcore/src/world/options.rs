@@ -296,13 +296,33 @@ impl OptionCatalog {
     }
 }
 
-/// Options et sockets tirés pour un objet neuf du modèle `tid`, lâché par une source de niveau `level` ;
-/// rien pour ce qui ne se porte pas.
+/// Options et sockets d'un objet neuf du modèle `tid`, lâché par une source de niveau `level` : les options fixes du
+/// modèle (« OptionTID ») s'il en a, sinon des options tirées ; sockets tirés ; rien pour ce qui ne se porte pas.
 pub fn generate(catalog: &super::items::ItemCatalog, options: &OptionCatalog, tid: u32, level: i64, rng: &mut impl Rng) -> (Vec<u16>, u8) {
     match catalog.get(tid).and_then(|d| d.equip.as_ref()) {
-        Some(e) => (options.roll_options(e, level, rng), options.roll_sockets(e, rng)),
+        Some(e) => {
+            let opts = fixed_options(catalog, tid).map(<[u16]>::to_vec).unwrap_or_else(|| options.roll_options(e, level, rng));
+            (opts, options.roll_sockets(e, rng))
+        }
         None => (Vec::new(), 0),
     }
+}
+
+/// Options fixes d'un équipement (colonne « OptionTID » d'itemdatatable.txt), que reçoit tout exemplaire neuf : butin,
+/// boutique, récompense, fabrication. Celles d'une rune (pas un
+/// équipement) ne valent qu'une fois sertie (equipment.rs).
+pub fn fixed_options(catalog: &super::items::ItemCatalog, tid: u32) -> Option<&[u16]> {
+    let d = catalog.get(tid)?;
+    d.equip.as_ref()?;
+    (!d.option_tids.is_empty()).then_some(d.option_tids.as_slice())
+}
+
+/// Exemplaire neuf `it` d'une boutique, d'une récompense ou d'une fabrication : options fixes de son modèle
+/// enregistrées. Rend l'objet à jour.
+pub async fn with_fixed(ctx: &super::WorldCtx, inv: &mut super::items::Inventory, it: super::items::InventoryItem) -> anyhow::Result<super::items::InventoryItem> {
+    let Some(fixed) = fixed_options(&ctx.catalog, it.tid) else { return Ok(it) };
+    inv.set_generated(&ctx.db, it.iid, fixed, it.conv.sockets).await?;
+    Ok(inv.get_usable(it.iid).cloned().unwrap_or(it))
 }
 
 /// Facteur visé par une colonne d'option.
@@ -479,7 +499,11 @@ impl OptionCatalog {
                         g.wounds.push(Wound { rate, duration_ms: ms.max(0.0) as u64, damages });
                     }
                 }
-                trigger::EVADE => g.mods.dodge += o.stat("evade_rate").max(o.stat("dodge_rate")),
+                // « evade_rate » : au corps à corps, « dodge_rate » : à distance (deux facteurs d'attaque distincts).
+                trigger::EVADE => {
+                    g.mods.evade += o.stat("evade_rate");
+                    g.mods.dodge += o.stat("dodge_rate");
+                }
                 // Sans « skill_type », « Critical » s'ajoute aux dégâts critiques, comme le compte la fenêtre du
                 // personnage du client (le lecteur de la table range « Critical » à part de la chance), malgré la
                 // description « Critical Hit Rate +1% » de l'option 13822.

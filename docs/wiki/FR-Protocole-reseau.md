@@ -995,8 +995,19 @@ l'étourdissement suit la protection (état 8), diminuée de l'`Ignore_StunDefen
 **Règles de l'épisode 8 portées par les tables.** Formules choisies par ArchCore : les tables en donnent les valeurs,
 aucun binaire ne montre le calcul (le client reçoit les résultats).
 
-- *Toucher* : chance = niveau / (niveau + niveau de la cible) × AR / (AR + DR) × 290 (10 à 95 %), DR d'un monstre
-  compris (`DR` de CharacterDataTable, plus les `evade_rate` de ses effets).
+- *Toucher* : chance = niveau / (niveau + niveau de la cible) × AR / (AR + DR) × 290, plus la précision de
+  l'assaillant (`hit_rate` des effets et options : points de pour cent directs, facteur d'attaque 5), 10 à 95 % pour
+  un joueur, 30 à 95 % pour un monstre ; DR d'un monstre : `DR` de CharacterDataTable.
+- *Caractéristiques d'un joueur* : PV max = CON × 8, PM max = SAG × 5,38 (jamais moins que la sagesse de la
+  croissance), AR = AGI × 0,6, DR = AGI × 0,4, plus les bonus fixes (objets, options, effets) ; PV et PM 50 au moins.
+  CON, SAG et AGI comptent avec les bonus des anneaux, options et renforcements (23 novembre 2026 : l'AR et le DR
+  du modèle, fixes, ne servent plus).
+- *Pénalité de défense* : quand l'assaillant a plus de niveaux que sa cible et que l'un des deux est un joueur, 2
+  (1 à 3 niveaux d'écart), 4 (4-5), 6 (6-7), 8 (8-11), 12 (12-15), 16 (16-19) ou 20 points sont ôtés du blocage, de
+  l'esquive, de la résistance physique, des résistances élémentaires et héroïques et de la résistance aux critiques
+  de la cible. Coups normaux et compétences.
+- *Écart de niveau des compétences* : dégâts (et dégâts sur la durée) × (100 − p) / 100, p = 1 par niveau de la
+  cible au-dessus du lanceur, 5 quand un joueur frappe un monstre, 80 au plus.
 - *Résistance physique* : dégâts physiques après la défense × (100 − r) / 100, au moins 1 ; r = facteur de défense 0
   d'un joueur (`PhysicalAttackResist` des options, `point.physical_resistance` des effets ; 80 au plus) ou
   `Physical_Resistance` d'un monstre (100 au plus), moins l'`Ignore_PhysicalAttackResist` de l'assaillant. Coups
@@ -1004,9 +1015,13 @@ aucun binaire ne montre le calcul (le client reçoit les résultats).
 - *Blocage des compétences* : une compétence offensive est bloquée (ni dégâts ni effet) avec la chance de la cible
   (facteur de défense 10 : `SkillBlockRate`, `point.skill_block` ; `Skill_Block` d'un monstre), moins
   l'`Ignore_SkillBlockRate` du lanceur, 80 % au plus.
-- *Esquive et blocage d'un joueur* : contre un monstre et entre joueurs, esquive des options et des effets, puis
-  blocage (compétences et `BlockRate` des options, facteur de défense 9), chacun 80 % au plus, moins l'`Ignore_EvadeRate`
-  / `Ignore_DodgeRate` et l'`Ignore_BlockRate` de l'assaillant (résultats 7 et 9).
+- *Blocage et esquive d'un joueur* : contre un monstre et entre joueurs, blocage (compétences et `BlockRate` des
+  options, facteur de défense 9), puis esquive : `dodge_rate` (facteur d'attaque 7) contre un Ranger, un Dragon Scion
+  ou un Mage, `evade_rate` (facteur 6) sinon ; chances directes, 80 % au plus, moins la pénalité de défense et
+  l'`Ignore_EvadeRate` / `Ignore_DodgeRate` et l'`Ignore_BlockRate` de l'assaillant (résultats 7 et 9).
+- *Cumul des effets* : un effet à durée est refusé si la même compétence est posée à un niveau plus haut, ou si un
+  effet de la même famille (`skill_classify_id`, id non nul) a un rang (`skill_classify_level`) plus haut ; sinon il
+  remplace la même compétence et les effets à durée de sa famille. Deux renforcements d'une famille ne se cumulent pas.
 - *Renforcements* : `point.dmg_min_*` / `dmg_max_*` s'ajoutent aux dégâts élémentaires, `point.atk_range` (mètres,
   ×100) à la portée d'attaque (50 au moins), `point.skill_cast` / `skill_delay` aux facteurs d'attaque 3 et 4.
 - *Incantation et relance* : × (100 − s) / 100, s = facteur d'attaque 3 ou 4 (−100 à 90) ; la réduction de relance ne

@@ -45,6 +45,7 @@ pub mod result {
 /// Classes (champ « type » des facteurs, 3e valeur) ; les autres, dont le guerrier (1), frappent à la force.
 pub mod class {
     pub const ARCHER: i32 = 2;
+    pub const SCION: i32 = 3;
     pub const MAGE: i32 = 4;
 }
 
@@ -102,6 +103,29 @@ pub struct Attacker {
     /// joueur (`heroic.rs`).
     pub heroic: (f64, f64),
     pub player: bool,
+    /// Précision (« hit_rate » des effets et options) : points de pour cent ajoutés à la chance de toucher.
+    pub accuracy: f64,
+    /// Frappe à distance (Ranger, Dragon Scion, Mage) : la cible esquive avec son esquive à distance.
+    pub ranged: bool,
+}
+
+/// Pénalité de défense de l'écart de niveau (serveur d'origine) : quand l'assaillant a plus de niveaux que sa cible et
+/// que l'un des deux est un joueur, 2 à 20 points ôtés du blocage, de l'esquive, des résistances (physique,
+/// élémentaires, héroïques) et de la résistance aux critiques de la cible.
+pub fn defense_penalty(attacker_player: bool, attacker_level: i32, target_player: bool, target_level: i32) -> f64 {
+    if !attacker_player && !target_player {
+        return 0.0;
+    }
+    match attacker_level - target_level {
+        d if d <= 0 => 0.0,
+        1..=3 => 2.0,
+        4..=5 => 4.0,
+        6..=7 => 6.0,
+        8..=11 => 8.0,
+        12..=15 => 12.0,
+        16..=19 => 16.0,
+        _ => 20.0,
+    }
 }
 
 /// Côté défenseur.
@@ -120,6 +144,16 @@ pub struct Defender {
     /// Défense héroïque et résistances héroïques mêlée, distance, magie (pour cent, `heroic.rs`).
     pub heroic_def: f64,
     pub heroic_resist: [f64; 3],
+    /// La cible est un joueur (pénalité d'écart de niveau des compétences, `skill_level_penalty`).
+    pub player: bool,
+}
+
+/// Part des dégâts d'une compétence ôtée par l'écart de niveau (pour cent) : 1 par niveau de la cible au-dessus du
+/// lanceur, 5 quand un joueur frappe un monstre, 80 au plus. Vaut aussi
+/// pour les dégâts sur la durée.
+pub fn skill_level_penalty(attacker_player: bool, attacker_level: i32, target_player: bool, target_level: i32) -> f64 {
+    let per_level = if attacker_player && !target_player { 5 } else { 1 };
+    (per_level * (target_level - attacker_level).max(0)).min(80) as f64
 }
 
 impl Defender {
@@ -135,37 +169,47 @@ impl Defender {
             skill_block: f.defense_rate[10].max(0) as f64,
             heroic_def: super::heroic::defense_of(f).0,
             heroic_resist: super::heroic::defense_of(f).1,
+            player: true,
         }
     }
 
-    /// Un monstre : esquive (« DR », plus les « evade_rate » de ses effets), défense physique sous ses effets, résistances
+    /// Un monstre : esquive (« DR » ; les « evade_rate » de ses effets sont des chances, pas du DR), défense physique sous ses effets, résistances
     /// de CharacterDataTable (100 % au plus), résistance physique (« Physical_Resistance ») et blocage des compétences
     /// (« Skill_Block »), effets compris.
     pub fn of_monster(level: i32, s: &super::monsters::MonsterStats, m: &super::effects::Mods) -> Self {
         Defender {
             level,
-            dr: (s.dr as f64 + m.evade).max(0.0) as i32,
+            dr: s.dr,
             defense: super::effects::monster_defense(s.ac, m),
             resist: s.resist.map(|r| r.clamp(0, 100)),
             phys_resist: (s.phys_resist as f64 + m.phys_resist).clamp(0.0, 100.0),
             skill_block: (s.skill_block as f64 + m.skill_block).max(0.0),
             heroic_def: (s.heroic_def as f64 + m.heroic_def).max(0.0),
             heroic_resist: m.heroic_resist,
+            player: false,
         }
     }
 }
 
 impl Attacker {
-    /// Cible vue par cet attaquant : défense physique et résistances diminuées de la part qu'il ignore.
+    /// Cible vue par cet attaquant : défense physique et résistances diminuées de la part qu'il ignore, puis de la
+    /// pénalité de défense de l'écart de niveau (`defense_penalty`).
     pub fn pierce(&self, d: &Defender) -> Defender {
         let keep = |pct: f64| (100.0 - pct.clamp(0.0, 100.0)) / 100.0;
+        let penalty = self.defense_penalty(d);
         Defender {
             defense: d.defense * keep(self.ignore_defense),
-            resist: d.resist.map(|r| (r as f64 * keep(self.ignore_resist)).round() as i32),
-            phys_resist: super::effects::pierced(d.phys_resist, self.ignore_phys_resist),
+            resist: d.resist.map(|r| ((r as f64 * keep(self.ignore_resist)).round() - penalty).max(0.0) as i32),
+            phys_resist: (super::effects::pierced(d.phys_resist, self.ignore_phys_resist) - penalty).max(0.0),
             skill_block: super::effects::pierced(d.skill_block, self.ignore_skill_block),
+            heroic_resist: d.heroic_resist.map(|r| (r - penalty).max(0.0)),
             ..*d
         }
+    }
+
+    /// Pénalité de défense de cet attaquant contre `d`.
+    pub fn defense_penalty(&self, d: &Defender) -> f64 {
+        defense_penalty(self.player, self.level, d.player, d.level)
     }
 
     pub fn of_player(p: &Player) -> Self {
@@ -186,6 +230,8 @@ impl Attacker {
             max_damage: f.damage_max[0] as f64,
             heroic: super::heroic::damage_of(f),
             player: true,
+            accuracy: m.hit,
+            ranged: matches!(f.ftype[2], class::ARCHER | class::SCION | class::MAGE),
         }
     }
 
@@ -193,7 +239,7 @@ impl Attacker {
     pub fn of_monster(level: i32, s: &super::monsters::MonsterStats, m: &super::effects::Mods) -> Self {
         let (min_damage, max_damage) = super::effects::monster_damage(s.min_damage, s.max_damage, m);
         let heroic = ((s.heroic_min as f64 + m.heroic_dmg.0).max(0.0), (s.heroic_max as f64 + m.heroic_dmg.1).max(0.0));
-        Attacker { level, ar: s.ar, min_damage, max_damage, heroic, ..Default::default() }
+        Attacker { level, ar: s.ar, min_damage, max_damage, heroic, accuracy: m.hit, ..Default::default() }
     }
 
     /// Fourchette de dégâts physiques : arme, plus la caractéristique principale de la classe.
@@ -219,7 +265,7 @@ pub fn hit_chance(a: &Attacker, d: &Defender) -> i32 {
     if d.level > a.level {
         chance = 90 - 7 * (d.level - a.level);
     }
-    chance.clamp(10, 95)
+    (chance + a.accuracy as i32).clamp(10, 95)
 }
 
 /// Chance de toucher d'un monstre (30 à 95 %) : même rapport, mais une cible de niveau supérieur garde au
@@ -230,7 +276,7 @@ pub fn monster_hit_chance(a: &Attacker, d: &Defender) -> i32 {
     if d.level > a.level {
         chance = chance.max(85 - 3 * (d.level - a.level));
     }
-    chance.clamp(30, 95)
+    (chance + a.accuracy as i32).clamp(30, 95)
 }
 
 /// Un coup de joueur : (résultat, dégâts). Les dégâts touchent au moins 1 PV.
@@ -256,13 +302,16 @@ pub fn physical_hit(after_defense: f64, d: &Defender) -> i32 {
 /// Un coup bloqué ou esquivé par un joueur que frappe un autre joueur (combat entre joueurs, de guildes) : sa chance
 /// d'esquive (options et effets, moins l'« Ignore_EvadeRate » / « Ignore_DodgeRate » de l'assaillant) puis de blocage
 /// (compétences, « BlockRate » des options, moins l'« Ignore_BlockRate »), 80 % au plus chacune comme contre un monstre.
-pub fn player_guard(rng: &mut impl Rng, target: &super::effects::Mods, block_factor: i32, attacker: &super::effects::Mods) -> Option<i64> {
-    let dodge = super::effects::pierced(target.dodge, attacker.ignore_dodge).min(80.0);
-    let block = super::effects::pierced(target.block + block_factor as f64, attacker.ignore_block).min(80.0);
-    if dodge > 0.0 && rng.gen_range(0.0..100.0) < dodge {
-        return Some(result::EVADE);
+/// `ranged` : l'assaillant frappe à distance (esquive à distance de la cible, sinon au corps à corps) ; `penalty` :
+/// pénalité de défense de l'écart de niveau, ôtée des deux chances.
+pub fn player_guard(rng: &mut impl Rng, target: &super::effects::Mods, block_factor: i32, attacker: &super::effects::Mods, ranged: bool, penalty: f64) -> Option<i64> {
+    let evade = if ranged { target.dodge } else { target.evade };
+    let dodge = super::effects::pierced(evade, attacker.ignore_dodge).min(80.0) - penalty;
+    let block = super::effects::pierced(target.block + block_factor as f64, attacker.ignore_block).min(80.0) - penalty;
+    if block > 0.0 && rng.gen_range(0.0..100.0) < block {
+        return Some(result::BLOCK);
     }
-    (block > 0.0 && rng.gen_range(0.0..100.0) < block).then_some(result::BLOCK)
+    (dodge > 0.0 && rng.gen_range(0.0..100.0) < dodge).then_some(result::EVADE)
 }
 
 /// Coup normal d'un joueur sur un autre (combat entre joueurs, de guildes) : toucher, esquive et blocage de la cible
@@ -270,15 +319,18 @@ pub fn player_guard(rng: &mut impl Rng, target: &super::effects::Mods, block_fac
 /// élémentaire. Rend (résultat, dégâts par nature).
 pub fn versus(rng: &mut impl Rng, p: &Player, t: &Player) -> (i64, Vec<(usize, i32)>) {
     let attacker = Attacker::of_player(p);
-    let defender = attacker.pierce(&Defender::of_player(&t.factors));
+    let target = Defender::of_player(&t.factors);
+    let penalty = attacker.defense_penalty(&target);
+    let defender = attacker.pierce(&target);
     let (mine, theirs) = (super::effects::of_player(p), super::effects::of_player(t));
     let (outcome, damage) = strike(rng, &attacker, &defender);
     if outcome == result::SUCCESS {
-        if let Some(r) = player_guard(rng, &theirs, t.factors.defense_rate[9], &mine) {
+        if let Some(r) = player_guard(rng, &theirs, t.factors.defense_rate[9], &mine, attacker.ranged, penalty) {
             return (r, Vec::new());
         }
     }
-    let (outcome, damage) = super::effects::critical(rng, &mine, theirs.crit_resist - mine.ignore_crit_resist.max(0.0), outcome, damage);
+    let crit_resist = (theirs.crit_resist - penalty).max(0.0) - mine.ignore_crit_resist.max(0.0);
+    let (outcome, damage) = super::effects::critical(rng, &mine, crit_resist, outcome, damage);
     let mut parts = vec![(RESULT_PHYSICAL, damage)];
     if damage > 0 {
         let chance = spirit_chance(true, attacker.level, defender.level);
@@ -571,13 +623,15 @@ async fn attack_step(ctx: &WorldCtx, st: &mut WorldState, sid: u32, now: Instant
     }
     let p = &st.players[&sid];
     let attacker = Attacker::of_player(p);
-    let defender = attacker.pierce(&Defender::of_monster(m.level as i32, &stats, &st.monsters.mods(m.cid)));
+    let target = Defender::of_monster(m.level as i32, &stats, &st.monsters.mods(m.cid));
+    let penalty = attacker.defense_penalty(&target);
+    let defender = attacker.pierce(&target);
     let target_status = st.monsters.status(m.cid, now);
     let (outcome, parts) = {
         let mut rng = rand::thread_rng();
         let (outcome, damage) = strike(&mut rng, &attacker, &defender);
         let mine = super::effects::of_player(p);
-        let crit_resist = st.monsters.mods(m.cid).crit_resist - mine.ignore_crit_resist.max(0.0);
+        let crit_resist = (st.monsters.mods(m.cid).crit_resist - penalty).max(0.0) - mine.ignore_crit_resist.max(0.0);
         let (outcome, damage) = super::effects::critical(&mut rng, &mine, crit_resist, outcome, damage);
         let mut parts = vec![(RESULT_PHYSICAL, damage)];
         if damage > 0 {
@@ -1138,13 +1192,13 @@ mod tests {
 
     #[test]
     fn esquive_et_resistance_physique_des_monstres() {
-        // Monstre : DR de CharacterDataTable (et les « evade_rate » de ses effets), résistance physique, blocage des
-        // compétences.
+        // Monstre : DR de CharacterDataTable (les « evade_rate » de ses effets sont des chances d'esquive, pas du DR),
+        // résistance physique, blocage des compétences.
         let stats = super::super::monsters::MonsterStats { ac: 10, dr: 237, phys_resist: 80, skill_block: 5, ..Default::default() };
         let d = Defender::of_monster(50, &stats, &super::super::effects::Mods { evade: -37.0, ..Default::default() });
-        assert_eq!((d.dr, d.phys_resist, d.skill_block), (200, 80.0, 5.0));
+        assert_eq!((d.dr, d.phys_resist, d.skill_block), (237, 80.0, 5.0));
         let a = Attacker { level: 50, ar: 300, ..warrior() };
-        assert_eq!(hit_chance(&a, &d), 87, "1/2 × 300/500 × 290");
+        assert_eq!(hit_chance(&a, &d), 81, "1/2 × 300/537 × 290");
         assert_eq!(hit_chance(&a, &Defender { dr: 0, ..d }), 95, "sans esquive : plafond");
         // 100 après la défense, 80 % de résistance : 20 ; l'assaillant en ignore 30 points : 50.
         assert_eq!(physical_hit(100.0, &d), 20);
@@ -1164,19 +1218,42 @@ mod tests {
     fn garde_contre_un_joueur() {
         let mut rng = rand::rngs::StdRng::seed_from_u64(21);
         let none = super::super::effects::Mods::default();
-        assert_eq!(player_guard(&mut rng, &none, 0, &none), None);
-        // 100 % d'esquive, plafonnés à 80 ; l'assaillant en ignore 30 : 50 %.
+        assert_eq!(player_guard(&mut rng, &none, 0, &none, false, 0.0), None);
+        // 100 % d'esquive à distance, plafonnés à 80 ; l'assaillant en ignore 30 : 50 %. Contre un coup au corps à
+        // corps, c'est l'esquive au corps à corps qui compte (nulle ici).
         let agile = super::super::effects::Mods { dodge: 100.0, ..Default::default() };
-        let n = (0..10_000).filter(|_| player_guard(&mut rng, &agile, 0, &none) == Some(result::EVADE)).count();
+        let n = (0..10_000).filter(|_| player_guard(&mut rng, &agile, 0, &none, true, 0.0) == Some(result::EVADE)).count();
         assert!((7600..8400).contains(&n), "{n}");
+        assert!((0..1000).all(|_| player_guard(&mut rng, &agile, 0, &none, false, 0.0).is_none()));
         let sharp = super::super::effects::Mods { ignore_dodge: 50.0, ..Default::default() };
-        let n = (0..10_000).filter(|_| player_guard(&mut rng, &agile, 0, &sharp) == Some(result::EVADE)).count();
+        let n = (0..10_000).filter(|_| player_guard(&mut rng, &agile, 0, &sharp, true, 0.0) == Some(result::EVADE)).count();
         assert!((4700..5300).contains(&n), "{n}");
+        // Pénalité de défense de 20 : 80 − 20 = 60 %.
+        let n = (0..10_000).filter(|_| player_guard(&mut rng, &agile, 0, &none, true, 20.0) == Some(result::EVADE)).count();
+        assert!((5600..6400).contains(&n), "{n}");
         // Blocage des options (facteur 9) : 20 %, moins 20 points ignorés : jamais.
-        let n = (0..10_000).filter(|_| player_guard(&mut rng, &none, 20, &none) == Some(result::BLOCK)).count();
+        let n = (0..10_000).filter(|_| player_guard(&mut rng, &none, 20, &none, false, 0.0) == Some(result::BLOCK)).count();
         assert!((1700..2300).contains(&n), "{n}");
         let breaker = super::super::effects::Mods { ignore_block: 20.0, ..Default::default() };
-        assert!((0..1000).all(|_| player_guard(&mut rng, &none, 20, &breaker).is_none()));
+        assert!((0..1000).all(|_| player_guard(&mut rng, &none, 20, &breaker, false, 0.0).is_none()));
+    }
+
+    #[test]
+    fn penalites_d_ecart_de_niveau() {
+        assert_eq!(defense_penalty(true, 30, false, 30), 0.0);
+        assert_eq!(defense_penalty(true, 33, false, 30), 2.0);
+        assert_eq!(defense_penalty(false, 40, true, 30), 8.0, "monstre de 10 niveaux de plus sur un joueur");
+        assert_eq!(defense_penalty(true, 60, true, 30), 20.0);
+        assert_eq!(defense_penalty(false, 60, false, 30), 0.0, "ni l'un ni l'autre n'est un joueur");
+        // Compétences : 5 par niveau d'un joueur sur un monstre, 1 sinon, 80 au plus.
+        assert_eq!(skill_level_penalty(true, 30, false, 35), 25.0);
+        assert_eq!(skill_level_penalty(true, 30, true, 35), 5.0);
+        assert_eq!(skill_level_penalty(false, 30, true, 35), 5.0);
+        assert_eq!(skill_level_penalty(true, 30, false, 60), 80.0);
+        // Précision : points de pour cent ajoutés à la chance de toucher.
+        let a = Attacker { level: 10, ar: 50, ..Default::default() };
+        let d = Defender { level: 10, dr: 50, ..Default::default() };
+        assert_eq!((hit_chance(&a, &d), hit_chance(&Attacker { accuracy: 10.0, ..a }, &d)), (72, 82));
     }
 
     #[test]

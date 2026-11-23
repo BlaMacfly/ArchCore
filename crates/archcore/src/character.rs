@@ -40,7 +40,10 @@ pub struct Template {
     pub sp: i32,
     pub attack_point: i32,
     pub magic_attack: i32,
+    /// Précision et esquive de CharacterDataTable : remplacées pour un joueur par AGI × 0,6 et × 0,4 (`ratings`).
+    #[allow(dead_code)]
     pub ar: i32,
+    #[allow(dead_code)]
     pub dr: i32,
     pub base_exp: i32,
     pub min_damage: i32,
@@ -263,6 +266,10 @@ pub struct CharacterRow {
     pub hp: i32,
     pub mp: i32,
     pub sp: i32,
+    /// Mort à la déconnexion (en attente de résurrection).
+    pub dead: bool,
+    /// Région sûre de rattachement enregistrée ; 0 : inconnue.
+    pub bound_region: u16,
     pub pos_x: f64,
     pub pos_y: f64,
     pub pos_z: f64,
@@ -304,6 +311,8 @@ impl CharacterRow {
             hp: col(r, "hp"),
             mp: col(r, "mp"),
             sp: col(r, "sp"),
+            dead: col::<i64>(r, "dead") != 0,
+            bound_region: col::<u32>(r, "bound_region").min(u16::MAX as u32) as u16,
             pos_x: col(r, "pos_x"),
             pos_y: col(r, "pos_y"),
             pos_z: col(r, "pos_z"),
@@ -379,18 +388,46 @@ pub fn make_factors(tpl: &Template, row: Option<&CharacterRow>) -> Factors {
     ];
     f.ftype = [tpl.race, tpl.gender, tpl.class];
     f.point[0] = row.map(|r| r.hp).filter(|&v| v != 0).unwrap_or(max_hp);
-    f.point[1] = row.map(|r| r.mp).filter(|&v| v != 0).unwrap_or(max_mp);
-    f.point[2] = row.map(|r| r.sp).filter(|&v| v != 0).unwrap_or(max_sp);
+    // PM et PE à 0 : pleins sur une ligne jamais enregistrée en jeu (rattachement inconnu), sinon tels quels.
+    let kept = |v: i32| v != 0 || row.is_some_and(|r| r.bound_region != 0);
+    f.point[1] = row.map(|r| r.mp).filter(|&v| kept(v)).unwrap_or(max_mp);
+    f.point[2] = row.map(|r| r.sp).filter(|&v| kept(v)).unwrap_or(max_sp);
     f.point[3] = (exp % (1u64 << 32)) as u32 as i32;
     f.point[4] = (exp >> 32) as i32;
     f.point[5] = tpl.attack_point;
     f.point[6] = tpl.magic_attack;
-    f.point_max = [max_hp, max_mp, max_sp, 0, tpl.base_exp, tpl.attack_point, tpl.magic_attack, 0, nz(g.ar, tpl.ar), nz(g.dr, tpl.dr), 0];
+    // Précision et esquive (AR, DR) : AGI × 0,6 et AGI × 0,4 (`derive_points`), plus les bonus d'équipement ensuite.
+    let (ar, dr) = ratings(&f.status);
+    f.point_max = [max_hp, max_mp, max_sp, 0, tpl.base_exp, tpl.attack_point, tpl.magic_attack, 0, ar, dr, 0];
     f.attack = [nz(tpl.attack_range, 50), 50, nz(tpl.attack_speed, 60), 0, 0, 0, 0, 0];
     f.damage_min[0] = nz(g.min_damage, tpl.min_damage);
     f.damage_max[0] = nz(g.max_damage, tpl.max_damage);
     f.defense_point[0] = g.ac;
     f
+}
+
+/// Précision (AR) et esquive (DR) des caractéristiques : AGI × 0,6 et AGI × 0,4, tronqués (serveur d'origine).
+pub fn ratings(status: &[i32; 13]) -> (i32, i32) {
+    let agi = status[3] as f64 / 100.0;
+    ((agi * 0.6) as i32, (agi * 0.4) as i32)
+}
+
+/// PV et PM max, précision et esquive d'un joueur d'après ses caractéristiques finales (équipement, options, effets
+/// compris), comme le serveur d'origine : PV = CON × 8, PM = SAG × 5,38 (jamais moins que la sagesse de la croissance),
+/// AR = AGI × 0,6, DR = AGI × 0,4, plus les bonus fixes ; PV et PM 50 au moins. `base` : caractéristiques du modèle et
+/// de la croissance (`make_factors`), dont les PV, PM, AR et DR de départ tiennent déjà compte : seul l'écart compte.
+pub fn derive_points(f: &mut Factors, base: &[i32; 13]) {
+    let stat = |st: &[i32; 13], i: usize| st[i] as f64 / 100.0;
+    let hp = |st: &[i32; 13]| (stat(st, 0) * 8.0) as i32;
+    let mp = |st: &[i32; 13]| (stat(st, 6).max(stat(base, 6)) * 5.38) as i32;
+    let (status, (ar0, dr0)) = (f.status, ratings(base));
+    let (ar, dr) = ratings(&status);
+    f.point_max[0] = (f.point_max[0] + hp(&status) - hp(base)).max(50);
+    f.point_max[1] = (f.point_max[1] + mp(&status) - mp(base)).max(50);
+    f.point_max[8] = (f.point_max[8] + ar - ar0).max(0);
+    f.point_max[9] = (f.point_max[9] + dr - dr0).max(0);
+    f.point[POINT_HP] = f.point[POINT_HP].min(f.point_max[0]);
+    f.point[1] = f.point[1].min(f.point_max[1]);
 }
 
 fn ints(schema: &'static archcore_net::Schema, values: &[i32]) -> Vec<u8> {
@@ -604,7 +641,26 @@ mod tests {
         assert_eq!(f.status[..8], [1500, 1700, 600, 1200, 0, 0, 600, 1]);
         assert_eq!(f.point_max[..3], [120, 32, 65], "PV, PM, PE max de la table, pas du modèle (90, 46, 74)");
         assert_eq!(f.point[..3], [120, 32, 65], "personnage neuf : points pleins");
-        assert_eq!((f.point_max[8], f.point_max[9], f.defense_point[0]), (19, 13, 3), "précision et esquive du modèle, défense de la table");
+        assert_eq!((f.point_max[8], f.point_max[9], f.defense_point[0]), (7, 4, 3), "AR = AGI 12 × 0,6, DR = × 0,4 ; défense de la table");
+    }
+
+    #[test]
+    fn points_des_caracteristiques() {
+        let base = make_factors(&human_warrior(25), Some(&at(25)));
+        // Anneau +10 CON, +5 AGI, +10 SAG : +80 PV, +3 AR, +2 DR, +53 PM.
+        let mut f = base.clone();
+        f.status[0] += 1000;
+        f.status[3] += 500;
+        f.status[6] += 1000;
+        derive_points(&mut f, &base.status);
+        assert_eq!((f.point_max[0], f.point_max[1]), (456 + 80, 108 + (30.0 * 5.38) as i32 - (20.0 * 5.38) as i32));
+        assert_eq!((f.point_max[8] - base.point_max[8], f.point_max[9] - base.point_max[9]), (3, 2));
+        // Moins de sagesse que la croissance : les PM ne baissent pas ; PV 50 au moins.
+        let mut f = base.clone();
+        f.status[6] -= 1000;
+        f.status[0] = 0;
+        derive_points(&mut f, &base.status);
+        assert_eq!((f.point_max[0], f.point_max[1]), (50, 108));
     }
 
     #[test]

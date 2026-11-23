@@ -74,13 +74,19 @@ impl Scroll {
 pub fn home_village(ctx: &WorldCtx, p: &Player) -> (f64, Option<f64>, f64) {
     let here = p.dest.unwrap_or_else(|| p.ch.pos());
     let f = &p.factors;
-    if let Some(pt) = ctx.regions.resurrection(p.bound_region, here, f.ftype[0] as i64, f.ftype[2] as i64) {
+    village_point(ctx, p.bound_region, here, f.ftype[0], f.ftype[2])
+}
+
+/// Point de résurrection de la région `bound` le plus proche de `here` permis à la race et à la classe ; à défaut, le
+/// village de départ de la race (ou celui des humains), sinon `here`.
+pub fn village_point(ctx: &WorldCtx, bound: u16, here: Vec3, race: i32, class: i32) -> (f64, Option<f64>, f64) {
+    if let Some(pt) = ctx.regions.resurrection(bound, here, race as i64, class as i64) {
         return (pt.x as f64, Some(pt.y as f64), pt.z as f64);
     }
     let villages = &ctx.config.world.start_positions;
-    match villages.get(&p.factors.ftype[0].to_string()).or_else(|| villages.get("1")) {
+    match villages.get(&race.to_string()).or_else(|| villages.get("1")) {
         Some(v) => (v.x, Some(v.y), v.z),
-        None => (p.ch.pos_x, None, p.ch.pos_z),
+        None => (here.x as f64, None, here.z as f64),
     }
 }
 

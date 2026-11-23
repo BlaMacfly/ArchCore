@@ -463,14 +463,16 @@ fn monster_step(ctx: &WorldCtx, st: &mut WorldState, cid: u32, now: Instant) -> 
     let mut attacker = Attacker::of_monster(m.level as i32, &stats, &mods);
     let shrink = super::status_rules::shrink_keep(state);
     (attacker.min_damage, attacker.max_damage) = (attacker.min_damage * shrink, attacker.max_damage * shrink);
-    let defender = Defender::of_player(&p.factors);
+    let target = Defender::of_player(&p.factors);
+    let penalty = attacker.defense_penalty(&target);
+    let defender = attacker.pierce(&target);
     let mut rng = rand::thread_rng();
     let (mut outcome, physical) = combat::strike_at(&mut rng, combat::monster_hit_chance(&attacker, &defender), &attacker, &defender);
     let mut parts = vec![(combat::RESULT_PHYSICAL, physical)];
     if outcome == combat::result::SUCCESS {
         let spirit = effects::monster_spirit(&stats.spirit, &mods);
         let chance = combat::spirit_chance(false, m.level as i32, p.factors.status[7]);
-        parts.extend(combat::spirit_hits(&mut rng, chance, &spirit, &combat::spirit_resist(&p.factors), true));
+        parts.extend(combat::spirit_hits(&mut rng, chance, &spirit, &defender.resist, true));
         // Part héroïque (heroic.rs) : la défense héroïque du joueur compte, pas ses résistances.
         super::heroic::push(&mut parts, super::heroic::hit(&mut rng, &attacker, &defender));
     }
@@ -486,7 +488,7 @@ fn monster_step(ctx: &WorldCtx, st: &mut WorldState, cid: u32, now: Instant) -> 
         // Effets et équipement (esquive et coups changés en PV des options) ; blocage des options (facteur de défense 9).
         let mut mods = effects::of_player(p);
         mods.block += p.factors.defense_rate[9] as f64;
-        let guard = effects::guard(&mut rng, &mods, p.skills.status_sent, damage);
+        let guard = effects::guard(&mut rng, &mods, p.skills.status_sent, damage, attacker.ranged, penalty);
         if matches!(guard, Guard::Hit | Guard::Block) && effects::counter(&mut rng, &mods) {
             countered = damage;
         }

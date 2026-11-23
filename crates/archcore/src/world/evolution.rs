@@ -69,6 +69,7 @@ fn effect(e: &Evolved, caster_tid: u32) -> Effect {
         status_until: None,
         caster_sid: effects::MONSTER_CASTER,
         purge: None,
+        classify: (0, 0),
     }
 }
 

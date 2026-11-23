@@ -513,6 +513,7 @@ async fn give(ctx: &WorldCtx, st: &mut WorldState, sid: u32, tid: u32, count: i6
     let Some(p) = st.players.get_mut(&sid) else { return Ok(()) };
     let stack = ctx.catalog.get(tid).map(|d| d.stack).unwrap_or(1).max(1);
     let Some((it, created)) = p.inventory.add(&ctx.db, tid, count, stack, None).await? else { return Ok(()) };
+    let it = if created { super::options::with_fixed(ctx, &mut p.inventory, it).await? } else { it };
     let cid = p.ch.id;
     p.send_raw(if created { item_add_of(&it, cid, item_status::INVENTORY, Some(it.grid)) } else { item_count(&it, cid) });
     Ok(())

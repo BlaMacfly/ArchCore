@@ -462,8 +462,9 @@ fn additional_effect(ctx: &WorldCtx, tid: u32, level: u32, secs: u64, caster_tid
 pub fn put_on_monster(st: &mut WorldState, cid: u32, e: Effect, now: Instant) {
     let watchers = combat::viewers(st, cid);
     let list = st.monsters.effects.entry(cid).or_default();
-    if let Some(old) = effects::push(list, e.clone()) {
-        combat::broadcast(st, &watchers, &effects::remove_packet(cid, &old));
+    let Some(gone) = effects::push(list, e.clone()) else { return };
+    for old in &gone {
+        combat::broadcast(st, &watchers, &effects::remove_packet(cid, old));
     }
     combat::broadcast(st, &watchers, &effects::add_packet(cid, &e));
     skills::sync_monster_status(st, cid, now);

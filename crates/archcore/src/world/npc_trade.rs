@@ -302,8 +302,10 @@ async fn buy(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> anyho
         super::skills::send_points(player);
     }
     let (item, created) = player.inventory.apply_placement(entry.tid, count, place, new_iid);
+    // Options fixes du modèle (« OptionTID »), comme le serveur d'origine pour un objet de boutique.
+    let item = if created { super::options::with_fixed(ctx, &mut player.inventory, item).await? } else { item };
     player.send_raw(if created {
-        item_add(item.iid, item.tid, Some(cid), item.count, item_status::INVENTORY, Some(item.grid))
+        super::items::item_add_of(&item, cid, item_status::INVENTORY, Some(item.grid))
     } else {
         item_count(&item, cid)
     });
