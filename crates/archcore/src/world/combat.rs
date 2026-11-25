@@ -109,21 +109,24 @@ pub struct Attacker {
     pub ranged: bool,
 }
 
-/// Pénalité de défense de l'écart de niveau (serveur d'origine) : quand l'assaillant a plus de niveaux que sa cible et
-/// que l'un des deux est un joueur, 2 à 20 points ôtés du blocage, de l'esquive, des résistances (physique,
-/// élémentaires, héroïques) et de la résistance aux critiques de la cible.
+/// Pénalité de défense de l'écart de niveau (`Archonia.exe`, FUN_140299430) : quand l'assaillant a plus de niveaux que sa
+/// cible et que l'un des deux est un joueur, 2 à 20 points ôtés du blocage, de l'esquive et des résistances physique et
+/// élémentaires de la cible (pas des héroïques, FUN_140296c90). Un écart de 1 ne coûte rien, et un écart d'exactement 20
+/// non plus (sic : le dernier palier commence à 21). Ôtée aussi de la résistance aux critiques : règle déduite, non
+/// retrouvée dans le client.
 pub fn defense_penalty(attacker_player: bool, attacker_level: i32, target_player: bool, target_level: i32) -> f64 {
     if !attacker_player && !target_player {
         return 0.0;
     }
     match attacker_level - target_level {
-        d if d <= 0 => 0.0,
-        1..=3 => 2.0,
+        d if d <= 1 => 0.0,
+        2..=3 => 2.0,
         4..=5 => 4.0,
         6..=7 => 6.0,
         8..=11 => 8.0,
         12..=15 => 12.0,
         16..=19 => 16.0,
+        20 => 0.0,
         _ => 20.0,
     }
 }
@@ -149,8 +152,8 @@ pub struct Defender {
 }
 
 /// Part des dégâts d'une compétence ôtée par l'écart de niveau (pour cent) : 1 par niveau de la cible au-dessus du
-/// lanceur, 5 quand un joueur frappe un monstre, 80 au plus. Vaut aussi
-/// pour les dégâts sur la durée.
+/// lanceur, 5 quand un joueur frappe un monstre, 80 au plus. Vaut aussi pour les dégâts sur la durée. Règle déduite,
+/// non retrouvée dans le client.
 pub fn skill_level_penalty(attacker_player: bool, attacker_level: i32, target_player: bool, target_level: i32) -> f64 {
     let per_level = if attacker_player && !target_player { 5 } else { 1 };
     (per_level * (target_level - attacker_level).max(0)).min(80) as f64
@@ -162,7 +165,7 @@ impl Defender {
     pub fn of_player(f: &crate::character::Factors) -> Self {
         Defender {
             level: f.status[7],
-            dr: f.point_max[9],
+            dr: crate::character::ratings(f).1,
             defense: f.defense_point[0] as f64,
             resist: spirit_resist(f).map(|r| r.clamp(0, 80)),
             phys_resist: f.defense_rate[0].clamp(0, 80) as f64,
@@ -202,7 +205,6 @@ impl Attacker {
             resist: d.resist.map(|r| ((r as f64 * keep(self.ignore_resist)).round() - penalty).max(0.0) as i32),
             phys_resist: (super::effects::pierced(d.phys_resist, self.ignore_phys_resist) - penalty).max(0.0),
             skill_block: super::effects::pierced(d.skill_block, self.ignore_skill_block),
-            heroic_resist: d.heroic_resist.map(|r| (r - penalty).max(0.0)),
             ..*d
         }
     }
@@ -221,7 +223,7 @@ impl Attacker {
             ignore_phys_resist: m.ignore_phys_resist,
             ignore_skill_block: m.ignore_skill_block,
             level: f.status[7],
-            ar: f.point_max[8],
+            ar: crate::character::ratings(f).0,
             class: f.ftype[2],
             str_: f.status[1] as f64 / 100.0,
             dex: f.status[3] as f64 / 100.0,
@@ -1241,7 +1243,13 @@ mod tests {
     #[test]
     fn penalites_d_ecart_de_niveau() {
         assert_eq!(defense_penalty(true, 30, false, 30), 0.0);
+        assert_eq!(defense_penalty(true, 31, false, 30), 0.0, "un niveau d'écart ne coûte rien");
+        assert_eq!(defense_penalty(true, 32, false, 30), 2.0);
         assert_eq!(defense_penalty(true, 33, false, 30), 2.0);
+        assert_eq!((defense_penalty(true, 49, false, 30), defense_penalty(true, 50, false, 30), defense_penalty(true, 51, false, 30)), (16.0, 0.0, 20.0));
+        // Les résistances héroïques n'en tiennent pas compte, les autres si.
+        let seen = Attacker { level: 60, player: true, ..Default::default() }.pierce(&Defender { level: 30, phys_resist: 50.0, resist: [50; 8], heroic_resist: [50.0; 3], ..Default::default() });
+        assert_eq!((seen.phys_resist, seen.resist[0], seen.heroic_resist[0]), (30.0, 30, 50.0));
         assert_eq!(defense_penalty(false, 40, true, 30), 8.0, "monstre de 10 niveaux de plus sur un joueur");
         assert_eq!(defense_penalty(true, 60, true, 30), 20.0);
         assert_eq!(defense_penalty(false, 60, false, 30), 0.0, "ni l'un ni l'autre n'est un joueur");

@@ -695,7 +695,8 @@ pub fn status_packet(cid: u32, status: u64) -> Vec<u8> {
 
 /// Ajoute un effet ; rend les effets qu'il remplace, ou `None` s'il est refusé (rien n'est changé).
 ///
-/// Règles du serveur d'origine pour un effet à durée :
+/// Règles déduites de `skill_classify_id` / `skill_classify_level` pour un effet à durée (les refus ne se voient pas
+/// dans le client, qui reçoit les effets posés) :
 /// * refusé si la même compétence est déjà posée à un niveau plus haut, ou si un effet de la même famille
 ///   (`classify`, id non nul) a un rang plus haut ;
 /// * sinon il remplace la même compétence (niveau inférieur ou égal) et les effets à durée de la même famille (rang

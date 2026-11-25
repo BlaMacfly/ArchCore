@@ -598,6 +598,25 @@ pub fn options_mini(tids: &[u16]) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Objet neuf : options fixes du modèle, sans tirage ; une rune ne les reçoit pas (elles valent une fois sertie).
+    #[test]
+    fn options_fixes() {
+        use super::super::items::{ItemCatalog, ItemData};
+        let data = |tid: u32, equip: Option<EquipData>, option_tids: Vec<u16>| ItemData { tid, name: format!("objet {tid}"), npc_price: 0, pc_price: 0, charisma_price: 0, coin_price: 0, stack: 1, equip, potion: None, scroll: None, stone: None, usable_type: 0, option_tids, kind: 0, bound_type: 0, cash: 0, enable_on_ride: false, auction_category: (0, 0), event_item: false };
+        let armor = EquipData { part: 2, kind: 1, ..Default::default() };
+        let mut c = ItemCatalog::default();
+        c.items.insert(10, data(10, Some(armor.clone()), vec![20, 135, 40, 1021]));
+        c.items.insert(11, data(11, Some(armor), Vec::new()));
+        c.items.insert(12, data(12, None, vec![7]));
+        let mut rng = rand::thread_rng();
+        let options = OptionCatalog::default();
+        for _ in 0..20 {
+            assert_eq!(generate(&c, &options, 10, 1, &mut rng).0, vec![20, 135, 40, 1021]);
+        }
+        assert!(fixed_options(&c, 11).is_none() && generate(&c, &options, 11, 1, &mut rng).0.is_empty());
+        assert!(fixed_options(&c, 12).is_none() && generate(&c, &options, 12, 1, &mut rng) == (Vec::new(), 0));
+    }
     use rand::SeedableRng;
 
     const TABLE: &str = "tid\tDescription\tUpper_Body\tLower_Body\tWeapon\tShield\tHead\tRing\tNecklace\tShoes\tGloves\tRefined\tGacha\tType\tCategoryName\tPointType\tItem_Level_Min\tItem_Level_Max\tLevel_limit\tRank_Min\tRank_Max\tProbability\tPhysicalDamage\tHp_Bonus_Point\r\n\

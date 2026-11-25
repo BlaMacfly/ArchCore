@@ -40,7 +40,8 @@ pub struct Template {
     pub sp: i32,
     pub attack_point: i32,
     pub magic_attack: i32,
-    /// Précision et esquive de CharacterDataTable : remplacées pour un joueur par AGI × 0,6 et × 0,4 (`ratings`).
+    /// Précision et esquive de CharacterDataTable : pour un joueur, la somme de `ratings` au niveau 1 (archer, AGI 15 :
+    /// 21,6 et 14,4 pour 22 et 14) ; non utilisées.
     #[allow(dead_code)]
     pub ar: i32,
     #[allow(dead_code)]
@@ -396,9 +397,9 @@ pub fn make_factors(tpl: &Template, row: Option<&CharacterRow>) -> Factors {
     f.point[4] = (exp >> 32) as i32;
     f.point[5] = tpl.attack_point;
     f.point[6] = tpl.magic_attack;
-    // Précision et esquive (AR, DR) : AGI × 0,6 et AGI × 0,4 (`derive_points`), plus les bonus d'équipement ensuite.
-    let (ar, dr) = ratings(&f.status);
-    f.point_max = [max_hp, max_mp, max_sp, 0, tpl.base_exp, tpl.attack_point, tpl.magic_attack, 0, ar, dr, 0];
+    // Précision et esquive (AR, DR) : les bonus seuls. Le client ajoute lui-même niveau, AGI et constante (`ratings`),
+    // pour l'affichage comme pour le coup ; l'AR et le DR du modèle sont déjà cette somme au niveau 1.
+    f.point_max = [max_hp, max_mp, max_sp, 0, tpl.base_exp, tpl.attack_point, tpl.magic_attack, 0, g.ar, g.dr, 0];
     f.attack = [nz(tpl.attack_range, 50), 50, nz(tpl.attack_speed, 60), 0, 0, 0, 0, 0];
     f.damage_min[0] = nz(g.min_damage, tpl.min_damage);
     f.damage_max[0] = nz(g.max_damage, tpl.max_damage);
@@ -406,26 +407,25 @@ pub fn make_factors(tpl: &Template, row: Option<&CharacterRow>) -> Factors {
     f
 }
 
-/// Précision (AR) et esquive (DR) des caractéristiques : AGI × 0,6 et AGI × 0,4, tronqués (serveur d'origine).
-pub fn ratings(status: &[i32; 13]) -> (i32, i32) {
-    let agi = status[3] as f64 / 100.0;
-    ((agi * 0.6) as i32, (agi * 0.4) as i32)
+/// Précision (AR) et esquive (DR) d'un joueur en combat (`Archonia.exe`, FUN_140296040, FUN_140294e70, FUN_140295130) :
+/// AR = (niveau + AGI) × 0,6 + 12 et DR = (niveau + AGI) × 0,4 + 8, plus les bonus des facteurs (points max 8 et 9).
+pub fn ratings(f: &Factors) -> (i32, i32) {
+    let base = f.status[7] as f64 + f.status[3] as f64 / 100.0;
+    let total = |x: f64, bonus: i32| (x + bonus as f64).round().max(0.0) as i32;
+    (total(base * 0.6 + 12.0, f.point_max[8]), total(base * 0.4 + 8.0, f.point_max[9]))
 }
 
-/// PV et PM max, précision et esquive d'un joueur d'après ses caractéristiques finales (équipement, options, effets
-/// compris), comme le serveur d'origine : PV = CON × 8, PM = SAG × 5,38 (jamais moins que la sagesse de la croissance),
-/// AR = AGI × 0,6, DR = AGI × 0,4, plus les bonus fixes ; PV et PM 50 au moins. `base` : caractéristiques du modèle et
-/// de la croissance (`make_factors`), dont les PV, PM, AR et DR de départ tiennent déjà compte : seul l'écart compte.
+/// PV et PM max d'un joueur d'après ses caractéristiques finales (équipement, options, effets compris) : PV = CON × 8,
+/// PM = SAG × 5,38 (jamais moins que la sagesse de la croissance), plus les bonus fixes ; 50 au moins. Les PV et PM de
+/// GrowUpFactor suivent ces rapports ; leur effet sur les bonus est une règle déduite : le client reçoit les maximums
+/// sans les calculer. `base` : caractéristiques du modèle et de la croissance (`make_factors`) ; seul l'écart compte.
 pub fn derive_points(f: &mut Factors, base: &[i32; 13]) {
     let stat = |st: &[i32; 13], i: usize| st[i] as f64 / 100.0;
     let hp = |st: &[i32; 13]| (stat(st, 0) * 8.0) as i32;
     let mp = |st: &[i32; 13]| (stat(st, 6).max(stat(base, 6)) * 5.38) as i32;
-    let (status, (ar0, dr0)) = (f.status, ratings(base));
-    let (ar, dr) = ratings(&status);
+    let status = f.status;
     f.point_max[0] = (f.point_max[0] + hp(&status) - hp(base)).max(50);
     f.point_max[1] = (f.point_max[1] + mp(&status) - mp(base)).max(50);
-    f.point_max[8] = (f.point_max[8] + ar - ar0).max(0);
-    f.point_max[9] = (f.point_max[9] + dr - dr0).max(0);
     f.point[POINT_HP] = f.point[POINT_HP].min(f.point_max[0]);
     f.point[1] = f.point[1].min(f.point_max[1]);
 }
@@ -641,7 +641,9 @@ mod tests {
         assert_eq!(f.status[..8], [1500, 1700, 600, 1200, 0, 0, 600, 1]);
         assert_eq!(f.point_max[..3], [120, 32, 65], "PV, PM, PE max de la table, pas du modèle (90, 46, 74)");
         assert_eq!(f.point[..3], [120, 32, 65], "personnage neuf : points pleins");
-        assert_eq!((f.point_max[8], f.point_max[9], f.defense_point[0]), (7, 4, 3), "AR = AGI 12 × 0,6, DR = × 0,4 ; défense de la table");
+        assert_eq!((f.point_max[8], f.point_max[9], f.defense_point[0]), (0, 0, 3), "AR et DR : bonus seuls ; défense de la table");
+        // (1 + 12) × 0,6 + 12 = 19,8 ; (1 + 12) × 0,4 + 8 = 13,2.
+        assert_eq!(ratings(&f), (20, 13));
     }
 
     #[test]
@@ -654,7 +656,9 @@ mod tests {
         f.status[6] += 1000;
         derive_points(&mut f, &base.status);
         assert_eq!((f.point_max[0], f.point_max[1]), (456 + 80, 108 + (30.0 * 5.38) as i32 - (20.0 * 5.38) as i32));
-        assert_eq!((f.point_max[8] - base.point_max[8], f.point_max[9] - base.point_max[9]), (3, 2));
+        // +5 AGI : +3 AR, +2 DR.
+        assert_eq!((ratings(&f).0 - ratings(&base).0, ratings(&f).1 - ratings(&base).1), (3, 2));
+        assert_eq!((f.point_max[8], f.point_max[9]), (0, 0), "rien de plus envoyé au client, qui ajoute l'AGI");
         // Moins de sagesse que la croissance : les PM ne baissent pas ; PV 50 au moins.
         let mut f = base.clone();
         f.status[6] -= 1000;

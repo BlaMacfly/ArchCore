@@ -426,6 +426,15 @@ GmTest), seconde refusée, tableau chez Rembrandt (op 4 puis fin de page), SimA 
 (op 8 genre 4), op 8 genre 5 et op 7 drapeau 0 chez GmTest ; niveaux rétablis. Les avis (`wanted_criminal`,
 `wanted_bounty`) restent en base : à vider entre deux passes.
 
+## Test des options fixes
+
+```bash
+ARCHCORE_CONF_DIR=config/test archcore sim fixedoptions [compte mdp perso]
+```
+
+GmTest (MJ) crée par `/create` des équipements dont le modèle a des options fixes (« OptionTID ») : la base porte
+exactement ces options, dans l'ordre. Les objets créés sont ensuite supprimés.
+
 ## Test de l'arrêt du serveur
 
 ```bash

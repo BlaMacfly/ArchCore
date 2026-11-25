@@ -992,22 +992,23 @@ résistance à l'étourdissement (`stun_resistance` de SKILL_CONST, colonne rang
 à Archonia, absente des tables de l'épisode 8 : elle n'est plus lue et la case 0xbc du bloc ci-dessous reste à 0 ;
 l'étourdissement suit la protection (état 8), diminuée de l'`Ignore_StunDefenseRate` du lanceur.
 
-**Règles de l'épisode 8 portées par les tables.** Formules choisies par ArchCore : les tables en donnent les valeurs,
-aucun binaire ne montre le calcul (le client reçoit les résultats).
+**Règles de l'épisode 8 portées par les tables.** Les tables en donnent les valeurs. Le toucher, l'AR, le DR et la
+pénalité de défense suivent `Archonia.exe` (relevé du 25 novembre 2026) ; les autres formules sont choisies par
+ArchCore, aucun binaire ne les montre (le client reçoit les résultats).
 
-- *Toucher* : chance = niveau / (niveau + niveau de la cible) × AR / (AR + DR) × 290, plus la précision de
-  l'assaillant (`hit_rate` des effets et options : points de pour cent directs, facteur d'attaque 5), 10 à 95 % pour
-  un joueur, 30 à 95 % pour un monstre ; DR d'un monstre : `DR` de CharacterDataTable.
-- *Caractéristiques d'un joueur* : PV max = CON × 8, PM max = SAG × 5,38 (jamais moins que la sagesse de la
-  croissance), AR = AGI × 0,6, DR = AGI × 0,4, plus les bonus fixes (objets, options, effets) ; PV et PM 50 au moins.
-  CON, SAG et AGI comptent avec les bonus des anneaux, options et renforcements (23 novembre 2026 : l'AR et le DR
-  du modèle, fixes, ne servent plus).
-- *Pénalité de défense* : quand l'assaillant a plus de niveaux que sa cible et que l'un des deux est un joueur, 2
-  (1 à 3 niveaux d'écart), 4 (4-5), 6 (6-7), 8 (8-11), 12 (12-15), 16 (16-19) ou 20 points sont ôtés du blocage, de
-  l'esquive, de la résistance physique, des résistances élémentaires et héroïques et de la résistance aux critiques
-  de la cible. Coups normaux et compétences.
+- *Toucher* (FUN_140296040) : chance = niveau / (niveau + niveau de la cible) × AR / (AR + DR) × 290, plus la précision
+  de l'assaillant (`hit_rate` des effets et options : points de pour cent directs, facteur d'attaque 5), 10 à 95 % pour
+  un joueur, 30 à 95 % pour un monstre ; AR et DR d'un monstre : ceux de CharacterDataTable.
+- *AR et DR d'un joueur* (FUN_140294e70, FUN_140295130) : AR = (niveau + AGI) × 0,6 + 12 + bonus, DR = (niveau + AGI) ×
+  0,4 + 8 + bonus. Les facteurs (points max 8 et 9) ne portent que les bonus : le client ajoute le reste.
+- *PV et PM max d'un joueur* : CON × 8 et SAG × 5,38 (jamais moins que la sagesse de la croissance), plus les bonus
+  fixes, 50 au moins. GrowUpFactor suit ces rapports ; leur effet sur les bonus de CON et de SAG est une règle déduite.
+- *Pénalité de défense* (FUN_140299430) : quand l'assaillant a plus de niveaux que sa cible et que l'un des deux est un
+  joueur, 2 (2 ou 3 niveaux d'écart), 4 (4-5), 6 (6-7), 8 (8-11), 12 (12-15), 16 (16-19) ou 20 points (21 et plus ; rien
+  à 1 ni à 20 exactement) sont ôtés du blocage, de l'esquive et des résistances physique et élémentaires de la cible.
+  Ôtée aussi de la résistance aux critiques : règle déduite.
 - *Écart de niveau des compétences* : dégâts (et dégâts sur la durée) × (100 − p) / 100, p = 1 par niveau de la
-  cible au-dessus du lanceur, 5 quand un joueur frappe un monstre, 80 au plus.
+  cible au-dessus du lanceur, 5 quand un joueur frappe un monstre, 80 au plus (règle déduite).
 - *Résistance physique* : dégâts physiques après la défense × (100 − r) / 100, au moins 1 ; r = facteur de défense 0
   d'un joueur (`PhysicalAttackResist` des options, `point.physical_resistance` des effets ; 80 au plus) ou
   `Physical_Resistance` d'un monstre (100 au plus), moins l'`Ignore_PhysicalAttackResist` de l'assaillant. Coups
@@ -1019,7 +1020,7 @@ aucun binaire ne montre le calcul (le client reçoit les résultats).
   options, facteur de défense 9), puis esquive : `dodge_rate` (facteur d'attaque 7) contre un Ranger, un Dragon Scion
   ou un Mage, `evade_rate` (facteur 6) sinon ; chances directes, 80 % au plus, moins la pénalité de défense et
   l'`Ignore_EvadeRate` / `Ignore_DodgeRate` et l'`Ignore_BlockRate` de l'assaillant (résultats 7 et 9).
-- *Cumul des effets* : un effet à durée est refusé si la même compétence est posée à un niveau plus haut, ou si un
+- *Cumul des effets* (règle déduite des tables) : un effet à durée est refusé si la même compétence est posée à un niveau plus haut, ou si un
   effet de la même famille (`skill_classify_id`, id non nul) a un rang (`skill_classify_level`) plus haut ; sinon il
   remplace la même compétence et les effets à durée de sa famille. Deux renforcements d'une famille ne se cumulent pas.
 - *Renforcements* : `point.dmg_min_*` / `dmg_max_*` s'ajoutent aux dégâts élémentaires, `point.atk_range` (mètres,

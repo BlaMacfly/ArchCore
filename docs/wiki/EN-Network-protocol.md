@@ -955,20 +955,23 @@ critical hit chance (deduced rule; a debuff such as Defence Breaker makes it neg
 tables: it is no longer read and slot 0xbc of the block below stays at 0; stuns follow the protection (state 8),
 lowered by the caster's `Ignore_StunDefenseRate`.
 
-**Episode 8 rules carried by the tables.** Formulas chosen by ArchCore: the tables give the values, no binary shows
-the computation (the client receives the results).
+**Episode 8 rules carried by the tables.** The tables give the values. Hit, AR, DR and the defense penalty follow
+`Archonia.exe` (read on 25 November 2026); the other formulas are chosen by ArchCore, no binary shows them (the client
+receives the results).
 
-- *Hit*: chance = level / (level + target level) × AR / (AR + DR) × 290, plus the attacker's accuracy (effects' and
-  options' `hit_rate`: direct percentage points, attack factor 5), 10 to 95% for a player, 30 to 95% for a monster; a
-  monster's DR: CharacterDataTable `DR`.
-- *A player's characteristics*: max HP = CON × 8, max MP = WIS × 5.38 (never less than the growth's wisdom), AR =
-  AGI × 0.6, DR = AGI × 0.4, plus flat bonuses (items, options, effects); HP and MP 50 at least. CON, WIS and AGI
-  include ring, option and enhancement bonuses (23 November 2026: the template's fixed AR and DR are no longer used).
-- *Defense penalty*: when the attacker has more levels than its target and one of them is a player, 2 (1 to 3 levels
-  apart), 4 (4-5), 6 (6-7), 8 (8-11), 12 (12-15), 16 (16-19) or 20 points are taken from the target's block, evasion,
-  physical, elemental and heroic resistances and critical resistance. Normal hits and skills.
+- *Hit* (FUN_140296040): chance = level / (level + target level) × AR / (AR + DR) × 290, plus the attacker's accuracy
+  (effects' and options' `hit_rate`: direct percentage points, attack factor 5), 10 to 95% for a player, 30 to 95% for a
+  monster; a monster's AR and DR: CharacterDataTable's.
+- *A player's AR and DR* (FUN_140294e70, FUN_140295130): AR = (level + AGI) × 0.6 + 12 + bonuses, DR = (level + AGI) ×
+  0.4 + 8 + bonuses. The factors (max points 8 and 9) only carry the bonuses: the client adds the rest.
+- *A player's max HP and MP*: CON × 8 and WIS × 5.38 (never less than the growth's wisdom), plus flat bonuses, 50 at
+  least. GrowUpFactor follows these ratios; applying them to CON and WIS bonuses is a deduced rule.
+- *Defense penalty* (FUN_140299430): when the attacker has more levels than its target and one of them is a player, 2 (2
+  or 3 levels apart), 4 (4-5), 6 (6-7), 8 (8-11), 12 (12-15), 16 (16-19) or 20 points (21 and more; nothing at 1 nor at
+  exactly 20) are taken from the target's block, evasion, physical and elemental resistances. Also taken from critical
+  resistance: deduced rule.
 - *Skill level gap*: damage (and damage over time) × (100 − p) / 100, p = 1 per level of the target above the caster,
-  5 when a player hits a monster, 80 at most.
+  5 when a player hits a monster, 80 at most (deduced rule).
 - *Physical resistance*: physical damage after defense × (100 − r) / 100, at least 1; r = a player's defense factor 0
   (options' `PhysicalAttackResist`, effects' `point.physical_resistance`; 80 at most) or a monster's
   `Physical_Resistance` (100 at most), minus the attacker's `Ignore_PhysicalAttackResist`. Normal hits and skills.
@@ -979,7 +982,7 @@ the computation (the client receives the results).
   defense factor 9), then evasion: `dodge_rate` (attack factor 7) against a Ranger, a Dragon Scion or a Mage,
   `evade_rate` (factor 6) otherwise; direct chances, 80% at most, minus the defense penalty and the attacker's
   `Ignore_EvadeRate` / `Ignore_DodgeRate` and `Ignore_BlockRate` (results 7 and 9).
-- *Stacking effects*: a timed effect is refused if the same skill is applied at a higher level, or if an effect of the
+- *Stacking effects* (rule deduced from the tables): a timed effect is refused if the same skill is applied at a higher level, or if an effect of the
   same family (`skill_classify_id`, non-zero id) has a higher rank (`skill_classify_level`); otherwise it replaces the
   same skill and the timed effects of its family. Two buffs of one family do not stack.
 - *Buffs*: `point.dmg_min_*` / `dmg_max_*` add to elemental damage, `point.atk_range` (metres, ×100) to the attack

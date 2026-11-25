@@ -420,6 +420,15 @@ Rembrandt's (op 4 then end of page), SimA at level 60 kills GmTest: bounty paid 
 flag 0 for GmTest; levels restored. Posters (`wanted_criminal`, `wanted_bounty`) stay in the database: empty them
 between two runs.
 
+## Fixed options test
+
+```bash
+ARCHCORE_CONF_DIR=config/test archcore sim fixedoptions [account pass char]
+```
+
+GmTest (GM) creates with `/create` equipment whose template has fixed options ("OptionTID"): the database holds exactly
+these options, in order. The created items are then deleted.
+
 ## Server shutdown test
 
 ```bash

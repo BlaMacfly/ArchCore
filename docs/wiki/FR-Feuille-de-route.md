@@ -22,7 +22,7 @@
 
 ## Validé avec le simulateur, à confirmer en jeu
 
-- Règles de l'épisode 8 revues (23 novembre 2026) : PV, PM, AR et DR tirés de CON, SAG et AGI ; précision et
+- Règles de l'épisode 8 revues (23 novembre 2026) : PV et PM tirés de CON et SAG ; AR et DR calculés comme `Archonia.exe` (25 novembre) ; précision et
   esquive en chances directes, esquive à distance et au corps à corps ; pénalité de défense selon l'écart de niveau ;
   écart de niveau des compétences (×5 seulement d'un joueur sur un monstre) ; effets d'une même famille qui ne se
   cumulent plus ; potions en pour cent (« SubType ») ; options fixes des équipements (« OptionTID ») ; niveau plafond

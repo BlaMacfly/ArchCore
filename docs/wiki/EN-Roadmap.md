@@ -22,7 +22,7 @@
 
 ## Verified with the simulator, to confirm in game
 
-- Episode 8 rules reviewed (23 November 2026): HP, MP, AR and DR derived from CON, WIS and AGI; accuracy and evasion
+- Episode 8 rules reviewed (23 November 2026): HP and MP derived from CON and WIS; AR and DR computed like `Archonia.exe` (25 November); accuracy and evasion
   as direct chances, ranged and melee evasion; defense penalty from the level gap; skill level gap (×5 only from a
   player on a monster); effects of one family no longer stack; percentage potions ("SubType"); fixed equipment options
   ("OptionTID"); item level cap ("Level" `min;max`); HP, MP, dead state and bind region saved (migration
