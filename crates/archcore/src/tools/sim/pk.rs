@@ -32,6 +32,13 @@ pub async fn run(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> 
     let say = |cid: u32, text: &str| Fields::new(ch).with(0, 0).with(1, cid).with(2, chat_type::NORMAL).with(6, crate::tools::to_cp1252(text));
     let place = |cid: u32| Fields::new(mv).with(0, cid).with(1, SPOT).with(2, SPOT).with(5, STOP).with(6, 0);
 
+    // Chaque passage donne des points de meurtrier : au palier 3 (100 points) l'attaque forcée est refusée.
+    let db = crate::db::Databases::new(&cfg.database);
+    db.characters
+        .exec("UPDATE characters SET murderer_points = 0, criminal_until = 0, murderer_until = 0 WHERE name IN (?, ?)", (ca.to_string(), cb.to_string()))
+        .await?;
+    db.close().await;
+
     step(&format!("{ca} (niveau 40) et {cb} (niveau 20) au nord d'Anchorville"));
     let mut a = enter_world(&cfg, ua, pa, ca, "A-").await?;
     // Dual Slash exige une arme (requirement.rs).

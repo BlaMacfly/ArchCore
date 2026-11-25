@@ -1748,8 +1748,21 @@ async fn experience(user: &str, pass: &str, char_name: &str) -> anyhow::Result<(
     w.world.send(ch, say(w.cid, &format!("/exp {}", n112 + 7))).await?;
     let up = w.world.expect_where(|q| q.is(c, Some(1)) && q.int(1) == Some(w.cid as i64) && exp_of(q) == Some(7), 3000, "facteurs après la montée (7 points)").await?;
     anyhow::ensure!(exp_of(&up) == Some(7), "expérience après la montée : {:?}", exp_of(&up));
-    let lv: i64 = db.characters.first("SELECT level FROM characters WHERE id = ?", (char_id,)).await?.map(|r| crate::db::col(&r, "level")).unwrap_or(0);
-    anyhow::ensure!(lv == 113, "niveau {lv}");
+    // Le serveur envoie les facteurs avant d'écrire en base : l'écriture est attendue.
+    let mut lv: i64 = 0;
+    for _ in 0..30 {
+        lv = db.characters.first("SELECT level FROM characters WHERE id = ?", (char_id,)).await?.map(|r| crate::db::col(&r, "level")).unwrap_or(0);
+        if lv == 113 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    if lv != 113 {
+        // Niveau rendu même en cas d'échec : les scénarios suivants en dépendent.
+        w.world.send(ch, say(w.cid, &format!("/level {level}"))).await?;
+        w.world.expect_where(system, 3000, "réponse MJ").await?;
+        anyhow::bail!("niveau {lv}");
+    }
     w.world.expect_where(system, 3000, "réponse MJ").await?;
     println!("  ✓ niveau 113, 7 points d'expérience");
 
