@@ -462,7 +462,10 @@ fn additional_effect(ctx: &WorldCtx, tid: u32, level: u32, secs: u64, caster_tid
 pub fn put_on_monster(st: &mut WorldState, cid: u32, e: Effect, now: Instant) {
     let watchers = combat::viewers(st, cid);
     let list = st.monsters.effects.entry(cid).or_default();
-    let Some(gone) = effects::push(list, e.clone()) else { return };
+    let Some(gone) = effects::push(list, e.clone()) else {
+        skills::effect_refused(st, e.caster_sid);
+        return;
+    };
     for old in &gone {
         combat::broadcast(st, &watchers, &effects::remove_packet(cid, old));
     }

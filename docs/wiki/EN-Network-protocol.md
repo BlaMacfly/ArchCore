@@ -965,7 +965,8 @@ receives the results).
 - *A player's AR and DR* (FUN_140294e70, FUN_140295130): AR = (level + AGI) × 0.6 + 12 + bonuses, DR = (level + AGI) ×
   0.4 + 8 + bonuses. The factors (max points 8 and 9) only carry the bonuses: the client adds the rest.
 - *A player's max HP and MP*: CON × 8 and WIS × 5.38 (never less than the growth's wisdom), plus flat bonuses, 50 at
-  least. GrowUpFactor follows these ratios; applying them to CON and WIS bonuses is a deduced rule.
+  least. GrowUpFactor follows these ratios (HP: CON × 8 on all 1694 rows; MP: WIS × 5.38 within 3); the client does
+  not compute these maximums, it receives them: applying them to CON and WIS bonuses is a deduced rule.
 - *Defense penalty* (FUN_140299430): when the attacker has more levels than its target and one of them is a player, 2 (2
   or 3 levels apart), 4 (4-5), 6 (6-7), 8 (8-11), 12 (12-15), 16 (16-19) or 20 points (21 and more; nothing at 1 nor at
   exactly 20) are taken from the target's block, evasion, physical and elemental resistances. Also taken from critical
@@ -982,7 +983,9 @@ receives the results).
   defense factor 9), then evasion: `dodge_rate` (attack factor 7) against a Ranger, a Dragon Scion or a Mage,
   `evade_rate` (factor 6) otherwise; direct chances, 80% at most, minus the defense penalty and the attacker's
   `Ignore_EvadeRate` / `Ignore_DodgeRate` and `Ignore_BlockRate` (results 7 and 9).
-- *Stacking effects* (rule deduced from the tables): a timed effect is refused if the same skill is applied at a higher level, or if an effect of the
+- *Stacking effects*: refusing a weaker effect exists in the original game (AgpmPvP op 18 code 22, "Stronger effects
+  were applied already", Archonia's FUN_1406acbf0), sent by ArchCore to the caster; the comparisons below are deduced
+  from the tables. A timed effect is refused if the same skill is applied at a higher level, or if an effect of the
   same family (`skill_classify_id`, non-zero id) has a higher rank (`skill_classify_level`); otherwise it replaces the
   same skill and the timed effects of its family. Two buffs of one family do not stack.
 - *Buffs*: `point.dmg_min_*` / `dmg_max_*` add to elemental damage, `point.atk_range` (metres, ×100) to the attack
@@ -1547,7 +1550,8 @@ through the login server replaces it at once.
 integer), 4 losses, 5 mode (1 safe, 2 free, 3 combat), 6 status (bit 1 invincible), 7 op 0 byte, 8 guild
 (CHAR[33], message string 1), 9 name (CHAR[49], string 2). Op 0 wins and losses, op 2 / 4 enemy added / removed,
 op 6 list cleared, op 18 system message (`PvP_Msg_*` texts of uimessage.txt: 3 "in combat", 4 "combat over",
-5 defeat, 12 victory, 17 target invincible, 20 friend, 24 charisma gained, 25 level too low…). Codes 0 to 2
+5 defeat, 12 victory, 17 target invincible, 20 friend, 22 effect refused, a stronger one being applied ("Skill_Cannot_Apply_Effect"), 24 charisma gained, 25 level too
+low…). Codes 0 to 2
 (entering a safe, free or combat area) are produced by the client itself on region change; ArchCore sends code 2 then
 13 ("You moved to a Battle Square") on arrival in the Battle Square, and 18 (level too low) when a supervisor refuses.
 

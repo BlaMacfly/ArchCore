@@ -1002,7 +1002,9 @@ ArchCore, aucun binaire ne les montre (le client reçoit les résultats).
 - *AR et DR d'un joueur* (FUN_140294e70, FUN_140295130) : AR = (niveau + AGI) × 0,6 + 12 + bonus, DR = (niveau + AGI) ×
   0,4 + 8 + bonus. Les facteurs (points max 8 et 9) ne portent que les bonus : le client ajoute le reste.
 - *PV et PM max d'un joueur* : CON × 8 et SAG × 5,38 (jamais moins que la sagesse de la croissance), plus les bonus
-  fixes, 50 au moins. GrowUpFactor suit ces rapports ; leur effet sur les bonus de CON et de SAG est une règle déduite.
+  fixes, 50 au moins. GrowUpFactor suit ces rapports (PV : CON × 8 sur ses 1694 lignes ; PM : SAG × 5,38 à moins de 3
+  près) ; le client ne calcule pas ces maximums, il les reçoit : leur effet sur les bonus de CON et de SAG est une règle
+  déduite.
 - *Pénalité de défense* (FUN_140299430) : quand l'assaillant a plus de niveaux que sa cible et que l'un des deux est un
   joueur, 2 (2 ou 3 niveaux d'écart), 4 (4-5), 6 (6-7), 8 (8-11), 12 (12-15), 16 (16-19) ou 20 points (21 et plus ; rien
   à 1 ni à 20 exactement) sont ôtés du blocage, de l'esquive et des résistances physique et élémentaires de la cible.
@@ -1020,7 +1022,9 @@ ArchCore, aucun binaire ne les montre (le client reçoit les résultats).
   options, facteur de défense 9), puis esquive : `dodge_rate` (facteur d'attaque 7) contre un Ranger, un Dragon Scion
   ou un Mage, `evade_rate` (facteur 6) sinon ; chances directes, 80 % au plus, moins la pénalité de défense et
   l'`Ignore_EvadeRate` / `Ignore_DodgeRate` et l'`Ignore_BlockRate` de l'assaillant (résultats 7 et 9).
-- *Cumul des effets* (règle déduite des tables) : un effet à durée est refusé si la même compétence est posée à un niveau plus haut, ou si un
+- *Cumul des effets* : le refus d'un effet plus faible existe dans le jeu d'origine (AgpmPvP op 18 code 22, « Stronger
+  effects were applied already », FUN_1406acbf0 d'Archonia), envoyé par ArchCore au lanceur ; les comparaisons qui
+  suivent sont déduites des tables. Un effet à durée est refusé si la même compétence est posée à un niveau plus haut, ou si un
   effet de la même famille (`skill_classify_id`, id non nul) a un rang (`skill_classify_level`) plus haut ; sinon il
   remplace la même compétence et les effets à durée de sa famille. Deux renforcements d'une famille ne se cumulent pas.
 - *Renforcements* : `point.dmg_min_*` / `dmg_max_*` s'ajoutent aux dégâts élémentaires, `point.atk_range` (mètres,
@@ -1608,7 +1612,8 @@ nouvelle entrée par le serveur de connexion le remplace aussitôt.
 7 octet de l'op 0, 8 guilde (CHAR[33], chaîne 1 du message), 9 nom (CHAR[49], chaîne 2). Op 0 victoires et
 défaites, op 2 / 4 ennemi ajouté / retiré, op 6 liste vidée, op 18 message système (textes `PvP_Msg_*`
 d'uimessage.txt : 3 « en combat », 4 « fin du combat », 5 défaite, 12 victoire, 17 cible invincible, 20 ami,
-24 charisme gagné, 25 niveau insuffisant…). Les codes 0 à 2 (entrée en zone sûre, libre, de combat) sont produits
+22 effet refusé, un plus fort étant déjà posé (« Skill_Cannot_Apply_Effect »), 24 charisme gagné, 25 niveau
+insuffisant…). Les codes 0 à 2 (entrée en zone sûre, libre, de combat) sont produits
 par le client lui-même au changement de région ; ArchCore envoie le code 2 puis le 13 (« You moved to a Battle
 Square ») à l'arrivée dans la Battle Square, et le 18 (niveau insuffisant) au refus d'un superviseur.
 

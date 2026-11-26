@@ -1772,7 +1772,10 @@ pub(super) async fn hit_monster(ctx: &WorldCtx, st: &mut WorldState, sid: u32, o
         let mut e = Effect { caster_sid: sid, ..new_effect(owned, lv, caster_tid, status, dot, now) };
         effects::lengthen(&mut e, gear.0);
         let list = st.monsters.effects.entry(cid).or_default();
-        let Some(gone) = effects::push(list, e.clone()) else { return Ok(()) };
+        let Some(gone) = effects::push(list, e.clone()) else {
+            effect_refused(st, sid);
+            return Ok(());
+        };
         for old in &gone {
             combat::broadcast(st, &watchers, &effects::remove_packet(cid, old));
         }
@@ -1984,7 +1987,10 @@ async fn rune_skill(ctx: &WorldCtx, st: &mut WorldState, sid: u32, cid: u32, tid
         });
         let e = Effect { caster_sid: sid, ..new_effect(&owned, lv, caster_tid, status, dot, now) };
         let list = st.monsters.effects.entry(cid).or_default();
-        let Some(gone) = effects::push(list, e.clone()) else { return Ok(()) };
+        let Some(gone) = effects::push(list, e.clone()) else {
+            effect_refused(st, sid);
+            return Ok(());
+        };
         for old in &gone {
             combat::broadcast(st, &watchers, &effects::remove_packet(cid, old));
         }
@@ -2114,12 +2120,22 @@ pub fn sync_monster_status(st: &mut WorldState, cid: u32, now: Instant) {
     combat::broadcast(st, &watchers, &effects::status_packet(cid, status));
 }
 
+/// Effet refusé (un plus fort déjà posé, `effects::push`) : AGPMPVP op 18 code 22 à `sid`, qui affiche « Stronger effects
+/// were applied already ».
+pub fn effect_refused(st: &WorldState, sid: u32) {
+    if let Some(p) = st.players.get(&sid) {
+        p.send_raw(super::pvp::message(super::pvp::code::CANNOT_APPLY_EFFECT, None, None));
+    }
+}
+
 /// Ajoute un effet à un joueur : annoncé autour de lui, facteurs recalculés.
 pub fn add_player_effect(ctx: &WorldCtx, st: &mut WorldState, sid: u32, e: Effect) {
     let Some(p) = st.players.get_mut(&sid) else { return };
     let cid = p.ch.id;
     let Some(gone) = effects::push(&mut p.skills.effects, e.clone()) else {
         debug!("[compétence] effet {} niveau {} refusé sur {cid} : plus fort déjà posé ou liste pleine", e.tid, e.level);
+        // Le lanceur l'apprend ; sans lanceur connu (renforcement sur soi, objet), le porteur.
+        effect_refused(st, if st.players.contains_key(&e.caster_sid) { e.caster_sid } else { sid });
         return;
     };
     for old in &gone {

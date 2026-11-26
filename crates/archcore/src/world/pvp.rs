@@ -77,6 +77,9 @@ pub mod code {
     /// Niveau insuffisant pour la Battle Square (le client affiche son propre seuil).
     pub const NOT_ENOUGH_LEVEL: i64 = 18;
     pub const CANNOT_ATTACK_FRIEND: i64 = 20;
+    /// Effet de compétence refusé, un plus fort étant déjà posé : « Skill_Cannot_Apply_Effect » (« Stronger effects were
+    /// applied already », FUN_1406acbf0 d'Archonia).
+    pub const CANNOT_APPLY_EFFECT: i64 = 22;
     pub const CHARISMA_UP: i64 = 24;
     pub const CANNOT_PVP_BY_LEVEL: i64 = 25;
 }
