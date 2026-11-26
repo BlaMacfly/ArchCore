@@ -167,6 +167,7 @@ pub fn with_equipment(mut f: Factors, worn: &[EquipData]) -> Factors {
         f.point_max[0] += e.hp;
         // Esquive des bottes (« PDR »), caractéristiques des anneaux (× 100 comme les autres), facteurs héroïques.
         f.point_max[9] += e.pdr;
+        f.defense_rate[9] += e.block_rate;
         for (i, idx) in [0usize, 1, 2, 3, 6].iter().enumerate() {
             f.status[*idx] += e.stat_bonus[i] * 100;
         }
@@ -560,6 +561,15 @@ mod tests {
             c.items.insert(*tid, ItemData { tid: *tid, name: format!("objet {tid}"), npc_price: 0, pc_price: 0, charisma_price: 0, coin_price: 0, stack: 1, equip: Some(e.clone()), potion: None, scroll: None, stone: None, usable_type: 0, option_tids: Vec::new(), kind: 0, bound_type: 0, cash: 0, enable_on_ride: false, auction_category: (0, 0), event_item: false });
         }
         c
+    }
+
+    #[test]
+    fn blocage_des_boucliers() {
+        let raw = serde_json::json!({"Part":"9","Kind":"4","BlockRate":"12","PDR":"3"});
+        let shield = EquipData::from_raw(&raw).expect("bouclier");
+        assert_eq!((shield.block_rate, shield.pdr), (12, 3));
+        let f = with_equipment(crate::character::Factors::default(), &[shield]);
+        assert_eq!((f.defense_rate[9], f.point_max[9]), (12, 3), "blocage au facteur de défense 9, PDR au DR");
     }
 
     #[test]

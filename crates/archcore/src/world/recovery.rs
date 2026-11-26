@@ -274,6 +274,11 @@ pub async fn use_item(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet,
 pub fn regen_step(st: &mut WorldState, now: Instant) {
     let mut changed = Vec::new();
     for (sid, p) in st.players.iter_mut() {
+        // Fin de l'invincibilité de la résurrection : « You are no longer invincible. » (AgpmPvP op 18 code 10).
+        if p.invincible_until.is_some_and(|t| now >= t) {
+            p.invincible_until = None;
+            p.send_raw(super::pvp::message(super::pvp::code::END_INVINCIBLE, None, None));
+        }
         if !p.in_game || p.dead || now < p.timers.regen_at {
             continue;
         }

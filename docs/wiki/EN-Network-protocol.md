@@ -726,7 +726,9 @@ it with AGPMITEM **op 9** (field 4 = CID); the client asks to go back with **op 
 server answers **op 10** (return disabled) and takes the player back. A refused return is signalled by **op 7**
 (field 4 = CID), which neither Archonia nor Webzen's client shows (their only subscriber, the item window, does
 nothing): the message stays ArchCore's; before sending op 3, the client itself refuses a scroll when dead,
-transformed, in combat (`Item_TryUseTelScrollOnCombat`) or in a PvP zone. The client gives up the return with
+transformed, in combat (`Item_TryUseTelScrollOnCombat`) or in a PvP zone (FUN_14053d0b0). ArchCore also refuses any
+scroll in a dangerous combat area (AgpmPvP op 18 code 11, "Passports can not be used at Dangerous Battlefields"). The
+client gives up the return with
 **op 8** (field 4 = CID, only while a return is possible): the server forgets the point and answers op 10.
 
 ## Item information (type 0x04, AgpmItem ops 31 and 32)
@@ -975,14 +977,16 @@ receives the results).
   5 when a player hits a monster, 80 at most (deduced rule).
 - *Physical resistance*: physical damage after defense × (100 − r) / 100, at least 1; r = a player's defense factor 0
   (options' `PhysicalAttackResist`, effects' `point.physical_resistance`; 80 at most) or a monster's
-  `Physical_Resistance` (100 at most), minus the attacker's `Ignore_PhysicalAttackResist`. Normal hits and skills.
+  `Physical_Resistance` (80 at most too, FUN_140296740), minus the attacker's `Ignore_PhysicalAttackResist`. Normal hits
+  and skills.
 - *Skill block*: an offensive skill is blocked (no damage, no effect) with the target's chance (defense factor 10:
   `SkillBlockRate`, `point.skill_block`; a monster's `Skill_Block`), minus the caster's `Ignore_SkillBlockRate`, 80%
   at most.
-- *A player's block and evasion*: against a monster and between players, block (skills and options' `BlockRate`,
-  defense factor 9), then evasion: `dodge_rate` (attack factor 7) against a Ranger, a Dragon Scion or a Mage,
-  `evade_rate` (factor 6) otherwise; direct chances, 80% at most, minus the defense penalty and the attacker's
-  `Ignore_EvadeRate` / `Ignore_DodgeRate` and `Ignore_BlockRate` (results 7 and 9).
+- *Block and evasion* (FUN_1402981f0, FUN_140298d50): of any target, player or monster, against a normal hit. Block
+  (skills, options' and shields' `BlockRate`, defense factor 9), then evasion: `dodge_rate` (attack factor 7) against a
+  Ranger, a Dragon Scion or a Mage, `evade_rate` (factor 6) otherwise; direct chances, 80% at most, minus the defense
+  penalty and the attacker's `Ignore_EvadeRate` / `Ignore_DodgeRate` and `Ignore_BlockRate`. Results 7 (evasion), 8
+  (ranged evasion) and 9 (block). A monster has no block or evasion in the tables: only those of its effects.
 - *Stacking effects*: refusing a weaker effect exists in the original game (AgpmPvP op 18 code 22, "Stronger effects
   were applied already", Archonia's FUN_1406acbf0), sent by ArchCore to the caster; the comparisons below are deduced
   from the tables. A timed effect is refused if the same skill is applied at a higher level, or if an effect of the
@@ -1550,7 +1554,7 @@ through the login server replaces it at once.
 integer), 4 losses, 5 mode (1 safe, 2 free, 3 combat), 6 status (bit 1 invincible), 7 op 0 byte, 8 guild
 (CHAR[33], message string 1), 9 name (CHAR[49], string 2). Op 0 wins and losses, op 2 / 4 enemy added / removed,
 op 6 list cleared, op 18 system message (`PvP_Msg_*` texts of uimessage.txt: 3 "in combat", 4 "combat over",
-5 defeat, 12 victory, 17 target invincible, 20 friend, 22 effect refused, a stronger one being applied ("Skill_Cannot_Apply_Effect"), 24 charisma gained, 25 level too
+5 defeat, 12 victory, 17 target invincible, 20 friend, 9 and 10 start and end of the resurrection invincibility, 22 effect refused, a stronger one being applied ("Skill_Cannot_Apply_Effect"), 24 charisma gained, 25 level too
 low…). Codes 0 to 2
 (entering a safe, free or combat area) are produced by the client itself on region change; ArchCore sends code 2 then
 13 ("You moved to a Battle Square") on arrival in the Battle Square, and 18 (level too low) when a supervisor refuses.

@@ -751,7 +751,9 @@ l'endroit quitté et l'annonce par AGPMITEM **op 9** (champ 4 = CID) ; le client
 **op 6**, refusé en combat ; le serveur répond **op 10** (retour désactivé) et y ramène le joueur. Un retour refusé
 est signalé par l'**op 7** (champ 4 = CID), que ni Archonia ni le client de Webzen ne montrent (leur seul abonné, la
 fenêtre des objets, ne fait rien) : le message reste celui d'ArchCore ; avant d'envoyer l'op 3, le client refuse
-lui-même un parchemin au mort, transformé, en combat (`Item_TryUseTelScrollOnCombat`) ou en zone de PvP. Le client
+lui-même un parchemin au mort, transformé, en combat (`Item_TryUseTelScrollOnCombat`) ou en zone de PvP (FUN_14053d0b0).
+ArchCore refuse aussi tout parchemin en zone de combat dangereuse (AgpmPvP op 18 code 11, « Passports can not be used
+at Dangerous Battlefields »). Le client
 renonce au retour par l'**op 8** (champ 4 = CID, seulement si le retour est possible) : le serveur oublie le point
 et répond l'op 10.
 
@@ -1013,15 +1015,17 @@ ArchCore, aucun binaire ne les montre (le client reçoit les résultats).
   cible au-dessus du lanceur, 5 quand un joueur frappe un monstre, 80 au plus (règle déduite).
 - *Résistance physique* : dégâts physiques après la défense × (100 − r) / 100, au moins 1 ; r = facteur de défense 0
   d'un joueur (`PhysicalAttackResist` des options, `point.physical_resistance` des effets ; 80 au plus) ou
-  `Physical_Resistance` d'un monstre (100 au plus), moins l'`Ignore_PhysicalAttackResist` de l'assaillant. Coups
+  `Physical_Resistance` d'un monstre (80 au plus aussi, FUN_140296740), moins l'`Ignore_PhysicalAttackResist` de l'assaillant. Coups
   normaux et compétences.
 - *Blocage des compétences* : une compétence offensive est bloquée (ni dégâts ni effet) avec la chance de la cible
   (facteur de défense 10 : `SkillBlockRate`, `point.skill_block` ; `Skill_Block` d'un monstre), moins
   l'`Ignore_SkillBlockRate` du lanceur, 80 % au plus.
-- *Blocage et esquive d'un joueur* : contre un monstre et entre joueurs, blocage (compétences et `BlockRate` des
-  options, facteur de défense 9), puis esquive : `dodge_rate` (facteur d'attaque 7) contre un Ranger, un Dragon Scion
-  ou un Mage, `evade_rate` (facteur 6) sinon ; chances directes, 80 % au plus, moins la pénalité de défense et
-  l'`Ignore_EvadeRate` / `Ignore_DodgeRate` et l'`Ignore_BlockRate` de l'assaillant (résultats 7 et 9).
+- *Blocage et esquive* (FUN_1402981f0, FUN_140298d50) : de toute cible, joueur ou monstre, contre un coup normal.
+  Blocage (compétences, `BlockRate` des options et des boucliers, facteur de défense 9), puis esquive : `dodge_rate`
+  (facteur d'attaque 7) contre un Ranger, un Dragon Scion ou un Mage, `evade_rate` (facteur 6) sinon ; chances
+  directes, 80 % au plus, moins la pénalité de défense et l'`Ignore_EvadeRate` / `Ignore_DodgeRate` et
+  l'`Ignore_BlockRate` de l'assaillant. Résultats 7 (esquive), 8 (esquive à distance) et 9 (blocage). Un monstre n'a
+  ni blocage ni esquive dans les tables : seulement ceux de ses effets.
 - *Cumul des effets* : le refus d'un effet plus faible existe dans le jeu d'origine (AgpmPvP op 18 code 22, « Stronger
   effects were applied already », FUN_1406acbf0 d'Archonia), envoyé par ArchCore au lanceur ; les comparaisons qui
   suivent sont déduites des tables. Un effet à durée est refusé si la même compétence est posée à un niveau plus haut, ou si un
@@ -1612,7 +1616,7 @@ nouvelle entrée par le serveur de connexion le remplace aussitôt.
 7 octet de l'op 0, 8 guilde (CHAR[33], chaîne 1 du message), 9 nom (CHAR[49], chaîne 2). Op 0 victoires et
 défaites, op 2 / 4 ennemi ajouté / retiré, op 6 liste vidée, op 18 message système (textes `PvP_Msg_*`
 d'uimessage.txt : 3 « en combat », 4 « fin du combat », 5 défaite, 12 victoire, 17 cible invincible, 20 ami,
-22 effet refusé, un plus fort étant déjà posé (« Skill_Cannot_Apply_Effect »), 24 charisme gagné, 25 niveau
+9 et 10 début et fin de l'invincibilité de la résurrection, 22 effet refusé, un plus fort étant déjà posé (« Skill_Cannot_Apply_Effect »), 24 charisme gagné, 25 niveau
 insuffisant…). Les codes 0 à 2 (entrée en zone sûre, libre, de combat) sont produits
 par le client lui-même au changement de région ; ArchCore envoie le code 2 puis le 13 (« You moved to a Battle
 Square ») à l'arrivée dans la Battle Square, et le 18 (niveau insuffisant) au refus d'un superviseur.

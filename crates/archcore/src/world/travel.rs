@@ -98,6 +98,12 @@ fn return_packet(op: i64, cid: u32) -> Vec<u8> {
 /// Utilise un parchemin de l'inventaire.
 pub async fn use_scroll(ctx: &WorldCtx, st: &mut WorldState, sid: u32, item: &InventoryItem, scroll: Scroll, now: Instant) -> anyhow::Result<()> {
     let p = &st.players[&sid];
+    // Zone de combat dangereuse : aucun parchemin (« Passports can not be used at Dangerous Battlefields »,
+    // FUN_14053d0b0 d'Archonia, qui le refuse aussi de lui-même).
+    if super::pvp::zone_mode(ctx, st, sid) == super::pvp::mode::COMBAT {
+        p.send_raw(super::pvp::message(super::pvp::code::CANNOT_USE_TELEPORT, None, None));
+        return Ok(());
+    }
     let fighting = now < p.timers.combat_until;
     if fighting && matches!(scroll.kind, ScrollKind::GoTown | ScrollKind::Roundtrip) {
         send_system(st, sid, "Impossible de rentrer au village pendant un combat.");

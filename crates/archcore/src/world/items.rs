@@ -320,6 +320,8 @@ pub struct EquipData {
     /// Esquive en plus (« PDR » des bottes : DR, facteur « points max » 9) ; le client ne lit pas la colonne mais
     /// affiche le DR reçu.
     pub pdr: i32,
+    /// Chance de bloquer (« BlockRate », boucliers) : facteur de défense 9 du porteur (FUN_1401d8c30 d'Archonia).
+    pub block_rate: i32,
     /// Caractéristiques en plus (« CON_Bonus_Point », « STR_… », « INT_… », « DEX_… », « Wis_… » des anneaux), dans
     /// l'ordre constitution, force, intelligence, dextérité, sagesse.
     pub stat_bonus: [i32; 5],
@@ -399,6 +401,7 @@ impl EquipData {
             heroic_max: num("Heroic_Max_Damage") as i32,
             heroic_def: num("Heroic_Defense_Point") as i32,
             pdr: num("PDR") as i32,
+            block_rate: num("BlockRate") as i32,
             stat_bonus: ["CON_Bonus_Point", "STR_Bonus_Point", "INT_Bonus_Point", "DEX_Bonus_Point", "Wis_Bonus_Point"].map(|k| num(k) as i32),
         })
     }

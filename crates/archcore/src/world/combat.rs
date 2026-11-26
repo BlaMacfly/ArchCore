@@ -38,6 +38,8 @@ pub mod result {
     pub const SUCCESS: i64 = 5;
     pub const CRITICAL: i64 = 6;
     pub const EVADE: i64 = 7;
+    /// Esquive à distance (coup d'un assaillant à distance, FUN_140298d50 d'Archonia).
+    pub const DODGE: i64 = 8;
     pub const BLOCK: i64 = 9;
     pub const COUNTER_ATTACK: i64 = 12;
 }
@@ -185,7 +187,8 @@ impl Defender {
             dr: s.dr,
             defense: super::effects::monster_defense(s.ac, m),
             resist: s.resist.map(|r| r.clamp(0, 100)),
-            phys_resist: (s.phys_resist as f64 + m.phys_resist).clamp(0.0, 100.0),
+            // 80 au plus pour toute cible (FUN_140296740 d'Archonia).
+            phys_resist: (s.phys_resist as f64 + m.phys_resist).clamp(0.0, 80.0),
             skill_block: (s.skill_block as f64 + m.skill_block).max(0.0),
             heroic_def: (s.heroic_def as f64 + m.heroic_def).max(0.0),
             heroic_resist: m.heroic_resist,
@@ -313,7 +316,7 @@ pub fn player_guard(rng: &mut impl Rng, target: &super::effects::Mods, block_fac
     if block > 0.0 && rng.gen_range(0.0..100.0) < block {
         return Some(result::BLOCK);
     }
-    (dodge > 0.0 && rng.gen_range(0.0..100.0) < dodge).then_some(result::EVADE)
+    (dodge > 0.0 && rng.gen_range(0.0..100.0) < dodge).then_some(if ranged { result::DODGE } else { result::EVADE })
 }
 
 /// Coup normal d'un joueur sur un autre (combat entre joueurs, de guildes) : toucher, esquive et blocage de la cible
@@ -633,6 +636,11 @@ async fn attack_step(ctx: &WorldCtx, st: &mut WorldState, sid: u32, now: Instant
         let mut rng = rand::thread_rng();
         let (outcome, damage) = strike(&mut rng, &attacker, &defender);
         let mine = super::effects::of_player(p);
+        // Blocage et esquive du monstre (ses effets), comme ceux d'un joueur (FUN_1402981f0, FUN_140298d50 d'Archonia).
+        let (outcome, damage) = match (outcome == result::SUCCESS).then(|| player_guard(&mut rng, &st.monsters.mods(m.cid), 0, &mine, attacker.ranged, penalty)).flatten() {
+            Some(r) => (r, 0),
+            None => (outcome, damage),
+        };
         let crit_resist = (st.monsters.mods(m.cid).crit_resist - penalty).max(0.0) - mine.ignore_crit_resist.max(0.0);
         let (outcome, damage) = super::effects::critical(&mut rng, &mine, crit_resist, outcome, damage);
         let mut parts = vec![(RESULT_PHYSICAL, damage)];
@@ -1090,6 +1098,8 @@ pub fn revive(ctx: &WorldCtx, st: &mut WorldState, sid: u32) {
     let p = st.players.get_mut(&sid).unwrap();
     p.dead = false;
     p.invincible_until = Some(Instant::now() + RESURRECTION_GRACE);
+    // « You are temporarily invincible. » (AgpmPvP op 18 code 9) ; la fin, code 10, part de recovery.rs.
+    p.send_raw(super::pvp::message(super::pvp::code::START_INVINCIBLE, None, None));
     p.factors.point[POINT_HP] = p.factors.point_max[0];
     p.factors.point[1] = p.factors.point_max[1];
     let plain = status_packet(p, 0);
@@ -1199,6 +1209,8 @@ mod tests {
         let stats = super::super::monsters::MonsterStats { ac: 10, dr: 237, phys_resist: 80, skill_block: 5, ..Default::default() };
         let d = Defender::of_monster(50, &stats, &super::super::effects::Mods { evade: -37.0, ..Default::default() });
         assert_eq!((d.dr, d.phys_resist, d.skill_block), (237, 80.0, 5.0));
+        let hard = super::super::monsters::MonsterStats { phys_resist: 95, ..stats };
+        assert_eq!(Defender::of_monster(50, &hard, &super::super::effects::Mods::default()).phys_resist, 80.0, "80 au plus, monstre compris");
         let a = Attacker { level: 50, ar: 300, ..warrior() };
         assert_eq!(hit_chance(&a, &d), 81, "1/2 × 300/537 × 290");
         assert_eq!(hit_chance(&a, &Defender { dr: 0, ..d }), 95, "sans esquive : plafond");
@@ -1224,14 +1236,14 @@ mod tests {
         // 100 % d'esquive à distance, plafonnés à 80 ; l'assaillant en ignore 30 : 50 %. Contre un coup au corps à
         // corps, c'est l'esquive au corps à corps qui compte (nulle ici).
         let agile = super::super::effects::Mods { dodge: 100.0, ..Default::default() };
-        let n = (0..10_000).filter(|_| player_guard(&mut rng, &agile, 0, &none, true, 0.0) == Some(result::EVADE)).count();
+        let n = (0..10_000).filter(|_| player_guard(&mut rng, &agile, 0, &none, true, 0.0) == Some(result::DODGE)).count();
         assert!((7600..8400).contains(&n), "{n}");
         assert!((0..1000).all(|_| player_guard(&mut rng, &agile, 0, &none, false, 0.0).is_none()));
         let sharp = super::super::effects::Mods { ignore_dodge: 50.0, ..Default::default() };
-        let n = (0..10_000).filter(|_| player_guard(&mut rng, &agile, 0, &sharp, true, 0.0) == Some(result::EVADE)).count();
+        let n = (0..10_000).filter(|_| player_guard(&mut rng, &agile, 0, &sharp, true, 0.0) == Some(result::DODGE)).count();
         assert!((4700..5300).contains(&n), "{n}");
         // Pénalité de défense de 20 : 80 − 20 = 60 %.
-        let n = (0..10_000).filter(|_| player_guard(&mut rng, &agile, 0, &none, true, 20.0) == Some(result::EVADE)).count();
+        let n = (0..10_000).filter(|_| player_guard(&mut rng, &agile, 0, &none, true, 20.0) == Some(result::DODGE)).count();
         assert!((5600..6400).contains(&n), "{n}");
         // Blocage des options (facteur 9) : 20 %, moins 20 points ignorés : jamais.
         let n = (0..10_000).filter(|_| player_guard(&mut rng, &none, 20, &none, false, 0.0) == Some(result::BLOCK)).count();

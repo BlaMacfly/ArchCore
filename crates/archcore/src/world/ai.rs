@@ -496,7 +496,7 @@ fn monster_step(ctx: &WorldCtx, st: &mut WorldState, cid: u32, now: Instant) -> 
             Guard::Hit => {
                 effects::lift_status(&mut p.skills.effects, status::SLEEP);
             }
-            Guard::Evade => outcome = combat::result::EVADE,
+            Guard::Evade => outcome = if attacker.ranged { combat::result::DODGE } else { combat::result::EVADE },
             Guard::Block => outcome = combat::result::BLOCK,
             Guard::ToHp(n) | Guard::ToMp(n) => {
                 let (i, max) = if matches!(guard, Guard::ToHp(_)) { (crate::character::POINT_HP, 0) } else { (1, 1) };

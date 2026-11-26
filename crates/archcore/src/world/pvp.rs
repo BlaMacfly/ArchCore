@@ -68,6 +68,9 @@ pub mod code {
     pub const NOW_PVP: i64 = 3;
     pub const NONE_PVP: i64 = 4;
     pub const DEAD: i64 = 5;
+    /// Invincibilité de la résurrection : début (« You are temporarily invincible. ») et fin.
+    pub const START_INVINCIBLE: i64 = 9;
+    pub const END_INVINCIBLE: i64 = 10;
     /// Portail refusé à un joueur en combat entre joueurs : « PvP_Msg_CannotUseTeleport ».
     pub const CANNOT_USE_TELEPORT: i64 = 11;
     pub const KILL_PLAYER: i64 = 12;
