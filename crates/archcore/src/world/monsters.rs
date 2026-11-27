@@ -316,6 +316,9 @@ pub struct MonsterRegistry {
     pub morph_immune: HashMap<u32, Instant>,
     /// Prochaine régénération des monstres vivants (`recovery::monster_regen_step`).
     pub regen_at: Option<Instant>,
+    /// Vitesses (marche, course, attaque) annoncées aux clients quand des effets les changent
+    /// (`skills::sync_monster_status`) ; absent : celles du modèle.
+    pub speeds_sent: HashMap<u32, (i32, i32, i32)>,
     by_cid: HashMap<u32, usize>,
     grid: HashMap<(i64, i64), Vec<usize>>,
 }
@@ -526,6 +529,30 @@ impl MonsterRegistry {
         self.effects.get(&cid).map(|l| super::effects::total(l)).unwrap_or_default()
     }
 
+    /// Facteurs d'un monstre envoyés aux joueurs (vue, PV, effets) : ceux de son modèle et ses PV, ses vitesses de
+    /// marche, de course et d'attaque sous ses effets (ralentissement, hâte). Le client fait avancer le monstre à ces
+    /// vitesses (facteurs de statut 8 et 9, FUN_14017a750 / 14017a850 d'Archonia), comme le serveur.
+    pub fn factors_of(&self, m: &Monster) -> Factors {
+        let stats = self.stats_for(m);
+        let mut f = monster_factors(m.level, &stats, m.hp);
+        let (walk, run, attack) = self.speeds_of(m);
+        f.status[8] = walk;
+        f.status[9] = run;
+        f.attack[2] = attack;
+        f
+    }
+
+    /// Marche, course et vitesse d'attaque d'un monstre sous ses effets.
+    pub fn speeds_of(&self, m: &Monster) -> (i32, i32, i32) {
+        let stats = self.stats_for(m);
+        let mods = self.mods(m.cid);
+        (
+            super::effects::speed(stats.walk, mods.movement_pct),
+            super::effects::speed(stats.run, mods.movement_pct),
+            super::effects::speed(stats.attack_speed, mods.atk_speed_pct),
+        )
+    }
+
     /// États spéciaux en cours d'un monstre, permanents compris.
     pub fn status(&self, cid: u32, now: Instant) -> u64 {
         let fixed = self.fixed_status.get(&cid).copied().unwrap_or(0);
@@ -641,7 +668,6 @@ impl MonsterRegistry {
     /// Comme `view_packet`, avec le nom à afficher (localisé pour le joueur, voir `locale.rs`).
     pub fn view_packet_named(&self, m: &Monster, name: &str) -> Vec<u8> {
         let clamp16 = |v: f64| v.round().clamp(-32768.0, 32767.0) as i64;
-        let stats = self.stats_for(m);
         let vs = &mini::OPT_VIEW_CHAR;
         let view = build_mini(
             vs,
@@ -650,7 +676,7 @@ impl MonsterRegistry {
                 .with(1, m.tid)
                 .with(2, archcore_net::text::encode(name))
                 .with(3, if m.is_alive() { 0 } else { ACTION_STATUS_DEAD })
-                .with(5, factors_mini(&monster_factors(m.level, &stats, m.hp)))
+                .with(5, factors_mini(&self.factors_of(m)))
                 .with(6, MOVE_STOP)
                 .with(7, 0)
                 .with(8, m.pos)
@@ -810,5 +836,22 @@ mod tests {
         assert!(v.vec3(9).is_none(), "pas de destination");
         assert!(v.bytes(5).is_some_and(|b| !b.is_empty()), "facteurs présents");
         assert!(p.bytes(4).is_none(), "pas de fonctions d'événement");
+    }
+
+    #[test]
+    fn vitesses_sous_effets() {
+        let m = spawn_point(&point(1, 10.0, 20.0, 1, 0.0), MONSTER_CID_BASE, &|_, _| false).remove(0);
+        let mut reg = MonsterRegistry::from_monsters(vec![m.clone()]);
+        reg.stats.insert(450, MonsterStats { max_hp: 136, walk: 450, run: 3850, attack_speed: 32, ..Default::default() });
+        assert_eq!(reg.speeds_of(&m), (450, 3850, 32), "sans effet : le modèle");
+        let slow = super::super::effects::Mods { movement_pct: -50.0, atk_speed_pct: 25.0, ..Default::default() };
+        let e = super::super::effects::Effect {
+            skill_id: 1, tid: 1, level: 1, caster_tid: 96, duration_ms: 1000, ends_at: None, mods: slow, dot: None, status: 0,
+            status_until: None, caster_sid: super::super::effects::MONSTER_CASTER, purge: None, classify: (0, 0),
+        };
+        reg.effects.insert(m.cid, vec![e]);
+        assert_eq!(reg.speeds_of(&m), (225, 1925, 40), "ralenti de moitié, attaque +25 %");
+        let f = reg.factors_of(&m);
+        assert_eq!((f.status[8], f.status[9], f.attack[2]), (225, 1925, 40), "facteurs envoyés");
     }
 }

@@ -294,7 +294,9 @@ pub fn patrol_step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) {
         }
         let Some((x, z)) = patrol_spot(&mut rng, zone, roam, |x, z| ctx.map.is_blocked(x, z)) else { continue };
         let dest = Vec3::new(x as f32, home.y, z as f32);
-        let t = go(&ctx.map, st, cid, dest, stats.walk, false);
+        // Marche sous ses effets (ralentissement), comme l'annoncent ses facteurs.
+        let walk_speed = super::effects::speed(stats.walk, st.monsters.mods(cid).movement_pct);
+        let t = go(&ctx.map, st, cid, dest, walk_speed, false);
         st.monsters.get_mut(cid).unwrap().ready_at = now + t;
         started += 1;
     }
@@ -394,7 +396,8 @@ fn monster_step(ctx: &WorldCtx, st: &mut WorldState, cid: u32, now: Instant) -> 
         // Plus personne à poursuivre : il rentre.
         disengage(st, cid);
         if combat::dist2d(m.pos, m.home) > 1.0 {
-            let t = walk(map, st, cid, m.home, stats.run);
+            let run = super::effects::speed(stats.run, st.monsters.mods(cid).movement_pct);
+            let t = walk(map, st, cid, m.home, run);
             st.monsters.get_mut(cid).unwrap().ready_at = now + t;
         }
         return None;

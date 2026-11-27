@@ -377,6 +377,13 @@ point has a radius, walks every 15 to 45 s to a random spot within that radius, 
 AGPMOPTIMIZEDCHARMOVE with field 5 set to 0 (walking), whereas a pursuit runs (0x10). At most 16
 departures per tick.
 
+**Speeds.** The client moves a character at the status factors 8 (walk) and 9 (run) it receives, in tenths of a unit
+per second (a trip of `10000 / speed × distance` ms; 4000 and 12000 when unknown, run capped at 60000 unless mounted).
+The clients' templates only have speeds for players: a monster's or an animal's comes from the server tables
+(`Movement Walk`, `Movement Run`; cow 1700, dog 525, hen 375). Its effects change it (slow, haste): the modified walk,
+run and attack speeds are sent to viewers (AGPMCHARACTER op 1, factors) when the effect is applied and when it ends,
+and chasing, patrolling and returning use those speeds.
+
 **Player death.** At 0 HP: AGPMCHARACTER op 1 (factors, field 11 = 2) to the player and to those who see
 them; they can no longer move or attack, and monsters drop them. The client asks to be resurrected in
 town with AGPMCHARACTER **op 9**: the server restores HP and MP, sends status 0, teleports the character

@@ -2165,6 +2165,7 @@ pub fn sync_player_status(st: &mut WorldState, sid: u32, now: Instant) {
 
 /// Annonce les états spéciaux d'un monstre s'ils ont changé.
 pub fn sync_monster_status(st: &mut WorldState, cid: u32, now: Instant) {
+    sync_monster_speeds(st, cid);
     let status = st.monsters.status(cid, now);
     let sent = st.monsters.status_sent.get(&cid).copied().unwrap_or(0);
     if status == sent {
@@ -2177,6 +2178,31 @@ pub fn sync_monster_status(st: &mut WorldState, cid: u32, now: Instant) {
     }
     let watchers = combat::viewers(st, cid);
     combat::broadcast(st, &watchers, &effects::status_packet(cid, status));
+}
+
+/// Vitesses d'un monstre changées par ses effets (ralentissement, hâte) : ses facteurs (AGPMCHARACTER op 1) à ceux
+/// qui le voient, pour que le client le fasse avancer comme le serveur.
+pub fn sync_monster_speeds(st: &mut WorldState, cid: u32) {
+    let Some(m) = st.monsters.get(cid).filter(|m| m.is_alive()) else {
+        st.monsters.speeds_sent.remove(&cid);
+        return;
+    };
+    let now_speeds = st.monsters.speeds_of(m);
+    let stats = st.monsters.stats_for(m);
+    let base = (stats.walk, stats.run, stats.attack_speed);
+    let sent = st.monsters.speeds_sent.get(&cid).copied().unwrap_or(base);
+    if now_speeds == sent {
+        return;
+    }
+    let factors = st.monsters.factors_of(m);
+    if now_speeds == base {
+        st.monsters.speeds_sent.remove(&cid);
+    } else {
+        st.monsters.speeds_sent.insert(cid, now_speeds);
+    }
+    let c = &schema::CHARACTER;
+    let watchers = combat::viewers(st, cid);
+    combat::broadcast(st, &watchers, &build_packet(c, &Fields::new(c).with(0, 1).with(1, cid).with(7, crate::character::factors_mini(&factors))));
 }
 
 /// Effet refusé (un plus fort déjà posé, `effects::push`) : AGPMPVP op 18 code 22 à `sid`, qui affiche « Stronger effects
@@ -2320,13 +2346,14 @@ async fn effects_step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) -> anyh
         }
         sync_player_status(st, sid, now);
     }
-    let mut affected: Vec<u32> = st.monsters.effects.keys().chain(st.monsters.status_sent.keys()).copied().collect();
+    let mut affected: Vec<u32> = st.monsters.effects.keys().chain(st.monsters.status_sent.keys()).chain(st.monsters.speeds_sent.keys()).copied().collect();
     affected.sort_unstable();
     affected.dedup();
     for cid in affected {
         if !st.monsters.get(cid).is_some_and(|m| m.is_alive()) {
             st.monsters.effects.remove(&cid);
             st.monsters.status_sent.remove(&cid);
+            st.monsters.speeds_sent.remove(&cid);
             continue;
         }
         let watchers = combat::viewers(st, cid);

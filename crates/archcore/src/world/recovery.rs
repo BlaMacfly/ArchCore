@@ -339,9 +339,8 @@ pub fn monster_regen_step(st: &mut WorldState, now: Instant) {
         if watchers.is_empty() {
             continue;
         }
-        let stats = st.monsters.stats_for(m);
         let c = &schema::CHARACTER;
-        let factors = super::monsters::monster_factors(m.level, &stats, m.hp);
+        let factors = st.monsters.factors_of(m);
         super::combat::broadcast(st, &watchers, &build_packet(c, &Fields::new(c).with(0, 1).with(1, cid).with(7, factors_mini(&factors))));
     }
 }

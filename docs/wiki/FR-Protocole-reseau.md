@@ -387,6 +387,14 @@ point d'apparition a un rayon, marche toutes les 15 à 45 s vers un endroit tir�
 hors sol infranchissable : AGPMOPTIMIZEDCHARMOVE avec le champ 5 à 0 (marche), alors qu'une poursuite
 court (0x10). Au plus 16 départs par tour.
 
+**Vitesses.** Le client fait avancer un personnage aux facteurs de statut 8 (marche) et 9 (course) qu'il reçoit, en
+dixièmes d'unité par seconde (trajet de `10000 / vitesse × distance` ms ; 4000 et 12000 s'il n'en connaît pas, course
+plafonnée à 60000 hors monture). Les modèles des clients n'ont de vitesse que pour les joueurs : celle d'un monstre ou
+d'un animal vient des tables du serveur (`Movement Walk`, `Movement Run` ; vache 1700, chien 525, poule 375).
+Ses effets la changent (ralentissement, hâte) : marche, course et vitesse d'attaque modifiées sont envoyées à
+ceux qui le voient (AGPMCHARACTER op 1, facteurs) à la pose et à la fin de l'effet, et la poursuite, la promenade et le
+retour se font à ces vitesses.
+
 **Mort du joueur.** À 0 PV : AGPMCHARACTER op 1 (facteurs, champ 11 = 2) au joueur et à ceux qui le
 voient ; il ne bouge ni n'attaque plus, et les monstres le lâchent. Le client demande la résurrection au
 village par AGPMCHARACTER **op 9** : le serveur rend tous les PV et PM, renvoie le statut 0, téléporte le
