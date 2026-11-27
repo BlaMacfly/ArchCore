@@ -168,7 +168,7 @@ on the position tracked at that moment (current walk included), plus a 50-unit m
 | Field | Content |
 |---|---|
 | 0 | op (INT8): 0 add, 1 remove, 2 update |
-| 1 | status (INT8): 2 inventory, 10 NPC shop, 13 pet bag, 51 Cash inventory |
+| 1 | status (INT8): 2 inventory, 10 NPC shop, 13 pet bag, 15 expanded inventory, 51 Cash inventory |
 | 2 | IID, item ID |
 | 3 | TID, item template |
 | 4 | owner CID |
@@ -472,9 +472,20 @@ bag is sent (op 0 status 13) the first time it becomes available in the session,
 recalled, the client closes the bag and keeps its items, hidden, until the next call. In the database, status 7 (bag,
 row, column); the op 30 value in `characters.pet_auto_pick` (1 by default, as in the client). ArchCore's choice: on
 pickup (op 11), a Cash item goes to the Cash inventory, another one to the inventory, then, when it is full, to the
-available pet bag; no pickup on drop (op 30 rule unknown). Left out (Archonia additions): bag marking with Ctrl+click
-(ops 37/38) and "Sell All". Not done: buying from a shop into the bag, taking items from the trade grid into the bag,
-equipping from the bag, pet stamina.
+available pet bag; no pickup on drop (op 30 rule unknown). "Sell All" (Archonia addition kept): the client sells
+the items one by one (NPC trade sell), which the server accepts from the available pet bag. Left out (Archonia
+addition): bag marking with Ctrl+click (ops 37/38). Not done: buying from a shop into the bag, taking items from the
+trade grid into the bag, equipping from the bag, pet stamina.
+
+**Expanded inventory (status 15).** An Episode 8 system (also in Webzen's 2017 client): an inventory bag of the Cash
+inventory ("Small Size Inventory", "Large Size Inventory", TID 50310 to 50318, usage 38) switched on or off by op 3
+like a Fortune Manual (op 26 "in use"). "SubType" 1: small bag, `UI_ExpandedInventoryA`, one bag of 4 × 4; 2: large
+bag, `UI_ExpandedInventoryB`, 4 bags × 8 rows × 4 columns (client grid type 12, Archonia FUN_14029a250; the small
+bag's limit is deduced from its window). Moves exactly as in the pet bag: op 2, status 15, slot in field 7
+(Archonia FUN_140648270), from the inventory, equipment or bank, and back with status 2 or 100. The bag's items leave
+on the first switch-on of the session (op 0, status 15); a bag switched off or expired keeps them hidden (status 8 in
+the database). Without a bag, the client shows "HaveToBuyChargingBag". "Sell All" of the large bag works like the
+inventory's.
 
 ## Item options (type 0x04, field 20)
 

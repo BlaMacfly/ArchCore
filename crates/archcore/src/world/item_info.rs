@@ -49,6 +49,7 @@ fn find_item(st: &WorldState, iid: u32) -> Option<(InventoryItem, u32)> {
             .get(&iid)
             .or_else(|| inv.cash.get(&iid))
             .or_else(|| inv.sub.get(&iid))
+            .or_else(|| inv.charging.get(&iid))
             .or_else(|| inv.equipment.values().find(|i| i.iid == iid))
             .or_else(|| inv.avatar.iter().find(|i| i.iid == iid))
             .map(|i| (i.clone(), p.ch.id))

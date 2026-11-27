@@ -80,7 +80,7 @@ fn item_tid(inv: &Inventory, iid: u32) -> Option<u32> {
 
 /// Premier objet de TID `tid` que le joueur a (inventaire, Cash, sac du familier, équipement).
 fn item_of_tid(inv: &Inventory, tid: u32) -> Option<u32> {
-    inv.items.values().chain(inv.cash.values()).chain(inv.sub.values()).chain(inv.equipment.values()).find(|i| i.tid == tid).map(|i| i.iid)
+    inv.items.values().chain(inv.cash.values()).chain(inv.sub.values()).chain(inv.charging.values()).chain(inv.equipment.values()).find(|i| i.tid == tid).map(|i| i.iid)
 }
 
 /// Pose `slot` sur la case `index` (`None` : vidée) ; la même base est d'abord retirée des autres cases de la rangée.

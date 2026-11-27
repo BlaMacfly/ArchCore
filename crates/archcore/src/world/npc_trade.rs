@@ -335,7 +335,9 @@ async fn sell(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> anyh
     let iid = p.int(3).unwrap_or(0) as u32;
     // Un objet proposé à l'échange ne se vend pas.
     // Un objet de quête (« QuestItem ») ne se vend pas non plus.
-    let item = st.players[&sid].inventory.get(iid).cloned().filter(|i| !super::trade::is_offered(st, sid, iid) && !ctx.catalog.quest_items.contains_key(&i.tid));
+    let inv = &st.players[&sid].inventory;
+    let held = inv.get(iid).or_else(|| inv.sub.get(&iid).filter(|_| super::pet_bag::available(ctx, st, sid))).or_else(|| inv.charging.get(&iid).filter(|_| super::charging::available(ctx, st, sid)));
+    let item = held.cloned().filter(|i| !super::trade::is_offered(st, sid, iid) && !ctx.catalog.quest_items.contains_key(&i.tid));
     let Some((item, data)) = item.and_then(|i| ctx.catalog.get(i.tid).map(|d| (i, d))) else {
         result(st, sid, trade_op::SELL, trade_result::INVALID_ITEM);
         return Ok(());
@@ -354,7 +356,7 @@ async fn sell(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> anyh
         .characters
         .atomic(vec![("DELETE FROM character_items WHERE id = ? AND character_id = ?", (item.iid, cid).into()), (SAVE_MONEY, (total, cid).into())])
         .await?;
-    player.inventory.items.remove(&item.iid);
+    player.inventory.consumed(item.iid, item.count);
     player.send_raw(item_remove(item.iid, Some(cid)));
     show_money(player, total);
     let name = player.ch.name.clone();

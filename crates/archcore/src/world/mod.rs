@@ -85,6 +85,7 @@ pub mod option_flags;
 pub mod options;
 pub mod party;
 pub mod pet_bag;
+pub mod charging;
 pub mod portal;
 pub mod presence;
 pub mod product;

@@ -157,7 +157,8 @@ pub async fn use_item(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet,
     let now = Instant::now();
     let lord = super::archlord::is_lord(st, sid);
     // Objet du sac du familier : seulement si le sac est disponible (le client refuse aussi, « sub inventory disabled »).
-    let bag_shut = st.players.get(&sid).is_some_and(|x| x.inventory.sub.contains_key(&iid)) && !super::pet_bag::available(ctx, st, sid);
+    let bag_shut = (st.players.get(&sid).is_some_and(|x| x.inventory.sub.contains_key(&iid)) && !super::pet_bag::available(ctx, st, sid))
+        || (st.players.get(&sid).is_some_and(|x| x.inventory.charging.contains_key(&iid)) && !super::charging::available(ctx, st, sid));
     let Some(player) = st.players.get_mut(&sid) else { return Ok(()) };
     if !player.in_game || bag_shut {
         return Ok(());
@@ -229,6 +230,10 @@ pub async fn use_item(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet,
         _ if catalog.avatars.contains_key(&item.tid) => return super::avatar::use_item(ctx, st, sid, &item, now).await,
         u if super::consumables::lit_usage(u) => {
             super::consumables::toggle_lit(ctx, st, sid, &item, u);
+            // Sac d'inventaire allumé : l'inventaire étendu part au client (charging.rs).
+            if u == super::charging::USABLE_CHARGING_BAG {
+                super::charging::on_toggled(ctx, st, sid);
+            }
             return Ok(());
         }
         super::consumables::USABLE_USE_EFFECT if super::consumables::FIREWORKS.contains(&item.tid) => {

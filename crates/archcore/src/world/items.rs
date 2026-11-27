@@ -43,6 +43,8 @@ pub mod item_status {
     pub const NPC_TRADE: i64 = 10;
     /// Sac du familier (`pet_bag.rs`).
     pub const SUB_INVENTORY: i64 = 13;
+    /// Inventaire étendu (`charging.rs`).
+    pub const CHARGING_INVENTORY: i64 = 15;
     /// Inventaire Cash.
     pub const CASH_INVENTORY: i64 = 51;
 }
@@ -62,6 +64,8 @@ pub mod stored_status {
     pub const CASH_INVENTORY: i64 = 6;
     /// Sac du familier (statut 13) : sac, ligne, colonne.
     pub const SUB_INVENTORY: i64 = 7;
+    /// Inventaire étendu (statut 15) : sac, ligne, colonne.
+    pub const CHARGING_INVENTORY: i64 = 8;
 }
 
 /// Inventaire : 5 sacs de 5 × 5 cases, comme les onglets et la grille de la fenêtre `UI_Inventory` du client.
@@ -70,6 +74,10 @@ pub const INVENTORY: (i64, i64, i64) = (5, 5, 5);
 pub const CASH_INVENTORY: (i64, i64, i64) = (1, 200, 1);
 /// Sac du familier : 4 sacs de 2 lignes × 4 colonnes (fenêtre `UI_SubInventory`).
 pub const SUB_INVENTORY: (i64, i64, i64) = (4, 2, 4);
+/// Inventaire étendu (grille de type 12 du client) : 4 sacs × 8 lignes × 4 colonnes (grand sac).
+pub const CHARGING_INVENTORY: (i64, i64, i64) = (4, 8, 4);
+/// Petit sac de l'inventaire étendu : un sac de 4 × 4 (fenêtre `UI_ExpandedInventoryA`).
+pub const CHARGING_SMALL: (i64, i64, i64) = (1, 4, 4);
 /// Grille d'une boutique : 1 page de 20 lignes × 4 colonnes (type de grille 6 du client).
 pub const SHOP_GRID: (i64, i64, i64) = (1, 20, 4);
 pub const SHOP_IID_BASE: u32 = 0x2000_0000;
@@ -499,6 +507,8 @@ pub struct ItemCatalog {
     pub lifespans: HashMap<u32, super::lifetime::Lifespan>,
     /// Numéro de quête des objets de quête (« QuestItem »), par TID (`quests.rs`).
     pub quest_items: HashMap<u32, u32>,
+    /// Sacs de l'inventaire étendu (usage 38) et leur « SubType » (1 petit, 2 grand), par TID (`charging.rs`).
+    pub charging_bags: HashMap<u32, i64>,
 }
 
 /// Bonus d'une ligne de la table `item_transform` (ItemTransformTable.txt).
@@ -600,8 +610,13 @@ impl ItemCatalog {
             .filter(|(_, raw)| matches!(usable_type_of(raw), super::lottery::USABLE_BOX | super::lottery::USABLE_KEY))
             .filter_map(|(tid, raw)| Some((*tid, raw.get("SubType")?.as_str()?.trim().parse::<i64>().ok()?)))
             .collect();
-        info!("{} boîte(s) de loterie, {} costume(s)", lottery.len(), avatars.len());
-        Ok(ItemCatalog { items, shops, use_skill, lottery, lottery_sub_types, avatars, morph, speed_potions, uses, lifespans, quest_items })
+        let charging_bags: HashMap<u32, i64> = raws
+            .iter()
+            .filter(|(_, raw)| usable_type_of(raw) == super::charging::USABLE_CHARGING_BAG)
+            .filter_map(|(tid, raw)| Some((*tid, raw.get("SubType")?.as_str()?.trim().parse::<i64>().ok()?)))
+            .collect();
+        info!("{} boîte(s) de loterie, {} costume(s), {} sac(s) d'inventaire étendu", lottery.len(), avatars.len(), charging_bags.len());
+        Ok(ItemCatalog { items, shops, use_skill, lottery, lottery_sub_types, avatars, morph, speed_potions, uses, lifespans, quest_items, charging_bags })
     }
 
     pub fn get(&self, tid: u32) -> Option<&ItemData> {
@@ -665,6 +680,8 @@ pub struct Inventory {
     pub cash: BTreeMap<u32, InventoryItem>,
     /// Sac du familier (statut 13) : `grid` = [sac, ligne, colonne].
     pub sub: BTreeMap<u32, InventoryItem>,
+    /// Inventaire étendu (statut 15) : `grid` = [sac, ligne, colonne].
+    pub charging: BTreeMap<u32, InventoryItem>,
     /// Objets Cash en cours d'utilisation (octet « inuse » du mini Cash) ; jamais enregistré : le familier ne revient
     /// pas de lui-même à l'entrée en jeu.
     pub in_use: BTreeSet<u32>,
@@ -673,6 +690,8 @@ pub struct Inventory {
     pub avatar: Vec<InventoryItem>,
     /// Le sac du familier a été envoyé au client pendant cette session (`pet_bag.rs`).
     pub sub_sent: bool,
+    /// L'inventaire étendu a été envoyé au client pendant cette session (`charging.rs`).
+    pub charging_sent: bool,
     /// Ramassage automatique du sac du familier coupé (op 30 à 0 ; `characters.pet_auto_pick`).
     pub no_auto_pick: bool,
     /// Durée de vie commencée des objets à durée (colonnes `remain_ms`, `expire_at` : `lifetime.rs`), par IID.
@@ -701,8 +720,8 @@ impl Inventory {
         let rows = db
             .characters
             .rows(
-                &format!("SELECT id, template_id, status, layer, row_idx, col_idx, count, {CONVERT_COLUMNS} FROM character_items WHERE character_id = ? AND status IN (?, ?, ?, ?)"),
-                (character_id, stored_status::INVENTORY, stored_status::EQUIP, stored_status::CASH_INVENTORY, stored_status::SUB_INVENTORY),
+                &format!("SELECT id, template_id, status, layer, row_idx, col_idx, count, {CONVERT_COLUMNS} FROM character_items WHERE character_id = ? AND status IN (?, ?, ?, ?, ?)"),
+                (character_id, stored_status::INVENTORY, stored_status::EQUIP, stored_status::CASH_INVENTORY, stored_status::SUB_INVENTORY, stored_status::CHARGING_INVENTORY),
             )
             .await?;
         let mut inv = Inventory { character_id, ..Default::default() };
@@ -713,6 +732,7 @@ impl Inventory {
                 stored_status::EQUIP => inv.equipment.insert(item.grid[0], item),
                 stored_status::CASH_INVENTORY => inv.cash.insert(iid, item),
                 stored_status::SUB_INVENTORY => inv.sub.insert(iid, item),
+                stored_status::CHARGING_INVENTORY => inv.charging.insert(iid, item),
                 _ => inv.items.insert(iid, item),
             };
         }
@@ -782,7 +802,7 @@ impl Inventory {
 
     /// Objet que le joueur peut utiliser (AGPMITEM op 3) : de l'inventaire, de l'inventaire Cash ou du sac du familier.
     pub fn get_usable(&self, iid: u32) -> Option<&InventoryItem> {
-        self.items.get(&iid).or_else(|| self.cash.get(&iid)).or_else(|| self.sub.get(&iid))
+        self.items.get(&iid).or_else(|| self.cash.get(&iid)).or_else(|| self.sub.get(&iid)).or_else(|| self.charging.get(&iid))
     }
 
     /// Statut AGPMITEM d'un objet de l'inventaire, de l'inventaire Cash ou du sac du familier.
@@ -793,6 +813,8 @@ impl Inventory {
             Some(item_status::CASH_INVENTORY)
         } else if self.sub.contains_key(&iid) {
             Some(item_status::SUB_INVENTORY)
+        } else if self.charging.contains_key(&iid) {
+            Some(item_status::CHARGING_INVENTORY)
         } else {
             None
         }
@@ -811,6 +833,8 @@ impl Inventory {
             Some(&mut self.cash)
         } else if self.sub.contains_key(&iid) {
             Some(&mut self.sub)
+        } else if self.charging.contains_key(&iid) {
+            Some(&mut self.charging)
         } else {
             None
         }

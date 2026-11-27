@@ -179,7 +179,8 @@ un nom à espace, crée SimGuild (10 000 pièces), essuie le refus de SimA qui b
 42), invite SimA qui accepte, vérifie la discussion de guilde et
 l'annonce, la demande de départ acceptée par le chef, le retour puis l'exclusion, la guilde retrouvée à la
 reconnexion, le nouveau nom (refus 53 hors guilde, 51 nom à espace, 54 même nom ; SimGuild → SimGuild2 : op 30,
-op 0 et op 8 sous le nouveau nom, puis retour), enfin la dissolution (mauvais mot de passe refusé). `sim refusal` (GmTest, SimA) coche chez GmTest les refus
+op 0 et op 8 sous le nouveau nom, puis retour), enfin la dissolution (mauvais mot de passe refusé). `sim charging` (GmTest) vérifie l'inventaire étendu : dépôt refusé sans sac, petit sac (ligne 4 refusée, [0, 3, 3]
+admise, statut 8 en base), grand sac ([2, 7, 3]), retrait vers l'inventaire. `sim refusal` (GmTest, SimA) coche chez GmTest les refus
 d'échange et de groupe (op 0x11) : SimA reçoit l'op 14 à son invitation et l'op 25 à sa demande d'échange, GmTest
 ne reçoit rien. `sim gm` (compte MJ `gmtest`) vérifie `/speed` (course ×5
 dans les facteurs reçus, refus au-delà de 10, retour à ×1) et `/additem` (potions ajoutées, TID inconnu

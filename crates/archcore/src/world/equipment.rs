@@ -335,6 +335,10 @@ pub async fn on_item_update(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &P
     if status == item_status::SUB_INVENTORY || player.inventory.sub.contains_key(&iid) {
         return super::pet_bag::on_item_update(ctx, st, sid, p).await;
     }
+    // Inventaire étendu : même chose avec le statut 15 (charging.rs).
+    if status == item_status::CHARGING_INVENTORY || player.inventory.charging.contains_key(&iid) {
+        return super::charging::on_item_update(ctx, st, sid, p).await;
+    }
     if status == item_status::BANK || player.bank.items.contains_key(&iid) {
         return super::bank::on_item_update(ctx, st, sid, p).await;
     }
@@ -542,6 +546,9 @@ pub async fn split(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) ->
     if st.players.get(&sid).is_some_and(|x| x.inventory.sub.contains_key(&iid)) {
         return super::pet_bag::split(ctx, st, sid, iid, count, grid).await;
     }
+    if st.players.get(&sid).is_some_and(|x| x.inventory.charging.contains_key(&iid)) {
+        return super::charging::split(ctx, st, sid, iid, count, grid).await;
+    }
     let Some(player) = st.players.get_mut(&sid) else { return Ok(()) };
     let cid = player.ch.id;
     match player.inventory.split(&ctx.db, iid, count, grid).await? {
@@ -560,6 +567,10 @@ pub async fn split(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) ->
 pub async fn destroy(ctx: &WorldCtx, st: &mut WorldState, sid: u32, iid: u32) -> anyhow::Result<()> {
     let in_sub = st.players.get(&sid).is_some_and(|x| x.inventory.sub.contains_key(&iid));
     if in_sub && !super::pet_bag::available(ctx, st, sid) {
+        return Ok(());
+    }
+    let in_charging = st.players.get(&sid).is_some_and(|x| x.inventory.charging.contains_key(&iid));
+    if in_charging && !super::charging::available(ctx, st, sid) {
         return Ok(());
     }
     let Some(player) = st.players.get_mut(&sid) else { return Ok(()) };

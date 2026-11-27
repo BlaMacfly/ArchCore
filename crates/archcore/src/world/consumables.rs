@@ -97,7 +97,8 @@ pub const USABLE_SOCKET_INIT: i64 = 28;
 /// Marvel Scroll of Release (« PRIVATE_TRADE_OPTION ») : grille Ex de l'échange (`trade.rs`).
 pub const USABLE_PRIVATE_TRADE_OPTION: i64 = 35;
 /// Types d'usage sans compétence qu'`ItemUse` retient quand même.
-const USABLE_WITHOUT_SKILL: [i64; 12] = [
+const USABLE_WITHOUT_SKILL: [i64; 13] = [
+    super::charging::USABLE_CHARGING_BAG,
     USABLE_REVERSE_ORB,
     USABLE_INIT_SKILL,
     super::party::USABLE_RECALL_PARTY,
@@ -728,7 +729,7 @@ pub async fn skill_rollback(ctx: &WorldCtx, st: &mut WorldState, sid: u32, skill
 
 /// Usages des objets allumés sans compétence.
 pub fn lit_usage(usable: i64) -> bool {
-    matches!(usable, USABLE_LUCKY_SCROLL | USABLE_ANTI_DROP)
+    matches!(usable, USABLE_LUCKY_SCROLL | USABLE_ANTI_DROP | super::charging::USABLE_CHARGING_BAG)
 }
 
 /// Objet allumé de l'usage `usable` dans l'inventaire Cash du joueur.

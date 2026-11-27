@@ -23,8 +23,9 @@
 //! Choix d'ArchCore (règles d'origine inconnues) :
 //! - Ramassage (op 11) : l'inventaire d'abord, puis le sac du familier s'il est disponible. La valeur de l'op 30 est
 //!   enregistrée et renvoyée, sans ramassage à la chute (règle exacte inconnue).
-//! - Écartés (ajouts d'Archonia) : marquage des sacs (Ctrl+clic, ops 37/38), « Sell All », et les familiers des TID
-//!   14821 à 15674 (absents des tables du monde EP8), qui sortent sans donner de sac.
+//! - « Sell All » (ajout d'Archonia gardé) : le client vend les objets un par un (npc_trade.rs l'accepte sac disponible).
+//! - Écartés (ajouts d'Archonia) : marquage des sacs (Ctrl+clic, ops 37/38), et les familiers des TID 14821 à 15674
+//!   (absents des tables du monde EP8), qui sortent sans donner de sac.
 //! - Ni achat en boutique, ni retrait de la grille d'échange vers le sac, ni équipement depuis le sac.
 
 use super::items::{free_in, item_add_of, item_count_in, item_remove, item_status, item_update, stored_status, use_time_packet, Grid, InventoryItem, SUB_INVENTORY};

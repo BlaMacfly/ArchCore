@@ -177,7 +177,9 @@ creates SimGuild (10,000 coins), meets SimA's refusal as SimA blocks guild invit
 invites SimA who accepts, checks guild chat and the notice, a leave request
 accepted by the master, coming back then being kicked, the guild found again on reconnecting, the new name
 (refusals 53 outside the guild, 51 name with a space, 54 same name; SimGuild → SimGuild2: op 30, op 0 and op 8 under
-the new name, then back), and finally disbanding (wrong password refused). `sim refusal` (GmTest, SimA) ticks GmTest's trade and party refusals
+the new name, then back), and finally disbanding (wrong password refused). `sim charging` (GmTest) checks the expanded inventory: deposit refused without a
+bag, small bag (row 4 refused, [0, 3, 3] accepted, status 8 in the database), large bag ([2, 7, 3]), taking back to the
+inventory. `sim refusal` (GmTest, SimA) ticks GmTest's trade and party refusals
 (op 0x11): SimA gets op 14 for its invitation and op 25 for its trade request, GmTest gets nothing. `sim gm` (GM account `gmtest`) checks `/speed` (run speed ×5 in the
 factors received, refused above 10, back to ×1) and `/additem` (potions added, unknown TID refused), then
 destroys the stack.

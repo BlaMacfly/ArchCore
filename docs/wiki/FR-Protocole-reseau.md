@@ -170,7 +170,7 @@ Drapeaux de champs sur **4 octets**, 27 champs. Les principaux :
 | Champ | Contenu |
 |---|---|
 | 0 | op (INT8) : 0 ajout, 1 retrait, 2 mise à jour |
-| 1 | statut (INT8) : 2 inventaire, 10 boutique d'un PNJ, 13 sac du familier, 51 inventaire Cash |
+| 1 | statut (INT8) : 2 inventaire, 10 boutique d'un PNJ, 13 sac du familier, 15 inventaire étendu, 51 inventaire Cash |
 | 2 | IID, identifiant de l'objet |
 | 3 | TID, modèle de l'objet |
 | 4 | CID du propriétaire |
@@ -484,9 +484,21 @@ Le sac part (op 0 statut 13) la première fois qu'il devient disponible dans la 
 familier rappelé, le client ferme le sac et garde ses objets, invisibles, jusqu'au prochain appel. En base, statut 7
 (sac, ligne, colonne) ; la valeur de l'op 30 dans `characters.pet_auto_pick` (1 par défaut, comme le client). Choix
 d'ArchCore : au ramassage (op 11), un objet Cash va dans l'inventaire Cash, un autre dans l'inventaire, puis, s'il est
-plein, dans le sac du familier disponible ; pas de ramassage à la chute (règle de l'op 30 inconnue). Écartés (ajouts
-d'Archonia) : marquage des sacs par Ctrl+clic (ops 37/38) et « Sell All ». Non faits : achat en boutique vers le sac,
-retrait de la grille d'échange vers le sac, équipement depuis le sac, endurance des familiers.
+plein, dans le sac du familier disponible ; pas de ramassage à la chute (règle de l'op 30 inconnue). « Sell All »
+(ajout d'Archonia gardé) : le client vend les objets un par un (vente au marchand), ce que le serveur accepte depuis
+le sac du familier disponible. Écarté (ajout d'Archonia) : marquage des sacs par Ctrl+clic (ops 37/38). Non faits :
+achat en boutique vers le sac, retrait de la grille d'échange vers le sac, équipement depuis le sac, endurance des
+familiers.
+
+**Inventaire étendu (statut 15).** Système de l'épisode 8 (présent aussi dans le client de Webzen de 2017) : un sac
+d'inventaire de l'inventaire Cash (« Small Size Inventory », « Large Size Inventory », TID 50310 à 50318, usage 38),
+allumé ou éteint par l'op 3 comme un Fortune Manual (op 26 « en cours d'utilisation »). « SubType » 1 : petit sac,
+`UI_ExpandedInventoryA`, un sac de 4 × 4 ; 2 : grand sac, `UI_ExpandedInventoryB`, 4 sacs × 8 lignes × 4 colonnes
+(grille de type 12 du client, FUN_14029a250 d'Archonia ; la borne du petit sac est déduite de sa fenêtre).
+Déplacements comme dans le sac du familier : op 2, statut 15, case au champ 7 (FUN_140648270 d'Archonia), depuis
+l'inventaire, l'équipement ou la banque, et retour par le statut 2 ou 100. Les objets du sac partent au premier
+allumage de la session (op 0, statut 15) ; sac éteint ou expiré, ils restent cachés (statut 8 en base). Sans sac, le
+client affiche « HaveToBuyChargingBag ». Le « Sell All » du grand sac fonctionne comme celui de l'inventaire.
 
 ## Options des objets (type 0x04, champ 20)
 
