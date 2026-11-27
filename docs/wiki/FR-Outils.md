@@ -178,7 +178,8 @@ l'autre), le passage de chef puis l'exclusion, qui dissout le groupe. `sim guild
 un nom à espace, crée SimGuild (10 000 pièces), essuie le refus de SimA qui bloque les invitations de guilde (message système
 42), invite SimA qui accepte, vérifie la discussion de guilde et
 l'annonce, la demande de départ acceptée par le chef, le retour puis l'exclusion, la guilde retrouvée à la
-reconnexion, enfin la dissolution (mauvais mot de passe refusé). `sim refusal` (GmTest, SimA) coche chez GmTest les refus
+reconnexion, le nouveau nom (refus 53 hors guilde, 51 nom à espace, 54 même nom ; SimGuild → SimGuild2 : op 30,
+op 0 et op 8 sous le nouveau nom, puis retour), enfin la dissolution (mauvais mot de passe refusé). `sim refusal` (GmTest, SimA) coche chez GmTest les refus
 d'échange et de groupe (op 0x11) : SimA reçoit l'op 14 à son invitation et l'op 25 à sa demande d'échange, GmTest
 ne reçoit rien. `sim gm` (compte MJ `gmtest`) vérifie `/speed` (course ×5
 dans les facteurs reçus, refus au-delà de 10, retour à ×1) et `/additem` (potions ajoutées, TID inconnu

@@ -17,6 +17,10 @@
 //!         guildmaxmember.txt ; ← op 7 à toute la guilde, code 44 si l'or manque.
 //!   op 9  annonce (champ 10), par le chef ou le second.
 //!   op 10 message système : code (champ 1), textes (2, 3), nombre (4).
+//!   op 30 nouveau nom, par le chef (CID 1, nouveau nom 2, ancien nom 3) : refus 51 (caractère interdit), 52 (nom
+//!         pris), 53 (pas le chef), 54 (impossible : combat de guildes, même nom). Succès : op 30 renvoyée à la guilde
+//!         (le client d'Archonia affiche alors « Guild_Rename_Success »), puis la guilde (op 0), ses membres (op 3) et
+//!         les liens (op 8) sous le nouveau nom.
 //!   op 11 à 25 combats de guildes (battle.rs) ; op 28 liste des guildes (list.rs) ; op 32 et 33 emblème (mark.rs) ;
 //!         op 34 à 45 alliances et hostilités (relation.rs) ; op 48 second et passation de chef (society.rs).
 //!   Entrepôt de guilde : AgpmGuildWarehouse (0x54), AgpmEventGuild ops 2 et 3 (warehouse.rs).
@@ -57,6 +61,8 @@ pub mod op {
     pub const SYSTEM_MESSAGE: i64 = 10;
     pub const GUILD_LIST: i64 = 28;
     pub const LEAVE_ALLOW: i64 = 29;
+    /// Nouveau nom de guilde (ajout gardé d'Archonia : fenêtre `Guild_Rename`).
+    pub const RENAME: i64 = 30;
 }
 
 /// Rangs d'un membre.
@@ -108,6 +114,12 @@ pub mod code {
     pub const BUY_GUILDMARK_DUPLICATE: i64 = 59;
     pub const JOIN_REQUEST_SELF: i64 = 48;
     pub const LEAVE_REQUEST: i64 = 50;
+    /// Refus du renommage : « Guild_Rename_Use_Special_Char », « …_Exist_Guild_ID », « …_Not_Master »,
+    /// « …_Imposible_Guild_ID » (FUN_1406a44e0).
+    pub const RENAME_USE_SPECIAL_CHAR: i64 = 51;
+    pub const RENAME_EXIST_GUILD_ID: i64 = 52;
+    pub const RENAME_NOT_MASTER: i64 = 53;
+    pub const RENAME_IMPOSSIBLE: i64 = 54;
     /// Le chef de la guilde visée refuse les relations de guilde (option 0x40) : `sysstr` 712 « The guild is
     /// blocking Ally/Hostile apply. » (même table chez Archonia, FUN_1406a44e0, et chez Webzen, 0x6b9900).
     pub const REFUSE_RELATION: i64 = 94;
@@ -535,6 +547,7 @@ pub async fn on_packet(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet
         Some(op::DESTROY) => destroy(ctx, st, sid, p).await,
         Some(op::UPDATE_NOTICE) => notice(ctx, st, sid, p).await,
         Some(op::UPDATE_MAX_MEMBER_COUNT) => increase(ctx, st, sid, p).await,
+        Some(op::RENAME) => rename(ctx, st, sid, p).await,
         Some(op::GUILD_LIST) => {
             list::on_packet(st, sid, p);
             Ok(())
@@ -883,6 +896,62 @@ async fn destroy(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> a
     // Ses inimitiés de guilde tombent avec elle.
     st.pvp_guilds.list.retain(|(owner, enemy), _| *owner != gid && *enemy != gid);
     info!("[guilde] {} dissout {}", st.players[&sid].ch.name, g.name);
+    Ok(())
+}
+
+/// Refus du renommage de `old` en `new`, dans l'ordre du client (chef, caractères, nom pris, impossible).
+fn rename_refusal(st: &WorldState, gid: u32, my_rank: i64, new: &str) -> Option<i64> {
+    let g = &st.guilds.by_id[&gid];
+    if my_rank != rank::MASTER {
+        return Some(code::RENAME_NOT_MASTER);
+    }
+    if new.is_empty() || new.len() > MAX_NAME || new == g.name {
+        return Some(code::RENAME_IMPOSSIBLE);
+    }
+    if !valid_name(new) {
+        return Some(code::RENAME_USE_SPECIAL_CHAR);
+    }
+    if st.guilds.named(new).is_some_and(|o| o.id != gid) {
+        return Some(code::RENAME_EXIST_GUILD_ID);
+    }
+    if g.in_battle() || g.offer.is_some() {
+        return Some(code::RENAME_IMPOSSIBLE);
+    }
+    None
+}
+
+/// Op 30 : nouveau nom de guilde, par le chef.
+async fn rename(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> anyhow::Result<()> {
+    let Some((cid, gid, my_rank)) = mine(st, sid) else {
+        send_to(st, sid, system_packet(code::RENAME_NOT_MASTER, None, None));
+        return Ok(());
+    };
+    let new = p.text(2).unwrap_or_default().trim().to_string();
+    if let Some(c) = rename_refusal(st, gid, my_rank, &new) {
+        send_to(st, sid, system_packet(c, None, None));
+        return Ok(());
+    }
+    if let Err(e) = ctx.db.characters.exec("UPDATE guild SET name = ? WHERE id = ?", (new.as_str(), gid)).await {
+        if format!("{e:#}").contains("1062") {
+            send_to(st, sid, system_packet(code::RENAME_EXIST_GUILD_ID, None, None));
+            return Ok(());
+        }
+        return Err(e);
+    }
+    let g = st.guilds.by_id.get_mut(&gid).unwrap();
+    let old = std::mem::replace(&mut g.name, new.clone());
+    let g = &st.guilds.by_id[&gid];
+    send_to_guild(st, g, None, &build(guild(op::RENAME).with(1, cid).with(2, new.as_str()).with(3, old.as_str())));
+    // La guilde et ses membres sous le nouveau nom, puis le lien de chacun (à lui et à ceux qui le voient).
+    send_to_guild(st, g, None, &add_packet(g));
+    for m in g.members.values() {
+        send_to_guild(st, g, None, &join_packet(g, m));
+    }
+    let online: Vec<u32> = g.members.values().filter(|m| m.online).map(|m| m.cid).collect();
+    for m in online {
+        announce_link(st, m);
+    }
+    info!("[guilde] {} renomme la guilde {old} en {new}", st.players[&sid].ch.name);
     Ok(())
 }
 

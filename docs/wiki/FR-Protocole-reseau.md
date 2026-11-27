@@ -1237,6 +1237,7 @@ d'adhésion, 3 demande de départ, 10 chef, 11 second.
 | 9 | ↔ | Annonce (champ 10), par le chef ou le second |
 | 10 | ← | Message système : code (champ 1), textes (2, 3), nombre (4, premier des 8) |
 | 7 | ↔ | Agrandissement par le chef d'une guilde de 20 membres au moins : taille suivante (champ 7, dizaine supérieure) au prix de `guildmaxmember.txt` ; la nouvelle taille va à toute la guilde |
+| 30 | ↔ | Nouveau nom de guilde, par le chef (CID 1, nouveau nom 2, ancien nom 3 ; fenêtre `Guild_Rename`, ajout d'Archonia gardé) ; refus 51 à 54 ; succès : op 30 renvoyée à la guilde (Archonia affiche alors « Guild_Rename_Success »), puis la guilde (op 0), ses membres (op 3) et les liens (op 8) sous le nouveau nom |
 | 28 | ↔ | Liste des guildes : page demandée (champ 21, mini GUILD_LIST, page au champ 1) ou guilde cherchée (champ 2) ; réponse : nom cherché (2) et GUILD_LIST (total, page, nombre en INT16, 19 entrées GUILD_LIST_ITEM) |
 | 32, 33 | ↔ | Emblème (champs 22 TID et 23 couleur) choisi par le chef d'une guilde de 10 membres ; 33 l'achète malgré une autre guilde au même emblème ; diffusé à la guilde, et les liens (op 8, champs 22-23) aux joueurs qui voient ses membres |
 | 48 | ↔ | Second et passation de chef ; seule l'op est un champ, la suite est brute (voir plus bas) |
@@ -1252,7 +1253,8 @@ pour 10 000 pièces). Codes utilisés : 0 nom pris, 1 niveau, 2 argent (nombre :
 membre, 6 guilde pleine, 7 adhésion impossible, 8 départ impossible (le chef), 9 réservé au chef,
 10 mauvais mot de passe, 11 création, 12 dissolution, 13 adhésion, 14 refus, 15 départ, 16 exclusion,
 17 joueur déjà dans une guilde, 44 or insuffisant pour agrandir, 45 crânes insuffisants, 46 dissolution trop tôt
-(guilde de moins de `Guild.DestroyDelayHours`, boîte « Guild_DestroyFailTooEarly »), 47 guilde cherchée introuvable, 48 demande d'adhésion, 50 demande de départ, 56 à 59 emblème (crânes, or ou argent liquide, fond
+(guilde de moins de `Guild.DestroyDelayHours`, boîte « Guild_DestroyFailTooEarly »), 47 guilde cherchée introuvable, 48 demande d'adhésion, 50 demande de départ, 51 à 54 nouveau nom refusé (caractère interdit, nom pris,
+chef seulement, impossible : même nom ou combat de guildes), 56 à 59 emblème (crânes, or ou argent liquide, fond
 manquant, même emblème qu'une autre guilde : seul 59 a un message dans Archonia, qui propose alors l'op 33),
 94 relations refusées par option (ci-dessous), 95 entrepôt réservé aux guildes de 10 membres, 96 dissolution avec
 un entrepôt non vide, 97 départ ou exclusion dans une zone de siège en guerre. La table des messages est la même
@@ -1454,7 +1456,7 @@ client de référence.
 | 0 | serveur | Résultat (champ 1 = soi, champ 8 = 8 : échange fait) |
 | 5 | | Annulation, des deux côtés (champ 1 = soi) |
 | 25 | serveur | La cible refuse les échanges (`Option_Trade_Off_User`, voir plus bas) |
-| 26 / 27 | serveur | Pièces Chantra : ignorées (boutique Chantra laissée de côté), jamais envoyées |
+| 26 / 27 | client, serveur | Pièces Chantra proposées (champ 5, pas plus que celles portées ; champ 10 d'AGPMCHARACTER) : soi ← 26, l'autre ← 27 ; elles changent de main avec le reste à la fin (`UI_PrivateTrade_Cash`, ajout d'Archonia gardé) |
 
 Un objet mis dans l'échange passe, chez son propriétaire, au statut 6 (grille d'échange : 1 × 3 × 4) par
 AGPMITEM op 2 ; l'autre le reçoit par AGPMITEM op 0, statut 6, propriétaire = le premier. Il reste en base

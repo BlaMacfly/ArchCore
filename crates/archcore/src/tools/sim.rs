@@ -2066,6 +2066,30 @@ async fn guild(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> an
     a.world.expect_where(|q| q.is(gd, Some(8)) && q.int(1) == Some(acid), 3000, "lien à l'entrée").await?;
     println!("  ✓ {NAME} retrouvée à l'entrée");
 
+    step("nouveau nom : refus (pas le chef, caractère interdit, même nom), puis SimGuild2 et retour");
+    const RENAMED: &str = "SimGuild2";
+    let rename = |cid: i64, new: &str, old: &str| Fields::new(gd).with(0, 30).with(1, cid).with(2, new).with(3, old);
+    b.world.send(gd, rename(bcid, RENAMED, NAME)).await?;
+    b.world.expect_where(sys(53), 3000, "pas le chef (code 53)").await?;
+    a.world.send(gd, rename(acid, "Sim Guild", NAME)).await?;
+    a.world.expect_where(sys(51), 3000, "caractère interdit (code 51)").await?;
+    a.world.send(gd, rename(acid, NAME, NAME)).await?;
+    a.world.expect_where(sys(54), 3000, "même nom (code 54)").await?;
+    a.world.send(gd, rename(acid, RENAMED, NAME)).await?;
+    let done = a.world.expect_where(op(30), 3000, "nouveau nom (op 30)").await?;
+    anyhow::ensure!(
+        done.fields().text(2).as_deref() == Some(RENAMED) && done.fields().text(3).as_deref() == Some(NAME),
+        "op 30 : {:?} ← {:?}",
+        done.fields().text(2),
+        done.fields().text(3)
+    );
+    let again = a.world.expect_where(op(0), 3000, "guilde sous le nouveau nom").await?;
+    anyhow::ensure!(again.fields().text(2).as_deref() == Some(RENAMED), "guilde {:?}", again.fields().text(2));
+    a.world.expect_where(|q| q.is(gd, Some(8)) && q.int(1) == Some(acid) && q.fields().text(2).as_deref() == Some(RENAMED), 3000, "lien sous le nouveau nom").await?;
+    a.world.send(gd, rename(acid, NAME, RENAMED)).await?;
+    a.world.expect_where(|q| q.is(gd, Some(30)) && q.fields().text(2).as_deref() == Some(NAME), 3000, "retour au premier nom").await?;
+    println!("  ✓ codes 53, 51 et 54 ; {NAME} → {RENAMED} (op 30, op 0, op 8) → {NAME}");
+
     step("dissolution");
     a.world.send(gd, Fields::new(gd).with(0, 6).with(1, acid).with(2, NAME).with(9, "mauvais")).await?;
     a.world.expect_where(sys(10), 3000, "mot de passe refusé (code 10)").await?;
@@ -2283,6 +2307,13 @@ async fn private_trade(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &st
     a.world.expect_where(|q| q.is(c, Some(1)) && q.int(8) == Some(10_000), 3000, "argent de A").await?;
     a.world.send(ch, say(a.cid, &format!("/money 300 \"{cb}\""))).await?;
     b.world.expect_where(|q| q.is(c, Some(1)) && q.int(8) == Some(300), 3000, "argent de B").await?;
+    // Pièces Chantra (Cash, champ 10) : 50 à A, 0 à B.
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    a.world.send(ch, say(a.cid, "/cash 50")).await?;
+    a.world.expect_where(|q| q.is(c, Some(1)) && q.int(10) == Some(50), 3000, "pièces Chantra de A").await?;
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    a.world.send(ch, say(a.cid, &format!("/cash 0 \"{cb}\""))).await?;
+    b.world.expect_where(|q| q.is(c, Some(1)) && q.int(10) == Some(0), 3000, "pièces Chantra de B").await?;
     let (acid, bcid) = (a.cid as i64, b.cid as i64);
 
     step("demande et acceptation");
@@ -2318,6 +2349,12 @@ async fn private_trade(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &st
     b.world.expect_where(|q| q.is(tr, Some(24)) && q.int(5) == Some(500), 3000, "argent de A vu par B").await?;
     b.world.send(tr, t(23).with(1, bcid).with(5, 100)).await?;
     a.world.expect_where(|q| q.is(tr, Some(24)) && q.int(5) == Some(100), 3000, "argent de B vu par A").await?;
+    // 30 pièces Chantra de A : op 26 chez A, op 27 chez B ; plus qu'il n'en a, ramené à 50.
+    a.world.send(tr, t(26).with(1, acid).with(5, 999)).await?;
+    a.world.expect_where(|q| q.is(tr, Some(26)) && q.int(5) == Some(50), 3000, "pièces bornées à celles de A").await?;
+    a.world.send(tr, t(26).with(1, acid).with(5, 30)).await?;
+    a.world.expect_where(|q| q.is(tr, Some(26)) && q.int(5) == Some(30), 3000, "pièces de A (op 26)").await?;
+    b.world.expect_where(|q| q.is(tr, Some(27)) && q.int(5) == Some(30), 3000, "pièces de A vues par B (op 27)").await?;
     // Un objet proposé ne se détruit pas.
     a.world.send(it, Fields::new(it).with(0, 21).with(2, iid)).await?;
     anyhow::ensure!(a.world.expect_where(|q| q.is(it, Some(1)) && q.int(2) == Some(iid), 800, "").await.is_err(), "objet proposé détruit");
@@ -2350,12 +2387,14 @@ async fn private_trade(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &st
     b.world.send(tr, t(21).with(1, bcid)).await?;
     let got = b.world.expect_where(|q| q.is(it, Some(0)) && q.int(2) == Some(iid) && q.int(4) == Some(bcid) && q.int(1) == Some(2), 3000, "pile reçue par B").await?;
     let bm = b.world.expect_where(|q| q.is(c, Some(1)) && q.int(8).is_some(), 3000, "argent de B après").await?;
+    b.world.expect_where(|q| q.is(c, Some(1)) && q.int(10) == Some(30), 3000, "pièces Chantra de B après").await?;
     b.world.expect_where(|q| q.is(tr, Some(0)) && q.int(8) == Some(8), 3000, "résultat chez B").await?;
     a.world.expect_where(|q| q.is(it, Some(1)) && q.int(2) == Some(iid), 3000, "pile partie de chez A").await?;
     let am = a.world.expect_where(|q| q.is(c, Some(1)) && q.int(8).is_some(), 3000, "argent de A après").await?;
+    a.world.expect_where(|q| q.is(c, Some(1)) && q.int(10) == Some(20), 3000, "pièces Chantra de A après").await?;
     a.world.expect_where(|q| q.is(tr, Some(0)), 3000, "résultat chez A").await?;
     anyhow::ensure!(am.int(8) == Some(9600) && bm.int(8) == Some(700), "argent A {:?}, B {:?}", am.int(8), bm.int(8));
-    println!("  ✓ B a reçu {} potion(s) ; A : 9600 pièces, B : 700", o(got.int(5)));
+    println!("  ✓ B a reçu {} potion(s) ; A : 9600 pièces, B : 700 ; pièces Chantra : A 20, B 30", o(got.int(5)));
 
     step("objets liés : refusés sans Marvel Scroll of Release, parchemin rendu à l'annulation, un seul objet lié");
     const LETTERS: [i64; 2] = [735, 736]; // Rembrandt's Letter, Letter Left with Luciano : « BoundType » 1

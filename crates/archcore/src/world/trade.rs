@@ -19,8 +19,9 @@
 //! perdu si un joueur se déconnecte, l'échange est alors annulé.
 //!
 //! Le client n'envoie jamais l'op 25 (refuser une demande envoie l'op 5) : reçue, elle est tenue pour une
-//! annulation, sans risque puisque l'op 5 permet déjà la même chose à tout moment. Les pièces Chantra (ops 26 / 27)
-//! sont ignorées (boutique Chantra laissée de côté).
+//! annulation, sans risque puisque l'op 5 permet déjà la même chose à tout moment. Pièces Chantra (Cash, champ 10
+//! d'AGPMCHARACTER) : → op 26 (montant au champ 5) : soi ← op 26, l'autre ← op 27, comme l'or (ops 23 / 24) ; elles
+//! changent de main avec le reste à la fin de l'échange (ajout d'Archonia gardé : échange de pièces).
 //!
 //! Objets liés (« BoundType » 1, lié dès l'obtention, comme le courrier et la maison des ventes) et grille Ex (épisode 8,
 //! `PrivateTradeGridEx` de `[UI_PrivateTrade]`) : l'op 9 de genre 2 y pose un Marvel Scroll of Release (usage 35) de
@@ -42,7 +43,7 @@
 use super::combat;
 use super::items::{item_remove, item_status, item_update, stored_status, Grid, InventoryItem};
 use super::{send_system, WorldCtx, WorldState};
-use crate::{info, warn};
+use crate::{debug, info, warn};
 use archcore_net::schema;
 use archcore_net::{build_packet, Fields, Packet};
 use std::collections::BTreeMap;
@@ -87,7 +88,7 @@ pub mod op {
     pub const UPDATE_MONEY: i64 = 23;
     pub const TARGET_UPDATE_MONEY: i64 = 24;
     pub const REFUSE: i64 = 25;
-    /// Pièces Chantra de soi / de l'autre : ignorées (boutique Chantra laissée de côté).
+    /// Pièces Chantra de soi / de l'autre (champ 5).
     pub const UPDATE_CC: i64 = 26;
     pub const TARGET_UPDATE_CC: i64 = 27;
 }
@@ -102,6 +103,8 @@ pub struct Trade {
     pub locked: bool,
     pub ready: bool,
     pub gold: i64,
+    /// Pièces Chantra proposées.
+    pub cc: i64,
     /// Objets proposés : IID → case de la grille d'échange.
     pub items: BTreeMap<u32, Grid>,
     /// État de chaque objet proposé quand il l'a été (quantité, conversion, options, durabilité) : l'échange est
@@ -197,7 +200,8 @@ pub async fn on_packet(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet
         op::LOCK => lock(st, sid),
         op::UNLOCK => unlock(st, sid),
         op::READY => ready(ctx, st, sid).await?,
-        op::UPDATE_CC | op::TARGET_UPDATE_CC => info!("[échange] #{sid} pièces Chantra (op {}) : ignoré (boutique Chantra laissée de côté)", p.int(0).unwrap_or(-1)),
+        op::UPDATE_CC => coins(st, sid, p.int(5).unwrap_or(0)),
+        op::TARGET_UPDATE_CC => debug!("[échange] #{sid} op 27 reçue (réservée au serveur) : ignorée"),
         other => warn!("[échange] #{sid} op {other} inattendu"),
     }
     Ok(())
@@ -418,6 +422,19 @@ fn money(st: &mut WorldState, sid: u32, amount: i64) {
     send(st, mine.peer, Fields::new(s).with(0, op::TARGET_UPDATE_MONEY).with(5, amount));
 }
 
+/// Op 26 : pièces Chantra proposées (pas plus que celles du joueur), à soi (op 26) et à l'autre (op 27).
+fn coins(st: &mut WorldState, sid: u32, amount: i64) {
+    let Some((mine, _)) = sides(st, sid) else { return cancel(st, sid) };
+    if mine.locked {
+        return;
+    }
+    let amount = amount.clamp(0, st.players[&sid].ch.cash as i64);
+    st.players.get_mut(&sid).unwrap().trade.as_mut().unwrap().cc = amount;
+    let s = &schema::PRIVATE_TRADE;
+    send(st, sid, Fields::new(s).with(0, op::UPDATE_CC).with(5, amount));
+    send(st, mine.peer, Fields::new(s).with(0, op::TARGET_UPDATE_CC).with(5, amount));
+}
+
 fn lock(st: &mut WorldState, sid: u32) {
     let Some((mine, theirs)) = sides(st, sid) else { return cancel(st, sid) };
     if mine.locked {
@@ -482,6 +499,9 @@ fn check(st: &WorldState, a: u32, b: u32) -> Option<&'static str> {
     if (pa.ch.money as i64) < ta.gold || pa.ch.money as i64 - ta.gold + tb.gold > super::npc_trade::MAX_MONEY {
         return Some("argent");
     }
+    if (pa.ch.cash as i64) < ta.cc {
+        return Some("pièces Chantra");
+    }
     if ta.items.keys().chain(tb.items.keys()).any(|iid| pa.inventory.get(*iid).is_none() && pb.inventory.get(*iid).is_none()) {
         return Some("objet disparu");
     }
@@ -541,6 +561,15 @@ async fn execute(ctx: &WorldCtx, st: &mut WorldState, a: u32, b: u32) -> anyhow:
     for i in 0..2 {
         stmts.push((super::SAVE_MONEY, (money[i], cids[i]).into()));
     }
+    let cash = [
+        st.players[&a].ch.cash as i64 - ta.cc + tb.cc,
+        st.players[&b].ch.cash as i64 - tb.cc + ta.cc,
+    ];
+    if ta.cc != 0 || tb.cc != 0 {
+        for i in 0..2 {
+            stmts.push(("UPDATE characters SET cash = ? WHERE id = ?", (cash[i].max(0), cids[i]).into()));
+        }
+    }
     // Marvel Scroll of Release posé : un exemplaire consommé.
     let scrolls = [ta.option_item, tb.option_item];
     for i in 0..2 {
@@ -594,18 +623,24 @@ async fn execute(ctx: &WorldCtx, st: &mut WorldState, a: u32, b: u32) -> anyhow:
         p.ch.money = money as u64;
         let c = &schema::CHARACTER;
         p.send(c, Fields::new(c).with(0, 1).with(1, p.ch.id).with(8, money));
+        if ta.cc != 0 || tb.cc != 0 {
+            p.ch.cash = cash[i].max(0) as u64;
+            p.send(c, Fields::new(c).with(0, 1).with(1, p.ch.id).with(10, p.ch.cash));
+        }
         let s = &schema::PRIVATE_TRADE;
         p.send(s, Fields::new(s).with(0, op::RESULT).with(1, p.ch.id).with(8, RESULT_DONE));
         action_status(st, me, 0);
     }
     info!(
-        "[échange] {} ↔ {} : {} objet(s) et {} or contre {} objet(s) et {} or",
+        "[échange] {} ↔ {} : {} objet(s), {} or et {} pièce(s) Chantra contre {} objet(s), {} or et {} pièce(s) Chantra",
         st.players[&a].ch.name,
         st.players[&b].ch.name,
         ta.items.len(),
         ta.gold,
+        ta.cc,
         tb.items.len(),
-        tb.gold
+        tb.gold,
+        tb.cc
     );
     Ok(())
 }

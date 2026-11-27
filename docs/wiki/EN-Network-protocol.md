@@ -1186,6 +1186,7 @@ online), guild mark (TID, colour), winner. Ranks: 1 member, 2 join request, 3 le
 | 9 | ↔ | Notice (field 10), by the master or sub-master |
 | 10 | ← | System message: code (field 1), texts (2, 3), number (4, first of 8) |
 | 7 | ↔ | Enlarging by the master of a guild of at least 20 members: next size (field 7, next ten) at the `guildmaxmember.txt` price; the new size goes to the whole guild |
+| 30 | ↔ | New guild name by the master (CID 1, new name 2, old name 3; `Guild_Rename` window, Archonia addition kept); refusals 51 to 54; success: op 30 sent back to the guild (Archonia then shows "Guild_Rename_Success"), then the guild (op 0), its members (op 3) and the links (op 8) under the new name |
 | 28 | ↔ | Guild list: requested page (field 21, GUILD_LIST mini, page in field 1) or searched guild (field 2); answer: searched name (2) and GUILD_LIST (total, page, count as INT16, 19 GUILD_LIST_ITEM entries) |
 | 32, 33 | ↔ | Guild mark (fields 22 TID and 23 colour) chosen by the master of a guild of 10 members; 33 buys it even though another guild has the same mark; broadcast to the guild, and the links (op 8, fields 22-23) to players who see its members |
 | 48 | ↔ | Sub-master and handover; only the op is a field, the rest is raw (see below) |
@@ -1201,7 +1202,8 @@ Creating a guild takes level 20 and the price of the first `guildmaxmember.txt` 
 member, 6 guild full, 7 cannot join, 8 cannot leave (master), 9 master only, 10 wrong password, 11 created,
 12 disbanded, 13 joined, 14 refused, 15 left, 16 kicked, 17 player already in a guild, 44 not enough gold to
 enlarge, 45 not enough skulls, 46 disbanding too early (guild younger than `Guild.DestroyDelayHours`,
-"Guild_DestroyFailTooEarly" box), 47 searched guild not found, 48 join request, 50 leave request, 56 to 59 guild
+"Guild_DestroyFailTooEarly" box), 47 searched guild not found, 48 join request, 50 leave request, 51 to 54 new name refused (special character, name taken, master only,
+impossible: same name or guild battle), 56 to 59 guild
 mark (skulls, gold or cash, missing background, same mark as another guild: only 59 has a message in
 Archonia, which then offers op 33), 94 relations refused by option (below), 95 warehouse reserved to guilds of 10
 members, 96 disbanding with a non-empty warehouse, 97 leaving or kicking in a siege zone at war. The message table
@@ -1396,7 +1398,7 @@ The client always sends its own CID in field 1; the fields read on reception are
 | 0 | server | Result (field 1 = self, field 8 = 8: done) |
 | 5 | | Cancel, on both sides (field 1 = self) |
 | 25 | server | The target refuses trades (`Option_Trade_Off_User`, see below) |
-| 26 / 27 | server | Chantra coins: ignored (Chantra shop left aside), never sent |
+| 26 / 27 | client, server | Chantra coins offered (field 5, at most those carried; AGPMCHARACTER field 10): self ← 26, other ← 27; they change hands with the rest at the end (`UI_PrivateTrade_Cash`, Archonia addition kept) |
 
 An item put in the trade goes, for its owner, to status 6 (trade grid: 1 × 3 × 4) through AGPMITEM op 2;
 the other player receives it through AGPMITEM op 0, status 6, owner = the first one. It stays in the database
