@@ -869,6 +869,8 @@ async fn destroy(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> a
     }
     relation::on_destroy(ctx, st, gid).await?;
     ctx.db.characters.exec("DELETE FROM guild WHERE id = ?", (gid,)).await?;
+    // Châteaux et candidatures de la guilde (siege/mod.rs).
+    crate::world::siege::on_guild_destroyed(ctx, st, gid).await?;
     let g = &st.guilds.by_id[&gid];
     let pkt = build(guild(op::DESTROY).with(2, g.name.as_str()));
     send_to_guild(st, g, None, &pkt);

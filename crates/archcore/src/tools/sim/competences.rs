@@ -365,7 +365,8 @@ pub async fn chain(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()
     gm(&mut w, "/level 100").await?;
     gm(&mut w, "/invincible 1").await?;
     gm(&mut w, "/recast").await?;
-    let worm = worms(&mut w).await?[0];
+    let seen = worms(&mut w).await?;
+    let worm = seen[0];
     let worm_pos = w.monsters.iter().find(|m| m.cid as i64 == worm).map(|m| m.pos).unwrap_or(HUNT);
 
     step("Imposed Fatigue visée au sol, sur le ver");
@@ -404,8 +405,11 @@ pub async fn chain(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()
     println!("  ✓ op 16 : Close Skirmish +{}", p.int(4).unwrap_or(0));
 
     step("Shadow Chaser : téléportation au contact");
-    // Le ver de Time Attack a pu mourir de l'attaque automatique : un ver vivant.
-    let worm = worms(&mut w).await?[0];
+    // Le ver de Time Attack a pu mourir de ses dégâts ou de l'attaque automatique (sa vue peut rester en file) : un
+    // autre ver vivant.
+    // Les vues des vers ne reviennent pas : on prend dans ceux vus au début.
+    let timed = worm;
+    let worm = seen.iter().copied().find(|c| *c != timed).ok_or_else(|| anyhow::anyhow!("pas d'autre Ver vert en vue"))?;
     // Niveau 100 : assez de PM après Time Attack et Lunar Masquerade.
     gm(&mut w, "/level 100").await?;
     gm(&mut w, "/recast").await?;
@@ -455,6 +459,14 @@ pub async fn ignore(user: &str, pass: &str, char_name: &str) -> anyhow::Result<(
     let max_level: i64 = crate::db::col(&top, "level");
     let ignored: f64 = crate::db::col::<Option<String>>(&top, "p").and_then(|p| p.trim().parse().ok()).unwrap_or(0.0);
     let required: i64 = crate::db::col::<Option<String>>(&top, "r").and_then(|p| p.trim().parse().ok()).unwrap_or(0);
+    // Pénalité de défense de l'écart de niveau (combat.rs) : ôtée de la résistance du ver, après la part ignorée.
+    let worm_row = db.world.first("SELECT JSON_VALUE(data, '$.LVL') AS l FROM character_data_table WHERE JSON_VALUE(data, '$.Name') = 'Green Worm' LIMIT 1", ()).await?;
+    let worm_level: i32 = worm_row.and_then(|r| crate::db::col::<Option<String>>(&r, "l")).and_then(|l| l.trim().parse::<f64>().ok()).unwrap_or(1.0) as i32;
+    let water_part = |level: i64, ignored: f64| {
+        let penalty = crate::world::combat::defense_penalty(true, level as i32, false, worm_level);
+        let resist = ((50.0 * (1.0 - ignored / 100.0)).round() - penalty).max(0.0);
+        ((6.0 * (1.0 - resist / 100.0)) as i64, resist)
+    };
     db.characters.exec("INSERT INTO character_skills (character_id, skill_tid, level) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE level = VALUES(level)", (id, STUNNER, max_level)).await?;
     step(&format!("{char_name} entre en jeu ; épée et pierre d'eau"));
     let mut w = enter(&cfg, user, pass, char_name, "").await?;
@@ -472,13 +484,15 @@ pub async fn ignore(user: &str, pass: &str, char_name: &str) -> anyhow::Result<(
     step("coups sans Stunner");
     let q = hunt(&mut w, water, 120, "part d'eau").await?;
     let before = q.fields().bytes(3).and_then(|f| shown_damage(f, WATER)).unwrap_or(0);
-    anyhow::ensure!(before == 3, "part d'eau {before} (attendu 2 × 3 × 50 %)");
+    let (expected, resist) = water_part(30, 0.0);
+    anyhow::ensure!(before == expected, "part d'eau {before} (attendu 2 × 3 × {} % = {expected}, ver niveau {worm_level})", 100.0 - resist);
     println!("  ✓ part d'eau {before}");
 
     step(&format!("Stunner niveau {max_level} ({ignored} % des résistances ignorées)"));
     let stunner = w.skills.iter().find(|s| s.1 == STUNNER).map(|s| s.0).ok_or_else(|| anyhow::anyhow!("Stunner absente"))?;
     // Niveau 60 au moins (assez de PM), et celui que le niveau de Stunner exige ; la part d'eau ne dépend que de la pierre.
-    gm(&mut w, &format!("/level {}", required.max(60))).await?;
+    let cast_level = required.max(60);
+    gm(&mut w, &format!("/level {cast_level}")).await?;
     gm(&mut w, "/recast").await?;
     w.world.send(k, cast_fields(stunner, me)).await?;
     w.world.expect_where(|q| q.is(k, Some(4)) && q.int(1) == Some(stunner), 10_000, "effet").await?;
@@ -491,8 +505,7 @@ pub async fn ignore(user: &str, pass: &str, char_name: &str) -> anyhow::Result<(
     println!("  ✓ AGPMSKILL op 3 : résistance ignorée {} % (0xa8)", at(0xa8));
     let q = hunt(&mut w, water, 120, "part d'eau").await?;
     let after = q.fields().bytes(3).and_then(|f| shown_damage(f, WATER)).unwrap_or(0);
-    let resist = 50.0 * (1.0 - ignored / 100.0);
-    let expected = (6.0 * (1.0 - resist / 100.0)) as i64;
+    let (expected, resist) = water_part(cast_level, ignored);
     anyhow::ensure!(after == expected, "part d'eau {after} sous Stunner (attendu 2 × 3 × {} % = {expected})", 100.0 - resist);
     println!("  ✓ part d'eau {after} : résistance 50 % → {resist} %");
 

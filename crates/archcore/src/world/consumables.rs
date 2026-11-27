@@ -557,7 +557,7 @@ async fn remove_skills(ctx: &WorldCtx, st: &mut WorldState, sid: u32, gone: &[Ow
     }
     skills::refresh_points(&ctx.skills, &p.skills, &mut p.factors);
     let (caster_tid, form) = (p.ch.template_id, skills::form_class(&p.factors));
-    if skills::sync_passives(&ctx.skills, &mut p.skills, caster_tid, form) {
+    if skills::sync_passives(&ctx.skills, p.gear.skill_levels, &mut p.skills, caster_tid, form) {
         super::equipment::refresh_factors(ctx, st, sid);
     } else {
         skills::send_points(p);

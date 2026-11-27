@@ -266,7 +266,7 @@ pub static COMMANDS: &[CommandDef] = &[
     CommandDef { name: "GetChatBuff", level: 1, args: Some(&[]), usage: "/GetChatBuff" },
     CommandDef { name: "chatban", level: 1, args: Some(&["name", "int"]), usage: "/chatban \"nom\" <minutes>" },
     CommandDef { name: "kill", level: 2, args: Some(&["name?"]), usage: "/kill \"nom\"" },
-    CommandDef { name: "invincible", level: 2, args: Some(&["int?"]), usage: "/invincible <0|1>" },
+    CommandDef { name: "invincible", level: 2, args: Some(&["int?", "name?"]), usage: "/invincible <0|1> [\"nom\"]" },
     CommandDef { name: "rename_char", level: 2, args: Some(&["name", "name"]), usage: "/rename_char \"ancien\" \"nouveau\"" },
     CommandDef { name: "create", level: 3, args: Some(&["name", "int", "int?", "int?"]), usage: "/create \"nom\" <TID> <quantité> <0|1>" },
     CommandDef { name: "additem", level: 3, args: Some(&["int", "int?"]), usage: "/additem <TID> <quantité>" },
@@ -451,10 +451,20 @@ pub(super) async fn run(world: &Arc<World>, st: &mut WorldState, sid: u32, gm_le
         }
         "invincible" => {
             let on = a[0].int().unwrap_or(1) != 0;
-            let p = st.players.get_mut(&sid).unwrap();
+            // Un autre personnage (« nom ») : son invincibilité, celle de l'entrée en jeu ou d'une résurrection comprise.
+            let target = match a[1].name() {
+                Some(n) => st.by_name(n),
+                None => Some(sid),
+            };
+            let Some(target) = target else { return Ok(err(format!("personnage absent du monde : {}", a[1].name().unwrap_or("")))) };
+            let p = st.players.get_mut(&target).unwrap();
             // Pas d'échéance : une année suffit.
             p.invincible_until = on.then(|| std::time::Instant::now() + std::time::Duration::from_secs(365 * 24 * 3600));
             info!("[mj] {} : invincibilité {}", p.ch.name, if on { "activée" } else { "désactivée" });
+            if target != sid {
+                let name = p.ch.name.clone();
+                return Ok(Ok(format!("{name} : invincibilité {}.", if on { "activée" } else { "désactivée" })));
+            }
             Ok(if on { "Invincibilité activée : les monstres ne vous blessent plus.".into() } else { "Invincibilité désactivée.".into() })
         }
         "rename_char" => {
@@ -752,7 +762,7 @@ pub(super) async fn run(world: &Arc<World>, st: &mut WorldState, sid: u32, gm_le
                 return Ok(err(format!("nombre de monstres entre 1 et {}", super::loot::SIM_MAX_KILLS)));
             }
             let rate = |arg: &Arg, key: &str| if *arg == Arg::Missing { st.rates.get(key) } else { arg.float() };
-            let rates = super::loot::Rates { drop: rate(&a[2], "drop"), gold: rate(&a[3], "gold") };
+            let rates = super::loot::Rates { drop: rate(&a[2], "drop"), gold: rate(&a[3], "gold"), murderer: false };
             if !(0.0..=MAX_RATE).contains(&rates.drop) || !(0.0..=MAX_RATE).contains(&rates.gold) {
                 return Ok(err(format!("le taux doit être compris entre 0 et {MAX_RATE}")));
             }
@@ -854,7 +864,7 @@ mod tests {
     fn rapport_de_simloot() {
         use super::super::loot::{Rates, Simulation, Source};
         let m = Source { tid: 450, level: 1, ..Default::default() };
-        let rates = Rates { drop: 2.0, gold: 1.0 };
+        let rates = Rates { drop: 2.0, gold: 1.0, murderer: false };
         let mut sim = Simulation { kills: 500, gold: 6123, ..Default::default() };
         sim.items.insert(190, 8);
         sim.items.insert(12, 31);

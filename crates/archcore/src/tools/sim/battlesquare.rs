@@ -92,6 +92,8 @@ pub async fn run(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> 
     step(&format!("{ca} tue {cb} : ni points de meurtrier, crâne au sol"));
     gm(&mut a, "/SetDrop 10").await?;
     gm(&mut a, "/invincible 1").await?;
+    // La victime vient d'entrer en jeu : ses 10 s d'invincibilité sont levées.
+    gm(&mut a, &format!("/invincible 0 \"{cb}\"")).await?;
     a.world.send(act, Fields::new(act).with(0, acid).with(1, bcid).with(6, 1)).await?;
     a.world.expect_where(|q| q.is(&schema::PVP, Some(18)) && q.int(1) == Some(12), 120_000, "message 12 (victoire)").await?;
     let skull = a.world.expect_where(|q: &Recv| q.is(it, Some(0)) && q.int(3) == Some(500), 5000, "crâne au sol (TID 500)").await?;

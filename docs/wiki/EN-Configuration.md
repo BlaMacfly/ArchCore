@@ -113,6 +113,7 @@ unknown key (typo) is reported.
 | `Rules.ProvokeSeconds` | `10` | Provoke, Zone Provoke: how long the monster keeps the caster as its target |
 | `Rules.MonsterKin` | `1` | Monster summons, followers and reinforcement (`ai_kin.rs`, aidatatable `SummonTID`, `FollowerTID`, `PinchMonster` columns) |
 | `Rules.PinchHpPercent` | `30` | HP threshold (percent) under which a monster calls its reinforcement (`PinchMonster`), once per life |
+| `Rules.EntryInvincibleSeconds` | `10` | Game entry invincibility, an Episode 8 rule (as after a resurrection): a character entering out of combat cannot be attacked for this many seconds; their first hit or offensive skill lifts it. 0 turns it off (10 at most). |
 | `Rules.LootLevelGap` | `11` | Original loot rule: beyond this level gap between the killer and the monster, either way (monster too weak or too strong), the monster drops a single gold coin and no item. 0 turns the rule off. Real deaths only; `/simloot` ignores it. |
 | `AntiCheat.Enabled` | `1` | Server-side anti-cheat checks: positions sent by the client and normal hit rate (see [[Administration|EN-Administration]]); `0`: off (the packet limit stays) |
 | `AntiCheat.Action` | `log` | Sanction for a player reaching `AntiCheat.Threshold` anomalies: `log` (journal only), `kick` (disconnect, no reconnection wait) or `ban` (account ban, then disconnect) |

@@ -34,6 +34,24 @@ modification du serveur sans lancer le jeu.
 
 Sous Git Bash, préfixer par `MSYS_NO_PATHCONV=1` : sinon `/GetExp` est transformé en chemin Windows.
 
+**Serveur des scénarios.** Les scénarios supposent un serveur de test réglé pour eux, et une base remise en état
+entre deux passages (chacun range ce qu'il crée, mais un échec laisse son état) :
+
+| Réglage | Pour |
+|---|---|
+| `Rules.EntryInvincibleSeconds = 0` | tous ceux qui se font frapper dès l'entrée en jeu (combat, potions, pk, contre-attaque…) |
+| `Siege.CarveSeconds = 5`, `Siege.MinGuildMembers = 1`, `Siege.MinGuildAgeDays = 0`, `ARCHCORE_SIEGE_ENABLED=0` | `siege`, `archlord` |
+| `Item.TransformMaxDurationMs = 8000` (serveur et simulateur) | `morph` |
+| `ARCHCORE_GUILD_DESTROY_DELAY_HOURS=0`, `ARCHCORE_GUILD_BATTLE_READY_SECONDS=10` | guildes, combat de guildes (`guilddestroy` veut au contraire le délai par défaut) |
+| Shrine 1 à 5 s de gravure et 10 s d'occupation (table `shrine` de la base monde de test) | `shrine` |
+| `ARCHCORE_SIM_CREATE_TID=1724` à la première création de SimScion | `evolution` |
+
+Avant chaque passage : inventaires (statuts 0 et 6), points de meurtrier de GmTest, SimA, SimB, Testeur et Second et
+titres de GmTest remis à zéro ; tables `guild*`, `archlord`, `castle*` vidées serveur arrêté (il les garde en
+mémoire). Un personnage dont la connexion se coupe reste 60 s dans le monde (reconnexion) et réenregistre sa position
+en le quittant : `party`, `partyskill`, `recall` et `evolution`, qui placent leurs personnages par la base, attendent
+la fin de ce délai.
+
 ## Test à deux joueurs
 
 ```bash

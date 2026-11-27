@@ -697,10 +697,11 @@ pub async fn attack_step(ctx: &WorldCtx, st: &mut WorldState, sid: u32, target: 
     me.hits.hit(now_, speed as i32);
     me.dest = None;
     crate::world::recovery::in_combat(&mut me.timers, now_);
+    crate::world::combat::end_grace(me, now_);
     if st.players[&tsid].invincible_until.is_some_and(|u| now_ < u) {
         return Ok(());
     }
-    combat::hit_player(st, tsid, cid, outcome, &parts);
+    combat::hit_by_player(st, tsid, cid, outcome, &parts);
     if st.players.get(&tsid).is_some_and(|x| x.dead) {
         st.players.get_mut(&sid).unwrap().attack = None;
         on_kill(ctx, st, cid, target).await?;

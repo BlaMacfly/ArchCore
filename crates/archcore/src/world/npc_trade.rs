@@ -390,6 +390,7 @@ mod tests {
             enable_on_ride: false,
             auction_category: (0, 0),
             event_item: false,
+            use_restrict: None,
         }
     }
 

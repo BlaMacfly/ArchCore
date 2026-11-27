@@ -80,8 +80,19 @@ pub fn target_part(inv: &Inventory, e: &EquipData) -> i64 {
     e.part
 }
 
+/// Rapière (main droite) et dague (main gauche), colonne `Type` d'itemdatatable.txt : la dague ne se tient qu'avec une
+/// rapière.
+pub const WEAPON_RAPIER: i64 = 21;
+pub const WEAPON_DAGGER: i64 = 22;
+
+fn is_weapon_type(e: &EquipData, t: i64) -> bool {
+    e.kind == KIND_WEAPON && e.weapon_type == t
+}
+
 /// Parties à libérer avant d'équiper \`e\` sur \`at\` : l'occupant de la partie, et l'autre main si l'un des deux
-/// objets se tient à deux mains.
+/// objets se tient à deux mains, ou pour une dague sans rapière (une dague en main gauche quand la main droite prend
+/// autre chose qu'une rapière, l'arme de la main droite quand ce n'est pas une rapière et que la main gauche prend une
+/// dague).
 pub fn displaced(inv: &Inventory, catalog: &ItemCatalog, e: &EquipData, at: i64) -> Vec<i64> {
     let mut out = Vec::new();
     if inv.equipment.contains_key(&at) {
@@ -94,8 +105,13 @@ pub fn displaced(inv: &Inventory, catalog: &ItemCatalog, e: &EquipData, at: i64)
     };
     if let Some(o) = other {
         if let Some(held) = inv.equipment.get(&o) {
-            let held_two = catalog.get(held.tid).and_then(|d| d.equip.as_ref()).is_some_and(|h| h.hand == 2);
-            if e.hand == 2 || held_two {
+            let held = catalog.get(held.tid).and_then(|d| d.equip.as_ref());
+            let held_two = held.is_some_and(|h| h.hand == 2);
+            let lone_dagger = match at {
+                part::HAND_RIGHT => held.is_some_and(|h| is_weapon_type(h, WEAPON_DAGGER)) && !is_weapon_type(e, WEAPON_RAPIER),
+                _ => is_weapon_type(e, WEAPON_DAGGER) && !held.is_some_and(|h| is_weapon_type(h, WEAPON_RAPIER)),
+            };
+            if e.hand == 2 || held_two || lone_dagger {
                 out.push(o);
             }
         }
@@ -224,13 +240,15 @@ pub fn recompute_factors(ctx: &WorldCtx, p: &mut Player) {
     ctx.options.apply(&mut f, &worn_options(inv, &ctx.catalog, &ctx.options, p.ch.level as i64, form, section));
     p.gear = worn_gear(ctx, inv, p.ch.level as i64, form, section);
     // Armes tenues (requirement.rs) : les passives qui en exigent une sont revues quand elles changent.
+    // Bonus de niveau de toutes les compétences (options « skill_levelup », effets de type 1) : les passives le prennent.
     let held = super::requirement::held(&p.inventory, &ctx.catalog, disarmed);
-    if held != p.skills.held {
+    let levels = super::skill_extra::all_levels(p);
+    if held != p.skills.held || levels != p.skills.levels_sent {
         p.skills.held = held;
         let (caster_tid, form_col) = (p.ch.template_id, super::skills::form_class(&p.factors));
-        super::skills::sync_passives(&ctx.skills, &mut p.skills, caster_tid, form_col);
+        super::skills::sync_passives(&ctx.skills, p.gear.skill_levels, &mut p.skills, caster_tid, form_col);
     }
-    // Bonus de niveau de toutes les compétences changé (options « skill_levelup », effets de type 1) : AGPMSKILL op 14.
+    // Bonus de niveau de toutes les compétences changé : AGPMSKILL op 14.
     let levels = super::skill_extra::all_levels(p);
     if p.in_game && levels != p.skills.levels_sent {
         p.skills.levels_sent = levels;
@@ -417,6 +435,18 @@ pub async fn equip(ctx: &WorldCtx, st: &mut WorldState, sid: u32, iid: u32, quie
 /// métamorphose ou évolution, un objet que les facteurs n'admettent plus (forme évoluée) reste porté (`may_take_off`).
 /// Rend vrai si l'objet est rangé.
 pub async fn unequip(ctx: &WorldCtx, st: &mut WorldState, sid: u32, at: i64, wanted: Option<Grid>, quiet: bool) -> anyhow::Result<bool> {
+    // Rapière retirée : la dague de la main gauche part d'abord.
+    if at == part::HAND_RIGHT {
+        let p = &st.players[&sid];
+        let held = |part: i64| p.inventory.equipment.get(&part).and_then(|i| ctx.catalog.get(i.tid)).and_then(|d| d.equip.as_ref());
+        if held(part::HAND_RIGHT).is_some_and(|h| is_weapon_type(h, WEAPON_RAPIER)) && held(part::HAND_LEFT).is_some_and(|h| is_weapon_type(h, WEAPON_DAGGER)) && !take_off_one(ctx, st, sid, part::HAND_LEFT, None, quiet).await? {
+            return Ok(false);
+        }
+    }
+    take_off_one(ctx, st, sid, at, wanted, quiet).await
+}
+
+async fn take_off_one(ctx: &WorldCtx, st: &mut WorldState, sid: u32, at: i64, wanted: Option<Grid>, quiet: bool) -> anyhow::Result<bool> {
     if take_off_refused(ctx, st, sid, at, quiet) {
         return Ok(false);
     }
@@ -558,7 +588,7 @@ mod tests {
     fn catalog(entries: &[(u32, EquipData)]) -> ItemCatalog {
         let mut c = ItemCatalog::default();
         for (tid, e) in entries {
-            c.items.insert(*tid, ItemData { tid: *tid, name: format!("objet {tid}"), npc_price: 0, pc_price: 0, charisma_price: 0, coin_price: 0, stack: 1, equip: Some(e.clone()), potion: None, scroll: None, stone: None, usable_type: 0, option_tids: Vec::new(), kind: 0, bound_type: 0, cash: 0, enable_on_ride: false, auction_category: (0, 0), event_item: false });
+            c.items.insert(*tid, ItemData { tid: *tid, name: format!("objet {tid}"), npc_price: 0, pc_price: 0, charisma_price: 0, coin_price: 0, stack: 1, equip: Some(e.clone()), potion: None, scroll: None, stone: None, usable_type: 0, option_tids: Vec::new(), kind: 0, bound_type: 0, cash: 0, enable_on_ride: false, auction_category: (0, 0), event_item: false, use_restrict: None });
         }
         c
     }
@@ -622,6 +652,27 @@ mod tests {
         let ring = EquipData { part: part::RING1, kind: 8, ..Default::default() };
         inv.equipment.insert(part::RING1, InventoryItem { iid: 13, tid: 4, count: 1, grid: [11, 0, 0], conv: Default::default(), options: Vec::new(), durability: crate::world::items::DURABILITY_FULL });
         assert_eq!(target_part(&inv, &ring), part::RING2);
+    }
+
+    #[test]
+    fn rapiere_et_dague() {
+        let rapier = EquipData { weapon_type: WEAPON_RAPIER, ..weapon(1) };
+        let sword = weapon(1);
+        let dagger = EquipData { part: part::HAND_LEFT, weapon_type: WEAPON_DAGGER, ..weapon(1) };
+        let cat = catalog(&[(1, rapier.clone()), (2, dagger.clone()), (3, sword.clone())]);
+        let item = |iid, tid, at| InventoryItem { iid, tid, count: 1, grid: [at, 0, 0], conv: Default::default(), options: Vec::new(), durability: crate::world::items::DURABILITY_FULL };
+        let mut inv = Inventory::default();
+        inv.equipment.insert(part::HAND_RIGHT, item(10, 1, part::HAND_RIGHT));
+        // Dague avec une rapière : rien d'autre n'est rangé.
+        assert_eq!(displaced(&inv, &cat, &dagger, part::HAND_LEFT), Vec::<i64>::new());
+        inv.equipment.insert(part::HAND_LEFT, item(11, 2, part::HAND_LEFT));
+        // Une épée remplace la rapière : la dague part aussi ; une autre rapière : elle reste.
+        assert_eq!(displaced(&inv, &cat, &sword, part::HAND_RIGHT), vec![part::HAND_RIGHT, part::HAND_LEFT]);
+        assert_eq!(displaced(&inv, &cat, &rapier, part::HAND_RIGHT), vec![part::HAND_RIGHT]);
+        // Dague alors que la main droite tient une épée : l'épée est rangée.
+        inv.equipment.insert(part::HAND_RIGHT, item(12, 3, part::HAND_RIGHT));
+        inv.equipment.remove(&part::HAND_LEFT);
+        assert_eq!(displaced(&inv, &cat, &dagger, part::HAND_LEFT), vec![part::HAND_RIGHT]);
     }
 
     #[test]

@@ -314,6 +314,8 @@ pub struct MonsterRegistry {
     /// Mutations en cours (`morph.rs`) et fin de l'immunité qui les suit (`downtime` de SKILL_SPEC), par CID.
     pub morphs: HashMap<u32, MonsterMorph>,
     pub morph_immune: HashMap<u32, Instant>,
+    /// Prochaine régénération des monstres vivants (`recovery::monster_regen_step`).
+    pub regen_at: Option<Instant>,
     by_cid: HashMap<u32, usize>,
     grid: HashMap<(i64, i64), Vec<usize>>,
 }

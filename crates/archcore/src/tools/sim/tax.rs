@@ -183,6 +183,7 @@ pub async fn run(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> 
     b.world.expect_where(|q| tax(tax_op::REGION_RATIO)(q) && regions_one(q).is_some_and(|(n, _, t)| n == outskirts && t == 0), 3000, "taux remis à 0").await?;
     gm(&mut a, &format!("/money {}", left.max(0))).await?;
     gm(&mut a, &format!("/level {level_a}")).await?;
+    super::disband(&mut a, GUILD, PASSWORD).await;
     println!("  ✓ château rendu : taux à 0 pour tous");
     println!("\ntaxes : OK");
     Ok(())

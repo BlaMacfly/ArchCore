@@ -554,10 +554,11 @@ pub fn strike(st: &mut WorldState, sid: u32, tsid: u32, target: u32, forced: boo
     me.hits.hit(now, speed as i32);
     me.dest = None;
     super::recovery::in_combat(&mut me.timers, now);
+    combat::end_grace(me, now);
     if st.players[&tsid].invincible_until.is_some_and(|u| now < u) {
         return Some(false);
     }
-    combat::hit_player(st, tsid, cid, outcome, &parts);
+    combat::hit_by_player(st, tsid, cid, outcome, &parts);
     debug!("[pvp] coup de {cid:#x} sur {target:#x} : résultat {outcome}");
     Some(st.players.get(&tsid).is_some_and(|x| x.dead))
 }

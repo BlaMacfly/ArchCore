@@ -71,8 +71,17 @@ const MAX_APPROACH: Duration = Duration::from_secs(4);
 pub const MOVE_FAST: i64 = 0x10;
 /// Niveau maximal d'un personnage.
 const MAX_LEVEL: i32 = 120;
-/// Invincibilité après une résurrection.
+/// Invincibilité après une résurrection et à l'entrée en jeu.
 pub const RESURRECTION_GRACE: Duration = Duration::from_secs(10);
+
+/// Qui frappe ou lance une compétence offensive perd l'invincibilité de la résurrection ou de l'entrée en jeu
+/// (« You are no longer invincible. », AgpmPvP op 18 code 10). Celle d'un MJ (`/invincible`, bien plus longue) reste.
+pub fn end_grace(p: &mut Player, now: Instant) {
+    if p.invincible_until.is_some_and(|u| u > now && u <= now + RESURRECTION_GRACE + Duration::from_secs(1)) {
+        p.invincible_until = None;
+        p.send_raw(super::pvp::message(super::pvp::code::END_INVINCIBLE, None, None));
+    }
+}
 
 /// Attaque en cours d'un joueur.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -109,6 +118,8 @@ pub struct Attacker {
     pub accuracy: f64,
     /// Frappe à distance (Ranger, Dragon Scion, Mage) : la cible esquive avec son esquive à distance.
     pub ranged: bool,
+    /// Dégâts physiques fixés par un effet : positif au maximum, négatif au minimum (`Mods::fixed_damage`).
+    pub fixed: f64,
 }
 
 /// Pénalité de défense de l'écart de niveau (`Archonia.exe`, FUN_140299430) : quand l'assaillant a plus de niveaux que sa
@@ -237,6 +248,20 @@ impl Attacker {
             player: true,
             accuracy: m.hit,
             ranged: matches!(f.ftype[2], class::ARCHER | class::SCION | class::MAGE),
+            fixed: m.fixed_damage,
+        }
+    }
+
+    /// Dégâts tirés dans `(lo, hi)`, ou fixés au maximum ou au minimum par un effet (`fixed`).
+    pub fn pick(&self, rng: &mut impl Rng, (lo, hi): (f64, f64)) -> f64 {
+        if hi <= lo {
+            lo
+        } else if self.fixed > 0.0 {
+            hi
+        } else if self.fixed < 0.0 {
+            lo
+        } else {
+            rng.gen_range(lo..=hi)
         }
     }
 
@@ -244,7 +269,7 @@ impl Attacker {
     pub fn of_monster(level: i32, s: &super::monsters::MonsterStats, m: &super::effects::Mods) -> Self {
         let (min_damage, max_damage) = super::effects::monster_damage(s.min_damage, s.max_damage, m);
         let heroic = ((s.heroic_min as f64 + m.heroic_dmg.0).max(0.0), (s.heroic_max as f64 + m.heroic_dmg.1).max(0.0));
-        Attacker { level, ar: s.ar, min_damage, max_damage, heroic, accuracy: m.hit, ..Default::default() }
+        Attacker { level, ar: s.ar, min_damage, max_damage, heroic, accuracy: m.hit, fixed: m.fixed_damage, ..Default::default() }
     }
 
     /// Fourchette de dégâts physiques : arme, plus la caractéristique principale de la classe.
@@ -294,8 +319,7 @@ pub fn strike_at(rng: &mut impl Rng, chance: i32, a: &Attacker, d: &Defender) ->
     if rng.gen_range(0..100) >= chance {
         return (result::MISS, 0);
     }
-    let (lo, hi) = a.damage_range();
-    let raw = if hi > lo { rng.gen_range(lo..=hi) } else { lo };
+    let raw = a.pick(rng, a.damage_range());
     (result::SUCCESS, physical_hit(raw - d.defense, d))
 }
 
@@ -329,6 +353,10 @@ pub fn versus(rng: &mut impl Rng, p: &Player, t: &Player) -> (i64, Vec<(usize, i
     let defender = attacker.pierce(&target);
     let (mine, theirs) = (super::effects::of_player(p), super::effects::of_player(t));
     let (outcome, damage) = strike(rng, &attacker, &defender);
+    // Cible invincible aux attaques normales : esquive.
+    if outcome == result::SUCCESS && t.skills.status_sent & super::effects::status::NORMAL_ATK_INVINCIBLE != 0 {
+        return (result::EVADE, Vec::new());
+    }
     if outcome == result::SUCCESS {
         if let Some(r) = player_guard(rng, &theirs, t.factors.defense_rate[9], &mine, attacker.ranged, penalty) {
             return (r, Vec::new());
@@ -539,6 +567,7 @@ pub async fn step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) -> anyhow::
     life_step(ctx, st, now);
     super::loot::expire(st, now);
     super::recovery::regen_step(st, now);
+    super::recovery::monster_regen_step(st, now);
     super::skills::step(ctx, st, now).await?;
     super::portal::step(st);
     // Zone d'effet et bonus des groupes (op 2).
@@ -635,6 +664,8 @@ async fn attack_step(ctx: &WorldCtx, st: &mut WorldState, sid: u32, now: Instant
     let (outcome, parts) = {
         let mut rng = rand::thread_rng();
         let (outcome, damage) = strike(&mut rng, &attacker, &defender);
+        // Monstre invincible aux attaques normales : esquive.
+        let (outcome, damage) = if outcome == result::SUCCESS && target_status & super::effects::status::NORMAL_ATK_INVINCIBLE != 0 { (result::EVADE, 0) } else { (outcome, damage) };
         let mine = super::effects::of_player(p);
         // Blocage et esquive du monstre (ses effets), comme ceux d'un joueur (FUN_1402981f0, FUN_140298d50 d'Archonia).
         let (outcome, damage) = match (outcome == result::SUCCESS).then(|| player_guard(&mut rng, &st.monsters.mods(m.cid), 0, &mine, attacker.ranged, penalty)).flatten() {
@@ -667,6 +698,7 @@ async fn attack_step(ctx: &WorldCtx, st: &mut WorldState, sid: u32, now: Instant
     // Qui frappe s'arrête, comme le client au début de l'animation du coup.
     me.dest = None;
     super::recovery::in_combat(&mut me.timers, now);
+    end_grace(me, now);
 
     let target = st.monsters.get_mut(m.cid).unwrap();
     target.hp = (target.hp - damage).max(0);
@@ -1008,6 +1040,42 @@ pub fn hit_player(st: &mut WorldState, sid: u32, monster: u32, outcome: i64, par
     send_around(st, sid, &plain);
     if hp == 0 {
         player_death(st, sid);
+    }
+}
+
+/// Coup normal d'un joueur (`attacker`, CID) sur le joueur `sid` : un coup réussi non critique peut être changé en PV
+/// ou en PM rendus à la cible (ses effets « damage_convert_hp », 80 % au plus ; résultat 3 et effet visuel 6 pour
+/// les PV), comme le coup d'un monstre (ai.rs) ; puis `hit_player`.
+pub fn hit_by_player(st: &mut WorldState, sid: u32, attacker: u32, outcome: i64, parts: &[(usize, i32)]) {
+    let (mut outcome, mut parts) = (outcome, parts.to_vec());
+    let mut converted_hp = None;
+    if outcome == result::SUCCESS {
+        let total: i32 = parts.iter().map(|(_, d)| *d).sum();
+        if let Some(t) = st.players.get_mut(&sid) {
+            let m = super::effects::of_player(t);
+            let mut rng = rand::thread_rng();
+            let mut roll = |rate: f64| rate > 0.0 && rng.gen_range(0.0..100.0) < rate.min(80.0);
+            let conversion = if roll(m.to_hp_rate) {
+                Some((POINT_HP, 0, m.to_hp))
+            } else if roll(m.to_mp_rate) {
+                Some((1, 1, m.to_mp))
+            } else {
+                None
+            };
+            if let Some((i, max, pct)) = conversion {
+                let n = (total as f64 * pct / 100.0) as i32;
+                t.factors.point[i] = (t.factors.point[i] + n.max(0)).min(t.factors.point_max[max]);
+                let c = &schema::CHARACTER;
+                t.send(c, Fields::new(c).with(0, 1).with(1, t.ch.id).with(7, factors_mini(&t.factors)));
+                converted_hp = (i == POINT_HP).then_some(t.ch.id);
+                outcome = result::MISS;
+                parts.clear();
+            }
+        }
+    }
+    hit_player(st, sid, attacker, outcome, &parts);
+    if let Some(cid) = converted_hp {
+        send_around(st, sid, &super::effects::additional_effect_packet(cid, super::effects::additional::CONVERT_HP, attacker));
     }
 }
 

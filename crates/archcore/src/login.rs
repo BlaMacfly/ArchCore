@@ -426,10 +426,19 @@ impl LoginConn {
         }
         // Seuls les modèles de l'écran de création sont acceptés (pas un monstre ni une évolution du Scion).
         let tpl = self.svc.templates.get(tid).cloned().filter(|_| self.svc.templates.base.contains(&tid));
-        let Some(tpl) = tpl.filter(|_| self.characters.len() < MAX_CHARACTERS && !name.is_empty() && name.chars().count() <= 48) else {
+        let Some(tpl) = tpl else {
             self.send_login_result(s, login_result::NAME_TAKEN);
             return Ok(());
         };
+        if self.characters.len() >= MAX_CHARACTERS {
+            self.send_login_result(s, login_result::FULL_SLOT);
+            return Ok(());
+        }
+        if !name_allowed(&name) {
+            info!("[login] #{} nom {name:?} refusé", s.id());
+            self.send_login_result(s, login_result::UNMAKABLE_CHAR_NAME);
+            return Ok(());
+        }
         if self.svc.db.characters.first("SELECT id FROM characters WHERE name = ?", (name.clone(),)).await?.is_some() {
             self.send_login_result(s, login_result::NAME_TAKEN);
             return Ok(());
@@ -586,8 +595,25 @@ impl LoginConn {
 }
 
 
+/// Nom de personnage permis : 4 à 16 lettres ou chiffres ASCII, sans « GM » en tête ni « Admin » (casse ignorée), qui
+/// font passer pour un membre de l'équipe. Un `#` (que le jeu coupe) ou une espace sont refusés.
+pub fn name_allowed(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    (4..=16).contains(&name.len()) && name.chars().all(|c| c.is_ascii_alphanumeric()) && !lower.starts_with("gm") && !lower.contains("admin")
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn noms_permis() {
+        use super::name_allowed;
+        assert!(name_allowed("Grokk") && name_allowed("Elf2026") && name_allowed("Ragman"));
+        assert!(!name_allowed("Bla"), "3 lettres");
+        assert!(!name_allowed("Abcdefghijklmnopq"), "17 lettres");
+        assert!(!name_allowed("Grokk#3") && !name_allowed("Le Grand") && !name_allowed("Éloïse"));
+        assert!(!name_allowed("GmTest") && !name_allowed("gmBob") && !name_allowed("TheAdmin"));
+    }
+
     #[test]
     fn empreinte_sha256() {
         assert_eq!(super::sha256_hex(b"test"), "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08");

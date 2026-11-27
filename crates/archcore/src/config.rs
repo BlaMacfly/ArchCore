@@ -283,6 +283,9 @@ pub struct RulesConfig {
     /// Écart de niveaux (dans les deux sens) au-delà duquel un monstre ne donne qu'une pièce d'or et aucun objet,
     /// règle d'origine (`Rules.LootLevelGap`, 11) ; 0 la coupe.
     pub loot_level_gap: i64,
+    /// Invincibilité à l'entrée en jeu, en secondes (`Rules.EntryInvincibleSeconds`, 10 comme après une résurrection,
+    /// règle de l'épisode 8) ; 0 la coupe (serveur du simulateur, dont les scénarios se font frapper dès l'entrée).
+    pub entry_invincible_secs: u64,
     /// Déplacements forcés des compétences (`move_pos`, recul de Body Check : `Rules.ForcedMove`, 1) ; unités du jeu
     /// par point de `move_distance` (`Rules.KnockbackUnit`, 100 : la table l'exprime sans doute en mètres).
     pub forced_move: bool,
@@ -311,6 +314,7 @@ impl Default for RulesConfig {
             death_strike: true,
             lottery_keys: true,
             loot_level_gap: 11,
+            entry_invincible_secs: 10,
             forced_move: true,
             knockback_unit: 100.0,
             shrink_percent: 30.0,
@@ -753,6 +757,7 @@ fn read_world(s: &Settings, cfg: &mut Config) {
         death_strike: s.flag("Rules.DeathStrike", rd.death_strike),
         lottery_keys: s.flag("Rules.LotteryKeys", rd.lottery_keys),
         loot_level_gap: s.parse("Rules.LootLevelGap", rd.loot_level_gap).max(0),
+        entry_invincible_secs: s.parse("Rules.EntryInvincibleSeconds", rd.entry_invincible_secs as i64).clamp(0, 600) as u64,
         forced_move: s.flag("Rules.ForcedMove", rd.forced_move),
         knockback_unit: s.parse("Rules.KnockbackUnit", rd.knockback_unit).clamp(0.0, 1000.0),
         shrink_percent: s.parse("Rules.ShrinkPercent", rd.shrink_percent).clamp(0.0, 90.0),
@@ -1041,6 +1046,7 @@ pub fn to_values(cfg: &Config, which: Which) -> Vec<(String, String)> {
             put("Rules.DeathStrike", (r.death_strike as i64).to_string());
             put("Rules.LotteryKeys", (r.lottery_keys as i64).to_string());
             put("Rules.LootLevelGap", r.loot_level_gap.to_string());
+            put("Rules.EntryInvincibleSeconds", r.entry_invincible_secs.to_string());
             put("Rules.ForcedMove", (r.forced_move as i64).to_string());
             put("Rules.KnockbackUnit", fmt_num(r.knockback_unit));
             put("Rules.ShrinkPercent", fmt_num(r.shrink_percent));

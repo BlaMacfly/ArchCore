@@ -106,6 +106,8 @@ impl Source {
 pub struct Rates {
     pub gold: f64,
     pub drop: f64,
+    /// Le tueur est meurtrier (`pvp::MURDERER_LEVELS[0]` points au moins) : les objets « Villain Only » lui viennent.
+    pub murderer: bool,
 }
 
 /// Nombre maximal de monstres d'une simulation de butin (/simloot) : le tirage se fait d'un bloc.
@@ -134,6 +136,8 @@ pub struct LootTables {
     pub groups: Vec<DropGroup>,
     /// Rang du monstre → pour cent par rang d'objet (1 à 10).
     pub rank_rates: HashMap<i64, [i64; 10]>,
+    /// Objets « Villain Only » d'itemdatatable.txt : seulement pour un tueur meurtrier.
+    pub villain_only: std::collections::HashSet<u32>,
 }
 
 fn json_array<const N: usize>(text: &str) -> [i64; N] {
@@ -169,11 +173,15 @@ impl LootTables {
             );
         }
         let sql = "SELECT tid, JSON_VALUE(raw, '$.GroupID') AS g, JSON_VALUE(raw, '$.DropRank') AS rk, JSON_VALUE(raw, '$.DropRate') AS rt, \
-                   JSON_VALUE(raw, '$.SuitableLevelMin') AS lmin, JSON_VALUE(raw, '$.SuitableLevelMax') AS lmax FROM item_data";
+                   JSON_VALUE(raw, '$.SuitableLevelMin') AS lmin, JSON_VALUE(raw, '$.SuitableLevelMax') AS lmax,                    JSON_VALUE(raw, '$.EventItem') AS ev, JSON_VALUE(raw, '$.\"Villain Only\"') AS vo FROM item_data";
         let num = |r: &mysql_async::Row, k: &str| col::<Option<String>>(r, k).and_then(|v| v.trim().parse::<f64>().ok()).unwrap_or(0.0) as i64;
         for r in db.world.rows(sql, ()).await? {
+            if num(&r, "vo") != 0 {
+                t.villain_only.insert(col(&r, "tid"));
+            }
             let (g, rank, rate) = (num(&r, "g"), num(&r, "rk"), num(&r, "rt"));
-            if g <= 0 || !(1..=10).contains(&rank) || rate <= 0 {
+            // Objets d'événement : jamais dans les groupes de butin.
+            if g <= 0 || !(1..=10).contains(&rank) || rate <= 0 || num(&r, "ev") != 0 {
                 continue;
             }
             if let Some(group) = by_id.get_mut(&(g as u32)) {
@@ -186,9 +194,14 @@ impl LootTables {
         Ok(t)
     }
 
-    /// Butin d'un monstre tué par un personnage de niveau `killer_level` : (TID, quantité), l'or en premier.
+    /// Butin d'un monstre tué par un personnage de niveau `killer_level` : (TID, quantité), l'or en premier. Un monstre
+    /// sans rang de butin (DropRank 0) ne donne rien, ni or ni objet ; un objet « Villain Only » ne vient qu'à un
+    /// meurtrier.
     pub fn roll(&self, rng: &mut impl Rng, m: &Source, killer_level: i32, rates: Rates) -> Vec<(u32, i64)> {
         let mut out = Vec::new();
+        if m.drop_rank <= 0 {
+            return out;
+        }
         if m.geld_max > 0 {
             let lo = m.geld_min.clamp(0, m.geld_max);
             let gold = (rng.gen_range(lo..=m.geld_max) as f64 * rates.gold).round() as i64;
@@ -198,14 +211,14 @@ impl LootTables {
         }
         if let Some(ranks) = self.rank_rates.get(&m.drop_rank) {
             for g in &self.groups {
-                if let Some(tid) = self.roll_group(rng, g, ranks, m, killer_level, rates) {
+                if let Some(tid) = self.roll_group(rng, g, ranks, m, killer_level, rates).filter(|t| rates.murderer || !self.villain_only.contains(t)) {
                     out.push((tid, 1));
                 }
             }
         }
         for d in self.per_monster.get(&m.tid).map(Vec::as_slice).unwrap_or(&[]) {
             let hit = d.rate >= 100_000 || (rng.gen_range(0..100_000) as f64) < d.rate as f64 * rates.drop;
-            if hit {
+            if hit && (rates.murderer || !self.villain_only.contains(&d.tid)) {
                 out.push((d.tid, rng.gen_range(d.min..=d.max.max(d.min))));
             }
         }
@@ -483,7 +496,9 @@ async fn pick_up(ctx: &WorldCtx, st: &mut WorldState, sid: u32, iid: u32, now: I
     let Some(p) = st.players.get(&sid) else { return Ok(()) };
     let Some(item) = st.ground.items.get(&iid).cloned() else { return Ok(()) };
     let fail = |st: &WorldState| st.players[&sid].send_raw(pickup_result_packet(pickup_result::FAIL, iid, item.tid, item.count));
-    if !p.in_game || p.dead || (item.owner.is_some_and(|o| o != p.ch.id) && now < item.owner_until) || dist2d(reach_pos(p), item.pos) > PICKUP_DISTANCE {
+    // Invisible, étourdi, gelé ou endormi : pas de ramassage.
+    let unable = p.skills.status_sent & (super::effects::status::TRANSPARENT | super::effects::status::HELPLESS) != 0;
+    if !p.in_game || p.dead || unable || (item.owner.is_some_and(|o| o != p.ch.id) && now < item.owner_until) || dist2d(reach_pos(p), item.pos) > PICKUP_DISTANCE {
         fail(st);
         return Ok(());
     }
@@ -553,7 +568,8 @@ pub fn on_kill(ctx: &WorldCtx, st: &mut WorldState, killer: u32, monster: u32, n
     // consumables.rs).
     let bonus = st.players.get(&killer).map(|p| super::consumables::drop_bonus_pct(ctx, p)).unwrap_or(0.0);
     let gold = st.players.get(&killer).map(|p| super::consumables::gold_bonus_pct(ctx, p)).unwrap_or(0.0);
-    let rates = Rates { gold: st.rates.get("gold") * (100.0 + gold) / 100.0, drop: st.rates.get("drop") * (100.0 + bonus) / 100.0 };
+    let murderer = st.players.get(&killer).is_some_and(|p| p.ch.murderer >= super::pvp::MURDERER_LEVELS[0]);
+    let rates = Rates { gold: st.rates.get("gold") * (100.0 + gold) / 100.0, drop: st.rates.get("drop") * (100.0 + bonus) / 100.0, murderer };
     let loot = if reduced_loot(source.level, level, crate::config::rules().loot_level_gap) {
         vec![(GOLD_TID, 1)]
     } else {
@@ -568,7 +584,7 @@ mod tests {
     use archcore_net::{decode_mini, decode_packet};
     use rand::SeedableRng;
 
-    const ONE: Rates = Rates { gold: 1.0, drop: 1.0 };
+    const ONE: Rates = Rates { gold: 1.0, drop: 1.0, murderer: false };
 
     fn worm() -> Source {
         Source { tid: 450, level: 1, geld_min: 10, geld_max: 12, drop_rank: 1, meditation: 1.0 }
@@ -607,10 +623,16 @@ mod tests {
             assert!(!loot.iter().any(|(t, _)| *t == 98), "taux nul");
         }
         // Taux d'or doublé, butin coupé.
-        let loot = t.roll(&mut rng, &Source { geld_min: 10, geld_max: 10, ..worm() }, 1, Rates { gold: 2.0, drop: 0.0 });
+        let loot = t.roll(&mut rng, &Source { geld_min: 10, geld_max: 10, ..worm() }, 1, Rates { gold: 2.0, drop: 0.0, murderer: false });
         assert_eq!(loot, vec![(GOLD_TID, 20), (99, 2)]);
-        // Sans or ni rang de butin : seulement les objets propres.
-        assert_eq!(t.roll(&mut rng, &Source { geld_max: 0, drop_rank: 0, ..worm() }, 1, ONE), vec![(99, 2)]);
+        // Sans or : seulement les objets ; sans rang de butin : rien du tout.
+        assert!(t.roll(&mut rng, &Source { geld_max: 0, ..worm() }, 1, ONE).contains(&(99, 2)));
+        assert!(t.roll(&mut rng, &Source { drop_rank: 0, ..worm() }, 1, ONE).is_empty());
+        // Objet réservé aux meurtriers.
+        let mut t = tables();
+        t.villain_only.insert(99);
+        assert!(!t.roll(&mut rng, &worm(), 1, ONE).contains(&(99, 2)));
+        assert!(t.roll(&mut rng, &worm(), 1, Rates { murderer: true, ..ONE }).contains(&(99, 2)));
     }
 
     #[test]
@@ -668,7 +690,7 @@ mod tests {
         assert!(!sim.items.contains_key(&GOLD_TID) && !sim.items.contains_key(&98));
         assert_eq!(sim.sorted(), vec![(99, 400), (10, 200)]);
         // Taux de butin nul : seuls les objets garantis restent ; taux d'or doublé.
-        let sim = t.simulate(&mut a, &Source { geld_min: 10, geld_max: 10, ..worm() }, 1, Rates { gold: 2.0, drop: 0.0 }, 3);
+        let sim = t.simulate(&mut a, &Source { geld_min: 10, geld_max: 10, ..worm() }, 1, Rates { gold: 2.0, drop: 0.0, murderer: false }, 3);
         assert_eq!((sim.gold, sim.sorted()), (60, vec![(99, 6)]));
     }
 

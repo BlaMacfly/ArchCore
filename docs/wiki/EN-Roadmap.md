@@ -27,6 +27,14 @@
   player on a monster); effects of one family no longer stack; percentage potions ("SubType"); fixed equipment options
   ("OptionTID"); item level cap ("Level" `min;max`); HP, MP, dead state and bind region saved (migration
   `202611231000_points_et_mort`: a character who logged out dead comes back at the bind village).
+- Episode 8 server rules (27 November 2026), with no display of their own in the client: 10 s invincibility on
+  entering the game, lifted by the first hit; monster regeneration; hits turned into HP or MP between players;
+  attack and skill invincibility; invisibility refused in combat (except `force` 4); areas sized to the target;
+  96 effects; passive level bonus; damage over time on players; fixed damage (Lethal Attack, Debilitate); slow
+  immunity; loot (DropRank 0, "Villain Only", event items); rapier and dagger; restricted consumables (level, race,
+  class, gender); binding from the position reached; scrolls by region; no walking while stunned; pickup; character
+  names. Details in [[Network protocol|EN-Network-protocol]] ("Server rules taken from Episode 8"). ArchRust side:
+  rainbow tint of quest world objects (Archonia's `+0x72` render byte).
 - Creatures: 36,960 monsters placed from the original server tables, off blocked ground, with their stats
   (level, speeds, HP). Seen and targeted in game during a first test; sending their HP, added since,
   remains to be checked. Levels from the template in the episode 8 tables and boss respawn from its boss window;

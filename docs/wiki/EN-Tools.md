@@ -33,6 +33,24 @@ commands. It is the quickest way to check a server change without starting the g
 
 In Git Bash, prefix with `MSYS_NO_PATHCONV=1`, otherwise `/GetExp` is turned into a Windows path.
 
+**Scenario server.** Scenarios expect a test server set up for them, and a database reset between runs (each one
+cleans up what it creates, but a failure leaves its state behind):
+
+| Setting | For |
+|---|---|
+| `Rules.EntryInvincibleSeconds = 0` | all those hit right after entering the game (combat, potions, pk, counter-attack…) |
+| `Siege.CarveSeconds = 5`, `Siege.MinGuildMembers = 1`, `Siege.MinGuildAgeDays = 0`, `ARCHCORE_SIEGE_ENABLED=0` | `siege`, `archlord` |
+| `Item.TransformMaxDurationMs = 8000` (server and simulator) | `morph` |
+| `ARCHCORE_GUILD_DESTROY_DELAY_HOURS=0`, `ARCHCORE_GUILD_BATTLE_READY_SECONDS=10` | guilds, guild battles (`guilddestroy` wants the default delay instead) |
+| Shrine 1 with 5 s carving and 10 s occupation (`shrine` table of the test world database) | `shrine` |
+| `ARCHCORE_SIM_CREATE_TID=1724` when SimScion is first created | `evolution` |
+
+Before each run: inventories (statuses 0 and 6) and murderer points of GmTest, SimA, SimB, Testeur and Second, and
+GmTest's titles, reset; `guild*`, `archlord`, `castle*` tables emptied with the server stopped (it keeps them in
+memory). A character whose connection drops stays in the world for 60 s (reconnection) and saves its position again
+when leaving: `party`, `partyskill`, `recall` and `evolution`, which place their characters through the database,
+wait for that delay to end.
+
 ## Two-player test
 
 ```bash

@@ -603,7 +603,7 @@ mod tests {
     #[test]
     fn options_fixes() {
         use super::super::items::{ItemCatalog, ItemData};
-        let data = |tid: u32, equip: Option<EquipData>, option_tids: Vec<u16>| ItemData { tid, name: format!("objet {tid}"), npc_price: 0, pc_price: 0, charisma_price: 0, coin_price: 0, stack: 1, equip, potion: None, scroll: None, stone: None, usable_type: 0, option_tids, kind: 0, bound_type: 0, cash: 0, enable_on_ride: false, auction_category: (0, 0), event_item: false };
+        let data = |tid: u32, equip: Option<EquipData>, option_tids: Vec<u16>| ItemData { tid, name: format!("objet {tid}"), npc_price: 0, pc_price: 0, charisma_price: 0, coin_price: 0, stack: 1, equip, potion: None, scroll: None, stone: None, usable_type: 0, option_tids, kind: 0, bound_type: 0, cash: 0, enable_on_ride: false, auction_category: (0, 0), event_item: false, use_restrict: None };
         let armor = EquipData { part: 2, kind: 1, ..Default::default() };
         let mut c = ItemCatalog::default();
         c.items.insert(10, data(10, Some(armor.clone()), vec![20, 135, 40, 1021]));

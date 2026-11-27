@@ -289,7 +289,7 @@ fn targets(st: &WorldState, m: &Monster, t: &SkillTemplate, lv: &SkillLevel, cas
             .players
             .iter()
             .filter(|(sid, p)| !out.contains(sid) && p.in_game && !p.dead)
-            .filter(|(_, p)| skills::in_area(t.area(), p.ch.pos(), center, m.pos, toward, lv))
+            .filter(|(_, p)| skills::in_area_sized(t.area(), p.ch.pos(), skills::PLAYER_SIZE, center, m.pos, toward, lv))
             .map(|(sid, p)| (combat::dist2d(p.ch.pos(), center), *sid))
             .collect();
         near.sort_by(|a, b| a.0.total_cmp(&b.0));

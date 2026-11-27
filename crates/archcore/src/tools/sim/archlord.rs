@@ -167,6 +167,7 @@ pub async fn run(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> 
     gm(&mut a, "/siege owner Inflame -").await?;
     gm(&mut a, "/invincible 0").await?;
     gm(&mut a, &format!("/level {level_a}")).await?;
+    super::disband(&mut a, GUILD, PASSWORD).await;
     println!("\nArchLord : OK");
     Ok(())
 }

@@ -874,6 +874,16 @@ pub async fn gm_place(gm: &mut InWorld, name: &str, pos: Vec3) -> anyhow::Result
 
 /// Position de départ d'un personnage hors jeu, écrite en base avant son entrée : l'autre chemin légitime pour poser un
 /// joueur sans droits MJ (voir `gm_place`).
+/// Remise en état d'un scénario de guilde : `w` dissout sa guilde `name` (AGPMGUILD op 6). Sans réponse (dissolution
+/// refusée, par exemple sous `Guild.DestroyDelayHours`), la suite n'échoue pas : l'état reste, comme avant.
+pub async fn disband(w: &mut InWorld, name: &str, password: &str) {
+    let gd = &schema::GUILD;
+    let cid = w.cid;
+    if w.world.send(gd, Fields::new(gd).with(0, 6).with(1, cid).with(2, name).with(9, password)).await.is_ok() {
+        let _ = w.world.expect_where(|q| q.is(gd, Some(6)), 3000, "guilde dissoute").await;
+    }
+}
+
 pub async fn start_at(cfg: &Config, name: &str, pos: Vec3) -> anyhow::Result<()> {
     let db = crate::db::Databases::new(&cfg.database);
     db.characters.exec("UPDATE characters SET pos_x = ?, pos_y = ?, pos_z = ? WHERE name = ?", (pos.x as f64, pos.y as f64, pos.z as f64, name.to_string())).await?;
@@ -1318,6 +1328,9 @@ async fn potion(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
     let say = |cid: u32, text: &str| Fields::new(ch).with(0, 0).with(1, cid).with(2, chat_type::NORMAL).with(6, crate::tools::to_cp1252(text));
 
     step("potions créées");
+    // Niveau bas : le ver survit au premier coup et riposte (niveau d'origine rendu à la fin).
+    let level = w.level.max(1);
+    w.world.send(ch, say(w.cid, "/level 2")).await?;
     w.world.send(ch, say(w.cid, "/invincible 0")).await?;
     w.world.send(ch, say(w.cid, &format!("/create \"{char_name}\" {LIFE} 3"))).await?;
     let made = w.world.expect_where(|q| q.is(it, None) && q.int(3) == Some(LIFE) && q.int(1) == Some(2), 3000, "potions créées").await?;
@@ -1372,6 +1385,8 @@ async fn potion(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
 
     w.world.send(ch, say(w.cid, "/invincible 0")).await?;
     w.world.expect_where(|q| q.ptype == ch.id, 3000, "réponse à /invincible 0").await?;
+    w.world.send(ch, say(w.cid, &format!("/level {level}"))).await?;
+    w.world.expect_where(|q| q.ptype == ch.id, 3000, "réponse à /level").await?;
     println!("\npotions et régénération : OK");
     Ok(())
 }
@@ -1424,25 +1439,37 @@ async fn scroll(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
     // Retour « au village » : au point de résurrection de la région, à quelques milliers d'unités du départ.
     let town = |a: Vec3| (((a.x - village.x) as f64).powi(2) + ((a.z - village.z) as f64).powi(2)).sqrt() < 10_000.0;
     let tullan = Vec3::new(-353_400.0, 2125.0, 81_200.0);
+    // Arrivé à Tullan (région sûre), le personnage y est rattaché : le village des parchemins devient celui de Tullan.
+    let bound = |a: Vec3| (((a.x - tullan.x) as f64).powi(2) + ((a.z - tullan.z) as f64).powi(2)).sqrt() < 25_000.0;
+    // Champ des Vers verts, hors des régions sûres.
+    let field = Vec3::new(-466_468.0, 0.0, -50_010.0);
 
     step("passeport de Tullan");
     let at = use_and_land(&mut w, iids[&TULLAN], TULLAN).await?;
     anyhow::ensure!(near(at, tullan), "arrivé en {at:?}");
     println!("  ✓ à Tullan : {:.0}, {:.0}", at.x, at.z);
 
-    step("aller-retour");
+    step("aller-retour refusé en région sûre");
+    w.world.send(it, Fields::new(it).with(0, 3).with(2, iids[&ROUNDTRIP])).await?;
+    let system = |q: &Recv| q.ptype == ch.id && q.int(2) == Some(chat_type::WHOLE_WORLD);
+    w.world.expect_where(|q| system(q) && q.fields().text(6).is_some_and(|t| t.contains("gion s")), 3000, "refus en ville").await?;
+    println!("  ✓ refusé à Tullan");
+    w.world.send(ch, say(w.cid, &format!("/move {},{}", field.x, field.z))).await?;
+    w.world.expect_where(|q| q.is(mv, None) && q.int(0) == Some(me), 3000, "vers le champ des vers").await?;
+
+    step("aller-retour depuis le champ des vers");
     let at = use_and_land(&mut w, iids[&ROUNDTRIP], ROUNDTRIP).await?;
-    anyhow::ensure!(town(at), "aller : {at:?}");
-    println!("  ✓ aller : au village");
+    anyhow::ensure!(bound(at), "aller : {at:?}");
+    println!("  ✓ aller : au village de rattachement (Tullan)");
     w.world.send(it, Fields::new(it).with(0, 6).with(4, w.cid)).await?;
     w.world.expect_where(|q| q.is(it, Some(10)) && q.int(4) == Some(me), 3000, "retour désactivé").await?;
     let back = w.world.expect_where(|q| q.is(mv, None) && q.int(0) == Some(me), 3000, "retour").await?.fields().vec3(2).unwrap_or_default();
-    anyhow::ensure!(near(back, tullan), "retour en {back:?}");
-    println!("  ✓ retour : de nouveau à Tullan");
+    anyhow::ensure!(near(back, field), "retour en {back:?}");
+    println!("  ✓ retour : de nouveau au champ des vers");
 
     step("aller-retour abandonné (op 8)");
     let at = use_and_land(&mut w, iids[&ROUNDTRIP], ROUNDTRIP).await?;
-    anyhow::ensure!(town(at), "aller : {at:?}");
+    anyhow::ensure!(bound(at), "aller : {at:?}");
     w.world.expect_where(|q| q.is(it, Some(9)) && q.int(4) == Some(me), 3000, "retour possible").await.ok();
     w.world.send(it, Fields::new(it).with(0, 8).with(4, w.cid)).await?;
     w.world.expect_where(|q| q.is(it, Some(10)) && q.int(4) == Some(me), 3000, "retour désactivé (abandon)").await?;
@@ -1453,8 +1480,12 @@ async fn scroll(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> {
 
     step("passeport (retour au village)");
     let at = use_and_land(&mut w, iids[&GO_TOWN], GO_TOWN).await?;
-    anyhow::ensure!(town(at), "arrivé en {at:?}");
-    println!("  ✓ au village");
+    anyhow::ensure!(bound(at), "arrivé en {at:?}");
+    println!("  ✓ au village de rattachement");
+    // Remise en état : de nouveau rattaché à la région de départ de sa race.
+    w.world.send(ch, say(w.cid, &format!("/move {},{}", village.x, village.z))).await?;
+    w.world.expect_where(|q| q.is(mv, None) && q.int(0) == Some(me), 3000, "retour au village de départ").await?;
+    let _ = town;
     println!("\nparchemins : OK");
     Ok(())
 }
@@ -3281,6 +3312,8 @@ async fn counter_attack(user: &str, pass: &str, char_name: &str) -> anyhow::Resu
     let mut w = enter_world(&cfg, user, pass, char_name, "").await?;
     let me = w.cid as i64;
     anyhow::ensure!(w.skills.iter().any(|s| s.1 == COUNTER), "Counter Attack absente : {:?}", w.skills);
+    // Counter Attack exige une arme à deux mains (`requirement` 8, requirement.rs) : Zweihander, niveau 1.
+    hold_item(&mut w, 494).await?;
     let say = |cid: u32, text: &str| Fields::new(ch).with(0, 0).with(1, cid).with(2, chat_type::NORMAL).with(6, crate::tools::to_cp1252(text));
     let system = |q: &Recv| q.ptype == ch.id && q.int(2) == Some(chat_type::WHOLE_WORLD);
     let level = w.level.max(1);
@@ -3368,7 +3401,7 @@ async fn party_skill(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str)
     let (acid, bcid) = (a.cid as i64, b.cid as i64);
     let song = a.skills.iter().find(|s| s.1 == MARCHING_SONG).map(|s| s.0).ok_or_else(|| anyhow::anyhow!("Marching Song absente"))?;
     // Invitation refusée à 10 niveaux d'écart (party.rs) : l'invité est mis au niveau du MJ, rétabli à la fin.
-    let raised = a.level > b.level + 9;
+    let raised = a.level.abs_diff(b.level) > 9;
     if raised {
         tokio::time::sleep(Duration::from_millis(150)).await;
         a.world.send(ch, Fields::new(ch).with(0, 0).with(1, a.cid).with(2, chat_type::NORMAL).with(6, crate::tools::to_cp1252(&format!("/level {} \"{cb}\"", a.level)))).await?;

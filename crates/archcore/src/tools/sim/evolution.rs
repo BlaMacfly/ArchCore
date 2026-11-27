@@ -105,6 +105,8 @@ pub async fn run(user: &str, pass: &str, char_name: &str, ub: &str, pb: &str, cb
     let mv = &schema::OPT_CHAR_MOVE;
     w.world.send(mv, Fields::new(mv).with(0, w.cid).with(1, SPOT).with(2, SPOT).with(5, STOP).with(6, 0)).await?;
     tokio::time::sleep(Duration::from_millis(500)).await;
+    // Le Scion (créé à Cien, ou laissé ailleurs) rejoint Gilliwen.
+    super::gm_place(&mut w, cb, SPOT).await?;
     gm(&mut w, &format!("/level 20 \"{cb}\""), "20").await?;
     tokio::time::sleep(Duration::from_millis(150)).await;
     gm(&mut w, &format!("/money 100000 \"{cb}\""), "100").await?;

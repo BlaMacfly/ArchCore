@@ -99,7 +99,7 @@ fn apply_form(ctx: &WorldCtx, st: &mut WorldState, sid: u32) {
     let Some(p) = st.players.get_mut(&sid) else { return };
     super::equipment::recompute_factors(ctx, p);
     let (caster_tid, class) = (p.ch.template_id, super::skills::form_class(&p.factors));
-    if super::skills::sync_passives(&ctx.skills, &mut p.skills, caster_tid, class) {
+    if super::skills::sync_passives(&ctx.skills, p.gear.skill_levels, &mut p.skills, caster_tid, class) {
         super::equipment::recompute_factors(ctx, p);
     }
     let c = &schema::CHARACTER;

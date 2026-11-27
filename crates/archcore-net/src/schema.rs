@@ -1482,6 +1482,9 @@ pub mod login_result {
     pub const TOO_MANY_ATTEMPTS: i64 = 2;
     pub const TOS_AGREEMENT: i64 = 3;
     pub const NAME_TAKEN: i64 = 7;
+    pub const FULL_SLOT: i64 = 8;
+    /// Nom qui ne peut pas être créé.
+    pub const UNMAKABLE_CHAR_NAME: i64 = 12;
     pub const CANT_DELETE_GUILD_MASTER: i64 = 19;
 }
 

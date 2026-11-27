@@ -113,6 +113,7 @@ défaut, avec un avertissement dans le journal ; une clé inconnue (faute de fra
 | `Rules.ProvokeSeconds` | `10` | Provoke, Zone Provoke : durée pendant laquelle le monstre garde le lanceur pour cible |
 | `Rules.MonsterKin` | `1` | Invocations, suiveurs et renfort des monstres (`ai_kin.rs`, colonnes `SummonTID`, `FollowerTID`, `PinchMonster` d'aidatatable) |
 | `Rules.PinchHpPercent` | `30` | Seuil de PV (pour cent) sous lequel un monstre appelle son renfort (`PinchMonster`), une fois par vie |
+| `Rules.EntryInvincibleSeconds` | `10` | Invincibilité à l’entrée en jeu, règle de l’épisode 8 (comme après une résurrection) : le personnage qui entre hors combat ne peut pas être attaqué pendant ce nombre de secondes ; son premier coup ou sa première compétence offensive la lève. 0 la coupe (10 au plus). |
 | `Rules.LootLevelGap` | `11` | Règle de butin d’origine : au-delà de cet écart de niveaux entre le tueur et le monstre, dans un sens comme dans l’autre (monstre trop faible ou trop fort), le monstre ne donne qu’une pièce d’or et aucun objet. 0 coupe la règle. Morts réelles seulement ; `/simloot` l’ignore. |
 | `AntiCheat.Enabled` | `1` | Contrôles anti-triche côté serveur : positions envoyées par le client et cadence des coups normaux (voir [[Administration|FR-Administration]]) ; `0` : désactivés (la limite de paquets reste) |
 | `AntiCheat.Action` | `log` | Sanction d'un joueur qui atteint `AntiCheat.Threshold` anomalies : `log` (journal seul), `kick` (déconnexion, sans attente de reconnexion) ou `ban` (bannissement du compte, puis déconnexion) |

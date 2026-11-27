@@ -327,6 +327,8 @@ pub async fn run(ua: &str, pa: &str, ca: &str, ub: &str, pb: &str, cb: &str) -> 
     gm(&mut a, "/invincible 0").await?;
     gm(&mut a, &format!("/level {level_a}")).await?;
     gm(&mut a, &format!("/level {} \"{cb}\"", level_b.max(1))).await?;
+    super::disband(&mut a, GA, PASSWORD).await;
+    super::disband(&mut b, GB, PASSWORD).await;
     println!("\nguerre de siège : OK");
     Ok(())
 }

@@ -764,7 +764,7 @@ pub fn refresh_skills(ctx: &WorldCtx, st: &mut WorldState, sid: u32) {
     let Some(p) = st.players.get_mut(&sid) else { return };
     p.skills.title_skills = p.titles.skills(&ctx.titles);
     let (caster_tid, form) = (p.ch.template_id, super::skills::form_class(&p.factors));
-    if super::skills::sync_passives(&ctx.skills, &mut p.skills, caster_tid, form) {
+    if super::skills::sync_passives(&ctx.skills, p.gear.skill_levels, &mut p.skills, caster_tid, form) {
         super::equipment::refresh_factors(ctx, st, sid);
     }
 }

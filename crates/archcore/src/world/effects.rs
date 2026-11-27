@@ -52,7 +52,7 @@ use archcore_net::{build_mini, build_packet, Fields, Value};
 use std::time::{Duration, Instant};
 
 /// Effets au plus sur un personnage.
-pub const MAX_EFFECTS: usize = 32;
+pub const MAX_EFFECTS: usize = 96;
 /// Type d'objet « personnage » dans SKILL_BASE.
 const BASE_CHARACTER: i64 = 3;
 
@@ -285,6 +285,9 @@ pub struct Mods {
     pub crit_resist: f64,
     /// Contre-attaque : chance (pour cent) de renvoyer à son auteur les dégâts d'un coup reçu.
     pub counter: f64,
+    /// Dégâts physiques fixés (`update_combat_point` de SKILL_SPEC) : positif, toujours au maximum (Lethal Attack, 2) ;
+    /// négatif, toujours au minimum (Debilitate, 3).
+    pub fixed_damage: f64,
     /// Défense ignorée par les coups du porteur (pour cent) : défense physique, résistances élémentaires.
     pub ignore_defense: f64,
     pub ignore_resist: f64,
@@ -437,6 +440,7 @@ impl Mods {
         self.stun_protect += o.stun_protect;
         self.crit_resist += o.crit_resist;
         self.counter += o.counter;
+        self.fixed_damage += o.fixed_damage;
         self.ignore_defense += o.ignore_defense;
         self.ignore_resist += o.ignore_resist;
         self.share_physical += o.share_physical;
@@ -703,7 +707,11 @@ pub fn status_packet(cid: u32, status: u64) -> Vec<u8> {
 ///   inférieur ou égal) : deux renforcements d'une famille ne se cumulent pas.
 ///
 /// Une passive (sans fin) remplace seulement la même compétence. Refusé aussi quand la liste reste pleine.
-pub fn push(effects: &mut Vec<Effect>, e: Effect) -> Option<Vec<Effect>> {
+pub fn push(effects: &mut Vec<Effect>, mut e: Effect) -> Option<Vec<Effect>> {
+    // Immunité au ralentissement (état 17) : le ralentissement de l'effet ne compte pas, le reste oui.
+    if e.mods.movement_pct < 0.0 && effects.iter().any(|x| x.status & status::SLOW_INVINCIBLE != 0) {
+        e.mods.movement_pct = 0.0;
+    }
     let family = |x: &Effect| e.classify.0 != 0 && x.classify.0 == e.classify.0;
     let timed = e.ends_at.is_some();
     if timed && effects.iter().any(|x| (x.tid == e.tid && x.level > e.level) || (family(x) && x.classify.1 > e.classify.1)) {

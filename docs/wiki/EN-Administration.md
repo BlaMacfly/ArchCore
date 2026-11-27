@@ -71,7 +71,7 @@ messages. ArchCore's replies are in French.
 | `/SetChatBuff <0\|1>` | 3 | Turns the chat bonus on or off |
 | `/chatban "name" <minutes>` | 1 | The player can no longer talk; `0` lifts the mute. The player is told |
 | `/kill ["name"]` | 2 | Sets the character's HP to 0; without a name, on yourself. Online characters only |
-| `/invincible [0\|1]` | 2 | Monsters no longer wound you (1, the default) or do again (0) |
+| `/invincible [0\|1] ["name"]` | 2 | Monsters no longer wound you (1, the default) or do again (0); with a name, another character's invincibility (its game entry invincibility included) |
 | `/speed <1-10>` | 2 | Multiplies the GM's movement speed (walk and run); `1` restores it. Kept when equipment or effects change, forgotten on logout. ArchCore-specific command |
 | `/rename_char "old" "new"` | 2 | Renames in the database (2 to 24 characters, no space). An online player sees the new name on next login |
 | `/additem <TID> [count]` | 3 | Shortcut for `/create` on yourself: adds the item (1 by default, up to 9999) to the GM's inventory, tradable. ArchCore-specific command |

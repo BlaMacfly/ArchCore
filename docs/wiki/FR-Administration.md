@@ -73,7 +73,7 @@ la discussion comme messages système.
 | `/SetChatBuff <0\|1>` | 3 | Active ou désactive le bonus de discussion |
 | `/chatban "nom" <minutes>` | 1 | Le joueur ne peut plus parler ; `0` lève l'interdiction. Le joueur est prévenu |
 | `/kill ["nom"]` | 2 | Met les PV du personnage à 0 ; sans nom, sur soi. Personnage connecté uniquement |
-| `/invincible [0\|1]` | 2 | Les monstres ne vous blessent plus (1, par défaut) ou de nouveau (0) |
+| `/invincible [0\|1] ["nom"]` | 2 | Les monstres ne vous blessent plus (1, par défaut) ou de nouveau (0) ; avec un nom, l'invincibilité d'un autre personnage (celle de son entrée en jeu comprise) |
 | `/speed <1-10>` | 2 | Multiplie la vitesse de déplacement (marche et course) du MJ ; `1` la rétablit. Gardée quand l'équipement ou les effets changent, oubliée à la déconnexion. Commande propre à ArchCore |
 | `/rename_char "ancien" "nouveau"` | 2 | Renomme en base (2 à 24 caractères, sans espace). Un joueur connecté voit son nouveau nom à sa prochaine connexion |
 | `/create "nom" <TID> <quantité> <0\|1>` | 3 | Ajoute l'objet dans `character_items`, dans la première case libre de l'inventaire. Un joueur connecté le reçoit tout de suite ; le personnage peut aussi être hors ligne |

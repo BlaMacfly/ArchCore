@@ -240,6 +240,52 @@ pub struct ItemData {
     pub auction_category: (i64, i64),
     /// Objet d'événement (« EventItem »).
     pub event_item: bool,
+    /// Consommable réservé (niveau, race, classe, sexe), comme un équipement.
+    pub use_restrict: Option<UseRestrict>,
+}
+
+/// Restrictions d'usage d'un consommable (« ItemType » 1) : colonnes « Level » (`min;max`), « Race », « Class » et
+/// « Gender » d'itemdatatable.txt. Le client d'Archonia ne les contrôle pas ; le serveur refuse l'usage.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct UseRestrict {
+    pub level: i64,
+    pub max_level: i64,
+    pub races: Vec<i64>,
+    pub classes: Vec<i64>,
+    pub gender: i64,
+}
+
+impl UseRestrict {
+    pub fn from_raw(raw: &serde_json::Value) -> Option<Self> {
+        let text = |k: &str| raw.get(k).and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+        let list = |k: &str| text(k).split(';').filter_map(|x| x.trim().parse::<i64>().ok()).filter(|&x| x > 0).collect::<Vec<_>>();
+        if text("ItemType") != "1" {
+            return None;
+        }
+        let (level, max_level) = level_bounds(&text("Level"));
+        let r = UseRestrict { level, max_level, races: list("Race"), classes: list("Class"), gender: text("Gender").parse::<f64>().map(|v| v as i64).unwrap_or(0) };
+        (r.level > 1 || r.max_level > 0 || !r.races.is_empty() || !r.classes.is_empty() || r.gender != 0).then_some(r)
+    }
+
+    /// Raison d'un refus, ou rien.
+    pub fn check(&self, level: i64, race: i64, class: i64, gender: i64) -> Result<(), &'static str> {
+        if level < self.level {
+            return Err("niveau insuffisant");
+        }
+        if self.max_level > 0 && level > self.max_level {
+            return Err("niveau trop élevé");
+        }
+        if !self.races.is_empty() && !self.races.contains(&race) {
+            return Err("race non admise");
+        }
+        if !self.classes.is_empty() && !self.classes.contains(&class) {
+            return Err("classe non admise");
+        }
+        if self.gender != 0 && self.gender != gender {
+            return Err("réservé à l'autre sexe");
+        }
+        Ok(())
+    }
 }
 
 /// Options fixes d'un objet (colonne « OptionTID », séparées par « ; »).
@@ -492,7 +538,8 @@ impl ItemCatalog {
                 let column = |k: &str| raw.as_ref().and_then(|v| v.get(k)?.as_str()?.trim().parse::<i64>().ok()).unwrap_or(0);
                 let (kind, bound_type, cash, enable_on_ride) = (column("Kind"), column("BoundType"), column("Cash"), column("EnableOnRide") != 0);
                 let (auction_category, event_item) = ((column("FirstCategory"), column("SecondCategory")), column("EventItem") != 0);
-                (tid, ItemData { tid, name: col(r, "name"), npc_price: col(r, "npc_price"), pc_price: col(r, "pc_price"), charisma_price: col(r, "npc_charisma_price"), coin_price: col(r, "npc_shrine_coin"), stack: col::<i64>(r, "stack").max(1), equip, potion, scroll, stone, usable_type, option_tids, kind, bound_type, cash, enable_on_ride, auction_category, event_item })
+                let use_restrict = raw.as_ref().and_then(UseRestrict::from_raw);
+                (tid, ItemData { tid, name: col(r, "name"), npc_price: col(r, "npc_price"), pc_price: col(r, "pc_price"), charisma_price: col(r, "npc_charisma_price"), coin_price: col(r, "npc_shrine_coin"), stack: col::<i64>(r, "stack").max(1), equip, potion, scroll, stone, usable_type, option_tids, kind, bound_type, cash, enable_on_ride, auction_category, event_item, use_restrict })
             })
             .collect();
         let raws: Vec<(u32, serde_json::Value)> =

@@ -390,11 +390,12 @@ court (0x10). Au plus 16 départs par tour.
 **Mort du joueur.** À 0 PV : AGPMCHARACTER op 1 (facteurs, champ 11 = 2) au joueur et à ceux qui le
 voient ; il ne bouge ni n'attaque plus, et les monstres le lâchent. Le client demande la résurrection au
 village par AGPMCHARACTER **op 9** : le serveur rend tous les PV et PM, renvoie le statut 0, téléporte le
-personnage au point de résurrection de sa région de rattachement et le rend invincible 10 s.
+personnage au point de résurrection de sa région de rattachement et le rend invincible 10 s (comme à l'entrée en jeu ;
+levée au premier coup porté).
 
 **Régions et points de résurrection.** Chaque segment de la carte serveur porte un numéro de région
 (RegionTemplate.ini), dont le champ `Type` dit si elle est sûre (bits 2-3 à 0), libre ou dangereuse. Un
-joueur est rattaché à la dernière région sûre traversée ; à l'entrée en jeu, à celle où il se trouve si elle
+joueur est rattaché à la dernière région sûre où il s'est trouvé (marche ou téléportation) ; à l'entrée en jeu, à celle où il se trouve si elle
 est sûre, sinon à celle de sa race (9 Anchorville, 5 Golundo, 26 Norine). Les points de résurrection sont
 les objets des obj*.ini du client qui portent un événement 19 (« binding ») de type 1 : région par son nom
 (`TownName`), race et classe admises (-1 ou 0 : toutes), position de l'objet. Le joueur revient au point de
@@ -2284,6 +2285,35 @@ client n'en joue aucune, il n'en montre que les entrées et les sorties.
 | Bonus de niveau | AGPMSKILL op 14 | champ 1 = options `skill_levelup` + effets de type 1 (Expert Skill…) ; types 2 et 4 comptés au seul serveur |
 | États | AGPMCHARACTER op 1, champ 17 | codes de special_status 26 à 33 (Archonia) ramenés à la valeur EP8 ; 9 halte (0x80000000 + 0x100000000), 10 invisibilité (0x200) ; `disturb` 1, 2, 8 → attaque, déplacement, compétence interdits (bits du client) ; 4 (objets) : bit propre au serveur, jamais envoyé |
 | Déplacements forcés | 0x40 | arrêt net du monstre à sa nouvelle place (drapeaux 0x0c), vue revue chez chacun |
+
+## Règles du serveur reprises de l'épisode 8 (types 0x02, 0x04, 0x05, 0x41, 0x4A)
+
+Règles que le client ne montre pas, reprises des tables et de la logique de l'épisode 8. Le client n'en voit que le
+résultat.
+
+| Règle | Paquets | Contenu |
+|---|---|---|
+| Invincibilité de l'entrée en jeu | AgpmPvP op 18 codes 9 et 10 | 10 s à l'entrée en jeu hors combat, comme après une résurrection ; levée au premier coup porté ou à la première compétence offensive (code 10). Celle d'un MJ (`/invincible`) reste |
+| Régénération des monstres | AGPMCHARACTER op 1 (facteurs) à ceux qui le voient | toutes les 10 s, monstre vivant blessé, en combat aussi : 1,5 % des PV maximaux + 5 (aucun taux de récupération dans les tables des monstres) ; les objets des guerres de siège ne se réparent pas |
+| Conversion entre joueurs | 0x41 résultat 3 ; AGPMSKILL op 10 type 6 | un coup normal réussi, non critique, peut être changé en PV ou en PM de la cible (`damage_convert_hp` / `_mp` de ses effets, 80 % au plus), comme le coup d'un monstre |
+| Invincibilité aux attaques | 0x41 résultat 7 | une cible (joueur ou monstre) sous l'état 12 esquive les coups normaux ; sous l'état 13, ou invincible, elle ne prend ni dégâts ni effet des compétences |
+| Cible des compétences | AGPMSKILL op 7, action 7 | un monstre invincible ou invisible n'est pas une cible offensive |
+| Invisibilité en combat | AGPMSKILL op 7, action 7 | une compétence d'invisibilité est refusée dans les 10 s qui suivent un coup, sauf si sa colonne `force` a le bit 4 (Hide in Sight : oui ; Concealment : non) |
+| Zones | — | la sphère d'une compétence de zone touche un personnage jusqu'à sa taille (`HitRange` d'un monstre, 50 pour un joueur) au-delà du rayon ; la boîte part 10 unités derrière le lanceur et touche de même |
+| Effets | AGPMSKILL op 6 | 96 effets au plus sur un personnage |
+| Passives | AGPMSKILL op 6 | elles prennent le bonus de niveau des options `skill_levelup` et des effets à durée de type 1, comme un lancement |
+| Dégâts sur la durée | AGPMCHARACTER op 1 | posés aussi sur un joueur ; le lanceur d'une mort par ces dégâts a sa victoire (combat entre joueurs) |
+| Dégâts fixés | 0x41 | `update_combat_point` 2 (Lethal Attack) : dégâts physiques toujours au maximum ; 3 (Debilitate) : toujours au minimum |
+| Immunité au ralentissement | — | sous l'état 17, le ralentissement d'un nouvel effet ne compte pas, le reste de l'effet oui |
+| Butin | — | un monstre de DropRank 0 ne donne rien, or compris ; les objets « Villain Only » ne viennent qu'à un tueur meurtrier (40 points au moins) ; les objets d'événement ne sont jamais dans les groupes de butin |
+| Rapière et dague | AGPMITEM op 1 | la dague (main gauche, `Type` 22) ne se tient qu'avec une rapière (main droite, `Type` 21) : une autre arme en main droite range la dague, une dague range l'arme de la main droite qui n'est pas une rapière, retirer la rapière retire d'abord la dague |
+| Consommables réservés | message système | « Level » (`min;max`), « Race », « Class » et « Gender » d'un consommable sont contrôlés à l'usage (le client ne les contrôle pas) : 2 176 objets ont une race exigée |
+| Rattachement | — | pris sur la position atteinte (marche, arrivée d'une téléportation), pas sur la destination cliquée |
+| Parchemins | AgpmItem op 6 (échec du retour) | aucun parchemin en région à niveau limité ; pas d'aller-retour depuis une région sûre ; pas de retour depuis une zone de combat dangereuse ni une région à niveau limité |
+| Immobilisation | 0x40 | étourdi, gelé, endormi ou immobilisé, un joueur ne marche pas côté serveur et sa demande de marche est ignorée |
+| Ramassage | AGPMITEM résultat d'échec | refusé à un joueur invisible, étourdi, gelé ou endormi |
+| Guilde dissoute | AgpmSiegeWar op 0 à tous | ses châteaux restent sans propriétaire, son sceau et ses candidatures tombent |
+| Noms de personnage | AGPMLOGIN résultat 12 (8 : plus de place) | 4 à 16 lettres ou chiffres ASCII, sans « GM » en tête ni « Admin » ; un `#` ou une espace sont refusés |
 
 ## Types connus
 

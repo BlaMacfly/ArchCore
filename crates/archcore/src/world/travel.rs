@@ -90,6 +90,11 @@ pub fn village_point(ctx: &WorldCtx, bound: u16, here: Vec3, race: i32, class: i
     }
 }
 
+/// Région à niveau limité (« LevelLimit » de la région ou de sa parente).
+fn level_limited(ctx: &WorldCtx, region: Option<u16>) -> bool {
+    region.and_then(|r| ctx.regions.level_range(r)).is_some_and(|(_, limit)| limit > 0)
+}
+
 fn return_packet(op: i64, cid: u32) -> Vec<u8> {
     let s = &schema::ITEM;
     build_packet(s, &Fields::new(s).with(0, op).with(4, cid))
@@ -102,6 +107,17 @@ pub async fn use_scroll(ctx: &WorldCtx, st: &mut WorldState, sid: u32, item: &In
     // FUN_14053d0b0 d'Archonia, qui le refuse aussi de lui-même).
     if super::pvp::zone_mode(ctx, st, sid) == super::pvp::mode::COMBAT {
         p.send_raw(super::pvp::message(super::pvp::code::CANNOT_USE_TELEPORT, None, None));
+        return Ok(());
+    }
+    // Région à niveau limité (Battle Square…) : aucun parchemin.
+    let region = ctx.map.region(p.ch.pos_x, p.ch.pos_z);
+    if level_limited(ctx, region) {
+        send_system(st, sid, "Les parchemins ne s'utilisent pas dans cette région.");
+        return Ok(());
+    }
+    // Aller-retour depuis une région sûre : refusé (rien à quitter).
+    if scroll.kind == ScrollKind::Roundtrip && region.is_none_or(|r| ctx.regions.is_safe(r)) {
+        send_system(st, sid, "Un aller-retour ne s'utilise pas en région sûre.");
         return Ok(());
     }
     let fighting = now < p.timers.combat_until;
@@ -139,6 +155,15 @@ pub async fn use_return(ctx: &WorldCtx, st: &mut WorldState, sid: u32, now: Inst
         return Ok(());
     }
     let Some(back) = p.return_point else { return Ok(()) };
+    // Ni en zone de combat dangereuse ni en région à niveau limité.
+    let region = ctx.map.region(p.ch.pos_x, p.ch.pos_z);
+    if super::pvp::zone_mode(ctx, st, sid) == super::pvp::mode::COMBAT || level_limited(ctx, region) {
+        let p = &st.players[&sid];
+        p.send_raw(return_packet(USE_RETURN_SCROLL_FAILED, p.ch.id));
+        send_system(st, sid, "Impossible de revenir depuis cette région.");
+        return Ok(());
+    }
+    let Some(p) = st.players.get_mut(&sid) else { return Ok(()) };
     if now < p.timers.combat_until {
         p.send_raw(return_packet(USE_RETURN_SCROLL_FAILED, p.ch.id));
         send_system(st, sid, "Impossible de revenir pendant un combat.");

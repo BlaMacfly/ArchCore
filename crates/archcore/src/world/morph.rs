@@ -310,8 +310,9 @@ pub fn restore(ctx: &WorldCtx, st: &mut WorldState, sid: u32, why: &str) {
     }
     super::equipment::recompute_factors(ctx, p);
     let (cid, name) = (p.ch.id, p.ch.name.clone());
-    factors_around(st, sid);
+    // Forme d'origine rendue (op 12), puis ses facteurs.
     super::combat::send_around(st, sid, &restore_packet(cid));
+    factors_around(st, sid);
     info!("[métamorphose] {name} reprend son apparence ({why})");
 }
 

@@ -148,6 +148,8 @@ async fn scenario(cfg: &crate::config::Config, db: &crate::db::Databases, id: u3
     system(&mut w, "deuxième page").await?;
     println!("  ✓ refusé sans deuxième page");
     add_item(&mut w, SAFE_KEEPER).await?;
+    // Hors combat (les 10 s qui suivent la Dual Slash de l'étape précédente) : /safekeeper est refusé en combat.
+    tokio::time::sleep(Duration::from_millis(10_500)).await;
     talk(&mut w, "/safekeeper").await?;
     used(&mut w, SAFE_KEEPER, me).await?;
     w.world.expect_where(|q| q.is(bk, Some(1)), 3000, "banque ouverte à distance (op 1)").await?;

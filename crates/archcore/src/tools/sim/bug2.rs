@@ -34,6 +34,13 @@ pub async fn run(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()> 
     let p = w.world.expect_where(|q| q.is(it, Some(0)) && q.int(3) == Some(11), 3000, "case réemployée").await?;
     let g = decode_mini(&mini::ITEM_GRID, p.fields().bytes(7).unwrap_or_default())?;
     anyhow::ensure!((0..3).all(|i| g.int(i) == Some(4)), "dernière case non réemployée");
+    // Remise en état : les 125 épées quittent l'inventaire (sinon les scénarios suivants le trouvent plein).
+    drop(w);
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    let db = crate::db::Databases::new(&cfg.database);
+    let id = character_id(&db, char_name).await?;
+    db.characters.exec("DELETE FROM character_items WHERE character_id = ? AND template_id = 11 AND status = 0", (id,)).await?;
+    db.close().await;
     println!("\ninventaire bug2 5x5x5 et destruction : OK");
     Ok(())
 }
@@ -47,13 +54,19 @@ pub async fn cash(user: &str, pass: &str, char_name: &str) -> anyhow::Result<()>
     let system = |q: &Recv| q.ptype == ch.id && q.int(2) == Some(chat_type::WHOLE_WORLD);
     step("rune Cash 4571 sur collier 5018 chez Halo");
     w.world.send(ch, say(w.cid, "/move -479400,-69300")).await?;
-    w.world.expect_where(system, 3000, "déplacement chez Halo").await?;
+    // Les vues des PNJ arrivent avant la réponse du MJ : elles sont lues dans la même attente.
     let mut smith = w.npcs.iter().find(|n| n.1.ends_with(" Halo")).map(|n| n.0);
-    while let Ok(p) = w.world.expect_where(|q| q.is(&schema::OPT_VIEW, Some(1)), 1000, "PNJ").await {
+    let mut answered = false;
+    while let Ok(p) = w.world.expect_where(|q| q.is(&schema::OPT_VIEW, Some(1)) || system(q), if answered { 1000 } else { 3000 }, "PNJ").await {
+        if system(&p) {
+            answered = true;
+            continue;
+        }
         if let Ok(v) = decode_mini(&mini::OPT_VIEW_CHAR, p.fields().bytes(1).unwrap_or_default()) {
             if v.text(2).is_some_and(|n| n.ends_with(" Halo")) { smith = v.int(0); }
         }
     }
+    anyhow::ensure!(answered, "déplacement chez Halo sans réponse");
     let smith = smith.ok_or_else(|| anyhow::anyhow!("Halo introuvable"))?;
     let eb = &mini::EVENT_BASE;
     let event = build_mini(eb, &Fields::new(eb).with(0, 3).with(1, smith).with(3, 22));

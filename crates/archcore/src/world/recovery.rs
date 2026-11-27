@@ -176,6 +176,15 @@ pub async fn use_item(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet,
     if player.dead {
         return Ok(());
     }
+    // Consommable réservé à un niveau, une race, une classe ou un sexe (items.rs).
+    if let Some(r) = catalog.get(item.tid).and_then(|d| d.use_restrict.as_ref()) {
+        let f = &player.factors;
+        if let Err(why) = r.check(f.status[7] as i64, f.ftype[0] as i64, f.ftype[2] as i64, f.ftype[1] as i64) {
+            debug!("[objet] {} : objet {} refusé ({why})", player.ch.name, item.tid);
+            super::send_system(st, sid, &format!("Vous ne pouvez pas utiliser cet objet ({why})."));
+            return Ok(());
+        }
+    }
     // Potion de métamorphose : ses propres refus (à cheval, transformé, siège : AGPMITEM op 27), morph.rs.
     if let Some(potion) = catalog.morph.get(&item.tid).copied() {
         return super::morph::use_potion(ctx, st, sid, &item, potion, now).await;
@@ -304,6 +313,36 @@ pub fn regen_step(st: &mut WorldState, now: Instant) {
     }
     for sid in changed {
         send_factors(st, sid);
+    }
+}
+
+/// Régénération des monstres vivants, en combat aussi : 1,5 % des PV maximaux + 5 toutes les 10 s (les tables des
+/// monstres n'ont pas de taux de récupération). Les objets des guerres de siège (portes, trône, tours) ne se
+/// réparent pas d'eux-mêmes. Qui les voit reçoit leurs PV (AGPMCHARACTER op 1).
+pub fn monster_regen_step(st: &mut WorldState, now: Instant) {
+    match st.monsters.regen_at {
+        Some(at) if now < at => return,
+        None => {
+            st.monsters.regen_at = Some(now + REGEN_INTERVAL);
+            return;
+        }
+        _ => {}
+    }
+    st.monsters.regen_at = Some(now + REGEN_INTERVAL);
+    let siege = &st.monsters.siege_spawns;
+    let wounded: Vec<u32> = st.monsters.monsters.iter().filter(|m| m.is_alive() && m.hp > 0 && m.hp < m.max_hp && !siege.contains_key(&m.spawn_id)).map(|m| m.cid).collect();
+    for cid in wounded {
+        let Some(m) = st.monsters.get_mut(cid) else { continue };
+        m.hp = (m.hp + regen_amount(m.max_hp, 0)).min(m.max_hp);
+        let Some(m) = st.monsters.get(cid) else { continue };
+        let watchers = super::combat::viewers(st, cid);
+        if watchers.is_empty() {
+            continue;
+        }
+        let stats = st.monsters.stats_for(m);
+        let c = &schema::CHARACTER;
+        let factors = super::monsters::monster_factors(m.level, &stats, m.hp);
+        super::combat::broadcast(st, &watchers, &build_packet(c, &Fields::new(c).with(0, 1).with(1, cid).with(7, factors_mini(&factors))));
     }
 }
 

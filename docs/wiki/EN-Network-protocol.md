@@ -380,11 +380,12 @@ departures per tick.
 **Player death.** At 0 HP: AGPMCHARACTER op 1 (factors, field 11 = 2) to the player and to those who see
 them; they can no longer move or attack, and monsters drop them. The client asks to be resurrected in
 town with AGPMCHARACTER **op 9**: the server restores HP and MP, sends status 0, teleports the character
-to the resurrection point of their bound region and makes them invincible for 10 s.
+to the resurrection point of their bound region and makes them invincible for 10 s (as on entering the game;
+lifted by the first hit).
 
 **Regions and resurrection points.** Each segment of the server map has a region number
 (RegionTemplate.ini), whose `Type` field says whether it is safe (bits 2-3 at 0), free or dangerous. A
-player is bound to the last safe region they crossed; on entering the world, to the one they stand in if it
+player is bound to the last safe region they stood in (walking or teleport); on entering the world, to the one they stand in if it
 is safe, otherwise to their race's (9 Anchorville, 5 Golundo, 26 Norine). Resurrection points are the
 objects of the client's obj*.ini files carrying an event 19 ("binding") of type 1: region by name
 (`TownName`), allowed race and class (-1 or 0: all), object position. The player comes back at the nearest
@@ -2197,6 +2198,34 @@ none of them, it only shows their inputs and outputs.
 | Level bonus | AGPMSKILL op 14 | field 1 = `skill_levelup` options + type 1 effects (Expert Skill…); types 2 and 4 counted by the server only |
 | Statuses | AGPMCHARACTER op 1, field 17 | special_status codes 26 to 33 (Archonia) mapped back to the EP8 value; 9 halt (0x80000000 + 0x100000000), 10 invisibility (0x200); `disturb` 1, 2, 8 → attack, movement, skill forbidden (client bits); 4 (items): server-only bit, never sent |
 | Forced moves | 0x40 | the monster stops dead at its new place (flags 0x0c), view refreshed for everyone |
+
+## Server rules taken from Episode 8 (types 0x02, 0x04, 0x05, 0x41, 0x4A)
+
+Rules the client does not show, taken from the Episode 8 tables and logic. The client only sees their outcome.
+
+| Rule | Packets | Content |
+|---|---|---|
+| Game entry invincibility | AgpmPvP op 18 codes 9 and 10 | 10 s on entering the game out of combat, as after a resurrection; lifted by the first hit or offensive skill (code 10). A GM's (`/invincible`) stays |
+| Monster regeneration | AGPMCHARACTER op 1 (factors) to viewers | every 10 s, living wounded monster, in combat too: 1.5% of max HP + 5 (monster tables have no recovery rate); siege war objects do not repair |
+| Conversion between players | 0x41 result 3; AGPMSKILL op 10 type 6 | a successful non-critical normal hit can turn into HP or MP for the target (`damage_convert_hp` / `_mp` of its effects, 80% at most), like a monster's hit |
+| Attack invincibility | 0x41 result 7 | a target (player or monster) under status 12 evades normal hits; under status 13, or invincible, it takes neither damage nor effect from skills |
+| Skill targets | AGPMSKILL op 7, action 7 | an invincible or invisible monster is not an offensive target |
+| Invisibility in combat | AGPMSKILL op 7, action 7 | an invisibility skill is refused within 10 s of a hit, unless its `force` column has bit 4 (Hide in Sight: yes; Concealment: no) |
+| Areas | — | an area skill's sphere reaches a character up to its size (a monster's `HitRange`, 50 for a player) beyond the radius; the box starts 10 units behind the caster and reaches the same way |
+| Effects | AGPMSKILL op 6 | at most 96 effects on a character |
+| Passives | AGPMSKILL op 6 | they take the level bonus of `skill_levelup` options and type 1 timed effects, like a cast |
+| Damage over time | AGPMCHARACTER op 1 | also applied to players; the caster of a death by such damage gets the win (player combat) |
+| Fixed damage | 0x41 | `update_combat_point` 2 (Lethal Attack): physical damage always at maximum; 3 (Debilitate): always at minimum |
+| Slow immunity | — | under status 17, a new effect's slow does not count, the rest of the effect does |
+| Loot | — | a DropRank 0 monster gives nothing, gold included; "Villain Only" items only go to a murderer killer (40 points at least); event items are never in drop groups |
+| Rapier and dagger | AGPMITEM op 1 | the dagger (left hand, `Type` 22) is only held with a rapier (right hand, `Type` 21): another right-hand weapon puts the dagger away, a dagger puts away a right-hand weapon that is not a rapier, removing the rapier first removes the dagger |
+| Restricted consumables | system message | a consumable's "Level" (`min;max`), "Race", "Class" and "Gender" are checked on use (the client does not check them): 2,176 items require a race |
+| Binding | — | taken from the position reached (walking, teleport arrival), not from the clicked destination |
+| Scrolls | AgpmItem op 6 (return failed) | no scroll in a level-limited region; no round trip from a safe region; no return from a dangerous combat area or a level-limited region |
+| Immobilization | 0x40 | stunned, frozen, asleep or held, a player does not walk on the server and their walk request is ignored |
+| Pickup | AGPMITEM failure result | refused to an invisible, stunned, frozen or sleeping player |
+| Disbanded guild | AgpmSiegeWar op 0 to everyone | its castles are left without an owner, its seal and applications drop |
+| Character names | AGPMLOGIN result 12 (8: no free slot) | 4 to 16 ASCII letters or digits, no leading "GM" nor "Admin"; a `#` or a space is refused |
 
 ## Known types
 

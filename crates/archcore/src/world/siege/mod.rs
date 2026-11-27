@@ -748,6 +748,38 @@ pub fn guild_valid(ctx: &WorldCtx, g: &super::guild::Guild, now: i64) -> bool {
     g.active_members() >= w.siege_min_guild_members && now - g.created_at >= w.siege_min_guild_age_days * 86_400
 }
 
+/// Guilde dissoute : elle ne possède plus aucun château, ne grave plus le sceau et ses candidatures tombent. La base
+/// vide déjà le propriétaire (`ON DELETE SET NULL`) ; sans ce ménage, l'enregistrement suivant d'un château écrirait
+/// l'identifiant disparu (clé étrangère refusée).
+pub async fn on_guild_destroyed(ctx: &WorldCtx, st: &mut WorldState, gid: u32) -> anyhow::Result<()> {
+    let mut changed = Vec::new();
+    let mut lost = Vec::new();
+    for (id, c) in st.siege.castles.iter_mut() {
+        let before = (c.owner, c.carve, c.applications.len());
+        if c.owner == Some(gid) {
+            c.owner = None;
+            lost.push(*id);
+        }
+        if c.carve == Some(gid) {
+            c.carve = None;
+        }
+        c.applications.retain(|a| a.guild != gid);
+        if before != (c.owner, c.carve, c.applications.len()) {
+            changed.push(*id);
+        }
+    }
+    for id in changed {
+        crate::info!("[siège] château {id} : guilde {gid} dissoute, propriété et candidatures retirées");
+        save(ctx, st, id).await?;
+    }
+    // Château sans propriétaire : annoncé à tous, comme `/siege owner … -`.
+    for id in lost {
+        on_owner_change(ctx, st, id, Some(gid), None);
+        broadcast_castle(ctx, st, id);
+    }
+    Ok(())
+}
+
 /// La guilde est déjà propriétaire ou candidate quelque part (pour Rensphere : dans ce seul château).
 pub fn already_involved(st: &WorldState, id: u8, gid: u32) -> bool {
     st.siege

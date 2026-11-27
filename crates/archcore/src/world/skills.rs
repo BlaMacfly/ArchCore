@@ -299,6 +299,8 @@ pub struct Spec {
     pub dispel_magic: i64,
     /// applied_cooldown_cap : réduction de relance permise au plus (pour cent).
     pub cooldown_cap: i64,
+    /// update_combat_point : 2 dégâts toujours au maximum, 3 au minimum.
+    pub update_combat_point: i64,
     /// skill_levelup : nature du bonus de niveau (1 toutes les compétences, 2 celles des arbres de maîtrise, 4 une liste).
     pub skill_levelup: i64,
     /// action_on_action : enchaînement (`skill_extra.rs`).
@@ -515,6 +517,11 @@ fn combat_mods(c: &serde_json::Value, sp: &Spec) -> Mods {
     if sp.defense_melee_attack == 2 {
         m.counter += rate;
     }
+    match sp.update_combat_point {
+        2 => m.fixed_damage += 1.0,
+        3 => m.fixed_damage -= 1.0,
+        _ => {}
+    }
     // Résistance aux critiques (Skill_Const2) : compétences de defense_melee_attack 4, et Natural Warrior sans
     // valeur, dont l'infobulle l'annonce ; la contre-attaque (2) a la colonne remplie sans l'annoncer (déduit).
     if sp.defense_melee_attack != 2 {
@@ -564,12 +571,27 @@ pub fn area(range_code: i64) -> Area {
     }
 }
 
-/// Monstres touchés par une zone : sphère de rayon `r` autour de `center`, ou boîte de `from` vers
-/// `toward` (longueur, largeur).
+/// Taille d'un joueur (portée à laquelle on le touche), comme dans le combat entre joueurs.
+pub const PLAYER_SIZE: f64 = 50.0;
+/// Plus grande taille d'un monstre (`HitRange` des modèles : 477), pour chercher autour d'une zone.
+const MAX_MONSTER_SIZE: f64 = 500.0;
+/// Recul de la boîte derrière son lanceur.
+const LINE_BACK: f64 = 10.0;
+
+/// Point touché par une zone, sans taille.
+#[cfg(test)]
 pub fn in_area(shape: Area, m: Vec3, center: Vec3, from: Vec3, toward: Vec3, lv: &SkillLevel) -> bool {
+    in_area_sized(shape, m, 0.0, center, from, toward, lv)
+}
+
+/// Personnage de taille `size` (portée à laquelle on le touche : `hit_range` d'un monstre, `PLAYER_SIZE`) touché
+/// par une zone : sphère de rayon `r` autour de `center` agrandie de sa taille, ou boîte de `from` vers `toward`
+/// (longueur, largeur ; 600 et 300 par défaut), partie 10 unités derrière le lanceur, qu'il touche de sa taille.
+#[allow(clippy::too_many_arguments)]
+pub fn in_area_sized(shape: Area, m: Vec3, size: f64, center: Vec3, from: Vec3, toward: Vec3, lv: &SkillLevel) -> bool {
     match shape {
         Area::Single => false,
-        Area::Sphere { .. } | Area::Ground => lv.area_r > 0.0 && combat::dist2d(m, center) <= lv.area_r,
+        Area::Sphere { .. } | Area::Ground => lv.area_r > 0.0 && combat::dist2d(m, center) <= lv.area_r + size,
         Area::Line => {
             let (length, width) = (if lv.area_f1 > 0.0 { lv.area_f1 } else { 600.0 }, if lv.area_f2 > 0.0 { lv.area_f2 } else { 300.0 });
             let (dx, dz) = ((toward.x - from.x) as f64, (toward.z - from.z) as f64);
@@ -579,9 +601,12 @@ pub fn in_area(shape: Area, m: Vec3, center: Vec3, from: Vec3, toward: Vec3, lv:
             }
             let (ux, uz) = (dx / n, dz / n);
             let (vx, vz) = ((m.x - from.x) as f64, (m.z - from.z) as f64);
-            let along = vx * ux + vz * uz;
+            let along = vx * ux + vz * uz + LINE_BACK;
             let across = (vx * uz - vz * ux).abs();
-            (0.0..=length).contains(&along) && across <= width / 2.0
+            // Distance du point à la boîte, nulle dedans.
+            let out_along = if along < 0.0 { -along } else { (along - length).max(0.0) };
+            let out_across = (across - width / 2.0).max(0.0);
+            (out_along * out_along + out_across * out_across).sqrt() <= size
         }
     }
 }
@@ -604,6 +629,9 @@ pub struct SkillTemplate {
     /// Nature d'invocation (colonne `summons` de SKILL_SPEC : 1 invocation, 2 fixe, 4 limite relevée, 5 soin des
     /// invocations, 6 parchemin d'invocation, 7, 8 familier, 11 ; 0 : aucune), voir `summons.rs`.
     pub summons: i64,
+    /// Colonne `force` de SKILL_SPEC : 4, invisibilité permise en combat (Hide in Sight) ; sans lui, une compétence
+    /// d'invisibilité est refusée à qui est en combat (Concealment).
+    pub force: i64,
     /// Effet sur le monde (colonne `game_effect` de SKILL_SPEC : 1 jour et nuit, 2 pluie, 4 neige) et monture sans objet
     /// (colonne `ride`) : compétences de l'ArchLord (`archlord.rs`).
     pub game_effect: i64,
@@ -784,6 +812,7 @@ impl SkillCatalog {
                     divide: int("divide"),
                     dispel_magic: int("dispel_magic"),
                     cooldown_cap: int("applied_cooldown_cap"),
+                    update_combat_point: int("update_combat_point"),
                     skill_levelup: int("skill_levelup"),
                 },
             );
@@ -800,6 +829,7 @@ impl SkillCatalog {
                     auto_attack: int("auto_attack") != 0,
                     status,
                     summons: int("summons"),
+                    force: int("force"),
                     game_effect: int("game_effect"),
                     ride: int("ride") != 0,
                     transform_target: int("transform_target"),
@@ -1048,12 +1078,17 @@ pub async fn load(db: &Databases, catalog: &SkillCatalog, character_id: u32, nex
 /// Recrée les effets des compétences passives connues (niveau courant) ; avec `form` (`form_class`), seulement celles
 /// que la classe de la forme admet ; puis ceux des compétences du titre équipé (niveau 1, quelle que soit leur nature :
 /// « <Title> Novice Knight »… sont des renforcements sans durée). Rend vrai si la liste a changé.
-pub fn sync_passives(catalog: &SkillCatalog, skills: &mut PlayerSkills, caster_tid: u32, form: Option<usize>) -> bool {
+///
+/// Une passive prend le bonus de niveau de toutes les compétences : `gear_levels` (options « skill_levelup » portées)
+/// et les effets à durée de type 1, comme un lancement ; ses propres bonus n'y comptent pas.
+pub fn sync_passives(catalog: &SkillCatalog, gear_levels: i64, skills: &mut PlayerSkills, caster_tid: u32, form: Option<usize>) -> bool {
     let before: Vec<(u32, u32)> = skills.effects.iter().filter(|e| e.ends_at.is_none()).map(|e| (e.tid, e.level)).collect();
     skills.effects.retain(|e| e.ends_at.is_some());
+    let bonus = gear_levels + effects::total(&skills.effects).skill_levels.round() as i64;
     for s in &skills.list {
         let Some(t) = catalog.get(s.tid).filter(|t| t.nature().passive) else { continue };
-        let Some(lv) = t.level(s.level).filter(|lv| !lv.mods.is_empty()) else { continue };
+        let level = t.boosted(s.level, bonus);
+        let Some(lv) = t.level(level).filter(|lv| !lv.mods.is_empty()) else { continue };
         if form.is_some() && lv.classes != 0 && !lv.allows(form) {
             continue;
         }
@@ -1063,7 +1098,7 @@ pub fn sync_passives(catalog: &SkillCatalog, skills: &mut PlayerSkills, caster_t
         }
         effects::push(
             &mut skills.effects,
-            Effect { skill_id: s.id, tid: s.tid, level: s.level, caster_tid, duration_ms: 0, ends_at: None, mods: lv.mods, dot: None, status: 0, status_until: None, caster_sid: effects::MONSTER_CASTER, purge: None, classify: lv.classify },
+            Effect { skill_id: s.id, tid: s.tid, level, caster_tid, duration_ms: 0, ends_at: None, mods: lv.mods, dot: None, status: 0, status_until: None, caster_sid: effects::MONSTER_CASTER, purge: None, classify: lv.classify },
         );
     }
     for &tid in &skills.title_skills {
@@ -1206,7 +1241,7 @@ fn phase(rng: &mut impl Rng, a: &Attacker, spirit_ranges: &[(f64, f64); 8], d: &
     let mut out = Vec::new();
     let has_spirit = spirit.iter().any(|(f, p)| *f != 0.0 || *p != 0.0);
     if flat != 0.0 || pct != 0.0 || (physical_by_default && !has_spirit) {
-        let raw = roll(rng, a.damage_range());
+        let raw = a.pick(rng, a.damage_range());
         let x = (raw * (100.0 + pct) / 100.0 + flat) * keep - d.defense;
         out.push((RESULT_PHYSICAL, combat::physical_hit(x, d)));
     }
@@ -1370,7 +1405,19 @@ fn request_cast(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) {
         player.send_raw(refusal_packet(player.ch.id, &owned, target, super::skill_extra::INVALID_TARGET));
         return stop(st, sid);
     }
+    // Invisibilité en combat (10 s après le dernier coup) : refusée, sauf compétence qui le permet (`force` 4).
+    if t.status & effects::status::TRANSPARENT != 0 && t.force & 4 == 0 && now < player.timers.combat_until {
+        debug!("[compétence] {name} : {} refusée en combat", t.name);
+        player.send_raw(refusal_packet(player.ch.id, &owned, target, super::skill_extra::INVALID_TARGET));
+        return stop(st, sid);
+    }
     let alive = st.monsters.get(target).is_some_and(|m| m.is_alive() && st.monsters.attackable(m));
+    // Monstre invincible ou invisible : pas une cible des compétences offensives.
+    if alive && t.offensive() && st.monsters.status(target, now) & effects::status::UNTOUCHABLE != 0 {
+        debug!("[compétence] {name} : {target:#x} invincible ou invisible");
+        player.send_raw(refusal_packet(player.ch.id, &owned, target, super::skill_extra::INVALID_TARGET));
+        return stop(st, sid);
+    }
     // Objet de siège : seulement pendant le combat, selon le camp et l'ordre d'attaque (siege/war.rs).
     if alive && t.offensive() && !super::siege::war::may_hit(ctx, st, sid, target) {
         debug!("[compétence] {name} : objet de siège {target:#x} pas attaquable maintenant");
@@ -1538,6 +1585,8 @@ fn begin(ctx: &WorldCtx, st: &mut WorldState, sid: u32, cast: Cast, now: Instant
     }
     if !product && (target.is_some() || (t.offensive() && friend.is_some()) || (t.hits_foes() && cast.ground.is_some())) {
         super::recovery::in_combat(&mut p.timers, now);
+        // Une compétence offensive lève l'invincibilité de la résurrection (combat.rs).
+        combat::end_grace(p, now);
     }
     let cid = p.ch.id;
     let target_pos = target.as_ref().map(|m| m.pos).or(friend).or(cast.ground).unwrap_or(me);
@@ -1638,13 +1687,13 @@ async fn complete(ctx: &WorldCtx, st: &mut WorldState, sid: u32, cast: Cast, now
     let mut targets: Vec<u32> = primary.map(|(c, _)| vec![c]).unwrap_or_default();
     let limit = if lv.max_targets > 0 { lv.max_targets } else { 12 };
     if t.area() != Area::Single {
-        let radius = lv.area_r.max(lv.area_f1).max(600.0);
+        let radius = lv.area_r.max(lv.area_f1).max(600.0) + MAX_MONSTER_SIZE;
         let mut near: Vec<(f64, u32)> = st
             .monsters
             .near(center, radius)
             // Les invocations ne sont touchées que désignées (règles du combat entre joueurs envers leur maître).
             .filter(|m| m.is_alive() && m.owner.is_none() && !targets.contains(&m.cid) && st.monsters.attackable(m) && super::siege::war::may_hit(ctx, st, sid, m.cid))
-            .filter(|m| in_area(t.area(), m.pos, center, me, toward, lv))
+            .filter(|m| in_area_sized(t.area(), m.pos, st.monsters.stats_for(m).hit_range.max(0) as f64, center, me, toward, lv))
             .map(|m| (combat::dist2d(m.pos, center), m.cid))
             .collect();
         near.sort_by(|a, b| a.0.total_cmp(&b.0));
@@ -1662,12 +1711,12 @@ async fn complete(ctx: &WorldCtx, st: &mut WorldState, sid: u32, cast: Cast, now
     }
     if t.area() != Area::Single {
         let center = foes.first().and_then(|s| st.players.get(s)).map(|p| p.ch.pos()).unwrap_or(center);
-        let radius = lv.area_r.max(lv.area_f1).max(600.0);
+        let radius = lv.area_r.max(lv.area_f1).max(600.0) + PLAYER_SIZE;
         let others: Vec<u32> = st
             .players
             .iter()
             .filter(|(o, p)| **o != sid && !foes.contains(o) && p.in_game && !p.dead && combat::dist2d(p.ch.pos(), center) <= radius)
-            .filter(|(_, p)| in_area(t.area(), p.ch.pos(), center, me, toward, lv))
+            .filter(|(_, p)| in_area_sized(t.area(), p.ch.pos(), PLAYER_SIZE, center, me, toward, lv))
             .map(|(o, _)| *o)
             .collect();
         foes.extend(others.into_iter().filter(|o| super::pvp::check(ctx, st, sid, *o, false).is_ok()));
@@ -1715,8 +1764,8 @@ pub(super) async fn hit_monster(ctx: &WorldCtx, st: &mut WorldState, sid: u32, o
     let (attacker, spirit) = (Attacker::of_player(p), spirit_ranges(&p.factors));
     let defender = attacker.pierce(&Defender::of_monster(m.level as i32, &stats, &mods));
     let gear = (p.gear.debuff_ms, p.gear.mods.ignore_stun_protect);
-    // Blocage des compétences du monstre : ni dégâts ni effet.
-    let blocked = skill_blocked(&mut rand::thread_rng(), &defender);
+    // Invincibilité aux compétences, puis blocage des compétences du monstre : ni dégâts ni effet.
+    let blocked = st.monsters.status(cid, now) & (effects::status::UNTOUCHABLE | effects::status::SKILL_ATK_INVINCIBLE) != 0 || skill_blocked(&mut rand::thread_rng(), &defender);
     let mut damages = if t.instant_damage() && !blocked { skill_damage(&mut rand::thread_rng(), &attacker, &spirit, &defender, lv) } else { Vec::new() };
     // Invincibilité élémentaire du monstre (status_rules.rs).
     super::status_rules::shield(st.monsters.status(cid, now), &mut damages);
@@ -1805,7 +1854,9 @@ pub(super) async fn hit_player(ctx: &WorldCtx, st: &mut WorldState, sid: u32, ow
     let mods = effects::total(&v.skills.effects);
     let gear = (p.gear.debuff_ms, p.gear.mods.ignore_stun_protect);
     // Blocage des compétences de la cible : ni dégâts ni effet.
-    let shielded = v.invincible_until.is_some_and(|u| now < u) || skill_blocked(&mut rand::thread_rng(), &defender);
+    let shielded = v.invincible_until.is_some_and(|u| now < u)
+        || v.skills.status_sent & (effects::status::UNTOUCHABLE | effects::status::SKILL_ATK_INVINCIBLE) != 0
+        || skill_blocked(&mut rand::thread_rng(), &defender);
     let mut damages = if !shielded && ctx.skills.get(owned.tid).is_some_and(|t| t.instant_damage()) {
         skill_damage(&mut rand::thread_rng(), &attacker, &spirit, &defender, lv)
     } else {
@@ -1842,7 +1893,15 @@ pub(super) async fn hit_player(ctx: &WorldCtx, st: &mut WorldState, sid: u32, ow
     }
     let status = roll_status(&mut rand::thread_rng(), lv, &Mods { stun_protect: effects::pierced(mods.stun_protect, gear.1), ..mods });
     if !shielded && lv.leaves_effect(status) {
-        let mut e = Effect { caster_sid: sid, ..new_effect(owned, lv, caster_tid, status, None, now) };
+        // Dégâts sur la durée, comme sur un monstre, moins la pénalité d'écart de niveau entre joueurs.
+        let penalty = combat::skill_level_penalty(true, attacker.level, true, defender.level);
+        let dot = (!lv.dot.is_empty()).then(|| effects::Dot {
+            damages: lv.dot.damages.iter().map(|(i, d)| (*i, ((d * (100.0 - penalty) / 100.0).round() as i32).max(1))).collect(),
+            interval: Duration::from_millis(lv.dot.interval_ms),
+            next_at: now + Duration::from_millis(lv.dot.interval_ms),
+            caster_sid: sid,
+        });
+        let mut e = Effect { caster_sid: sid, ..new_effect(owned, lv, caster_tid, status, dot, now) };
         effects::lengthen(&mut e, gear.0);
         add_player_effect(ctx, st, tsid, e);
     }
@@ -2209,15 +2268,15 @@ async fn effects_step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) -> anyh
             continue;
         }
         let cid = p.ch.id;
-        // Dégâts sur la durée posés par un monstre : coups dus avant l'expiration.
-        let mut ticks: Vec<Vec<(usize, i32)>> = Vec::new();
+        // Dégâts sur la durée posés par un monstre ou un joueur (son lanceur) : coups dus avant l'expiration.
+        let mut ticks: Vec<(u32, Vec<(usize, i32)>)> = Vec::new();
         // Purges répétées (Cure) : sortes à retirer, selon leur chance à chaque période.
         let mut purge_kinds = 0u64;
         for e in p.skills.effects.iter_mut() {
             let end = e.ends_at.unwrap_or(now);
             if let Some(d) = e.dot.as_mut() {
                 while d.next_at <= now && d.next_at <= end {
-                    ticks.push(d.damages.clone());
+                    ticks.push((d.caster_sid, d.damages.clone()));
                     d.next_at += d.interval;
                 }
             }
@@ -2241,7 +2300,7 @@ async fn effects_step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) -> anyh
             }
             super::equipment::refresh_factors(ctx, st, sid);
         }
-        for mut damages in ticks {
+        for (caster, mut damages) in ticks {
             let Some(p) = st.players.get_mut(&sid).filter(|p| !p.dead) else { break };
             super::status_rules::shield(p.skills.status_sent, &mut damages);
             let total: i32 = damages.iter().map(|(_, d)| *d).sum();
@@ -2253,6 +2312,10 @@ async fn effects_step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) -> anyh
             combat::send_around(st, sid, &build_packet(c, &Fields::new(c).with(0, 1).with(1, cid).with(7, result_factors(hp, mp, &damages))));
             if hp == 0 {
                 combat::player_death(st, sid);
+                // Tué par les dégâts sur la durée d'un autre joueur : sa victoire (pvp.rs).
+                if caster != effects::MONSTER_CASTER && caster != sid && st.players.contains_key(&caster) {
+                    super::pvp::on_kill(ctx, st, caster, sid).await?;
+                }
             }
         }
         sync_player_status(st, sid, now);
@@ -2429,7 +2492,7 @@ pub async fn learn(ctx: &WorldCtx, st: &mut WorldState, sid: u32, tid: u32) -> a
     refresh_points(&ctx.skills, &p.skills, &mut p.factors);
     p.send_raw(add_packet(p.ch.id, &owned));
     let (caster_tid, form) = (p.ch.template_id, form_class(&p.factors));
-    if sync_passives(&ctx.skills, &mut p.skills, caster_tid, form) {
+    if sync_passives(&ctx.skills, p.gear.skill_levels, &mut p.skills, caster_tid, form) {
         super::equipment::refresh_factors(ctx, st, sid);
     } else {
         send_points(p);
@@ -2472,7 +2535,7 @@ pub async fn upgrade(ctx: &WorldCtx, st: &mut WorldState, sid: u32, skill_id: u3
     refresh_points(&ctx.skills, &p.skills, &mut p.factors);
     p.send_raw(update_packet(p.ch.id, &updated));
     let (caster_tid, form) = (p.ch.template_id, form_class(&p.factors));
-    if sync_passives(&ctx.skills, &mut p.skills, caster_tid, form) {
+    if sync_passives(&ctx.skills, p.gear.skill_levels, &mut p.skills, caster_tid, form) {
         super::equipment::refresh_factors(ctx, st, sid);
     } else {
         send_points(p);
@@ -2637,6 +2700,11 @@ mod tests {
         assert!(in_area(Area::Line, Vec3::new(700.0, 0.0, 90.0), o, o, east, &lv));
         assert!(!in_area(Area::Line, Vec3::new(700.0, 0.0, 150.0), o, o, east, &lv), "trop à côté");
         assert!(!in_area(Area::Line, Vec3::new(-100.0, 0.0, 0.0), o, o, east, &lv), "derrière");
+        assert!(in_area(Area::Line, Vec3::new(-5.0, 0.0, 0.0), o, o, east, &lv), "recul de 10");
+        // Taille : un gros monstre au bord est touché.
+        assert!(in_area_sized(sphere, Vec3::new(1600.0, 0.0, 0.0), 150.0, east, o, east, &lv));
+        assert!(in_area_sized(Area::Line, Vec3::new(700.0, 0.0, 150.0), 60.0, o, o, east, &lv));
+        assert!(!in_area_sized(Area::Line, Vec3::new(700.0, 0.0, 250.0), 60.0, o, o, east, &lv));
     }
 
     #[test]
@@ -2763,8 +2831,8 @@ mod tests {
         let hold = serde_json::json!({ "require_class_knight": "1", "point.def_point_physical": "20" });
         catalog.insert(SkillTemplate { tid: 40, name: "Defense Hold".into(), attribute: 9, target: 111, levels: vec![SkillLevel::from_consts(&hold)], ..Default::default() });
         let mut skills = PlayerSkills { list: vec![Owned { id: 3, tid: 40, level: 1, ready_at: None, exp: 0 }], ..Default::default() };
-        assert!(sync_passives(&catalog, &mut skills, 96, None));
-        assert!(!sync_passives(&catalog, &mut skills, 96, None), "inchangée");
+        assert!(sync_passives(&catalog, 0, &mut skills, 96, None));
+        assert!(!sync_passives(&catalog, 0, &mut skills, 96, None), "inchangée");
         assert_eq!((skills.effects.len(), effects::total(&skills.effects).defense), (1, 20.0));
     }
 

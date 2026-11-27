@@ -814,7 +814,7 @@ async fn game_enter(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle, p: &
     skills::refresh_points(&ctx.skills, &skills, &mut factors);
     // Compétences du titre équipé : passives tant qu'il l'est (titles.rs).
     skills.title_skills = titles.skills(&ctx.titles);
-    skills::sync_passives(&ctx.skills, &mut skills, ch.template_id, skills::form_class(&factors));
+    skills::sync_passives(&ctx.skills, gear.skill_levels, &mut skills, ch.template_id, skills::form_class(&factors));
     effects::apply(&mut factors, &effects::total(&skills.effects));
     // Précision et esquive des options, puis PV, PM, AR et DR des caractéristiques (character.rs).
     effects::add_guard(&mut factors, &gear.mods);
@@ -991,6 +991,13 @@ fn enter_world(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle) {
     let cm = &schema::CHAR_MANAGER;
     p.send(cm, Fields::new(cm).with(0, char_mgr_op::FINISH_ENTER).with(4, p.ch.id));
     presence::enter(ctx, st, sid);
+    // Invincible 10 s à l'entrée en jeu, hors combat (« You are temporarily invincible. », AgpmPvP op 18 code 9) ;
+    // la fin (code 10) part de recovery.rs, ou du premier coup porté (combat::end_grace).
+    let grace = std::time::Duration::from_secs(crate::config::rules().entry_invincible_secs);
+    if let Some(p) = st.players.get_mut(&sid).filter(|p| !grace.is_zero() && !p.dead && Instant::now() >= p.timers.combat_until) {
+        p.invincible_until = Some(Instant::now() + grace.min(combat::RESURRECTION_GRACE));
+        p.send_raw(pvp::message(pvp::code::START_INVINCIBLE, None, None));
+    }
     // Guilde : la guilde, ses membres et le lien du joueur ; les membres le voient en ligne.
     guild::on_enter(st, sid);
     // Recettes de cuisine et d'alchimie connues (AgpmProduct op 1).
@@ -1262,6 +1269,7 @@ pub async fn teleport(ctx: &WorldCtx, st: &mut WorldState, sid: u32, x: f64, y: 
     p.move_guard.reset(pos, anticheat::move_speed(&p.factors), std::time::Instant::now());
     let (id, name) = (p.ch.id, p.ch.name.clone());
     let sent = send_nearby_npcs(ctx, st, sid, pos);
+    presence::bind_here(ctx, st, sid);
     presence::refresh(st, sid);
     summons::follow_teleport(ctx, st, sid);
     // Arrivée dans la Battle Square : messages d'entrée.

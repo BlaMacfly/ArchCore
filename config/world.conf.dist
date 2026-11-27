@@ -828,6 +828,15 @@ Rules.LotteryKeys = 1
 
 Rules.LootLevelGap = 11
 
+#    Rules.EntryInvincibleSeconds
+#        Invincibilité à l'entrée en jeu (règle de l'épisode 8, comme après une
+#        résurrection) : le personnage qui entre hors combat ne peut pas être
+#        attaqué pendant ce nombre de secondes ; son premier coup ou sa première
+#        compétence offensive la lève. 0 la coupe (10 au plus).
+#        Défaut : 10
+
+Rules.EntryInvincibleSeconds = 10
+
 #    Rules.DeathStrike
 #        Death Strike : mort instantanée d'un monstre ordinaire (ni boss, ni
 #        objet de siège) avec la chance « death » de la passive.

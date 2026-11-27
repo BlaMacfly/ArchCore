@@ -28,6 +28,15 @@
   cumulent plus ; potions en pour cent (« SubType ») ; options fixes des équipements (« OptionTID ») ; niveau plafond
   des objets (« Level » `min;max`) ; PV, PM, état mort et région de rattachement enregistrés (migration
   `202611231000_points_et_mort` : un personnage déconnecté mort revient au village de rattachement).
+- Règles du serveur de l'épisode 8 (27 novembre 2026), sans affichage propre dans le client : invincibilité de 10 s à
+  l'entrée en jeu, levée au premier coup ; régénération des monstres ; conversion des coups en PV ou en PM entre
+  joueurs ; invincibilités aux attaques et aux compétences ; invisibilité refusée en combat (sauf `force` 4) ; zones à
+  la taille de la cible ; 96 effets ; bonus de niveau des passives ; dégâts sur la durée sur les joueurs ; dégâts
+  fixés (Lethal Attack, Debilitate) ; immunité au ralentissement ; butin (DropRank 0, « Villain Only », objets
+  d'événement) ; rapière et dague ; consommables réservés (niveau, race, classe, sexe) ; rattachement sur la
+  position atteinte ; parchemins selon la région ; marche bloquée sous étourdissement ; ramassage ; noms de
+  personnage. Détail dans [[Protocole réseau|FR-Protocole-reseau]] (« Règles du serveur reprises de l'épisode 8 »).
+  Côté ArchRust : teinte arc-en-ciel des objets du monde à quêtes (octet de rendu `+0x72` d'Archonia).
 - Créatures : 36 960 monstres placés d'après les tables du serveur d'origine, hors du sol infranchissable,
   avec leurs caractéristiques (niveau, vitesses, PV). Vus et ciblés en jeu lors d'un premier essai ;
   l'envoi des PV, ajouté depuis, reste à vérifier. Niveaux du modèle dans les tables de l'épisode 8 et réapparition des

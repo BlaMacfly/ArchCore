@@ -201,15 +201,26 @@ async fn scenario(cfg: &crate::config::Config, db: &crate::db::Databases, id: u3
     anyhow::ensure!(left.is_empty(), "boîte ou clé encore en base : {left:?}");
     println!("  ✓ boîte et clé consommées");
 
-    step("costume par ensemble : Wedding Dress");
-    let dress = add_item(&mut w, 6446, 1).await?;
+    step("costume réservé à une autre race : Wedding Dress des Rangers Moon Elf, refusée");
+    // Niveau 15 exigé par les costumes : le refus attendu est celui de la race.
+    let level = w.level.max(1);
+    gm(&mut w, "/level 30").await?;
+    let foreign = add_item(&mut w, 6446, 1).await?;
+    use_item(&mut w, foreign).await?;
+    let chat = schema::CHATTING.id;
+    w.world.expect_where(|q| q.ptype == chat && q.int(2) == Some(chat_type::WHOLE_WORLD) && q.fields().text(6).is_some_and(|t| t.contains("race non admise")), 5000, "refus de la race").await?;
+    println!("  ✓ refusée (race non admise)");
+
+    step("costume par ensemble : Tuxedo (chevalier humain)");
+    let dress = add_item(&mut w, 6439, 1).await?;
     use_item(&mut w, dress).await?;
-    let piece = w.world.expect_where(|q| q.is(it, Some(0)) && q.int(3) == Some(5451) && q.int(1) == Some(3), 5000, "pièce du costume équipée").await?;
-    let piece = piece.int(2).unwrap_or(0);
-    println!("  ✓ pièce 5451 équipée ({piece:#x})");
+    let piece = w.world.expect_where(|q| q.is(it, Some(0)) && q.int(1) == Some(3), 5000, "pièce du costume équipée").await?;
+    let (piece, piece_tid) = (piece.int(2).unwrap_or(0), piece.int(3).unwrap_or(0));
+    println!("  ✓ pièce {piece_tid} équipée ({piece:#x})");
     use_item(&mut w, dress).await?;
     w.world.expect_where(|q| q.is(it, Some(1)) && q.int(2) == Some(piece), 5000, "pièce retirée (op 1)").await?;
     println!("  ✓ objet réutilisé : pièce retirée");
+    gm(&mut w, &format!("/level {level}")).await?;
 
     step("reconnexion : chaîne relue, Gem of origin");
     db.characters.exec("INSERT INTO character_skills (character_id, skill_tid, level) VALUES (?, ?, 1)", (id, DUAL_SLASH)).await?;

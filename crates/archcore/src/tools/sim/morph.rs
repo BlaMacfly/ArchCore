@@ -104,6 +104,9 @@ pub async fn run(user: &str, pass: &str, char_name: &str, ub: &str, pb: &str, cb
     let potions = add_item(&mut w, SPIDER_POTION, 3).await?;
     let passport = add_item(&mut w, PASSPORT, 1).await?;
     let sword = add_item(&mut w, SWORD, 1).await?;
+    // La Short Sword en main avant la mesure (elle range l'arme laissée par un autre scénario) : les dégâts d'origine
+    // sont ceux qu'on retrouve à la fin.
+    place(&mut w, sword, 3).await?;
     w.world.send(ch, say(&w, "/speed 1")).await?;
     let base = damage(&mut w, "facteurs d'origine").await?;
     println!("  ✓ 3 Spider Potions ({potions}) et un Passport ({passport}) ; dégâts d'origine {base:?}");
@@ -126,9 +129,9 @@ pub async fn run(user: &str, pass: &str, char_name: &str, ub: &str, pb: &str, cb
     println!("  ✓ Passport refusé : « {} »", msg.fields().text(6).unwrap_or_default());
 
     step("équipement et échange sous métamorphose");
-    place(&mut w, sword, 3).await?;
     place(&mut w, sword, 2).await?;
-    println!("  ✓ Short Sword portée (statut 3) puis rangée (statut 2) sous la forme {SPIDER}");
+    place(&mut w, sword, 3).await?;
+    println!("  ✓ Short Sword rangée (statut 2) puis portée (statut 3) sous la forme {SPIDER}");
     let tr = &schema::PRIVATE_TRADE;
     w.world.send(tr, Fields::new(tr).with(0, 1).with(1, me).with(2, witness.cid as i64)).await?;
     w.world.expect_where(|q| q.is(tr, Some(5)), 3000, "échange annulé").await?;
@@ -166,7 +169,8 @@ pub async fn run(user: &str, pass: &str, char_name: &str, ub: &str, pb: &str, cb
     restored(&mut witness, me, 3000, "op 12 chez le témoin").await?;
     println!("  ✓ op 13 → op 12 chez les deux");
 
-    // Remise en état : potion restante, Passport et épée détruits.
+    // Remise en état : épée rangée, puis potion restante, Passport et épée détruits.
+    place(&mut w, sword, 2).await?;
     for iid in [potions, passport, sword] {
         w.world.send(it, Fields::new(it).with(0, 21).with(2, iid)).await?;
         w.world.expect_where(|q| q.is(it, Some(1)) && q.int(2) == Some(iid), 3000, "objet détruit").await?;
@@ -193,9 +197,17 @@ async fn mutation(cfg: &crate::config::Config, user: &str, pass: &str, char_name
     let skill = w.skills.iter().find(|s| s.1 == MUTATION).map(|s| s.0).ok_or_else(|| anyhow::anyhow!("Mutation absente"))?;
     gm(&mut w, "/level 60").await?;
     gm(&mut w, "/invincible 1").await?;
-    let worm = super::competences::worms(&mut w).await?[0];
-    w.world.send(k, cast_fields(skill, worm)).await?;
-    let t = w.world.expect_where(|q| q.is(c, Some(11)) && q.int(1) == Some(worm), 10_000, "op 11 du ver").await?;
+    // Un ver vu peut être mort depuis (sa vue reste en file) : les suivants sont essayés.
+    let mut found = None;
+    for worm in super::competences::worms(&mut w).await?.into_iter().take(4) {
+        gm(&mut w, "/recast").await?;
+        w.world.send(k, cast_fields(skill, worm)).await?;
+        if let Ok(t) = w.world.expect_where(|q| q.is(c, Some(11)) && q.int(1) == Some(worm), 8_000, "op 11 du ver").await {
+            found = Some((worm, t));
+            break;
+        }
+    }
+    let (worm, t) = found.ok_or_else(|| anyhow::anyhow!("op 11 du ver : aucun ver changé"))?;
     let form = t.int(2).unwrap_or(0);
     anyhow::ensure!(MUTATION_FORMS.contains(&form), "forme {form} hors de la liste du niveau 1");
     println!("  ✓ op 11 : ver {worm:#x} en {form}");

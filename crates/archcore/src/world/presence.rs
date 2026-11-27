@@ -82,6 +82,11 @@ pub fn on_move(ctx: &WorldCtx, st: &mut WorldState, sid: u32, packet: &Packet) {
     // permise (anticheat.rs) : au-delà, tout le paquet est ignoré et le joueur renvoyé à la position suivie.
     let now = Instant::now();
     advance(p, now);
+    // Étourdi, gelé, endormi ou immobilisé : la demande de marche est ignorée.
+    if p.skills.status_sent & super::effects::status::NO_MOVE != 0 {
+        debug!("[world] #{sid} {} : déplacement ignoré (immobilisé)", p.ch.name);
+        return;
+    }
     let tracked = p.ch.pos();
     let given = packet.vec3(1).filter(Vec3::is_finite);
     if let Some(g) = given {
@@ -137,13 +142,11 @@ pub fn on_move(ctx: &WorldCtx, st: &mut WorldState, sid: u32, packet: &Packet) {
             o.send(&schema::OPT_CHAR_MOVE, mv.clone());
         }
     }
-    // Rattachement à la dernière région sûre traversée.
     let at = dest.unwrap_or(pos);
     // Section d'objets (ItemSection) de la destination : facteurs recalculés si elle change (equipment.rs).
     super::equipment::on_region_change(ctx, st, sid, pos, at);
-    if let Some(region) = ctx.map.region(at.x as f64, at.z as f64).filter(|r| ctx.regions.is_safe(*r)) {
-        st.players.get_mut(&sid).unwrap().bound_region = region;
-    }
+    // Rattachement : celui de la position atteinte (`bind_here`), pas de la destination cliquée.
+    bind_here(ctx, st, sid);
     refresh(st, sid);
     // Vue autour de la position actuelle, pas de la destination : la marche est suivie par `view_step`.
     send_nearby_npcs(ctx, st, sid, pos);
@@ -200,7 +203,8 @@ fn advance(p: &mut super::Player, now: Instant) {
     let dt = now.saturating_duration_since(p.moved_at).as_secs_f64();
     p.moved_at = now;
     let Some(dest) = p.dest else { return };
-    if p.dead {
+    // Mort, étourdi, gelé, endormi ou immobilisé : il ne marche pas.
+    if p.dead || p.skills.status_sent & super::effects::status::NO_MOVE != 0 {
         return;
     }
     let speed = walk_speed(p);
@@ -241,6 +245,10 @@ pub fn move_step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) {
             continue;
         }
         advance(p, now);
+        // Région sûre traversée pendant la marche : nouveau rattachement.
+        if let Some(region) = ctx.map.region(p.ch.pos_x, p.ch.pos_z).filter(|r| ctx.regions.is_safe(*r)) {
+            p.bound_region = region;
+        }
         let at = p.ch.pos();
         let changed = sector::of(at) != sector::of(p.view_pos);
         p.view_pos = at;
@@ -249,6 +257,15 @@ pub fn move_step(ctx: &WorldCtx, st: &mut WorldState, now: Instant) {
             send_nearby_npcs(ctx, st, sid, at);
             refresh(st, sid);
         }
+    }
+}
+
+/// Rattachement à la région sûre où se trouve le joueur (marche, arrivée d'une téléportation), comme en entrant dans
+/// une région sûre ; une région dangereuse ne le change pas.
+pub fn bind_here(ctx: &WorldCtx, st: &mut WorldState, sid: u32) {
+    let Some(p) = st.players.get_mut(&sid) else { return };
+    if let Some(region) = ctx.map.region(p.ch.pos_x, p.ch.pos_z).filter(|r| ctx.regions.is_safe(*r)) {
+        p.bound_region = region;
     }
 }
 
