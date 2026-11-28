@@ -235,6 +235,11 @@ async fn write(ctx: &WorldCtx, st: &mut WorldState, sid: u32, mini_bytes: &[u8],
             refused(st, code);
             return Ok(());
         }
+        // Objet verrouillé (item_lock.rs) : refusé comme un objet hors de l'inventaire.
+        if me.inventory.locked.contains(&iid) {
+            refused(st, mail_result::NOT_IN_INVENTORY);
+            return Ok(());
+        }
         Some(item)
     };
     let to_sid = st.by_cid.get(&to_cid).copied().filter(|s| st.players.contains_key(s));

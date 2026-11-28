@@ -500,6 +500,16 @@ l'inventaire, l'équipement ou la banque, et retour par le statut 2 ou 100. Les 
 allumage de la session (op 0, statut 15) ; sac éteint ou expiré, ils restent cachés (statut 8 en base). Sans sac, le
 client affiche « HaveToBuyChargingBag ». Le « Sell All » du grand sac fonctionne comme celui de l'inventaire.
 
+**Verrou des objets (op 36).** Ajout d'Archonia gardé (absent du client de Webzen) : le cadenas de l'inventaire ouvre
+`UI_ItemLock` ; un objet de l'inventaire, du sac du familier, de l'inventaire étendu ou de l'inventaire Cash lâché dans
+sa case part sur « Confirm » par l'op 36 (IID au champ 2, CID au champ 4, champ 19 = 0x2000 ; FUN_1407c1a10 et
+FUN_1401ca610 d'Archonia). Chaque demande verrouille ou déverrouille ; le serveur répond par l'op 36 et les drapeaux
+de l'objet au champ 19 (0x2000 verrouillé, 0), et, à l'entrée en jeu, une op 36 par objet verrouillé. Le client
+affiche « Item_Locked_Type » (« Locked ») dans l'info-bulle au bit 0x2000. Un objet verrouillé ne se vend pas au
+marchand (« Sell All » le laisse, comme le dit sa confirmation), ne se détruit pas, ne s'échange pas, ne se met pas en
+vente et ne part pas par courrier (règles d'ArchCore, déduites de ce texte). En base : `character_items.locked`. Choix
+d'ArchCore : la demande bascule le seul verrou (qu'Archonia envoie un ensemble de drapeaux n'est pas établi).
+
 ## Options des objets (type 0x04, champ 20)
 
 Un équipement peut porter jusqu'à 5 options d'`itemoptiontable.txt` (importée dans `client_table`, avec

@@ -485,6 +485,7 @@ pub async fn on_item_packet(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &P
             Ok(())
         }
         Some(super::items::item_op::CHANGE_AUTO_PICK) => super::pet_bag::on_auto_pick(ctx, st, sid, p).await,
+        Some(super::items::item_op::UPDATE_STATUS_FLAG) => super::item_lock::on_request(ctx, st, sid, p).await,
         op => {
             debug!("[world] #{sid} AGPMITEM op {op:?} (ignoré)");
             Ok(())

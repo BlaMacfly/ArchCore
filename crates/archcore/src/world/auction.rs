@@ -333,6 +333,10 @@ async fn sell(ctx: &WorldCtx, st: &mut WorldState, sid: u32, sub: &[u8]) -> anyh
         refused(st, auction_result::FAILED, "Seul un objet de l'inventaire peut être mis en vente.");
         return Ok(());
     };
+    if p.inventory.locked.contains(&iid) {
+        refused(st, auction_result::FAILED, "Un objet verrouillé ne peut pas être mis en vente.");
+        return Ok(());
+    }
     let Some(data) = ctx.catalog.get(item.tid) else {
         refused(st, auction_result::FAILED, "Cet objet ne peut pas être mis en vente.");
         return Ok(());

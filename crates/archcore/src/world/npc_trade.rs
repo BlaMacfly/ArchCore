@@ -333,6 +333,11 @@ async fn sell(ctx: &WorldCtx, st: &mut WorldState, sid: u32, p: &Packet) -> anyh
         return Ok(());
     };
     let iid = p.int(3).unwrap_or(0) as u32;
+    // Objet verrouillé (item_lock.rs) : « Sell All » le laisse.
+    if super::item_lock::is_locked(st, sid, iid) {
+        result(st, sid, trade_op::SELL, trade_result::INVALID_ITEM);
+        return Ok(());
+    }
     // Un objet proposé à l'échange ne se vend pas.
     // Un objet de quête (« QuestItem ») ne se vend pas non plus.
     let inv = &st.players[&sid].inventory;

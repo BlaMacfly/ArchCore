@@ -487,6 +487,15 @@ on the first switch-on of the session (op 0, status 15); a bag switched off or e
 the database). Without a bag, the client shows "HaveToBuyChargingBag". "Sell All" of the large bag works like the
 inventory's.
 
+**Item lock (op 36).** An Archonia addition kept (absent from Webzen's client): the inventory padlock opens
+`UI_ItemLock`; an item of the inventory, pet bag, expanded inventory or Cash inventory dropped in its slot is sent on
+"Confirm" by op 36 (IID field 2, CID field 4, field 19 = 0x2000; Archonia FUN_1407c1a10, FUN_1401ca610). Each request
+locks or unlocks; the server answers op 36 with the item's flags in field 19 (0x2000 locked, 0), and on entering the
+world one op 36 per locked item. The client shows "Item_Locked_Type" ("Locked") in the tooltip at bit 0x2000. A locked
+item cannot be sold to an NPC ("Sell All" leaves it, as its confirmation text says), destroyed, traded, put up for
+auction or mailed (ArchCore's rules, deduced from that text). Database: `character_items.locked`. ArchCore's choice:
+the request is handled as a toggle of the lock alone (whether Archonia sends a whole flag set is not established).
+
 ## Item options (type 0x04, field 20)
 
 A piece of equipment can carry up to 5 options from `itemoptiontable.txt` (imported into `client_table`, with

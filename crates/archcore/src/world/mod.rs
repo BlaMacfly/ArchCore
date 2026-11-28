@@ -86,6 +86,7 @@ pub mod options;
 pub mod party;
 pub mod pet_bag;
 pub mod charging;
+pub mod item_lock;
 pub mod portal;
 pub mod presence;
 pub mod product;
@@ -969,6 +970,8 @@ fn enter_world(ctx: &WorldCtx, st: &mut WorldState, s: &SessionHandle) {
     let empty = Vec::<u8>::new();
     p.send(ov, Fields::new(ov).with(0, 2).with(6, all_items).with(7, empty.clone()).with(8, skills::all_packets(p)));
     p.send(ov, Fields::new(ov).with(0, 2).with(6, empty.clone()).with(7, empty));
+    // Objets verrouillés (AGPMITEM op 36, item_lock.rs), une fois les objets connus du client.
+    item_lock::on_enter(st, sid);
     // Monture portée : AgpmRide op 2, une fois ses objets connus du client ; effet de l'évolution du Scion (op 4).
     ride::on_enter(st, sid);
     evolution::on_enter(st, sid);

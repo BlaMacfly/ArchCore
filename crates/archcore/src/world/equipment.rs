@@ -569,6 +569,9 @@ pub async fn destroy(ctx: &WorldCtx, st: &mut WorldState, sid: u32, iid: u32) ->
     if in_sub && !super::pet_bag::available(ctx, st, sid) {
         return Ok(());
     }
+    if super::item_lock::refuse_locked(st, sid, iid, "destruction") {
+        return Ok(());
+    }
     let in_charging = st.players.get(&sid).is_some_and(|x| x.inventory.charging.contains_key(&iid));
     if in_charging && !super::charging::available(ctx, st, sid) {
         return Ok(());

@@ -27,6 +27,9 @@
   player on a monster); effects of one family no longer stack; percentage potions ("SubType"); fixed equipment options
   ("OptionTID"); item level cap ("Level" `min;max`); HP, MP, dead state and bind region saved (migration
   `202611231000_points_et_mort`: a character who logged out dead comes back at the bind village).
+- Guilds, trade, bags (28 November 2026): guild rename (op 30), Chantra coins in trades (ops 26/27), Episode 8
+  expanded inventory (status 15, `sim charging`), "Sell All" of the three bags, item lock (op 36, `sim itemlock`,
+  migration `202611281000_verrou_des_objets`: run `archcore db-init`).
 - Episode 8 server rules (27 November 2026), with no display of their own in the client: 10 s invincibility on
   entering the game, lifted by the first hit; monster regeneration; hits turned into HP or MP between players;
   attack and skill invincibility; invisibility refused in combat (except `force` 4); areas sized to the target;

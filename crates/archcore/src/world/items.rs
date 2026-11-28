@@ -31,6 +31,18 @@ pub mod item_op {
     pub const UPDATE_USE_TIME: i64 = 26;
     /// Ramassage automatique du sac du familier (champ 20, `mini::ITEM_AUTO_PICK`).
     pub const CHANGE_AUTO_PICK: i64 = 30;
+    /// Drapeaux de statut d'un objet (champ 19) : demande de verrou (client → serveur, `UI_ItemLock`), drapeaux de
+    /// l'objet (serveur → client).
+    pub const UPDATE_STATUS_FLAG: i64 = 36;
+}
+
+/// Drapeau « verrouillé » du champ 19 (Archonia : bit 0x2000 de l'objet, info-bulle « Item_Locked_Type »).
+pub const STATUS_FLAG_LOCKED: i64 = 0x2000;
+
+/// AGPMITEM op 36 : drapeaux de statut de l'objet `iid` (champ 19).
+pub fn status_flag_packet(iid: u32, owner: u32, locked: bool) -> Vec<u8> {
+    let s = &schema::ITEM;
+    build_packet(s, &Fields::new(s).with(0, item_op::UPDATE_STATUS_FLAG).with(2, iid).with(4, owner).with(19, if locked { STATUS_FLAG_LOCKED } else { 0 }))
 }
 
 /// Statut d'un objet (champ 1 d'AGPMITEM).
@@ -696,6 +708,8 @@ pub struct Inventory {
     pub no_auto_pick: bool,
     /// Durée de vie commencée des objets à durée (colonnes `remain_ms`, `expire_at` : `lifetime.rs`), par IID.
     pub life: BTreeMap<u32, super::lifetime::Life>,
+    /// Objets verrouillés (colonne `locked`, `item_lock.rs`), par IID.
+    pub locked: BTreeSet<u32>,
 }
 
 /// Toutes les cases d'une grille (sac, ligne, colonne), dans l'ordre.
@@ -741,6 +755,10 @@ impl Inventory {
             for r in &rows {
                 inv.life.insert(col(r, "id"), super::lifetime::Life { remain_ms: col(r, "remain_ms"), expire_at: col(r, "expire_at") });
             }
+        }
+        // Objets verrouillés ; rien si la colonne manque (base pas encore migrée).
+        if let Ok(rows) = db.characters.rows("SELECT id FROM character_items WHERE character_id = ? AND locked <> 0", (character_id,)).await {
+            inv.locked = rows.iter().map(|r| col::<u32>(r, "id")).collect();
         }
         // Ramassage automatique du sac du familier : actif si la colonne manque (base pas encore migrée).
         if let Ok(Some(r)) = db.characters.first("SELECT pet_auto_pick FROM characters WHERE id = ?", (character_id,)).await {

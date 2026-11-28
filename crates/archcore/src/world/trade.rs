@@ -325,6 +325,9 @@ fn add(ctx: &WorldCtx, st: &mut WorldState, sid: u32, iid: u32, wanted: Option<G
     if kind == GRID_KIND_EX {
         return put_option(ctx, st, sid, iid);
     }
+    if super::item_lock::refuse_locked(st, sid, iid, "échange") {
+        return;
+    }
     let Some(item) = p.inventory.get(iid).cloned() else { return };
     let data = ctx.catalog.get(item.tid);
     let bound = data.is_some_and(|d| d.bound_type == BOUND_ON_ACQUIRE);

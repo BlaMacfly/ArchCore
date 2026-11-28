@@ -28,6 +28,9 @@
   cumulent plus ; potions en pour cent (« SubType ») ; options fixes des équipements (« OptionTID ») ; niveau plafond
   des objets (« Level » `min;max`) ; PV, PM, état mort et région de rattachement enregistrés (migration
   `202611231000_points_et_mort` : un personnage déconnecté mort revient au village de rattachement).
+- Guildes, échange, sacs (28 novembre 2026) : nouveau nom de guilde (op 30), pièces Chantra à l'échange (ops 26/27),
+  inventaire étendu de l'épisode 8 (statut 15, `sim charging`), « Sell All » des trois sacs, verrou des objets (op 36,
+  `sim itemlock`, migration `202611281000_verrou_des_objets` : lancer `archcore db-init`).
 - Règles du serveur de l'épisode 8 (27 novembre 2026), sans affichage propre dans le client : invincibilité de 10 s à
   l'entrée en jeu, levée au premier coup ; régénération des monstres ; conversion des coups en PV ou en PM entre
   joueurs ; invincibilités aux attaques et aux compétences ; invisibilité refusée en combat (sauf `force` 4) ; zones à
